@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buddysaradhi — Log in or Sign up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  /* ------------------------------------------------------------------
+     Auth-page-only layer — Violet Nebula (dark)
+     Split: left 45% aurora brand panel, right 55% auth form
+     ------------------------------------------------------------------ */
+  body { background: var(--bg-canvas); overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 12% 22%, rgba(167,139,250,0.18), transparent 45%),
+      radial-gradient(circle at 88% 78%, rgba(91,33,182,0.18), transparent 45%);
+  }
+
+  .app-shell { position: relative; z-index: 1; min-height: 100vh; display: flex; flex-direction: column; }
+  .auth-split {
+    flex: 1; display: grid; grid-template-columns: 45fr 55fr; min-height: 100vh;
+  }
+
+  /* ---- LEFT brand panel ---- */
+  .brand-panel {
+    position: relative; padding: var(--space-12);
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(167,139,250,0.30), transparent 55%),
+      radial-gradient(ellipse at 70% 80%, rgba(124,58,237,0.35), transparent 55%),
+      radial-gradient(circle at 50% 50%, #1F0F3D 0%, #14082A 70%);
+    display: flex; flex-direction: column; justify-content: space-between;
+    overflow: hidden;
+  }
+  .brand-panel::before {
+    content: ''; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(167,139,250,0.12) 1px, transparent 0);
+    background-size: 24px 24px; opacity: 0.5; pointer-events: none;
+  }
+  .brand-panel::after {
+    /* Aurora streak */
+    content: ''; position: absolute; top: -10%; left: -20%; width: 140%; height: 50%;
+    background: conic-gradient(from 120deg at 50% 50%, transparent 0deg, rgba(167,139,250,0.18) 60deg, transparent 120deg);
+    filter: blur(40px); pointer-events: none;
+  }
+
+  .brand-panel > * { position: relative; z-index: 2; }
+
+  .brand-logo {
+    display: flex; align-items: center; gap: var(--space-3);
+  }
+  .brand-mark {
+    width: 40px; height: 40px; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, #A78BFA 0%, #7C3AED 50%, #5B21B6 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #FFFFFF; font-family: var(--font-heading); font-weight: 700; font-size: 18px;
+    box-shadow: 0 8px 20px -4px rgba(124,58,237,0.5), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .brand-name { font-family: var(--font-heading); font-weight: 600; font-size: var(--text-md); color: var(--text-primary); letter-spacing: -0.015em; }
+  .brand-name .accent { color: var(--accent-primary); }
+
+  .brand-headline {
+    margin-top: var(--space-12); margin-bottom: var(--space-10);
+  }
+  .brand-headline .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 28%, transparent);
+    color: var(--accent-primary);
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: var(--space-6);
+  }
+  .brand-headline h2 {
+    font-size: 46px; line-height: 1.08; letter-spacing: -0.03em;
+    color: var(--text-primary); font-weight: 700;
+  }
+  .brand-headline h2 .gradient-text {
+    background: linear-gradient(135deg, #C4B5FD, #A78BFA);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+
+  /* Rotating testimonial card */
+  .testimonial {
+    background: var(--surface-glass); backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid var(--border-glass-strong); border-radius: var(--radius-xl);
+    padding: var(--space-6); margin-top: auto; margin-bottom: var(--space-8);
+    box-shadow: 0 16px 40px -8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+  }
+  .testimonial .quote-mark {
+    position: absolute; top: -14px; left: var(--space-6);
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #A78BFA, #7C3AED);
+    color: #FFFFFF; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-heading); font-weight: 700; font-size: 18px; line-height: 1;
+    box-shadow: 0 6px 16px -4px rgba(124,58,237,0.5);
+  }
+  .testimonial .stars { display: flex; gap: 2px; margin-bottom: var(--space-3); color: #FBBF24; }
+  .testimonial p.quote {
+    font-size: var(--text-md); line-height: 1.55; color: var(--text-primary);
+    margin-bottom: var(--space-5);
+  }
+  .testimonial .author { display: flex; align-items: center; gap: var(--space-3); }
+  .testimonial .author .avatar {
+    background: linear-gradient(135deg, #A78BFA, #7C3AED);
+    color: #FFFFFF; border-color: transparent;
+  }
+  .testimonial .author .name { font-weight: 600; font-size: var(--text-sm); color: var(--text-primary); }
+  .testimonial .author .meta { font-size: var(--text-xs); color: var(--text-muted); }
+  .testimonial .dots { display: flex; gap: 6px; margin-top: var(--space-4); }
+  .testimonial .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); }
+  .testimonial .dots span.active { background: var(--accent-primary); width: 18px; border-radius: var(--radius-full); }
+
+  .brand-footnote {
+    font-size: var(--text-xs); color: var(--text-muted);
+    display: flex; align-items: center; gap: var(--space-3);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-glass);
+  }
+  .brand-footnote .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+
+  /* ---- RIGHT form panel ---- */
+  .form-panel {
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--space-12) var(--space-12);
+    background: var(--bg-canvas);
+    position: relative;
+  }
+  .form-panel::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 30%, rgba(167,139,250,0.06), transparent 50%);
+    pointer-events: none;
+  }
+  .auth-card {
+    width: 100%; max-width: 440px; position: relative; z-index: 1;
+  }
+  .auth-card-head { margin-bottom: var(--space-6); }
+  .auth-card-head h1 {
+    font-size: var(--text-2xl); color: var(--text-primary); letter-spacing: -0.02em;
+    margin-bottom: var(--space-2); font-weight: 700;
+  }
+  .auth-card-head p { font-size: var(--text-sm); color: var(--text-secondary); }
+
+  /* Tabs */
+  .auth-tabs {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    background: var(--bg-surface-inset); border: 1px solid var(--border-default);
+    border-radius: var(--radius-md); padding: 4px; margin-bottom: var(--space-6);
+  }
+  .auth-tab {
+    padding: var(--space-3); border-radius: var(--radius-sm);
+    font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary);
+    cursor: pointer; text-align: center; transition: all var(--motion-fast) var(--ease-out);
+  }
+  .auth-tab.active {
+    background: var(--accent-primary); color: var(--text-on-accent);
+    box-shadow: 0 4px 12px -2px rgba(167,139,250,0.4);
+  }
+
+  /* Form fields */
+  .auth-field { margin-bottom: var(--space-4); position: relative; }
+  .auth-field label {
+    display: block; font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary);
+    margin-bottom: var(--space-2); letter-spacing: 0.04em;
+  }
+  .auth-field .input-wrap { position: relative; }
+  .auth-field .input-wrap .input-icon {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    width: 18px; height: 18px; color: var(--text-muted); pointer-events: none;
+  }
+  .auth-input {
+    width: 100%; padding: 12px 14px 12px 42px;
+    background: var(--bg-surface-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    color: var(--text-primary); font-family: var(--font-body); font-size: var(--text-sm);
+    min-height: 48px;
+    transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+  }
+  .auth-input::placeholder { color: var(--text-muted); }
+  .auth-input:focus {
+    outline: none; border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  }
+  .auth-input.has-toggle { padding-right: 48px; }
+  .pwd-toggle {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center; color: var(--text-muted);
+    cursor: pointer; transition: color var(--motion-fast) var(--ease-out);
+  }
+  .pwd-toggle:hover { color: var(--text-primary); }
+
+  .auth-row-between { display: flex; align-items: center; justify-content: space-between; margin: var(--space-2) 0 var(--space-5); }
+  .auth-checkbox {
+    display: flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;
+  }
+  .auth-checkbox input { width: 16px; height: 16px; accent-color: var(--accent-primary); }
+  .auth-forgot { font-size: var(--text-sm); color: var(--accent-primary); text-decoration: none; }
+  .auth-forgot:hover { text-decoration: underline; }
+
+  /* Primary submit */
+  .auth-submit {
+    width: 100%; padding: var(--space-4) var(--space-6);
+    background: linear-gradient(135deg, #A78BFA 0%, #7C3AED 100%);
+    color: #FFFFFF; border: none; border-radius: var(--radius-md);
+    font-size: var(--text-md); font-weight: 600;
+    box-shadow: 0 8px 20px -4px rgba(124,58,237,0.45), inset 0 1px 0 rgba(255,255,255,0.2);
+    min-height: 52px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+    transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+  }
+  .auth-submit:hover { transform: translateY(-1px); box-shadow: 0 12px 28px -6px rgba(124,58,237,0.55), inset 0 1px 0 rgba(255,255,255,0.25); }
+  .auth-submit:active { transform: translateY(0); }
+
+  /* Divider */
+  .auth-divider {
+    display: flex; align-items: center; gap: var(--space-4);
+    margin: var(--space-6) 0; color: var(--text-muted); font-size: var(--text-xs);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .auth-divider::before, .auth-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border-glass);
+  }
+
+  /* Social buttons */
+  .auth-social { display: flex; flex-direction: column; gap: var(--space-3); }
+  .auth-social-btn {
+    width: 100%; padding: var(--space-3) var(--space-5);
+    background: var(--surface-glass-strong); border: 1px solid var(--border-glass-strong);
+    border-radius: var(--radius-md); color: var(--text-primary);
+    font-size: var(--text-sm); font-weight: 500; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3);
+    min-height: 48px;
+    transition: all var(--motion-fast) var(--ease-out);
+  }
+  .auth-social-btn:hover { background: var(--surface-glass-strong); border-color: var(--accent-primary); }
+  .auth-social-btn .g-icon { width: 18px; height: 18px; }
+  .auth-social-btn .phone-icon { width: 18px; height: 18px; color: var(--accent-primary); }
+
+  .auth-footnote {
+    text-align: center; font-size: var(--text-xs); color: var(--text-muted);
+    margin-top: var(--space-5); line-height: 1.5;
+  }
+  .auth-footnote a { color: var(--accent-primary); text-decoration: none; }
+  .auth-footnote a:hover { text-decoration: underline; }
+  .auth-skip {
+    text-align: center; margin-top: var(--space-4);
+    font-size: var(--text-sm); color: var(--text-secondary);
+  }
+  .auth-skip a { color: var(--accent-primary); text-decoration: none; font-weight: 500; }
+  .auth-skip a:hover { text-decoration: underline; }
+
+  /* Tiny features list under CTA — only signup */
+  .signup-bonus {
+    margin-top: var(--space-5); padding: var(--space-4);
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    border-radius: var(--radius-md);
+  }
+  .signup-bonus-title { font-size: var(--text-xs); color: var(--accent-primary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-2); }
+  .signup-bonus ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .signup-bonus li { font-size: var(--text-xs); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  .signup-bonus li svg { color: var(--accent-primary); flex-shrink: 0; }
+
+  /* Responsive */
+  @media (max-width: 960px) {
+    .auth-split { grid-template-columns: 1fr; }
+    .brand-panel { display: none; }
+    .form-panel { padding: var(--space-8) var(--space-6); }
+  }
+</style>
+</head>
+<body data-palette="violet-nebula" data-theme="dark">
+<div class="mockup-frame-label">Web · Auth · Violet Nebula (dark)</div>
+
+<div class="app-shell">
+  <main class="app-main">
+    <div class="auth-split">
+
+      <!-- ========== LEFT BRAND PANEL ========== -->
+      <aside class="brand-panel">
+        <div class="brand-logo">
+          <div class="brand-mark">ब</div>
+          <div class="brand-name">Buddysaradhi<span class="accent">.</span></div>
+        </div>
+
+        <div class="brand-headline">
+          <span class="eyebrow">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary);"></span>
+            Free for everyone · For now
+          </span>
+          <h2>Welcome back to your <span class="gradient-text">second home.</span></h2>
+        </div>
+
+        <div class="testimonial">
+          <div class="quote-mark">"</div>
+          <div class="stars" aria-label="5 out of 5 stars">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+          </div>
+          <p class="quote">Buddysaradhi replaced my 3 registers and 2 Excel sheets. I get 6 hours back every week — that's a full extra batch I can teach.</p>
+          <div class="author">
+            <div class="avatar">SP</div>
+            <div>
+              <div class="name">Sneha Patil</div>
+              <div class="meta">Physics tutor · Pune · 84 students</div>
+            </div>
+          </div>
+          <div class="dots"><span class="active"></span><span></span><span></span></div>
+        </div>
+
+        <div class="brand-footnote">
+          <span>Free for everyone</span><span class="dot"></span>
+          <span>No card required</span><span class="dot"></span>
+          <span>Free while our infra stays free</span>
+        </div>
+      </aside>
+
+      <!-- ========== RIGHT FORM PANEL ========== -->
+      <section class="form-panel">
+        <div class="auth-card">
+
+          <div class="auth-card-head">
+            <h1>Create your account</h1>
+            <p>Start free in 60 seconds. No card, no trial countdown.</p>
+          </div>
+
+          <!-- Tabs -->
+          <div class="auth-tabs" role="tablist">
+            <button class="auth-tab" role="tab" aria-selected="false">Log in</button>
+            <button class="auth-tab active" role="tab" aria-selected="true">Sign up</button>
+          </div>
+
+          <form onsubmit="return false;">
+            <!-- Full name (signup only) -->
+            <div class="auth-field">
+              <label for="name">Full name</label>
+              <div class="input-wrap">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                <input type="text" id="name" class="auth-input" placeholder="Sneha Patil" autocomplete="name">
+              </div>
+            </div>
+
+            <!-- Email -->
+            <div class="auth-field">
+              <label for="email">Email</label>
+              <div class="input-wrap">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                <input type="email" id="email" class="auth-input" placeholder="sneha@patiltutorials.in" autocomplete="email">
+              </div>
+            </div>
+
+            <!-- Password -->
+            <div class="auth-field">
+              <label for="pwd">Password</label>
+              <div class="input-wrap">
+                <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <input type="password" id="pwd" class="auth-input has-toggle" placeholder="At least 8 characters" autocomplete="new-password" value="••••••••••">
+                <button type="button" class="pwd-toggle" aria-label="Show password">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="auth-row-between">
+              <label class="auth-checkbox">
+                <input type="checkbox" checked>
+                <span>Keep me signed in</span>
+              </label>
+              <a href="#" class="auth-forgot">Forgot password?</a>
+            </div>
+
+            <button type="submit" class="auth-submit">
+              Create account
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+            </button>
+
+            <div class="signup-bonus">
+              <div class="signup-bonus-title">What you get on signup</div>
+              <ul>
+                <li><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Unlimited students &amp; batches, forever free</li>
+                <li><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Hash-chained receipt book, audit-ready</li>
+                <li><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Works offline — sync when you're back online</li>
+              </ul>
+            </div>
+
+            <div class="auth-divider">or continue with</div>
+
+            <div class="auth-social">
+              <button type="button" class="auth-social-btn">
+                <svg class="g-icon" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                Continue with Google
+              </button>
+              <button type="button" class="auth-social-btn">
+                <svg class="phone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                Continue with phone (OTP)
+              </button>
+            </div>
+
+            <p class="auth-footnote">By continuing you agree to our <a href="#">Terms</a> &amp; <a href="#">Privacy Policy</a>.</p>
+            <p class="auth-skip">Already exploring? <a href="#">Skip to demo →</a></p>
+          </form>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+</body>
+</html>

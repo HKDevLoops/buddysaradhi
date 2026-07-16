@@ -1,0 +1,64 @@
+rules:
+  - id: no-hardcode-db-url
+    pattern-either:
+      - pattern: |
+          "libsql://$..."
+      - pattern: |
+          'libsql://$...'
+      - pattern: |
+          `libsql://$...`
+    message: "Potential hardcoded Turso/LibSQL database URL detected. Use environment variables instead."
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: never-mock-the-ledger
+    patterns:
+      - pattern-either:
+          - pattern: |
+              class MockLedger { ... }
+          - pattern: |
+              const mockLedger = ...
+      - pattern-not:
+          - pattern: |
+              import ...
+    message: "Do not mock or bypass the ledger system. All financial transactions must use the append-only ledger engine."
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: no-queryRawUnsafe
+    pattern-either:
+      - pattern: |
+          $db.$queryRawUnsafe(...)
+      - pattern: |
+          $db.$executeRawUnsafe(...)
+      - pattern: |
+          db.$queryRawUnsafe(...)
+      - pattern: |
+          db.$executeRawUnsafe(...)
+    message: "Avoid raw SQL interpolation with $queryRawUnsafe or $executeRawUnsafe to prevent SQL injection. Use parameterized tagged templates instead."
+    languages: [javascript, typescript]
+    severity: ERROR
+
+  - id: no-console-log-env
+    pattern-either:
+      - pattern: |
+          console.log(process.env.$VAR)
+      - pattern: |
+          console.warn(process.env.$VAR)
+      - pattern: |
+          console.error(process.env.$VAR)
+    message: "Do not print process.env variables to logs. This can leak sensitive API keys or credentials in production."
+    languages: [javascript, typescript]
+    severity: WARNING
+
+  - id: no-supabase-token-in-localStorage
+    patterns:
+      - pattern-either:
+          - pattern: |
+              localStorage.setItem($KEY, ...)
+          - pattern: |
+              sessionStorage.setItem($KEY, ...)
+      - pattern-regex: "sb-[a-zA-Z0-9_-]+-auth-token"
+    message: "Do not store Supabase tokens in localStorage or sessionStorage. Use secure, httpOnly, SameSite cookies instead."
+    languages: [javascript, typescript]
+    severity: ERROR

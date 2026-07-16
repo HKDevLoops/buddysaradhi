@@ -1,0 +1,137 @@
+- main [ref=e3]:
+  - generic [ref=e6]:
+    - link "buddysaradhi home" [ref=e7] [cursor=pointer]:
+      - /url: /
+      - text: buddysaradhi
+    - navigation "Primary" [ref=e9]:
+      - link "Sign in" [ref=e10] [cursor=pointer]:
+        - /url: /login
+  - generic [ref=e11]:
+    - generic [ref=e12]: The tuition-business OS
+    - heading "Run a tuition business from five screens." [level=1] [ref=e14]
+    - paragraph [ref=e15]: Five screens. Seven engines. One ledger. Zero servers to manage.
+    - generic [ref=e16]:
+      - link "Get started" [ref=e17] [cursor=pointer]:
+        - /url: /signup
+      - link "View pricing" [ref=e18] [cursor=pointer]:
+        - /url: "#pricing"
+    - generic [ref=e19]: 5screens·7engines·1ledger
+  - generic [ref=e20]:
+    - generic [ref=e21]: Built for the way you actually tutor
+    - heading "Five screens. Seven engines. One ledger." [level=2] [ref=e22]
+    - paragraph [ref=e23]: A complete tuition-business operating system. No setup, no servers, no telemetry. Your data, your devices, your backup.
+    - generic [ref=e24]:
+      - article [ref=e25]:
+        - generic [ref=e26]: Five screens
+        - heading "Always one screen away" [level=3] [ref=e28]
+        - paragraph [ref=e29]: Dashboard, Students, Attendance, Fees & Payments, Settings. Nothing else. No tab you can't reach in two taps.
+        - list [ref=e30]:
+          - listitem [ref=e31]: Dashboard
+          - listitem [ref=e32]: Students
+          - listitem [ref=e33]: Attendance
+          - listitem [ref=e34]: Fees
+          - listitem [ref=e35]: Settings
+      - article [ref=e36]:
+        - generic [ref=e37]: Seven engines
+        - heading "Quiet, automatic power" [level=3] [ref=e39]
+        - paragraph [ref=e40]: Seven background engines — Search, Reminder, Ledger, Report, Notification, Sync, Security — keep your data correct without you noticing.
+        - list [ref=e41]:
+          - listitem [ref=e42]: Search
+          - listitem [ref=e43]: Reminder
+          - listitem [ref=e44]: Ledger
+          - listitem [ref=e45]: Report
+          - listitem [ref=e46]: Notification
+          - listitem [ref=e47]: Sync
+          - listitem [ref=e48]: Security
+      - article [ref=e49]:
+        - generic [ref=e50]: Sovereign
+        - heading "Your data, your devices" [level=3] [ref=e52]
+        - paragraph [ref=e53]: Single-tenant SQLite per tutor. Offline-first. AES-256-GCM backups. No analytics SDKs. No telemetry. Sovereign by design.
+        - list [ref=e54]:
+          - listitem [ref=e55]: offline-first
+          - listitem [ref=e56]: AES-256-GCM
+          - listitem [ref=e57]: single-tenant
+          - listitem [ref=e58]: no telemetry
+  - generic [ref=e59]:
+    - generic [ref=e60]: Pricing
+    - heading "Start free. Stay as long as it works." [level=2] [ref=e61]
+    - generic [ref=e62]:
+      - article [ref=e63]:
+        - generic [ref=e64]: Free
+        - heading "Up to 25 students" [level=3] [ref=e65]
+        - paragraph [ref=e66]: For tutors starting out. No card required. Full feature set.
+        - list [ref=e67]:
+          - listitem [ref=e68]: Five screens, seven engines
+          - listitem [ref=e69]: One immutable ledger
+          - listitem [ref=e70]: Offline-first on every device
+          - listitem [ref=e71]: AES-256-GCM backup
+        - link "Start free" [ref=e72] [cursor=pointer]:
+          - /url: /signup
+      - article [ref=e73]:
+        - generic [ref=e75]: Most popular
+        - heading "Pro₹299/mo" [level=3] [ref=e77]:
+          - text: Pro
+          - generic [ref=e78]: ₹299/mo
+        - paragraph [ref=e79]: For working tutors. Unlimited students. Multi-device sync.
+        - list [ref=e80]:
+          - listitem [ref=e81]: Unlimited students & batches
+          - listitem [ref=e82]: Multi-device encrypted sync
+          - listitem [ref=e83]: Reminders & notifications
+          - listitem [ref=e84]: Priority support
+        - link "Start Pro" [ref=e85] [cursor=pointer]:
+          - /url: /signup
+      - article [ref=e86]:
+        - generic [ref=e87]: Institute
+        - heading "Custom" [level=3] [ref=e88]
+        - paragraph [ref=e89]: For coaching institutes with multiple branches and hundreds of students.
+        - list [ref=e90]:
+          - listitem [ref=e91]: Multi-branch ledger
+          - listitem [ref=e92]: Role-based access
+          - listitem [ref=e93]: Custom backups & SLAs
+          - listitem [ref=e94]: Dedicated support
+        - link "Talk to us" [ref=e95] [cursor=pointer]:
+          - /url: mailto:hello@buddysaradhi.app
+  - generic [ref=e97]:
+    - heading "Stop losing receipts. Start with Buddysaradhi." [level=2] [ref=e98]: Stop losing receipts.Start with Buddysaradhi.
+    - paragraph [ref=e99]: Free up to 25 students. No card required. Runs on your devices, works offline, syncs when you ask it to.
+    - generic [ref=e100]:
+      - link "Get started" [ref=e101] [cursor=pointer]:
+        - /url: /signup
+      - link "Sign in" [ref=e102] [cursor=pointer]:
+        - /url: /login
+  - generic [ref=e103]:
+    - generic [ref=e104]:
+      - generic [ref=e105]:
+        - generic [ref=e106]: buddysaradhi
+        - paragraph [ref=e108]: Five screens. Seven engines. One ledger. Zero servers.
+      - generic [ref=e109]:
+        - text: Product
+        - list [ref=e110]:
+          - listitem [ref=e111]:
+            - link "Features" [ref=e112] [cursor=pointer]:
+              - /url: "#features"
+          - listitem [ref=e113]:
+            - link "Pricing" [ref=e114] [cursor=pointer]:
+              - /url: "#pricing"
+          - listitem [ref=e115]:
+            - link "Sign up" [ref=e116] [cursor=pointer]:
+              - /url: /signup
+      - generic [ref=e117]:
+        - text: Company
+        - list [ref=e118]:
+          - listitem [ref=e119]:
+            - link "Contact" [ref=e120] [cursor=pointer]:
+              - /url: mailto:hello@buddysaradhi.app
+          - listitem [ref=e121]:
+            - link "Web app" [ref=e122] [cursor=pointer]:
+              - /url: https://buddysaradhi.app
+      - generic [ref=e123]:
+        - text: Legal
+        - list [ref=e124]:
+          - listitem [ref=e125]:
+            - link "Privacy" [ref=e126] [cursor=pointer]:
+              - /url: /privacy
+          - listitem [ref=e127]:
+            - link "Terms" [ref=e128] [cursor=pointer]:
+              - /url: /terms
+    - generic [ref=e129]: © 2026 Buddysaradhi. Built with Vibrant Glass.

@@ -1,0 +1,9 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic:
+      - heading "The OS for Tuition Businesses" [level=1]
+      - paragraph: Five screens. Seven engines. One immutable ledger.
+      - generic [ref=e5]:
+        - button "Get Started" [ref=e6]
+        - button "View Pricing" [ref=e7]
+  - alert [ref=e8]

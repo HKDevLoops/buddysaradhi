@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --color-emerald: var(--accent-emerald);
+  --color-cyan: var(--accent-cyan);
+  --color-amber: var(--accent-amber);
+  --color-flare: var(--accent-flare);
+  --color-violet: var(--accent-violet);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-secondary: var(--accent-secondary);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-bg-canvas: var(--bg-canvas);
+  --color-bg-surface: var(--bg-surface);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 9999px;
+}
+
+:root {
+  --font-heading: 'Sora', system-ui, sans-serif;
+  --font-body: 'Onest', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Type scale variables */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-3xl: 38px;
+  --text-4xl: 48px;
+  --text-5xl: 60px;
+
+  /* Palette 1 — Aurora Cosmic (dark default) */
+  --bg-cosmic: #0f0c29;
+  --bg-midnight: #24243e;
+  --bg-abyss: #0a0a1a;
+  --bg-canvas: #0f0c29;
+  --bg-surface: rgba(255,255,255,0.07);
+  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
+  --accent-primary: #00FF9D;
+  --accent-secondary: #00F0FF;
+  --accent-emerald: #00FF9D;
+  --accent-cyan: #00F0FF;
+  --accent-amber: #FFB300;
+  --accent-flare: #FF5E00;
+  --accent-violet: #B388FF;
+  --text-primary: rgba(255,255,255,0.95);
+  --text-secondary: rgba(255,255,255,0.70);
+  --text-muted: rgba(255,255,255,0.45);
+  --text-on-accent: #0a0a1a;
+  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
+  --border-default: rgba(255,255,255,0.18);
+  --border-strong: rgba(255,255,255,0.30);
+
+  /* shadcn semantic equivalents */
+  --background: var(--bg-abyss);
+  --foreground: var(--text-primary);
+  --card: var(--surface-glass);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-glass-strong);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-emerald);
+  --primary-foreground: var(--text-on-accent);
+  --secondary: var(--surface-glass-strong);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-glass-faint);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--accent-cyan);
+  --accent-foreground: var(--text-on-accent);
+  --destructive: var(--accent-flare);
+  --border: var(--border-glass);
+  --input: var(--surface-glass);
+  --ring: var(--accent-cyan);
+}
+
+/* Base Body settings */
+body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* Glassmorphism Components */
+.glass {
+  background: var(--surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px border-glass;
+}
+
+.glass-strong {
+  background: var(--surface-glass-strong);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px border-glass-strong;
+}
+
+.glass-faint {
+  background: var(--surface-glass-faint);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px border-glass;
+}
+
+/* Vibrant bioluminescent text gradients */
+.gradient-text {
+  background: linear-gradient(135deg, #00FF9D 0%, #00F0FF 50%, #B388FF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom CSS Ambient Animations */
+@keyframes aurora-float-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(8%, 12%) scale(1.15); }
+}
+
+@keyframes aurora-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1.1); }
+  50% { transform: translate(-10%, -8%) scale(0.9); }
+}
+
+@keyframes aurora-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(0.95); }
+  50% { transform: translate(5%, -12%) scale(1.05); }
+}
+
+.animate-blob-1 {
+  animation: aurora-float-1 25s infinite alternate ease-in-out;
+}
+
+.animate-blob-2 {
+  animation: aurora-float-2 30s infinite alternate ease-in-out;
+}
+
+.animate-blob-3 {
+  animation: aurora-float-3 20s infinite alternate ease-in-out;
+}
+
+/* Standard Chip Styles */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.chip-info {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: rgba(0, 240, 255, 0.2);
+  color: var(--accent-cyan);
+}
+
+.chip-success {
+  background: rgba(0, 255, 157, 0.1);
+  border-color: rgba(0, 255, 157, 0.2);
+  color: var(--accent-emerald);
+}
+
+.chip-warning {
+  background: rgba(255, 179, 0, 0.1);
+  border-color: rgba(255, 179, 0, 0.2);
+  color: var(--accent-amber);
+}
+
+.chip-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background-color: currentColor;
+}
+
+/* Header style tokens */
+.topbar {
+  display: flex;
+  height: 64px;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: rgba(15, 12, 41, 0.5);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}

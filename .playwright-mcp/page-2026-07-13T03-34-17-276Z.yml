@@ -1,0 +1,86 @@
+- generic [active] [ref=f4e1]:
+  - button "Open Next.js Dev Tools" [ref=f4e33] [cursor=pointer]:
+    - generic [ref=f4e36]:
+      - text: Rendering
+      - generic [ref=f4e37]:
+        - generic [ref=f4e38]: .
+        - generic [ref=f4e39]: .
+        - generic [ref=f4e40]: .
+  - alert [ref=f4e32]: Jyothi Tutions — BuddySaradhi
+  - generic [ref=f4e41]:
+    - complementary [ref=f4e42]:
+      - generic [ref=f4e43]:
+        - generic [ref=f4e44]: T
+        - generic [ref=f4e45]: Jyothi Tutions
+      - navigation "Main navigation" [ref=f4e46]:
+        - button "Dashboard" [ref=f4e47] [cursor=pointer]
+        - button "Students" [ref=f4e54] [cursor=pointer]
+        - button "Attendance" [ref=f4e61] [cursor=pointer]
+        - button "Fees & Payments" [ref=f4e66] [cursor=pointer]
+        - button "Settings" [ref=f4e71] [cursor=pointer]
+      - generic [ref=f4e76]:
+        - generic [ref=f4e77] [cursor=pointer]:
+          - generic [ref=f4e78]: Sync
+          - generic "Online" [ref=f4e84]
+        - generic [ref=f4e85] [cursor=pointer]:
+          - generic [ref=f4e86]: Search...
+          - generic [ref=f4e90]: ⌘K
+    - generic [ref=f4e91]:
+      - banner [ref=f4e92]:
+        - heading "Jyothi Tutions" [level=2] [ref=f4e94]
+        - generic [ref=f4e95]:
+          - searchbox "Search students" [ref=f4e100]
+          - button "User profile" [ref=f4e101] [cursor=pointer]: RS
+      - main [ref=f4e102]:
+        - main [ref=f4e103]:
+          - generic [ref=f4e105]:
+            - generic [ref=f4e106]:
+              - generic [ref=f4e107]:
+                - heading "Dashboard" [level=1] [ref=f4e108]
+                - paragraph [ref=f4e109]: The truth of your tuition business, right now.
+              - generic [ref=f4e110]:
+                - button "This Month" [ref=f4e111] [cursor=pointer]
+                - button "Last Month" [ref=f4e112] [cursor=pointer]
+                - button "This Quarter" [ref=f4e113] [cursor=pointer]
+                - button "All Time" [ref=f4e114] [cursor=pointer]
+            - generic [ref=f4e115]:
+              - generic [ref=f4e116]:
+                - paragraph [ref=f4e118]: Collected
+                - paragraph [ref=f4e123]: ₹795.94
+                - paragraph [ref=f4e124]: 18% vs last month
+              - generic [ref=f4e128]:
+                - paragraph [ref=f4e130]: Due Till Date
+                - paragraph [ref=f4e134]: ₹1,840.61
+                - paragraph [ref=f4e135]: 7 students owe
+              - generic [ref=f4e136]:
+                - paragraph [ref=f4e138]: Active Students
+                - paragraph [ref=f4e145]: "2"
+              - generic [ref=f4e146]:
+                - paragraph [ref=f4e148]: Overdue
+                - paragraph [ref=f4e152]: ₹0.00
+                - paragraph [ref=f4e153]: 0 students
+            - generic [ref=f4e154]:
+              - button "Overview" [ref=f4e155] [cursor=pointer]
+              - button "Collection" [ref=f4e156] [cursor=pointer]
+              - button "Attendance" [ref=f4e157] [cursor=pointer]
+            - generic [ref=f4e158]:
+              - generic [ref=f4e159]:
+                - generic [ref=f4e160]:
+                  - heading "Due Today" [level=2] [ref=f4e161]
+                  - generic [ref=f4e162]: 0 students
+                - paragraph [ref=f4e166]: No dues due today. Clean slate.
+              - generic [ref=f4e167]:
+                - heading "Activity" [level=2] [ref=f4e168]
+                - generic [ref=f4e169]: No recent activity
+            - generic [ref=f4e171]:
+              - button "Mark Attendance" [ref=f4e172] [cursor=pointer]
+              - button "Record Payment" [ref=f4e176] [cursor=pointer]
+              - button "Add Student" [ref=f4e179] [cursor=pointer]
+              - button "Generate Report" [ref=f4e183] [cursor=pointer]
+        - generic [ref=f4e187]:
+          - generic [ref=f4e188]:
+            - generic [ref=f4e193]: Online · 0 pending
+            - generic [ref=f4e194]: "Local DB: 2.1 MB"
+          - generic [ref=f4e195]:
+            - generic [ref=f4e196]: v1.0.0-rc
+            - generic [ref=f4e197]: © 2026 BuddySaradhi

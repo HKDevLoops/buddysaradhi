@@ -1,0 +1,23 @@
+{
+  "name": "@buddysaradhi/ledger-svc",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --target=bun",
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@buddysaradhi/core": "workspace:*",
+    "@buddysaradhi/shared": "workspace:*",
+    "@libsql/client": "^0.17.4",
+    "@prisma/adapter-libsql": "5.22.0",
+    "@prisma/client": "5.22.0",
+    "elysia": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,1632 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - 'link "TutorOS: Omni-Core Specification Package" [ref=e5] [cursor=pointer]':
+          - /url: "#top"
+          - generic [ref=e11]:
+            - generic [ref=e12]: "TutorOS: Omni-Core"
+            - generic [ref=e13]: Specification Package
+        - navigation [ref=e14]:
+          - link "Dashboard" [ref=e15] [cursor=pointer]:
+            - /url: "#dashboard"
+          - link "Students" [ref=e16] [cursor=pointer]:
+            - /url: "#students"
+          - link "Fees" [ref=e17] [cursor=pointer]:
+            - /url: "#fees"
+          - link "Attendance" [ref=e18] [cursor=pointer]:
+            - /url: "#attendance"
+          - link "Settings" [ref=e19] [cursor=pointer]:
+            - /url: "#settings"
+          - link "Backup" [ref=e20] [cursor=pointer]:
+            - /url: "#backup"
+          - link "Five Screens" [ref=e21] [cursor=pointer]:
+            - /url: "#screens"
+          - link "Engines" [ref=e22] [cursor=pointer]:
+            - /url: "#engines"
+          - link "Platforms" [ref=e23] [cursor=pointer]:
+            - /url: "#platforms"
+          - link "Roadmap" [ref=e24] [cursor=pointer]:
+            - /url: "#roadmap"
+          - link "Specs" [ref=e25] [cursor=pointer]:
+            - /url: "#specs"
+        - generic [ref=e26]:
+          - button "Search inside all specs (⌘F)" [ref=e27] [cursor=pointer]:
+            - generic [ref=e31]: ⌘F
+          - button "Open command palette" [ref=e32] [cursor=pointer]:
+            - generic [ref=e35]: ⌘K
+          - link "Read the Spec" [ref=e36] [cursor=pointer]:
+            - /url: "#specs"
+    - main [ref=e39]:
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic [ref=e42]: v1.0 Master Blueprint · 17 files
+          - heading [level=1] [ref=e45]:
+            - text: The operating system for private tutors,
+            - generic [ref=e46]:
+              - text: run from
+              - generic "Dashboard" [ref=e47]
+          - paragraph [ref=e49]: A tutor should run their entire tuition business from five screens. No nested menus. No feature hunting. Everything in 2–3 taps. Apple feel, Kite density, Discord flow — wrapped in Vibrant Glass & Neumorphism.
+          - generic [ref=e50]:
+            - link "See the live Dashboard" [ref=e51] [cursor=pointer]:
+              - /url: "#dashboard"
+            - button "Start with the Vision" [ref=e59] [cursor=pointer]
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - generic [ref=e64]: Visible Screens
+            - generic [ref=e71]: "0"
+          - generic [ref=e72]:
+            - generic [ref=e73]: Hidden Engines
+            - generic [ref=e78]: "0"
+          - generic [ref=e79]:
+            - generic [ref=e80]: Spec Files
+            - generic [ref=e86]: "0"
+          - generic [ref=e87]:
+            - generic [ref=e88]: Total Words
+            - generic [ref=e92]: "0"
+        - blockquote [ref=e93]:
+          - paragraph [ref=e94]: “A tutor should be able to run their entire tuition business from five screens.”
+          - paragraph [ref=e95]: The constitution of TutorOS. Every feature decision runs through it.
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e98]: Live Prototype
+          - heading "The Dashboard, brought to life." [level=2] [ref=e102]
+          - paragraph [ref=e103]: A taste of the real screen — interactive KPIs, an attendance heatmap, collection trend, and the due-today list. All derived from the immutable ledger.
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - generic [ref=e110]: tutoros · dashboard · ·· ···
+            - generic [ref=e111]: LIVE
+          - generic [ref=e113]:
+            - generic [ref=e114]:
+              - button "Overview" [ref=e115] [cursor=pointer]
+              - button "Collection" [ref=e117] [cursor=pointer]
+              - button "Attendance" [ref=e118] [cursor=pointer]
+            - generic [ref=e119]:
+              - generic [ref=e122]:
+                - generic [ref=e123]: Collected · Nov
+                - generic [ref=e124]: ₹ 0
+                - generic [ref=e126]: ↑ 18% vs last month
+              - generic [ref=e136]:
+                - generic [ref=e137]: Due Till Date
+                - generic [ref=e138]: ₹ 0
+                - generic [ref=e140]: 12 students owe
+              - generic [ref=e150]:
+                - generic [ref=e151]: Active Students
+                - generic [ref=e152]: "0"
+                - generic [ref=e153]: 3 inactive · 14d
+              - generic [ref=e165]:
+                - generic [ref=e166]: Overdue
+                - generic [ref=e167]: ₹ 0
+                - generic [ref=e169]: 4 students · flare
+            - generic [ref=e176]:
+              - generic [ref=e177]:
+                - generic [ref=e178]:
+                  - heading "Due Today" [level=3] [ref=e179]
+                  - generic [ref=e180]: 5 students
+                - generic [ref=e181]:
+                  - generic [ref=e182]:
+                    - generic [ref=e183]: AS
+                    - generic [ref=e184]:
+                      - generic [ref=e185]: Aarav Sharma
+                      - generic [ref=e186]: Class 10 · Maths
+                    - generic [ref=e187]:
+                      - generic [ref=e188]: ₹4,500
+                      - generic [ref=e189]: 2d due
+                    - button "Record payment for Aarav Sharma" [ref=e190]
+                  - generic [ref=e192]:
+                    - generic [ref=e193]: DP
+                    - generic [ref=e194]:
+                      - generic [ref=e195]: Diya Patel
+                      - generic [ref=e196]: Class 9 · Science
+                    - generic [ref=e197]:
+                      - generic [ref=e198]: ₹3,000
+                      - generic [ref=e199]: 9d overdue
+                    - button "Record payment for Diya Patel" [ref=e200]
+                  - generic [ref=e202]:
+                    - generic [ref=e203]: IV
+                    - generic [ref=e204]:
+                      - generic [ref=e205]: Ishaan Verma
+                      - generic [ref=e206]: Class 12 · Physics
+                    - generic [ref=e207]:
+                      - generic [ref=e208]: ₹6,000
+                      - generic [ref=e209]: due today
+                    - button "Record payment for Ishaan Verma" [ref=e210]
+                  - generic [ref=e212]:
+                    - generic [ref=e213]: AR
+                    - generic [ref=e214]:
+                      - generic [ref=e215]: Ananya Reddy
+                      - generic [ref=e216]: Class 8 · Maths
+                    - generic [ref=e217]:
+                      - generic [ref=e218]: ₹2,500
+                      - generic [ref=e219]: 4d due
+                    - button "Record payment for Ananya Reddy" [ref=e220]
+                  - generic [ref=e222]:
+                    - generic [ref=e223]: VG
+                    - generic [ref=e224]:
+                      - generic [ref=e225]: Vivaan Gupta
+                      - generic [ref=e226]: Class 11 · Chem
+                    - generic [ref=e227]:
+                      - generic [ref=e228]: ₹5,500
+                      - generic [ref=e229]: 1d due
+                    - button "Record payment for Vivaan Gupta" [ref=e230]
+              - generic [ref=e232]:
+                - heading "Activity" [level=3] [ref=e233]
+                - generic [ref=e234]:
+                  - generic [ref=e240]:
+                    - paragraph [ref=e241]: Aarav Sharma paid ₹4,500
+                    - paragraph [ref=e242]: 2h ago
+                  - generic [ref=e247]:
+                    - paragraph [ref=e248]: Diya Patel marked absent
+                    - paragraph [ref=e249]: 5h ago
+                  - generic [ref=e253]:
+                    - paragraph [ref=e254]: Ishaan Verma fee charged ₹6,000
+                    - paragraph [ref=e255]: 1d ago
+                  - generic [ref=e261]:
+                    - paragraph [ref=e262]: Ananya Reddy partial ₹1,500
+                    - paragraph [ref=e263]: 1d ago
+                  - generic [ref=e271]:
+                    - paragraph [ref=e272]: Vivaan Gupta enrolled
+                    - paragraph [ref=e273]: 2d ago
+            - generic [ref=e274]:
+              - generic [ref=e275]: "Quick actions:"
+              - button "Mark Attendance" [ref=e276] [cursor=pointer]
+              - button "Record Payment" [ref=e280] [cursor=pointer]
+              - button "Add Student" [ref=e284] [cursor=pointer]
+              - button "Generate Report" [ref=e286] [cursor=pointer]
+              - link "Read the full Dashboard spec" [ref=e290] [cursor=pointer]:
+                - /url: "#specs"
+      - generic [ref=e294]:
+        - generic [ref=e295]:
+          - generic [ref=e296]: Live Prototype · Students
+          - heading "Every student, one tap deep." [level=2] [ref=e300]
+          - paragraph [ref=e301]: Master–detail at the speed of thought. Search the roster, drill into a student, and watch the immutable ledger unfold — all without leaving the screen.
+        - generic [ref=e302]:
+          - generic [ref=e303]:
+            - generic [ref=e304]: tutoros://students
+            - generic [ref=e310]:
+              - generic [ref=e311]: LIVE
+              - generic [ref=e313]: 8 students
+          - generic [ref=e314]:
+            - generic [ref=e315]:
+              - textbox "Search name, code, class…" [ref=e317]
+              - generic [ref=e318]:
+                - button "AS Aarav Sharma Class 10 · Mathematics ₹4.5k" [ref=e319]:
+                  - generic [ref=e320]: AS
+                  - generic [ref=e321]:
+                    - generic [ref=e322]: Aarav Sharma
+                    - generic [ref=e325]:
+                      - generic [ref=e326]: Class 10 · Mathematics
+                      - generic [ref=e327]: ₹4.5k
+                - button "DP Diya Patel Class 9 · Science ₹6.0k" [ref=e328]:
+                  - generic [ref=e329]: DP
+                  - generic [ref=e330]:
+                    - generic [ref=e331]: Diya Patel
+                    - generic [ref=e334]:
+                      - generic [ref=e335]: Class 9 · Science
+                      - generic [ref=e336]: ₹6.0k
+                - button "IV Ishaan Verma Class 12 · Physics ₹0.0k" [ref=e337]:
+                  - generic [ref=e338]: IV
+                  - generic [ref=e339]:
+                    - generic [ref=e340]: Ishaan Verma
+                    - generic [ref=e343]:
+                      - generic [ref=e344]: Class 12 · Physics
+                      - generic [ref=e345]: ₹0.0k
+                - button "AR Ananya Reddy Class 8 · Mathematics ₹2.5k" [ref=e346]:
+                  - generic [ref=e347]: AR
+                  - generic [ref=e348]:
+                    - generic [ref=e349]: Ananya Reddy
+                    - generic [ref=e352]:
+                      - generic [ref=e353]: Class 8 · Mathematics
+                      - generic [ref=e354]: ₹2.5k
+                - button "VG Vivaan Gupta Class 11 · Chemistry ₹5.5k" [ref=e355]:
+                  - generic [ref=e356]: VG
+                  - generic [ref=e357]:
+                    - generic [ref=e358]: Vivaan Gupta
+                    - generic [ref=e361]:
+                      - generic [ref=e362]: Class 11 · Chemistry
+                      - generic [ref=e363]: ₹5.5k
+                - button "SI Saanvi Iyer Class 10 · Biology ₹0.0k" [ref=e364]:
+                  - generic [ref=e365]: SI
+                  - generic [ref=e366]:
+                    - generic [ref=e367]: Saanvi Iyer
+                    - generic [ref=e370]:
+                      - generic [ref=e371]: Class 10 · Biology
+                      - generic [ref=e372]: ₹0.0k
+                - button "AN Aditya Nair Class 9 · Mathematics —" [ref=e373]:
+                  - generic [ref=e374]: AN
+                  - generic [ref=e375]:
+                    - generic [ref=e376]: Aditya Nair
+                    - generic [ref=e379]:
+                      - generic [ref=e380]: Class 9 · Mathematics
+                      - generic [ref=e381]: —
+                - button "MK Myra Kapoor Class 7 · Science ₹2.0k" [ref=e382]:
+                  - generic [ref=e383]: MK
+                  - generic [ref=e384]:
+                    - generic [ref=e385]: Myra Kapoor
+                    - generic [ref=e388]:
+                      - generic [ref=e389]: Class 7 · Science
+                      - generic [ref=e390]: ₹2.0k
+              - button "Add student" [ref=e391] [cursor=pointer]
+            - generic [ref=e394]:
+              - generic [ref=e395]:
+                - generic [ref=e396]: AS
+                - generic [ref=e397]:
+                  - generic [ref=e398]:
+                    - heading "Aarav Sharma" [level=3] [ref=e399]
+                    - generic [ref=e400]: Partial
+                    - generic [ref=e401]: Postpaid
+                  - generic [ref=e402]:
+                    - generic [ref=e403]: TUT-0001
+                    - generic [ref=e404]: ·
+                    - generic [ref=e405]: Class 10 · Mathematics
+                    - generic [ref=e406]: ·
+                    - generic [ref=e407]: Mon–Wed–Fri · 5 PM
+                - generic [ref=e408]:
+                  - button "Record Payment" [ref=e409] [cursor=pointer]
+                  - button "Open full" [ref=e413] [cursor=pointer]
+              - generic [ref=e416]:
+                - button "Overview" [ref=e417] [cursor=pointer]
+                - button "Ledger" [ref=e422] [cursor=pointer]
+                - button "Attendance" [ref=e425] [cursor=pointer]
+                - button "Notes" [ref=e429] [cursor=pointer]
+              - generic [ref=e435]:
+                - generic [ref=e436]:
+                  - generic [ref=e437]:
+                    - generic [ref=e438]: Attendance
+                    - generic [ref=e443]: 92%
+                  - generic [ref=e444]:
+                    - generic [ref=e445]: Total Paid
+                    - generic [ref=e450]: ₹22.5k
+                  - generic [ref=e451]:
+                    - generic [ref=e452]: Balance
+                    - generic [ref=e457]: ₹4.5k
+                  - generic [ref=e458]:
+                    - generic [ref=e459]: Monthly Fee
+                    - generic [ref=e464]: ₹7,500
+                - generic [ref=e465]:
+                  - generic [ref=e466]:
+                    - generic [ref=e467]: Contact
+                    - generic [ref=e468]:
+                      - generic [ref=e469]: +91 98xxx 12345
+                      - generic [ref=e472]: rohit.s@gmail.com
+                      - generic [ref=e476]: Rohit Sharma (Guardian)
+                  - generic [ref=e480]:
+                    - generic [ref=e481]: Enrolment
+                    - generic [ref=e482]:
+                      - generic [ref=e483]:
+                        - generic [ref=e484]: Code
+                        - generic [ref=e485]: TUT-0001
+                      - generic [ref=e486]:
+                        - generic [ref=e487]: Joined
+                        - generic [ref=e488]: Apr 2024
+                      - generic [ref=e489]:
+                        - generic [ref=e490]: Batch
+                        - generic [ref=e491]: Mon–Wed–Fri · 5 PM
+                - generic [ref=e492]:
+                  - generic [ref=e493]:
+                    - generic [ref=e494]: Last Payment
+                    - generic [ref=e495]:
+                      - generic [ref=e496]: ₹3,000
+                      - generic [ref=e497]:
+                        - generic [ref=e498]: 12 Nov
+                        - generic [ref=e499]: RC-000142
+                  - generic [ref=e500]:
+                    - generic [ref=e501]: Fee Model
+                    - generic [ref=e502]:
+                      - generic [ref=e503]: Postpaid
+                      - generic [ref=e504]: Pay after the month
+                    - generic [ref=e505]:
+                      - text: "Monthly:"
+                      - generic [ref=e506]: ₹7,500
+        - generic [ref=e507]:
+          - generic [ref=e508]: Master–detail · 2-tap drill-down
+          - generic [ref=e512]: Immutable ledger · tamper-evident
+          - generic [ref=e516]: Attendance locked after 24h
+      - generic [ref=e526]:
+        - generic [ref=e527]:
+          - generic [ref=e528]: Live Prototype · The Heart
+          - heading "The Fees & Payments immutable ledger." [level=2] [ref=e533]
+          - paragraph [ref=e534]:
+            - text: Money is never edited by mutating a balance. Every fee, payment, and discount is an append-only row. Balances are
+            - emphasis [ref=e535]: derived
+            - text: . Click a student to drill into their ledger.
+        - generic [ref=e536]:
+          - generic [ref=e537]:
+            - generic [ref=e542]: tutoros · fees & payments · ledger mode
+            - generic [ref=e543]: APPEND-ONLY
+          - generic [ref=e547]:
+            - generic [ref=e548]:
+              - generic [ref=e549]:
+                - generic [ref=e550]: Collected
+                - generic [ref=e555]: ₹ 0
+                - generic [ref=e557]: ↑ 18% vs Oct
+              - generic [ref=e558]:
+                - generic [ref=e559]: Due Till Date
+                - generic [ref=e564]: ₹ 0
+                - generic [ref=e566]: 5 students owe
+              - generic [ref=e567]:
+                - generic [ref=e568]: Overdue
+                - generic [ref=e572]: ₹ 0
+                - generic [ref=e574]: 2 students · 9d+
+              - generic [ref=e575]:
+                - generic [ref=e576]: Advance Held
+                - generic [ref=e581]: ₹ 0
+                - generic [ref=e583]: 3 students prepaid
+            - generic [ref=e584]:
+              - generic [ref=e585]:
+                - textbox "Search students" [ref=e590]:
+                  - /placeholder: Search students…
+                - generic [ref=e591]:
+                  - button "All (8)" [ref=e592] [cursor=pointer]:
+                    - text: All
+                    - generic [ref=e593]: (8)
+                  - button "Unpaid (2)" [ref=e594] [cursor=pointer]:
+                    - text: Unpaid
+                    - generic [ref=e595]: (2)
+                  - button "Partial (3)" [ref=e596] [cursor=pointer]:
+                    - text: Partial
+                    - generic [ref=e597]: (3)
+                  - button "Paid (2)" [ref=e598] [cursor=pointer]:
+                    - text: Paid
+                    - generic [ref=e599]: (2)
+                  - button "No Dues (1)" [ref=e600] [cursor=pointer]:
+                    - text: No Dues
+                    - generic [ref=e601]: (1)
+                - generic [ref=e602]:
+                  - button "AS Aarav Sharma Class 10 · Maths ₹4,500 Partial" [ref=e603]:
+                    - generic [ref=e604]: AS
+                    - generic [ref=e605]:
+                      - generic [ref=e606]: Aarav Sharma
+                      - generic [ref=e607]: Class 10 · Maths
+                    - generic [ref=e608]:
+                      - generic [ref=e609]: ₹4,500
+                      - generic [ref=e610]: Partial
+                  - button "DP Diya Patel Class 9 · Science ₹6,000 Unpaid" [ref=e614]:
+                    - generic [ref=e615]: DP
+                    - generic [ref=e616]:
+                      - generic [ref=e617]: Diya Patel
+                      - generic [ref=e618]: Class 9 · Science
+                    - generic [ref=e619]:
+                      - generic [ref=e620]: ₹6,000
+                      - generic [ref=e621]: Unpaid
+                  - button "IV Ishaan Verma Class 12 · Physics ₹0 Paid" [ref=e624]:
+                    - generic [ref=e625]: IV
+                    - generic [ref=e626]:
+                      - generic [ref=e627]: Ishaan Verma
+                      - generic [ref=e628]: Class 12 · Physics
+                    - generic [ref=e629]:
+                      - generic [ref=e630]: ₹0
+                      - generic [ref=e631]: Paid
+                  - button "AR Ananya Reddy Class 8 · Maths ₹2,500 Partial" [ref=e635]:
+                    - generic [ref=e636]: AR
+                    - generic [ref=e637]:
+                      - generic [ref=e638]: Ananya Reddy
+                      - generic [ref=e639]: Class 8 · Maths
+                    - generic [ref=e640]:
+                      - generic [ref=e641]: ₹2,500
+                      - generic [ref=e642]: Partial
+                  - button "VG Vivaan Gupta Class 11 · Chem ₹5,500 Unpaid" [ref=e646]:
+                    - generic [ref=e647]: VG
+                    - generic [ref=e648]:
+                      - generic [ref=e649]: Vivaan Gupta
+                      - generic [ref=e650]: Class 11 · Chem
+                    - generic [ref=e651]:
+                      - generic [ref=e652]: ₹5,500
+                      - generic [ref=e653]: Unpaid
+                  - button "SI Saanvi Iyer Class 10 · Biology ₹0 Paid" [ref=e656]:
+                    - generic [ref=e657]: SI
+                    - generic [ref=e658]:
+                      - generic [ref=e659]: Saanvi Iyer
+                      - generic [ref=e660]: Class 10 · Biology
+                    - generic [ref=e661]:
+                      - generic [ref=e662]: ₹0
+                      - generic [ref=e663]: Paid
+                  - button "AN Aditya Nair Class 9 · Maths ₹0 No Dues" [ref=e667]:
+                    - generic [ref=e668]: AN
+                    - generic [ref=e669]:
+                      - generic [ref=e670]: Aditya Nair
+                      - generic [ref=e671]: Class 9 · Maths
+                    - generic [ref=e672]:
+                      - generic [ref=e673]: ₹0
+                      - generic [ref=e674]: No Dues
+                  - button "MK Myra Kapoor Class 7 · Science ₹2,000 Partial" [ref=e678]:
+                    - generic [ref=e679]: MK
+                    - generic [ref=e680]:
+                      - generic [ref=e681]: Myra Kapoor
+                      - generic [ref=e682]: Class 7 · Science
+                    - generic [ref=e683]:
+                      - generic [ref=e684]: ₹2,000
+                      - generic [ref=e685]: Partial
+              - generic [ref=e690]:
+                - generic [ref=e691]:
+                  - generic [ref=e692]:
+                    - generic [ref=e693]: AS
+                    - generic [ref=e694]:
+                      - generic [ref=e695]: Aarav Sharma
+                      - generic [ref=e696]:
+                        - generic [ref=e697]: TUT-0001
+                        - generic [ref=e698]: ·
+                        - generic [ref=e699]: Class 10 · Maths
+                        - generic [ref=e700]: ·
+                        - generic [ref=e701]: Postpaid
+                  - generic [ref=e702]:
+                    - generic [ref=e703]: Balance due
+                    - generic [ref=e704]: ₹4,500
+                - generic [ref=e705]:
+                  - generic [ref=e706]: Immutable Ledger
+                  - generic [ref=e711]: 3 entries
+                - table [ref=e713]:
+                  - rowgroup [ref=e714]:
+                    - row [ref=e715]:
+                      - columnheader "Date" [ref=e716]
+                      - columnheader "Entry" [ref=e717]
+                      - columnheader "Debit" [ref=e718]
+                      - columnheader "Credit" [ref=e719]
+                      - columnheader "Balance" [ref=e720]
+                  - rowgroup [ref=e721]:
+                    - row [ref=e722]:
+                      - cell "01 Nov" [ref=e723]
+                      - cell "Nov tuition · Maths" [ref=e724]
+                      - cell "₹7,500" [ref=e730]
+                      - cell "—" [ref=e732]
+                      - cell "₹7,500" [ref=e733]
+                    - row [ref=e734]:
+                      - cell "12 Nov" [ref=e735]
+                      - cell "UPI · partial RC-000142" [ref=e736]:
+                        - generic [ref=e737]: UPI · partial
+                        - text: RC-000142
+                      - cell "—" [ref=e742]
+                      - cell "₹3,000" [ref=e743]
+                      - cell "₹4,500" [ref=e745]
+                    - row [ref=e746]:
+                      - cell "01 Dec" [ref=e747]
+                      - cell "Dec tuition · Maths" [ref=e748]
+                      - cell "₹7,500" [ref=e754]
+                      - cell "—" [ref=e756]
+                      - cell "₹12,000" [ref=e757]
+                - generic [ref=e758]:
+                  - button "Record Payment" [ref=e759] [cursor=pointer]
+                  - button "Generate Invoice" [ref=e761] [cursor=pointer]
+                  - button "Statement" [ref=e765] [cursor=pointer]
+                  - generic [ref=e769]: Void needs PIN (BR-SEC02)
+        - generic [ref=e773]:
+          - generic [ref=e778]:
+            - generic [ref=e779]: Append-only
+            - paragraph [ref=e780]: Rows are never UPDATEd or DELETEd. Corrections are VOID reversing entries.
+          - generic [ref=e786]:
+            - generic [ref=e787]: Balances derived
+            - paragraph [ref=e788]: No balance column exists. Every balance is SUM(debit − credit) on the fly.
+          - generic [ref=e799]:
+            - generic [ref=e800]: Tamper-evident
+            - paragraph [ref=e801]: sha256(number‖student‖total‖date‖secret) recomputed on every view.
+        - link "Read the full Fees & Payments spec" [ref=e803] [cursor=pointer]:
+          - /url: "#specs"
+      - generic [ref=e806]:
+        - generic [ref=e807]:
+          - generic [ref=e808]: Live Prototype · Screen 3
+          - heading "Mark today's attendance. Lock it with your fingerprint." [level=2] [ref=e812]
+          - paragraph [ref=e813]: "30 seconds to mark a batch. After 24 hours the day is locked — edits require PIN and are audit-logged. The neumorphic toggle is the only control: tap = present, long-press = late, swipe = absent."
+        - generic [ref=e814]:
+          - generic [ref=e815]:
+            - generic [ref=e820]: tutoros · attendance · undefined NaN
+            - generic [ref=e821]: OPEN
+          - generic [ref=e823]:
+            - generic [ref=e824]:
+              - generic [ref=e825]:
+                - button "Class 10 · Maths Mon–Sat · 07:00" [ref=e826] [cursor=pointer]:
+                  - generic [ref=e827]: Class 10 · Maths
+                  - generic [ref=e828]: Mon–Sat · 07:00
+                - button "Class 12 · Physics Mon–Sat · 17:00" [ref=e829] [cursor=pointer]:
+                  - generic [ref=e830]: Class 12 · Physics
+                  - generic [ref=e831]: Mon–Sat · 17:00
+                - button "Class 9 · Science Tue·Thu·Sat · 18:30" [ref=e832] [cursor=pointer]:
+                  - generic [ref=e833]: Class 9 · Science
+                  - generic [ref=e834]: Tue·Thu·Sat · 18:30
+                - button "Class 11 · Chem Sun · 10:00" [ref=e835] [cursor=pointer]:
+                  - generic [ref=e836]: Class 11 · Chem
+                  - generic [ref=e837]: Sun · 10:00
+              - generic [ref=e838]:
+                - button "Previous day" [ref=e839] [cursor=pointer]
+                - generic [ref=e842]:
+                  - button "12" [ref=e843]
+                  - button "13" [ref=e845]
+                  - button "14" [ref=e847]
+                  - button "15" [ref=e849]
+                  - button "16" [ref=e851]
+                  - button "17" [ref=e853]
+                  - button "18" [ref=e855]
+                - button "Next day" [ref=e857] [cursor=pointer]
+            - generic [ref=e860]:
+              - generic [ref=e861]:
+                - generic [ref=e862]: Present
+                - generic [ref=e867]: "0"
+              - generic [ref=e868]:
+                - generic [ref=e869]: Late
+                - generic [ref=e874]: "0"
+              - generic [ref=e875]:
+                - generic [ref=e876]: Absent
+                - generic [ref=e880]: "0"
+              - generic [ref=e881]:
+                - generic [ref=e882]: Present Rate
+                - generic [ref=e889]: 0%
+            - generic [ref=e891]:
+              - generic [ref=e892]:
+                - heading "Class 10 · Maths · 3 students" [level=3] [ref=e893]:
+                  - text: Class 10 · Maths
+                  - generic [ref=e894]: · 3 students
+                - generic [ref=e895]:
+                  - button "All present" [ref=e896] [cursor=pointer]
+                  - button "All absent" [ref=e899] [cursor=pointer]
+              - generic [ref=e903]:
+                - generic [ref=e904]:
+                  - generic [ref=e905]: AS
+                  - generic [ref=e906]:
+                    - generic [ref=e907]: Aarav Sharma
+                    - generic [ref=e908]: 10 · Maths
+                  - generic [ref=e909]:
+                    - button "Mark Aarav Sharma as Present" [pressed] [ref=e910]
+                    - button "Mark Aarav Sharma as Late" [ref=e914]
+                    - button "Mark Aarav Sharma as Absent" [ref=e918]
+                    - button "Mark Aarav Sharma as Off" [ref=e922]
+                - generic [ref=e924]:
+                  - generic [ref=e925]: DP
+                  - generic [ref=e926]:
+                    - generic [ref=e927]: Diya Patel
+                    - generic [ref=e928]: 10 · Maths
+                  - generic [ref=e929]:
+                    - button "Mark Diya Patel as Present" [pressed] [ref=e930]
+                    - button "Mark Diya Patel as Late" [ref=e934]
+                    - button "Mark Diya Patel as Absent" [ref=e938]
+                    - button "Mark Diya Patel as Off" [ref=e942]
+                - generic [ref=e944]:
+                  - generic [ref=e945]: SI
+                  - generic [ref=e946]:
+                    - generic [ref=e947]: Saanvi Iyer
+                    - generic [ref=e948]: 10 · Maths
+                  - generic [ref=e949]:
+                    - button "Mark Saanvi Iyer as Present" [pressed] [ref=e950]
+                    - button "Mark Saanvi Iyer as Late" [ref=e954]
+                    - button "Mark Saanvi Iyer as Absent" [ref=e958]
+                    - button "Mark Saanvi Iyer as Off" [ref=e962]
+              - generic [ref=e964]:
+                - generic [ref=e965]: Present
+                - generic [ref=e968]: Late
+                - generic [ref=e972]: Absent
+                - generic [ref=e976]: "Off"
+                - generic [ref=e978]: Audit-logged
+                - button "Save & lock" [ref=e982] [cursor=pointer]
+            - generic [ref=e985]:
+              - generic [ref=e986]: "Quick actions:"
+              - button "Mark holiday" [ref=e987] [cursor=pointer]
+              - button "Bulk late → present" [ref=e990] [cursor=pointer]
+              - button "Export register" [ref=e994] [cursor=pointer]
+      - generic [ref=e998]:
+        - generic [ref=e999]:
+          - generic [ref=e1000]: Live Prototype · Screen 5
+          - heading "Your preferences, instant-apply." [level=2] [ref=e1004]
+          - paragraph [ref=e1005]: Every toggle saves immediately to the local DB and writes to the sync_outbox. No save button. No confirm dialog. Change it, and it is done.
+        - generic [ref=e1006]:
+          - generic [ref=e1007]:
+            - generic [ref=e1012]: tutoros · settings
+            - generic [ref=e1013]: INSTANT-APPLY
+          - generic [ref=e1015]:
+            - generic [ref=e1017]:
+              - button "Profile Name, phone, email, institution" [ref=e1018]:
+                - generic [ref=e1022]:
+                  - generic [ref=e1023]: Profile
+                  - generic [ref=e1024]: Name, phone, email, institution
+              - button "Appearance Dark-mode only, accent colour, density" [ref=e1027]:
+                - generic [ref=e1034]:
+                  - generic [ref=e1035]: Appearance
+                  - generic [ref=e1036]: Dark-mode only, accent colour, density
+              - button "Security PIN, biometric, lockout policy" [ref=e1037]:
+                - generic [ref=e1041]:
+                  - generic [ref=e1042]: Security
+                  - generic [ref=e1043]: PIN, biometric, lockout policy
+              - button "Backups Auto-backup, .tutoros files, restore" [ref=e1044]:
+                - generic [ref=e1049]:
+                  - generic [ref=e1050]: Backups
+                  - generic [ref=e1051]: Auto-backup, .tutoros files, restore
+              - button "Import / Export Excel, CSV, bulk import" [ref=e1052]:
+                - generic [ref=e1056]:
+                  - generic [ref=e1057]: Import / Export
+                  - generic [ref=e1058]: Excel, CSV, bulk import
+              - button "Reminders Quiet hours, channels, snooze" [ref=e1059]:
+                - generic [ref=e1063]:
+                  - generic [ref=e1064]: Reminders
+                  - generic [ref=e1065]: Quiet hours, channels, snooze
+              - button "Audit Log Every mutation, timestamped" [ref=e1066]:
+                - generic [ref=e1069]:
+                  - generic [ref=e1070]: Audit Log
+                  - generic [ref=e1071]: Every mutation, timestamped
+              - button "Diagnostics DB size, schema version, integrity" [ref=e1072]:
+                - generic [ref=e1075]:
+                  - generic [ref=e1076]: Diagnostics
+                  - generic [ref=e1077]: DB size, schema version, integrity
+            - generic [ref=e1080]:
+              - generic [ref=e1081]:
+                - generic [ref=e1082]: PS
+                - generic [ref=e1083]:
+                  - generic [ref=e1084]: Priya Sharma
+                  - generic [ref=e1085]: Solo home tutor · 47 active students
+                  - generic [ref=e1086]: Provisioned · Turso db-priya-001
+              - generic [ref=e1089]:
+                - generic [ref=e1090]:
+                  - generic [ref=e1091]: Full name
+                  - textbox [ref=e1095]: Priya Sharma
+                - generic [ref=e1096]:
+                  - generic [ref=e1097]: Phone
+                  - textbox [ref=e1100]: +91 98765 43210
+                - generic [ref=e1101]:
+                  - generic [ref=e1102]: Institution
+                  - textbox [ref=e1105]: Priya's Maths Academy
+              - generic [ref=e1106]: Auto-saved · changes replicate via sync_outbox
+      - generic [ref=e1109]:
+        - generic [ref=e1110]:
+          - generic [ref=e1111]: Backup & Restore · .tutoros
+          - heading "Your data. Your file." [level=2] [ref=e1115]
+          - paragraph [ref=e1116]: A single encrypted .tutoros file. AES-256-GCM at rest, Argon2id key derivation. Download, email, pendrive. Never hostage to a subscription.
+        - generic [ref=e1117]:
+          - generic [ref=e1118]:
+            - generic [ref=e1119]:
+              - generic [ref=e1124]: tutoros · create-backup
+              - generic [ref=e1125]: CREATE
+            - generic [ref=e1128]:
+              - generic [ref=e1130]:
+                - generic [ref=e1132]:
+                  - generic [ref=e1133]: "1"
+                  - generic [ref=e1134]:
+                    - generic [ref=e1135]: Scope
+                    - generic [ref=e1136]: What to back up
+                - generic [ref=e1137]:
+                  - generic [ref=e1138]: "2"
+                  - generic [ref=e1139]:
+                    - generic [ref=e1140]: Password
+                    - generic [ref=e1141]: Encryption key
+                - generic [ref=e1142]:
+                  - generic [ref=e1143]: "3"
+                  - generic [ref=e1144]:
+                    - generic [ref=e1145]: Review
+                    - generic [ref=e1146]: Confirm details
+                - generic [ref=e1147]:
+                  - generic [ref=e1148]: "4"
+                  - generic [ref=e1149]:
+                    - generic [ref=e1150]: Progress
+                    - generic [ref=e1151]: Encrypt + sign
+              - generic [ref=e1154]:
+                - generic [ref=e1155]: Step 1 · Choose scope
+                - generic [ref=e1156]:
+                  - 'button "Select scope: Full backup" [ref=e1157]':
+                    - generic [ref=e1160]:
+                      - generic [ref=e1161]:
+                        - generic [ref=e1162]: Full backup
+                        - generic [ref=e1163]: ≈ 2.4 MB
+                      - generic [ref=e1164]: All students, ledger, attendance, settings, audit log.
+                  - 'button "Select scope: Ledger only" [ref=e1165]':
+                    - generic [ref=e1167]:
+                      - generic [ref=e1168]:
+                        - generic [ref=e1169]: Ledger only
+                        - generic [ref=e1170]: ≈ 180 KB
+                      - generic [ref=e1171]: Just the immutable ledger + receipts.
+                  - 'button "Select scope: Snapshot (read-only)" [ref=e1172]':
+                    - generic [ref=e1174]:
+                      - generic [ref=e1175]:
+                        - generic [ref=e1176]: Snapshot (read-only)
+                        - generic [ref=e1177]: ≈ 1.1 MB
+                      - generic [ref=e1178]: A point-in-time view, no restore.
+                - button "Toggle include media" [ref=e1179]:
+                  - generic [ref=e1185]:
+                    - generic [ref=e1186]: Include media (documents, photos)
+                    - generic [ref=e1187]: Off by default — adds significant size
+                  - generic [ref=e1188]: "off"
+                - generic [ref=e1189]:
+                  - generic [ref=e1190]: "Estimated size: ≈ 2.4 MB"
+                  - 'button "Continue to step 2: set password" [ref=e1191] [cursor=pointer]': Continue
+          - generic [ref=e1194]:
+            - generic [ref=e1195]:
+              - generic [ref=e1200]: tutoros · restore-from-file
+              - generic [ref=e1201]: RESTORE
+            - generic [ref=e1204]:
+              - generic [ref=e1206]:
+                - generic [ref=e1208]:
+                  - generic [ref=e1209]: "1"
+                  - generic [ref=e1210]:
+                    - generic [ref=e1211]: Drop file
+                    - generic [ref=e1212]: Choose .tutoros
+                - generic [ref=e1213]:
+                  - generic [ref=e1214]: "2"
+                  - generic [ref=e1215]:
+                    - generic [ref=e1216]: Password
+                    - generic [ref=e1217]: Verify integrity
+                - generic [ref=e1218]:
+                  - generic [ref=e1219]: "3"
+                  - generic [ref=e1220]:
+                    - generic [ref=e1221]: Restore
+                    - generic [ref=e1222]: Confirm & apply
+              - generic [ref=e1225]:
+                - generic [ref=e1226]: Step 1 · Choose a file
+                - button "Browse for .tutoros file" [ref=e1227]:
+                  - generic [ref=e1232]: Drop your .tutoros file here
+                  - generic [ref=e1233]: or click to browse
+                - generic [ref=e1234]:
+                  - generic [ref=e1235]: Recent backups
+                  - generic [ref=e1240]:
+                    - generic [ref=e1241]:
+                      - generic [ref=e1247]:
+                        - generic [ref=e1248]: tutoros-backup-2024-11-14-1830.tutoros
+                        - generic [ref=e1249]: 2.4 MB · Yesterday, 18:30
+                      - button "Restore tutoros-backup-2024-11-14-1830.tutoros" [ref=e1250]
+                    - generic [ref=e1256]:
+                      - generic [ref=e1262]:
+                        - generic [ref=e1263]: tutoros-backup-2024-11-13-0630.tutoros
+                        - generic [ref=e1264]: 2.3 MB · 13 Nov, 06:30
+                      - button "Restore tutoros-backup-2024-11-13-0630.tutoros" [ref=e1265]
+                    - generic [ref=e1271]:
+                      - generic [ref=e1277]:
+                        - generic [ref=e1278]: tutoros-backup-2024-11-12-0630.tutoros
+                        - generic [ref=e1279]: 2.3 MB · 12 Nov, 06:30
+                      - button "Restore tutoros-backup-2024-11-12-0630.tutoros" [ref=e1280]
+        - generic [ref=e1287]:
+          - generic [ref=e1288]:
+            - generic [ref=e1289]:
+              - generic [ref=e1294]: Backup History
+              - generic [ref=e1295]: last 5
+            - generic [ref=e1296]: audit_log · BR-SEC-03
+          - table [ref=e1298]:
+            - rowgroup [ref=e1299]:
+              - row [ref=e1300]:
+                - columnheader "Date" [ref=e1301]
+                - columnheader "File" [ref=e1302]
+                - columnheader "Size" [ref=e1303]
+                - columnheader "Scope" [ref=e1304]
+                - columnheader "Status" [ref=e1305]
+                - columnheader "Actions" [ref=e1306]
+            - rowgroup [ref=e1307]:
+              - row [ref=e1308]:
+                - cell "15 Nov, 14:30" [ref=e1309]
+                - cell "tutoros-backup-2024-11-15-1430.tutoros" [ref=e1310]
+                - cell "2.4 MB" [ref=e1317]
+                - cell "Full" [ref=e1318]
+                - cell [ref=e1320]
+                - cell [ref=e1323]:
+                  - generic [ref=e1324]:
+                    - button "Download tutoros-backup-2024-11-15-1430.tutoros" [ref=e1325]
+                    - button "Restore from tutoros-backup-2024-11-15-1430.tutoros" [ref=e1329]
+              - row [ref=e1335]:
+                - cell "14 Nov, 18:30" [ref=e1336]
+                - cell "tutoros-backup-2024-11-14-1830.tutoros" [ref=e1337]
+                - cell "2.4 MB" [ref=e1344]
+                - cell "Full" [ref=e1345]
+                - cell [ref=e1347]
+                - cell [ref=e1350]:
+                  - generic [ref=e1351]:
+                    - button "Download tutoros-backup-2024-11-14-1830.tutoros" [ref=e1352]
+                    - button "Restore from tutoros-backup-2024-11-14-1830.tutoros" [ref=e1356]
+              - row [ref=e1362]:
+                - cell "14 Nov, 06:30" [ref=e1363]
+                - cell "tutoros-backup-2024-11-14-0630.tutoros" [ref=e1364]
+                - cell "2.3 MB" [ref=e1371]
+                - cell "Full" [ref=e1372]
+                - cell [ref=e1374]
+                - cell [ref=e1377]:
+                  - generic [ref=e1378]:
+                    - button "Download tutoros-backup-2024-11-14-0630.tutoros" [ref=e1379]
+                    - button "Restore from tutoros-backup-2024-11-14-0630.tutoros" [ref=e1383]
+              - row [ref=e1389]:
+                - cell "13 Nov, 21:14" [ref=e1390]
+                - cell "tutoros-backup-2024-11-13-2114.tutoros" [ref=e1391]
+                - cell "1.1 MB" [ref=e1398]
+                - cell "Snapshot" [ref=e1399]
+                - cell [ref=e1401]
+                - cell [ref=e1404]:
+                  - generic [ref=e1405]:
+                    - button "Download tutoros-backup-2024-11-13-2114.tutoros" [ref=e1406]
+                    - button "Restore from tutoros-backup-2024-11-13-2114.tutoros" [ref=e1410]
+              - row [ref=e1416]:
+                - cell "13 Nov, 06:30" [ref=e1417]
+                - cell "tutoros-backup-2024-11-13-0630.tutoros" [ref=e1418]
+                - cell "2.3 MB" [ref=e1425]
+                - cell "Full" [ref=e1426]
+                - cell [ref=e1428]
+                - cell [ref=e1431]:
+                  - generic [ref=e1432]:
+                    - button "Download tutoros-backup-2024-11-13-0630.tutoros" [ref=e1433]
+                    - button "Restore from tutoros-backup-2024-11-13-0630.tutoros" [ref=e1437]
+      - generic [ref=e1443]:
+        - generic [ref=e1444]:
+          - generic [ref=e1445]: The Five-Screen Doctrine
+          - heading "Five screens. Forever." [level=2] [ref=e1451]
+          - paragraph [ref=e1452]: A sixth screen is a bug, not a feature. If a new capability cannot be absorbed into one of the five, it is rejected or deferred.
+        - generic [ref=e1453]:
+          - button "tap 1 Dashboard Here is the truth of your business, right now, in one glance. Read spec" [ref=e1454]:
+            - generic [ref=e1455]: tap 1
+            - generic [ref=e1463]:
+              - generic [ref=e1464]: Dashboard
+              - paragraph [ref=e1465]: Here is the truth of your business, right now, in one glance.
+            - generic [ref=e1466]: Read spec
+          - button "tap 2 Students Every student, their lifecycle, their ledger, their invoices — one tap deep. Read spec" [ref=e1470]:
+            - generic [ref=e1471]: tap 2
+            - generic [ref=e1477]:
+              - generic [ref=e1478]: Students
+              - paragraph [ref=e1479]: Every student, their lifecycle, their ledger, their invoices — one tap deep.
+            - generic [ref=e1480]: Read spec
+          - button "tap 3 Attendance Mark today's attendance in 30 seconds; lock it with your fingerprint. Read spec" [ref=e1484]:
+            - generic [ref=e1485]: tap 3
+            - generic [ref=e1491]:
+              - generic [ref=e1492]: Attendance
+              - paragraph [ref=e1493]: Mark today's attendance in 30 seconds; lock it with your fingerprint.
+            - generic [ref=e1494]: Read spec
+          - button "tap 4 Fees & Payments Who paid, who didn't, who's partial — and the immutable ledger behind it. Read spec" [ref=e1498]:
+            - generic [ref=e1499]: tap 4
+            - generic [ref=e1505]:
+              - generic [ref=e1506]: Fees & Payments
+              - paragraph [ref=e1507]: Who paid, who didn't, who's partial — and the immutable ledger behind it.
+            - generic [ref=e1508]: Read spec
+          - button "tap 5 Settings Your profile, theme, backups, imports/exports — all in one drawer. Read spec" [ref=e1512]:
+            - generic [ref=e1513]: tap 5
+            - generic [ref=e1519]:
+              - generic [ref=e1520]: Settings
+              - paragraph [ref=e1521]: Your profile, theme, backups, imports/exports — all in one drawer.
+            - generic [ref=e1522]: Read spec
+      - generic [ref=e1526]:
+        - generic [ref=e1527]:
+          - generic [ref=e1528]: The Seven Hidden Engines
+          - heading "Not screens. Subsystems." [level=2] [ref=e1532]
+          - paragraph [ref=e1533]: They have no sidebar entries. They expose themselves only through panels, toasts, and background work — powering the five screens from underneath.
+        - generic [ref=e1534]:
+          - generic [ref=e1535]:
+            - generic [ref=e1536]: Search
+            - paragraph [ref=e1542]: FTS5 across students, payments, attendance, receipts, invoices.
+          - generic [ref=e1543]:
+            - generic [ref=e1544]: Reminder
+            - paragraph [ref=e1552]: Due fees, upcoming dues, missing attendance, inactive students.
+          - generic [ref=e1553]:
+            - generic [ref=e1554]: Ledger
+            - paragraph [ref=e1559]: Append-only spine. Every financial event is a row. Never edited.
+          - generic [ref=e1560]:
+            - generic [ref=e1561]: Report
+            - paragraph [ref=e1567]: Student, attendance, monthly finance, collection — on demand.
+          - generic [ref=e1568]:
+            - generic [ref=e1569]: Notification
+            - paragraph [ref=e1575]: In-app only. No push, no email, no SMS in v1. Capped at 200.
+          - generic [ref=e1576]:
+            - generic [ref=e1577]: Sync
+            - paragraph [ref=e1585]: Turso embedded replica. LWW. Ledger is conflict-immune.
+          - generic [ref=e1586]:
+            - generic [ref=e1587]: Security
+            - paragraph [ref=e1593]: PIN + biometric + audit + tamper hash + SQLCipher at rest.
+          - generic [ref=e1594]:
+            - generic [ref=e1600]:
+              - generic [ref=e1601]: The Ledger is immutable truth.
+              - paragraph [ref=e1602]:
+                - text: Money is never edited by mutating a balance. Every event — fee charged, payment received, discount, refund — is an append-only row. All balances, dues, and reports are
+                - emphasis [ref=e1603]: derived
+                - text: .
+            - button "Business Rules" [ref=e1604]
+      - generic [ref=e1607]:
+        - generic [ref=e1608]:
+          - generic [ref=e1609]: Vibrant Glass & Neumorphism
+          - heading "The market is tired of flat, monochrome SaaS." [level=2] [ref=e1612]
+          - paragraph [ref=e1613]: Give them the glass, the neon, and the density. No monochrome. No pure black. No pure white. No indigo/blue primaries.
+        - generic [ref=e1614]:
+          - generic [ref=e1615]:
+            - heading "Color Palette" [level=3] [ref=e1621]
+            - generic [ref=e1622]:
+              - generic [ref=e1624]:
+                - generic [ref=e1625]: Cosmic Indigo
+                - generic [ref=e1626]: "#0f0c29"
+              - generic [ref=e1628]:
+                - generic [ref=e1629]: Midnight Violet
+                - generic [ref=e1630]: "#24243e"
+              - generic [ref=e1632]:
+                - generic [ref=e1633]: Abyss
+                - generic [ref=e1634]: "#0a0a1a"
+              - generic [ref=e1636]:
+                - generic [ref=e1637]: Emerald
+                - generic [ref=e1638]: "#00FF9D"
+              - generic [ref=e1640]:
+                - generic [ref=e1641]: Cyan
+                - generic [ref=e1642]: "#00F0FF"
+              - generic [ref=e1644]:
+                - generic [ref=e1645]: Amber
+                - generic [ref=e1646]: "#FFB300"
+              - generic [ref=e1648]:
+                - generic [ref=e1649]: Flare
+                - generic [ref=e1650]: "#FF5E00"
+              - generic [ref=e1652]:
+                - generic [ref=e1653]: Violet
+                - generic [ref=e1654]: "#B388FF"
+            - generic [ref=e1655]:
+              - generic [ref=e1656]: ● Paid · Present · CTA
+              - generic [ref=e1657]: ● Info · Focus · Active
+              - generic [ref=e1658]: ● Partial · Late · Upcoming
+              - generic [ref=e1659]: ● Overdue · Void · Destruct
+          - generic [ref=e1660]:
+            - heading "Neumorphic Controls" [level=3] [ref=e1671]
+            - generic [ref=e1672]:
+              - generic [ref=e1673]: Apple-style attendance toggle
+              - button "Neumorphic toggle demo" [pressed] [ref=e1674]
+              - generic [ref=e1676]:
+                - generic [ref=e1677]: Present
+                - generic [ref=e1679]: Absent
+              - generic [ref=e1681]: Tap → glow · long-press → late
+        - generic [ref=e1685]:
+          - generic [ref=e1686]:
+            - generic [ref=e1687]: Total Collected · Nov
+            - generic [ref=e1688]: ₹ 1,24,500
+            - generic [ref=e1689]: ↑ 18% vs last month
+          - generic [ref=e1690]:
+            - generic [ref=e1691]: Due Till Date
+            - generic [ref=e1692]: ₹ 38,200
+            - generic [ref=e1693]: 12 students owe
+          - generic [ref=e1694]:
+            - generic [ref=e1695]: Students
+            - generic [ref=e1696]: "47"
+            - generic [ref=e1697]: 3 inactive · 14d
+          - generic [ref=e1698]:
+            - generic [ref=e1699]: Overdue
+            - generic [ref=e1700]: ₹ 9,400
+            - generic [ref=e1701]: 4 students · flare
+        - generic [ref=e1703]:
+          - generic [ref=e1704]:
+            - generic [ref=e1705]:
+              - heading "Design Token Playground" [level=3] [ref=e1709]
+              - generic [ref=e1710]: live · interactive
+            - generic [ref=e1711]:
+              - button "Tokens" [ref=e1712]
+              - button "Components" [ref=e1721]
+              - button "Motion" [ref=e1725]
+          - generic [ref=e1730]:
+            - generic [ref=e1731]: "Accent:"
+            - generic [ref=e1732]:
+              - button "Switch accent to emerald" [pressed] [ref=e1733]
+              - button "Switch accent to cyan" [ref=e1736]
+              - button "Switch accent to violet" [ref=e1737]
+              - button "Switch accent to amber" [ref=e1738]
+              - button "Switch accent to flare" [ref=e1739]
+            - generic [ref=e1741]: "Glass:"
+            - generic [ref=e1742]:
+              - button "Subtle" [ref=e1743]
+              - button "Default" [ref=e1744]
+              - button "Strong" [ref=e1745]
+            - generic [ref=e1747]: "Motion:"
+            - generic [ref=e1748]:
+              - button "Spring" [ref=e1749]
+              - button "Glide" [ref=e1750]
+              - button "Snap" [ref=e1751]
+              - button "Soft" [ref=e1752]
+            - generic [ref=e1753]:
+              - generic [ref=e1754]: "#00FF9D"
+              - generic [ref=e1755]: ·
+              - generic [ref=e1756]: blur 24px
+              - generic [ref=e1757]: ·
+              - generic [ref=e1758]: stiffness 380
+          - generic [ref=e1760]:
+            - generic [ref=e1761]:
+              - heading "Color tokens" [level=4] [ref=e1769]
+              - generic [ref=e1770]:
+                - generic [ref=e1771]:
+                  - generic [ref=e1773]: "--tutoros-emerald"
+                  - 'button "Copy #00FF9D" [ref=e1774]': "#00FF9D"
+                - generic [ref=e1778]:
+                  - generic [ref=e1780]: "--tutoros-cyan"
+                  - 'button "Copy #00F0FF" [ref=e1781]': "#00F0FF"
+                - generic [ref=e1785]:
+                  - generic [ref=e1787]: "--tutoros-violet"
+                  - 'button "Copy #B388FF" [ref=e1788]': "#B388FF"
+                - generic [ref=e1792]:
+                  - generic [ref=e1794]: "--tutoros-amber"
+                  - 'button "Copy #FFB300" [ref=e1795]': "#FFB300"
+                - generic [ref=e1799]:
+                  - generic [ref=e1801]: "--tutoros-flare"
+                  - 'button "Copy #FF5E00" [ref=e1802]': "#FF5E00"
+                - generic [ref=e1806]:
+                  - generic [ref=e1808]: "--tutoros-cosmic"
+                  - 'button "Copy #0f0c29" [ref=e1809]': "#0f0c29"
+                - generic [ref=e1813]:
+                  - generic [ref=e1815]: "--tutoros-midnight"
+                  - 'button "Copy #24243e" [ref=e1816]': "#24243e"
+            - generic [ref=e1820]:
+              - heading "Typography ramp" [level=4] [ref=e1824]
+              - generic [ref=e1825]:
+                - generic [ref=e1826]:
+                  - generic [ref=e1827]:
+                    - generic [ref=e1828]: Display
+                    - generic [ref=e1829]: "--text-display · 30/36"
+                  - generic [ref=e1830]: ₹1,24,500
+                - generic [ref=e1831]:
+                  - generic [ref=e1832]:
+                    - generic [ref=e1833]: H1
+                    - generic [ref=e1834]: "--text-h1 · 24/32"
+                  - generic [ref=e1835]: The Dashboard
+                - generic [ref=e1836]:
+                  - generic [ref=e1837]:
+                    - generic [ref=e1838]: H2
+                    - generic [ref=e1839]: "--text-h2 · 20/28"
+                  - generic [ref=e1840]: Live Prototype
+                - generic [ref=e1841]:
+                  - generic [ref=e1842]:
+                    - generic [ref=e1843]: Body
+                    - generic [ref=e1844]: "--text-body · 14/22"
+                  - generic [ref=e1845]: Money is never edited. Corrections are reversing entries.
+                - generic [ref=e1846]:
+                  - generic [ref=e1847]:
+                    - generic [ref=e1848]: Caption
+                    - generic [ref=e1849]: "--text-caption · 11/14"
+                  - generic [ref=e1850]: AUDIT-LOGGED
+                - generic [ref=e1851]:
+                  - generic [ref=e1852]:
+                    - generic [ref=e1853]: Mono
+                    - generic [ref=e1854]: "--text-mono · 12/18"
+                  - generic [ref=e1855]: RCT-2025-004281
+            - generic [ref=e1856]:
+              - generic [ref=e1857]:
+                - heading "Spacing grid (4px base)" [level=4] [ref=e1862]
+                - generic [ref=e1863]:
+                  - generic [ref=e1864]: 4px · sp-4
+                  - generic [ref=e1866]: 8px · sp-8
+                  - generic [ref=e1868]: 12px · sp-12
+                  - generic [ref=e1870]: 16px · sp-16
+                  - generic [ref=e1872]: 24px · sp-24
+                  - generic [ref=e1874]: 32px · sp-32
+                  - generic [ref=e1876]: 48px · sp-48
+                  - generic [ref=e1878]: 64px · sp-64
+              - generic [ref=e1880]:
+                - heading "Glass recipe · Default" [level=4] [ref=e1886]
+                - generic [ref=e1887]: "background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.10); backdrop-filter: blur(24px) saturate(160%);"
+      - generic [ref=e1888]:
+        - generic [ref=e1889]:
+          - generic [ref=e1890]: One Core · Three Bindings
+          - heading "Web. Mobile. Desktop. One nervous system." [level=2] [ref=e1895]
+          - paragraph [ref=e1896]: 1 User = 1 Turso Database. Absolute isolation. Offline-first edge-sync via libSQL embedded replicas.
+        - generic [ref=e1897]:
+          - generic [ref=e1898]:
+            - generic [ref=e1905]:
+              - generic [ref=e1906]: Web
+              - generic [ref=e1907]: Next.js 16 · App Router
+            - paragraph [ref=e1908]: Primary surface. Onboarding + provisioning. Server Components + glass Client islands.
+            - list [ref=e1909]:
+              - listitem [ref=e1910]: Supabase SSR cookies
+              - listitem [ref=e1914]: IndexedDB cache (read)
+              - listitem [ref=e1918]: Turso HTTP polling 30s
+          - generic [ref=e1922]:
+            - generic [ref=e1927]:
+              - generic [ref=e1928]: Mobile
+              - generic [ref=e1929]: Expo · React Native
+            - paragraph [ref=e1930]: OLED-first dark mode, haptics, swipe gestures, background fetch sync.
+            - list [ref=e1931]:
+              - listitem [ref=e1932]: expo-sqlite + libSQL
+              - listitem [ref=e1936]: expo-secure-store
+              - listitem [ref=e1940]: FaceID / TouchID
+          - generic [ref=e1944]:
+            - generic [ref=e1950]:
+              - generic [ref=e1951]: Desktop
+              - generic [ref=e1952]: Tauri v2 · Rust
+            - paragraph [ref=e1953]: <15MB installer, native memory, Rust-level IPC security, SQLCipher at rest.
+            - list [ref=e1954]:
+              - listitem [ref=e1955]: rusqlite + libsql
+              - listitem [ref=e1959]: tauri-plugin-updater
+              - listitem [ref=e1963]: EV code signed
+        - generic [ref=e1967]:
+          - heading "Provisioning Flow — 1 User = 1 Turso DB" [level=3] [ref=e1973]
+          - generic [ref=e1974]:
+            - generic [ref=e1975]: 1Web Signup (Supabase)
+            - generic [ref=e1979]: 2Edge Function provision-db
+            - generic [ref=e1983]: "3Turso creates db-{uuid}"
+            - generic [ref=e1987]: 4Scoped JWT (db_url + token)
+            - generic [ref=e1991]: 5Client inits libSQL
+            - generic [ref=e1995]: 6Schema bootstrap
+            - generic [ref=e1999]: 7Dashboard empty-state
+      - generic [ref=e2001]:
+        - generic [ref=e2002]:
+          - generic [ref=e2003]: Platform Engineering
+          - heading "Five agent-ready packages. One per surface, plus the front door." [level=2] [ref=e2008]
+          - paragraph [ref=e2009]:
+            - text: "Each platform directory is a self-contained spec package: architecture, data flow, security, build, release, and an"
+            - code [ref=e2010]: AGENTS.md
+            - text: handoff doc. The Product package is the commercial front-door spec — the WHAT behind the web landing page. Pick a package → open any file in the spec reader.
+          - generic [ref=e2011]:
+            - generic [ref=e2012]: 5 directories
+            - generic [ref=e2013]: 44 platform specs
+            - generic [ref=e2014]: ~176,200 platform words
+        - generic [ref=e2015]:
+          - button "Show Web platform specs" [pressed] [ref=e2016]:
+            - text: Web
+            - generic [ref=e2021]: "9"
+          - button "Show Mobile platform specs" [ref=e2022]:
+            - text: Mobile
+            - generic [ref=e2025]: "9"
+          - button "Show Desktop platform specs" [ref=e2026]:
+            - text: Desktop
+            - generic [ref=e2030]: "8"
+          - button "Show Deployment platform specs" [ref=e2031]:
+            - text: Deployment
+            - generic [ref=e2037]: "7"
+          - button "Show Product platform specs" [ref=e2038]:
+            - text: Product
+            - generic [ref=e2042]: "11"
+        - generic [ref=e2043]:
+          - generic [ref=e2044]:
+            - generic [ref=e2051]:
+              - generic [ref=e2052]:
+                - generic [ref=e2053]: Web
+                - generic [ref=e2054]: 9 files
+              - generic [ref=e2055]: Next.js 16 · App Router · Vercel
+            - generic [ref=e2056]: Primary surface. RSC + glass client islands, Supabase SSR cookies, TanStack Query + Zustand + IndexedDB, Vercel hosting + free domain.
+          - generic [ref=e2057]:
+            - button "Open Index" [ref=e2058]:
+              - generic [ref=e2059]: "01"
+              - generic [ref=e2060]:
+                - generic [ref=e2061]: Index
+                - generic [ref=e2062]: README.md
+            - button "Open Architecture" [ref=e2065]:
+              - generic [ref=e2066]: "02"
+              - generic [ref=e2067]:
+                - generic [ref=e2068]: Architecture
+                - generic [ref=e2069]: 01_Architecture.md
+            - button "Open State & Data Flow" [ref=e2072]:
+              - generic [ref=e2073]: "03"
+              - generic [ref=e2074]:
+                - generic [ref=e2075]: State & Data Flow
+                - generic [ref=e2076]: 02_State_and_Data_Flow.md
+            - button "Open Auth & Provisioning" [ref=e2079]:
+              - generic [ref=e2080]: "04"
+              - generic [ref=e2081]:
+                - generic [ref=e2082]: Auth & Provisioning
+                - generic [ref=e2083]: 03_Auth_and_Provisioning.md
+            - button "Open API Routes" [ref=e2086]:
+              - generic [ref=e2087]: "05"
+              - generic [ref=e2088]:
+                - generic [ref=e2089]: API Routes
+                - generic [ref=e2090]: 04_API_Routes.md
+            - button "Open Deployment · Vercel" [ref=e2093]:
+              - generic [ref=e2094]: "06"
+              - generic [ref=e2095]:
+                - generic [ref=e2096]: Deployment · Vercel
+                - generic [ref=e2097]: 05_Deployment_Vercel.md
+            - button "Open Build & Release" [ref=e2100]:
+              - generic [ref=e2101]: "07"
+              - generic [ref=e2102]:
+                - generic [ref=e2103]: Build & Release
+                - generic [ref=e2104]: 06_Build_and_Release.md
+            - button "Open Commercial Landing Page" [ref=e2107]:
+              - generic [ref=e2108]: "08"
+              - generic [ref=e2109]:
+                - generic [ref=e2110]: Commercial Landing Page
+                - generic [ref=e2111]: 07_Landing_Page.md
+            - button "Open Agent Handoff" [ref=e2114]:
+              - generic [ref=e2115]: "09"
+              - generic [ref=e2116]:
+                - generic [ref=e2117]: Agent Handoff
+                - generic [ref=e2118]: AGENTS.md
+          - generic [ref=e2121]:
+            - generic [ref=e2122]:
+              - text: served by
+              - generic [ref=e2124]: /api/spec?file=web/…
+            - button "Open Web README" [ref=e2125]: Open README
+        - generic [ref=e2129]:
+          - heading [level=3] [ref=e2136]:
+            - text: One
+            - code [ref=e2137]: git tag
+            - text: → all three surfaces
+          - generic [ref=e2138]: git tag v1.4.2 ──► GitHub Actions │ ├─► WEB → Vercel auto-deploy → tutoros.app │ ├─► MOBILE → EAS Build → TestFlight + Play Store │ → EAS Update (OTA) → production channel │ → APK mirror → Vercel Blob (sideload) │ └─► DESKTOP → Tauri build (3 OSes) → sign + notarize → Vercel Blob upload → manifest update → tauri-plugin-updater → auto-update on launch
+          - generic [ref=e2139]:
+            - generic [ref=e2140]: Vercel
+            - generic [ref=e2141]: Vercel Blob
+            - generic [ref=e2142]: EAS Build
+            - generic [ref=e2143]: EAS Update
+            - generic [ref=e2144]: Tauri v2
+            - generic [ref=e2145]: GH Actions
+      - generic [ref=e2146]:
+        - generic [ref=e2147]:
+          - generic [ref=e2148]: The Long Arc
+          - heading "A roadmap with guardrails." [level=2] [ref=e2151]
+          - paragraph [ref=e2152]: Every item here is deliberately out of v1 to protect the five-screen doctrine. Nothing graduates without a principle amendment.
+        - generic [ref=e2153]:
+          - generic [ref=e2155]:
+            - button "v1.0 Now Launch Surface Shipped" [ref=e2157]:
+              - generic [ref=e2165]:
+                - generic [ref=e2166]: v1.0
+                - generic [ref=e2167]: Now
+              - generic [ref=e2168]: Launch Surface
+              - generic [ref=e2169]: Shipped
+            - button "v1.x Q1–Q4 Hardening Up next" [ref=e2174]:
+              - generic [ref=e2179]:
+                - generic [ref=e2180]: v1.x
+                - generic [ref=e2181]: Q1–Q4
+              - generic [ref=e2182]: Hardening
+              - generic [ref=e2183]: Up next
+            - button "v2.0 Year 2 Multi-Device Sync Planned" [ref=e2188]:
+              - generic [ref=e2196]:
+                - generic [ref=e2197]: v2.0
+                - generic [ref=e2198]: Year 2
+              - generic [ref=e2199]: Multi-Device Sync
+              - generic [ref=e2200]: Planned
+            - button "v2.x Year 2 Ecosystem Planned" [ref=e2205]:
+              - generic [ref=e2211]:
+                - generic [ref=e2212]: v2.x
+                - generic [ref=e2213]: Year 2
+              - generic [ref=e2214]: Ecosystem
+              - generic [ref=e2215]: Planned
+            - button "v3.0 Year 3 Intelligence Future" [ref=e2220]:
+              - generic [ref=e2233]:
+                - generic [ref=e2234]: v3.0
+                - generic [ref=e2235]: Year 3
+              - generic [ref=e2236]: Intelligence
+              - generic [ref=e2237]: Future
+            - button "v3.x Year 3 Platform Future" [ref=e2242]:
+              - generic [ref=e2250]:
+                - generic [ref=e2251]: v3.x
+                - generic [ref=e2252]: Year 3
+              - generic [ref=e2253]: Platform
+              - generic [ref=e2254]: Future
+            - button "v4.0 Year 4+ Federation Future" [ref=e2259]:
+              - generic [ref=e2267]:
+                - generic [ref=e2268]: v4.0
+                - generic [ref=e2269]: Year 4+
+              - generic [ref=e2270]: Federation
+              - generic [ref=e2271]: Future
+          - generic [ref=e2275]:
+            - generic [ref=e2276]:
+              - generic [ref=e2284]:
+                - generic [ref=e2285]: v1.0
+                - generic [ref=e2286]: Launch Surface
+              - paragraph [ref=e2287]: The five-screen doctrine, live.
+              - generic [ref=e2288]: Shipped · Now
+            - generic [ref=e2290]:
+              - generic [ref=e2291]: What unlocks
+              - generic [ref=e2292]:
+                - generic [ref=e2293]: 5 persistent screens · 7 hidden engines
+                - generic [ref=e2298]: Single-tenant SQLite · offline-first
+                - generic [ref=e2303]: Immutable ledger · AES-256-GCM backups
+                - generic [ref=e2308]: Vibrant Glass & Neumorphism design system
+        - generic [ref=e2313]:
+          - heading "Explicitly never built" [level=3] [ref=e2318]
+          - paragraph [ref=e2319]: Features TutorOS will refuse — each forbidden by a principle. This list is the immune system against scope creep.
+          - generic [ref=e2320]:
+            - generic [ref=e2321]:
+              - generic [ref=e2322]: Student marketplace
+              - generic [ref=e2327]: P0 · Sovereign
+              - paragraph [ref=e2332]: TutorOS is not a lead-gen platform.
+            - generic [ref=e2333]:
+              - generic [ref=e2334]: Content / video hosting
+              - generic [ref=e2339]: P5 · Five Screens
+              - paragraph [ref=e2344]: Use YouTube. We store the link, not the video.
+            - generic [ref=e2345]:
+              - generic [ref=e2346]: Engagement notifications
+              - generic [ref=e2351]: AP · No dark patterns
+              - paragraph [ref=e2356]: No streaks, no badges, no nudges to open the app.
+            - generic [ref=e2357]:
+              - generic [ref=e2358]: Ad network
+              - generic [ref=e2363]: P8 · No telemetry
+              - paragraph [ref=e2368]: Ads require tracking. Tracking violates sovereignty.
+            - generic [ref=e2369]:
+              - generic [ref=e2370]: Forced social feed
+              - generic [ref=e2375]: P0 · Sovereign
+              - paragraph [ref=e2380]: A tutor's business is not social content.
+            - generic [ref=e2381]:
+              - generic [ref=e2382]: AI auto-billing
+              - generic [ref=e2387]: P1 · Immutable ledger
+              - paragraph [ref=e2392]: AI drafts; the tutor approves. Always audited.
+            - generic [ref=e2393]:
+              - generic [ref=e2394]: Indigo / blue accents
+              - generic [ref=e2399]: AP-6 · Palette
+              - paragraph [ref=e2404]: The bioluminescent palette is the brand.
+        - generic [ref=e2405]:
+          - heading "The 5 gates to graduation" [level=3] [ref=e2409]
+          - paragraph [ref=e2410]: An item moves from this roadmap into v1 only when all five gates pass. No exceptions, no "just this once".
+          - generic [ref=e2411]:
+            - generic [ref=e2412]:
+              - generic [ref=e2413]:
+                - generic [ref=e2414]: "1"
+                - generic [ref=e2415]: Principle amendment ratified
+              - paragraph [ref=e2416]: 2-week RFC + 3-signoff
+            - generic [ref=e2417]:
+              - generic [ref=e2418]:
+                - generic [ref=e2419]: "2"
+                - generic [ref=e2420]: Cooling-off period
+              - paragraph [ref=e2421]: 14 days for dissent
+            - generic [ref=e2422]:
+              - generic [ref=e2423]:
+                - generic [ref=e2424]: "3"
+                - generic [ref=e2425]: Prototype spec written
+              - paragraph [ref=e2426]: Following the 20-section template
+            - generic [ref=e2427]:
+              - generic [ref=e2428]:
+                - generic [ref=e2429]: "4"
+                - generic [ref=e2430]: Demand signal ≥ threshold
+              - paragraph [ref=e2431]: 10+ tutors requesting
+            - generic [ref=e2432]:
+              - generic [ref=e2433]:
+                - generic [ref=e2434]: "5"
+                - generic [ref=e2435]: Engineering capacity
+              - paragraph [ref=e2436]: Without dropping v1.x hardening
+      - generic [ref=e2437]:
+        - generic [ref=e2438]:
+          - generic [ref=e2439]: Specification Package
+          - heading "17 files. ~126,660 words." [level=2] [ref=e2444]:
+            - text: 17 files.
+            - generic [ref=e2445]: ~126,660 words.
+          - paragraph [ref=e2446]: "The single source of truth. Click any file to read it in the in-page spec reader. Every screen follows a 20-section template: Purpose → Future Extensions. Press ⌘K to search, or copy a deep link to share a single spec."
+        - generic [ref=e2447]:
+          - button "All" [ref=e2448]
+          - button "Foundation" [ref=e2449]
+          - button "Screen Spec" [ref=e2450]
+          - button "Cross-Cutting" [ref=e2451]
+          - button [ref=e2452]
+        - generic [ref=e2456]:
+          - button "Open Vision spec" [ref=e2457] [cursor=pointer]:
+            - generic [ref=e2458]: "00"
+            - generic [ref=e2459]:
+              - generic [ref=e2460]:
+                - heading "Vision" [level=3] [ref=e2461]
+                - generic [ref=e2462]: Foundation
+              - paragraph [ref=e2463]: The pitch, the problem, the five-screen doctrine, tutor personas, day-in-the-life, market landscape, single-tenant sovereignty, success metrics, three-year horizon.
+              - generic [ref=e2464]:
+                - generic [ref=e2465]: 00_Vision.md
+                - generic [ref=e2466]: ·
+                - generic [ref=e2467]: 6,069w
+            - button "Bookmark Vision" [ref=e2468]
+          - button "Open Product Principles spec" [ref=e2473] [cursor=pointer]:
+            - generic [ref=e2474]: "01"
+            - generic [ref=e2475]:
+              - generic [ref=e2476]:
+                - heading "Product Principles" [level=3] [ref=e2477]
+                - generic [ref=e2478]: Foundation
+              - paragraph [ref=e2479]: The 15-rule constitution with enforcement, tension matrices, anti-principles, amendment process, and case studies. Every PR is arbitrated here.
+              - generic [ref=e2480]:
+                - generic [ref=e2481]: 01_Product_Principles.md
+                - generic [ref=e2482]: ·
+                - generic [ref=e2483]: 6,499w
+            - button "Bookmark Product Principles" [ref=e2484]
+          - button "Open Core Logic spec" [ref=e2489] [cursor=pointer]:
+            - generic [ref=e2490]: "02"
+            - generic [ref=e2491]:
+              - generic [ref=e2492]:
+                - heading "Core Logic" [level=3] [ref=e2493]
+                - generic [ref=e2494]: Foundation
+              - paragraph [ref=e2495]: State machines for 5 screens + 7 engines, the ledger engine deep-dive (append-only, hash chain, void vs reverse), reminder/search/sync/notification/report/security engines, 6 core algorithms with pseudocode, 14 cross-cutting invariants.
+              - generic [ref=e2496]:
+                - generic [ref=e2497]: 02_Core_Logic.md
+                - generic [ref=e2498]: ·
+                - generic [ref=e2499]: 6,495w
+            - button "Bookmark Core Logic" [ref=e2500]
+          - button "Open User Flows spec" [ref=e2505] [cursor=pointer]:
+            - generic [ref=e2506]: "03"
+            - generic [ref=e2507]:
+              - generic [ref=e2508]:
+                - heading "User Flows" [level=3] [ref=e2509]
+                - generic [ref=e2510]: Cross-Cutting
+              - paragraph [ref=e2511]: 4 persona-grounded flows, 8-step onboarding, day-in-the-life timeline, per-screen primary flows with ASCII diagrams, 6 cross-screen flows, error & recovery flows, empty states, accessibility flows, 3 decision trees, happy vs edge path matrix.
+              - generic [ref=e2512]:
+                - generic [ref=e2513]: 03_User_Flows.md
+                - generic [ref=e2514]: ·
+                - generic [ref=e2515]: 6,420w
+            - button "Bookmark User Flows" [ref=e2516]
+          - button "Open Dashboard spec" [ref=e2521] [cursor=pointer]:
+            - generic [ref=e2522]: "04"
+            - generic [ref=e2523]:
+              - generic [ref=e2524]:
+                - heading "Dashboard" [level=3] [ref=e2525]
+                - generic [ref=e2526]: Screen Spec
+              - paragraph [ref=e2527]: One-glance truth. KPI strip, attendance & payment heatmaps, activity feed, due-today, quick actions. Every formula pinned.
+              - generic [ref=e2528]:
+                - generic [ref=e2529]: 04_Dashboard.md
+                - generic [ref=e2530]: ·
+                - generic [ref=e2531]: 7,425w
+            - button "Bookmark Dashboard" [ref=e2532]
+          - button "Open Students spec" [ref=e2537] [cursor=pointer]:
+            - generic [ref=e2538]: "05"
+            - generic [ref=e2539]:
+              - generic [ref=e2540]:
+                - heading "Students" [level=3] [ref=e2541]
+                - generic [ref=e2542]: Screen Spec
+              - paragraph [ref=e2543]: Master-detail lifecycle. Profile, fee plan, immutable ledger, invoices, timeline, notes, docs, tags. Postpaid + prepaid + mixed.
+              - generic [ref=e2544]:
+                - generic [ref=e2545]: 05_Students.md
+                - generic [ref=e2546]: ·
+                - generic [ref=e2547]: 9,556w
+            - button "Bookmark Students" [ref=e2548]
+          - button "Open Attendance spec" [ref=e2553] [cursor=pointer]:
+            - generic [ref=e2554]: "06"
+            - generic [ref=e2555]:
+              - generic [ref=e2556]:
+                - heading "Attendance" [level=3] [ref=e2557]
+                - generic [ref=e2558]: Screen Spec
+              - paragraph [ref=e2559]: Apple-style toggles, daily/calendar/heatmap views, bulk mark, lock/unlock via fingerprint/PIN, audit trail, late + holiday.
+              - generic [ref=e2560]:
+                - generic [ref=e2561]: 06_Attendance.md
+                - generic [ref=e2562]: ·
+                - generic [ref=e2563]: 7,551w
+            - button "Bookmark Attendance" [ref=e2564]
+          - button "Open Fees & Payments spec" [ref=e2569] [cursor=pointer]:
+            - generic [ref=e2570]: "07"
+            - generic [ref=e2571]:
+              - generic [ref=e2572]:
+                - heading "Fees & Payments" [level=3] [ref=e2573]
+                - generic [ref=e2574]: Screen Spec
+              - paragraph [ref=e2575]: The heart of the app. Paid/unpaid/partial matrix, per-student ledger, receipts, voids, advances, refunds — accounting-grade.
+              - generic [ref=e2576]:
+                - generic [ref=e2577]: 07_Fees_and_Payments.md
+                - generic [ref=e2578]: ·
+                - generic [ref=e2579]: 14,806w
+            - button "Bookmark Fees & Payments" [ref=e2580]
+          - button "Open Settings spec" [ref=e2585] [cursor=pointer]:
+            - generic [ref=e2586]: "08"
+            - generic [ref=e2587]:
+              - generic [ref=e2588]:
+                - heading "Settings" [level=3] [ref=e2589]
+                - generic [ref=e2590]: Screen Spec
+              - paragraph [ref=e2591]: Profile, theme, biometrics/PIN, backups, import/export, rules, audit log, diagnostics. 12 sections, instant-apply.
+              - generic [ref=e2592]:
+                - generic [ref=e2593]: 08_Settings.md
+                - generic [ref=e2594]: ·
+                - generic [ref=e2595]: 7,884w
+            - button "Bookmark Settings" [ref=e2596]
+          - button "Open Backup & Import/Export spec" [ref=e2601] [cursor=pointer]:
+            - generic [ref=e2602]: "09"
+            - generic [ref=e2603]:
+              - generic [ref=e2604]:
+                - heading "Backup & Import/Export" [level=3] [ref=e2605]
+                - generic [ref=e2606]: Screen Spec
+              - paragraph [ref=e2607]: .tutoros encrypted file (AES-256-GCM + argon2id), 3-worksheet Excel export, bulk import, streaming, recovery.
+              - generic [ref=e2608]:
+                - generic [ref=e2609]: 09_Backup_and_Import_Export.md
+                - generic [ref=e2610]: ·
+                - generic [ref=e2611]: 8,910w
+            - button "Bookmark Backup & Import/Export" [ref=e2612]
+          - button "Open Security spec" [ref=e2617] [cursor=pointer]:
+            - generic [ref=e2618]: "10"
+            - generic [ref=e2619]:
+              - generic [ref=e2620]:
+                - heading "Security" [level=3] [ref=e2621]
+                - generic [ref=e2622]: Cross-Cutting
+              - paragraph [ref=e2623]: Threat model, PIN/biometric architecture, AES-256-GCM backup crypto, ledger tamper-evidence, no-telemetry contract, secure-erase, compliance posture, security test matrix.
+              - generic [ref=e2624]:
+                - generic [ref=e2625]: 10_Security.md
+                - generic [ref=e2626]: ·
+                - generic [ref=e2627]: 6,499w
+            - button "Bookmark Security" [ref=e2628]
+          - button "Open Data Model spec" [ref=e2633] [cursor=pointer]:
+            - generic [ref=e2634]: "11"
+            - generic [ref=e2635]:
+              - generic [ref=e2636]:
+                - heading "Data Model" [level=3] [ref=e2637]
+                - generic [ref=e2638]: Foundation
+              - paragraph [ref=e2639]: 20-entity SQLite schema with DDL, ASCII ER diagram, integer-paise convention, LedgerEntry deep dive (hash chain + triggers), 7 enumeration tables, indexes & query patterns, FTS5 virtual tables, migration strategy, envelope-encryption backup, sample seed dataset.
+              - generic [ref=e2640]:
+                - generic [ref=e2641]: 11_Data_Model.md
+                - generic [ref=e2642]: ·
+                - generic [ref=e2643]: 6,487w
+            - button "Bookmark Data Model" [ref=e2644]
+          - button "Open Business Rules spec" [ref=e2649] [cursor=pointer]:
+            - generic [ref=e2650]: "12"
+            - generic [ref=e2651]:
+              - generic [ref=e2652]:
+                - heading "Business Rules" [level=3] [ref=e2653]
+                - generic [ref=e2654]: Foundation
+              - paragraph [ref=e2655]: 89 rules across 11 domains (FEE/ATT/STU/BAT/LED/REM/RPT/SYN/SEC/UI/IMP), 20 critical-tagged, conflicts & precedence matrix, rule amendment process, calculation reference, 23-term glossary — every BR-ID citable.
+              - generic [ref=e2656]:
+                - generic [ref=e2657]: 12_Business_Rules.md
+                - generic [ref=e2658]: ·
+                - generic [ref=e2659]: 6,497w
+            - button "Bookmark Business Rules" [ref=e2660]
+          - button "Open UI Guidelines spec" [ref=e2665] [cursor=pointer]:
+            - generic [ref=e2666]: "13"
+            - generic [ref=e2667]:
+              - generic [ref=e2668]:
+                - heading "UI Guidelines" [level=3] [ref=e2669]
+                - generic [ref=e2670]: Foundation
+              - paragraph [ref=e2671]: Vibrant Glass & Neumorphism — color tokens, typography ramp, glass-panel recipes, neumorphic surfaces, motion catalogue, 20-component vocabulary, a11y, do/don't gallery.
+              - generic [ref=e2672]:
+                - generic [ref=e2673]: 13_UI_Guidelines.md
+                - generic [ref=e2674]: ·
+                - generic [ref=e2675]: 6,500w
+            - button "Bookmark UI Guidelines" [ref=e2676]
+          - button "Open Edge Cases spec" [ref=e2681] [cursor=pointer]:
+            - generic [ref=e2682]: "14"
+            - generic [ref=e2683]:
+              - generic [ref=e2684]:
+                - heading "Edge Cases" [level=3] [ref=e2685]
+                - generic [ref=e2686]: Cross-Cutting
+              - paragraph [ref=e2687]: 87 named edge cases across 12 domains (money, attendance, ledger, sync, security, import/export, migration, data, receipts, calculations, UI, cross-edge), severity taxonomy, cross-edge-case matrix, triage protocol.
+              - generic [ref=e2688]:
+                - generic [ref=e2689]: 14_Edge_Cases.md
+                - generic [ref=e2690]: ·
+                - generic [ref=e2691]: 6,065w
+            - button "Bookmark Edge Cases" [ref=e2692]
+          - button "Open Future Roadmap spec" [ref=e2697] [cursor=pointer]:
+            - generic [ref=e2698]: "15"
+            - generic [ref=e2699]:
+              - generic [ref=e2700]:
+                - heading "Future Roadmap" [level=3] [ref=e2701]
+                - generic [ref=e2702]: Cross-Cutting
+              - paragraph [ref=e2703]: v1.x quarterly hardening, v2 multi-device sync (E2E), v3 on-device intelligence, v4 federation. Explicitly-never list, graduation gates, five-year arc.
+              - generic [ref=e2704]:
+                - generic [ref=e2705]: 15_Future_Roadmap.md
+                - generic [ref=e2706]: ·
+                - generic [ref=e2707]: 6,499w
+            - button "Bookmark Future Roadmap" [ref=e2708]
+          - button "Open AGENTS spec" [ref=e2713] [cursor=pointer]:
+            - generic [ref=e2714]: ∞
+            - generic [ref=e2715]:
+              - generic [ref=e2716]:
+                - heading "AGENTS" [level=3] [ref=e2717]
+                - generic [ref=e2718]: Foundation
+              - paragraph [ref=e2719]: Master directive for AI coding agents — prime directive, 10 non-negotiable rules, file map, spec hierarchy, commit/PR conventions, stop-and-ask triggers, anti-patterns, decision framework, code review checklist, failure modes, testing & QA protocol, cross-reference index, glossary.
+              - generic [ref=e2720]:
+                - generic [ref=e2721]: AGENTS.md
+                - generic [ref=e2722]: ·
+                - generic [ref=e2723]: 6,498w
+            - button "Bookmark AGENTS" [ref=e2724]
+      - generic [ref=e2729]:
+        - generic [ref=e2730]:
+          - generic [ref=e2731]: The Constitution
+          - heading "15 principles. Zero compromise." [level=2] [ref=e2735]
+        - generic [ref=e2736]:
+          - generic [ref=e2737]:
+            - generic [ref=e2738]:
+              - generic [ref=e2739]: P2
+              - heading "Five Screens, Forever" [level=3] [ref=e2740]
+            - paragraph [ref=e2741]: A sixth screen is a bug. New capability goes into one of the five, or is rejected.
+          - generic [ref=e2742]:
+            - generic [ref=e2743]:
+              - generic [ref=e2744]: P3
+              - heading "Two-Tap Rule" [level=3] [ref=e2745]
+            - paragraph [ref=e2746]: Any primary action reachable in ≤ 2 taps via sidebar or ⌘K palette.
+          - generic [ref=e2747]:
+            - generic [ref=e2748]:
+              - generic [ref=e2749]: P4
+              - heading "Immutable Ledger" [level=3] [ref=e2750]
+            - paragraph [ref=e2751]: Money is never edited. Corrections are reversing entries. The ledger is the spine.
+          - generic [ref=e2752]:
+            - generic [ref=e2753]:
+              - generic [ref=e2754]: P5
+              - heading "Offline-First, Always" [level=3] [ref=e2755]
+            - paragraph [ref=e2756]: The happy path is no network. The network is a replication transport, not a dependency.
+          - generic [ref=e2757]:
+            - generic [ref=e2758]:
+              - generic [ref=e2759]: P9
+              - heading "Receipts Are Sacred" [level=3] [ref=e2760]
+            - paragraph [ref=e2761]: Immutable, numbered, tamper-hashed. Voidable, never silently edited.
+          - generic [ref=e2762]:
+            - generic [ref=e2763]:
+              - generic [ref=e2764]: P10
+              - heading "Backups Are Yours" [level=3] [ref=e2765]
+            - paragraph [ref=e2766]: A single encrypted file. Download, email, pendrive. Never hostage to a subscription.
+          - generic [ref=e2767]:
+            - generic [ref=e2768]:
+              - generic [ref=e2769]: P11
+              - heading "Security Is Tactile" [level=3] [ref=e2770]
+            - paragraph [ref=e2771]: Fingerprint to unlock attendance, PIN to void. Security the user physically performs.
+          - generic [ref=e2772]:
+            - generic [ref=e2773]:
+              - generic [ref=e2774]: P12
+              - heading "Minutes-Per-Day" [level=3] [ref=e2775]
+            - paragraph [ref=e2776]: The north-star. A feature that raises it is rejected. Boring > busy.
+          - generic [ref=e2777]:
+            - generic [ref=e2778]:
+              - generic [ref=e2779]: P15
+              - heading "Honest Empty States" [level=3] [ref=e2780]
+            - paragraph [ref=e2781]: An empty screen is a teaching moment, not a void. Every state has a CTA.
+        - button "Read all 15 principles" [ref=e2783] [cursor=pointer]
+      - generic [ref=e2788]:
+        - heading "Build it right. Build it secure. Don't compromise on the UI." [level=2] [ref=e2789]: Build it right. Build it secure.Don't compromise on the UI.
+        - paragraph [ref=e2790]: This specification package is the single source of truth from which TutorOS Omni-Core is generated. Every formula, every rule, every edge case — pinned.
+        - generic [ref=e2791]:
+          - button "Read the Core Logic" [ref=e2792] [cursor=pointer]
+          - button "AGENTS.md" [ref=e2796] [cursor=pointer]
+    - contentinfo [ref=e2800]:
+      - generic [ref=e2801]:
+        - generic [ref=e2802]:
+          - generic [ref=e2805]: v1.0 · master blueprint
+          - generic [ref=e2806]: ·
+          - generic [ref=e2807]: synced ·· ···
+        - generic [ref=e2808]:
+          - button "⌘K to search" [ref=e2809]
+          - generic [ref=e2810]: ·
+          - generic [ref=e2811]: 17 specs · ~126,660 words
+          - generic [ref=e2812]: ·
+          - generic [ref=e2813]: © TutorOS Omni-Core
+  - region "Notifications (F8)":
+    - list

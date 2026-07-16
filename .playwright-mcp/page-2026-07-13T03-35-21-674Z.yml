@@ -1,0 +1,89 @@
+- generic [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - complementary [ref=f6e3]:
+      - generic [ref=f6e4]:
+        - generic [ref=f6e5]: T
+        - generic [ref=f6e6]: Jyothi Tutions
+      - navigation "Main navigation" [ref=f6e7]:
+        - button "Dashboard" [ref=f6e8] [cursor=pointer]
+        - button "Students" [ref=f6e15] [cursor=pointer]
+        - button "Attendance" [ref=f6e22] [cursor=pointer]
+        - button "Fees & Payments" [ref=f6e27] [cursor=pointer]
+        - button "Settings" [active] [ref=f6e32] [cursor=pointer]
+      - generic [ref=f6e37]:
+        - generic [ref=f6e38] [cursor=pointer]:
+          - generic [ref=f6e39]: Sync
+          - generic "Online" [ref=f6e45]
+        - generic [ref=f6e46] [cursor=pointer]:
+          - generic [ref=f6e47]: Search...
+          - generic [ref=f6e51]: ⌘K
+    - generic [ref=f6e52]:
+      - banner [ref=f6e53]:
+        - heading "Jyothi Tutions" [level=2] [ref=f6e168]
+        - generic [ref=f6e56]:
+          - searchbox "Search students" [ref=f6e61]
+          - button "User profile" [ref=f6e62] [cursor=pointer]: RS
+      - main [ref=f6e63]:
+        - main [ref=f6e64]:
+          - generic [ref=f6e266]:
+            - generic [ref=f6e267]:
+              - heading "Settings" [level=1] [ref=f6e268]
+              - paragraph [ref=f6e269]: Manage your application preferences and security
+            - generic [ref=f6e270]:
+              - navigation "Settings sections" [ref=f6e271]:
+                - generic [ref=f6e272]:
+                  - button "Profile" [ref=f6e273] [cursor=pointer]
+                  - button "Appearance" [ref=f6e279] [cursor=pointer]
+                  - button "Attendance Rules" [ref=f6e287] [cursor=pointer]
+                  - button "Fee Rules" [ref=f6e292] [cursor=pointer]
+                  - button "Notifications" [ref=f6e297] [cursor=pointer]
+                  - button "Security" [ref=f6e302] [cursor=pointer]
+                  - button "Database" [ref=f6e306] [cursor=pointer]
+                  - button "Backup & Restore" [ref=f6e312] [cursor=pointer]
+                  - button "Import & Export" [ref=f6e316] [cursor=pointer]
+                  - button "Data & Privacy" [ref=f6e322] [cursor=pointer]
+                  - button "About" [ref=f6e326] [cursor=pointer]
+                  - button "Help" [ref=f6e330] [cursor=pointer]
+                  - button "Diagnostics" [ref=f6e335] [cursor=pointer]
+              - generic [ref=f6e341]:
+                - heading "Institute Profile" [level=3] [ref=f6e342]
+                - generic [ref=f6e347]:
+                  - generic [ref=f6e348]:
+                    - generic [ref=f6e349]: Institute Name
+                    - textbox [ref=f6e350]: Jyothi Tutions
+                  - generic [ref=f6e351]:
+                    - generic [ref=f6e352]: Address
+                    - textbox [ref=f6e353]: 12 Rose Lane, Bengaluru
+                  - generic [ref=f6e354]:
+                    - generic [ref=f6e355]:
+                      - generic [ref=f6e356]: Phone
+                      - textbox "+919876543210" [ref=f6e357]: "+916309541891"
+                    - generic [ref=f6e358]:
+                      - generic [ref=f6e359]: Email
+                      - textbox [ref=f6e360]: hkdevloops@gmail.com
+                  - generic [ref=f6e361]:
+                    - generic [ref=f6e362]:
+                      - generic [ref=f6e363]: Currency
+                      - combobox "Currency" [ref=f6e365] [cursor=pointer]:
+                        - option "INR (₹)" [selected]
+                        - option "USD ($)"
+                        - option "EUR (€)"
+                        - option "GBP (£)"
+                        - option "AED (د.إ)"
+                    - generic [ref=f6e366]:
+                      - generic [ref=f6e367]: Locale
+                      - combobox "Locale" [ref=f6e369] [cursor=pointer]:
+                        - option "English (India)" [selected]
+                        - option "English (US)"
+                - generic [ref=f6e370]:
+                  - button "Discard" [ref=f6e371] [cursor=pointer]
+                  - button "Save Changes" [ref=f6e375] [cursor=pointer]
+        - generic [ref=f6e148]:
+          - generic [ref=f6e149]:
+            - generic [ref=f6e154]: Online · 0 pending
+            - generic [ref=f6e155]: "Local DB: 2.1 MB"
+          - generic [ref=f6e156]:
+            - generic [ref=f6e157]: v1.0.0-rc
+            - generic [ref=f6e158]: © 2026 BuddySaradhi
+  - button "Open Next.js Dev Tools" [ref=f6e164] [cursor=pointer]
+  - alert [ref=f6e265]

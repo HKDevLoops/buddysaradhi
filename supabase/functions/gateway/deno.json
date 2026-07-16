@@ -1,0 +1,7 @@
+{
+  "name": "gateway",
+  "runtime": "deno2",
+  "entrypoint": "index.ts",
+  "import_map": "https://esm.sh/import_map.json",
+  "dependencies": ["https://esm.sh/@supabase/supabase-js@2"]
+}

@@ -1,0 +1,54 @@
+# .github/workflows/web-deploy.yml
+# Implements: deployment/05_CI_CD_GitHub_Actions.md §3 — post-deploy smoke
+name: web-deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: web-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Post-deploy agent-browser smoke
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for Vercel deployment
+        run: |
+          # Poll the Vercel deployment status until it's READY
+          sleep 30  # give Vercel a head start
+          for i in {1..20}; do
+            STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+              "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&target=production" \
+              | jq -r '.deployments[0].status')
+            echo "Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "READY" ]; then
+              echo "Deployment is ready"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Deployment did not become READY in 5 minutes"
+          exit 1
+
+      - name: Agent Browser smoke
+        uses: ./.github/actions/agent-browser-smoke
+        with:
+          url: https://buddysaradhi.app
+          vercel_token: ${{ secrets.VERCEL_TOKEN }}
+          vercel_project_id: ${{ secrets.VERCEL_PROJECT_ID }}
+        timeout-minutes: 5
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ web-deploy smoke failed on commit ${{ github.sha }}\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}

@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Buddysaradhi Gateway API
+  version: 1.0.0
+  description: The single source of truth contract for Buddysaradhi API Gateway.
+servers:
+  - url: /api/v1
+paths:
+  /ledger:
+    get:
+      operationId: ledgerListEntries
+      summary: Get ledger entries
+      parameters:
+        - name: tutorId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: A list of ledger entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LedgerEntry'
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    post:
+      operationId: ledgerPostEntry
+      summary: Post a new ledger entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tutorId
+                - studentId
+                - kind
+                - amountPaise
+              properties:
+                tutorId:
+                  type: string
+                studentId:
+                  type: string
+                batchId:
+                  type: string
+                kind:
+                  type: string
+                  enum: [fee_due, fee_paid, discount, refund]
+                amountPaise:
+                  type: integer
+                  description: Amount in integer paise
+                notes:
+                  type: string
+      responses:
+        '200':
+          description: Created ledger entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEntry'
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /ledger/{id}/void:
+    post:
+      operationId: ledgerVoidEntry
+      summary: Void a ledger entry (creates a reversing entry)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tutorId
+                - reason
+              properties:
+                tutorId:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: The reversing entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerEntry'
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /ledger/balance:
+    get:
+      operationId: ledgerComputeBalance
+      summary: Get the balance for a student
+      parameters:
+        - name: tutorId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: studentId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The balance
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - balancePaise
+                properties:
+                  balancePaise:
+                    type: integer
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /security/erase:
+    post:
+      operationId: secureErase
+      summary: Securely erase all tutor data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tutorId
+                - confirm
+              properties:
+                tutorId:
+                  type: string
+                confirm:
+                  type: string
+      responses:
+        '200':
+          description: Data erased successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+components:
+  schemas:
+    LedgerEntry:
+      type: object
+      required:
+        - id
+        - tutorId
+        - studentId
+        - kind
+        - amountPaise
+        - createdAt
+      properties:
+        id:
+          type: string
+        tutorId:
+          type: string
+        studentId:
+          type: string
+        batchId:
+          type: string
+        kind:
+          type: string
+          enum: [fee_due, fee_paid, discount, refund, void]
+        amountPaise:
+          type: integer
+        reversesEntryId:
+          type: string
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ApiError:
+      type: object
+      required:
+        - code
+        - message
+        - operationId
+        - traceId
+      properties:
+        code:
+          type: string
+          enum: [unauthenticated, forbidden, contract_violation, not_found, conflict, rate_limited, storage_unavailable, upstream_violation, internal]
+        message:
+          type: string
+        retryAfterMs:
+          type: integer
+        operationId:
+          type: string
+        traceId:
+          type: string

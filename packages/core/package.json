@@ -1,0 +1,26 @@
+{
+  "name": "@buddysaradhi/core",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check \"src/**/*.ts\"",
+    "test": "vitest run src",
+    "db:test": "vitest run src/ledger.test.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@prisma/client": "5.22.0",
+    "@types/node": "^26.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "fast-check": "^4.8.0",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.9"
+  }
+}

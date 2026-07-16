@@ -1,0 +1,28 @@
+{
+  "name": "@buddysaradhi/gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
+    "generate": "prisma generate",
+    "db:push": "prisma db push",
+    "seed": "bun run prisma/seed.ts",
+    "provision": "bun run prisma/seed.ts --init",
+    "verify": "bun run scripts/verify-ledger.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "@prisma/adapter-libsql": "^5.22.0",
+    "@prisma/client": "^5.22.0",
+    "graphql": "^17.0.2",
+    "graphql-yoga": "^5.21.2",
+    "hono": "^4.6.0",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0",
+    "typescript": "^7.0.2"
+  }
+}

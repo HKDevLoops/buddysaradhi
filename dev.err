@@ -1,0 +1,351 @@
+$ next dev
+Failed to create invoice: Error [LibsqlError]: SQLITE_CONSTRAINT: FOREIGN KEY constraint failed
+    at postLedgerEntryRaw (src\server\actions\fees.ts:58:16)
+    at async createInvoiceAction (src\server\actions\fees.ts:151:21)
+  56 |
+  57 |   // 3. Insert entry (BR-LED-01: append-only)
+> 58 |   await client.execute({
+     |                ^
+  59 |     sql: `INSERT INTO ledger_entries (
+  60 |             id, tenant_id, student_id, type, debit_paise, credit_paise,
+  61 |             balance_after_paise, description, occurred_on, this_hash, prev_hash, {
+  code: 'SQLITE_CONSTRAINT',
+  extendedCode: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+  rawCode: 787,
+  [cause]: SqliteError: FOREIGN KEY constraint failed
+      at postLedgerEntryRaw (src\server\actions\fees.ts:58:16)
+      at async createInvoiceAction (src\server\actions\fees.ts:151:21)
+    56 |
+    57 |   // 3. Insert entry (BR-LED-01: append-only)
+  > 58 |   await client.execute({
+       |                ^
+    59 |     sql: `INSERT INTO ledger_entries (
+    60 |             id, tenant_id, student_id, type, debit_paise, credit_paise,
+    61 |             balance_after_paise, description, occurred_on, this_hash, prev_hash, {
+    code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+    rawCode: 787
+  }
+}
+Failed to record payment: Error [LibsqlError]: SQLITE_CONSTRAINT: FOREIGN KEY constraint failed
+    at postLedgerEntryRaw (src\server\actions\fees.ts:58:16)
+    at async recordPaymentAction (src\server\actions\fees.ts:85:21)
+  56 |
+  57 |   // 3. Insert entry (BR-LED-01: append-only)
+> 58 |   await client.execute({
+     |                ^
+  59 |     sql: `INSERT INTO ledger_entries (
+  60 |             id, tenant_id, student_id, type, debit_paise, credit_paise,
+  61 |             balance_after_paise, description, occurred_on, this_hash, prev_hash, {
+  code: 'SQLITE_CONSTRAINT',
+  extendedCode: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+  rawCode: 787,
+  [cause]: SqliteError: FOREIGN KEY constraint failed
+      at postLedgerEntryRaw (src\server\actions\fees.ts:58:16)
+      at async recordPaymentAction (src\server\actions\fees.ts:85:21)
+    56 |
+    57 |   // 3. Insert entry (BR-LED-01: append-only)
+  > 58 |   await client.execute({
+       |                ^
+    59 |     sql: `INSERT INTO ledger_entries (
+    60 |             id, tenant_id, student_id, type, debit_paise, credit_paise,
+    61 |             balance_after_paise, description, occurred_on, this_hash, prev_hash, {
+    code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+    rawCode: 787
+  }
+}
+Failed to update auth email in Supabase: Email address "hkdevloops@gmail.com" is invalid
+Failed to update attendance: Error [LibsqlError]: SQLITE_CONSTRAINT: FOREIGN KEY constraint failed
+    at updateAttendanceAction (src\server\actions\attendance.ts:31:20)
+  29 |     } else {
+  30 |       sessionId = randomUUID();
+> 31 |       await client.execute({
+     |                    ^
+  32 |         sql: `INSERT INTO attendance_sessions (id, tenant_id, session_date, batch_id, crea...
+  33 |               VALUES (?, ?, ?, ?, ?, ?)`,
+  34 |         args: [sessionId, tenantId, payload.session_date, payload.batch_id || "", now, now], {
+  code: 'SQLITE_CONSTRAINT',
+  extendedCode: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+  rawCode: 787,
+  [cause]: SqliteError: FOREIGN KEY constraint failed
+      at updateAttendanceAction (src\server\actions\attendance.ts:31:20)
+    29 |     } else {
+    30 |       sessionId = randomUUID();
+  > 31 |       await client.execute({
+       |                    ^
+    32 |         sql: `INSERT INTO attendance_sessions (id, tenant_id, session_date, batch_id, crea...
+    33 |               VALUES (?, ?, ?, ?, ?, ?)`,
+    34 |         args: [sessionId, tenantId, payload.session_date, payload.batch_id || "", now, now], {
+    code: 'SQLITE_CONSTRAINT_FOREIGNKEY',
+    rawCode: 787
+  }
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] ./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+  374 |     </div>
+  375 |   );
+> 376 | }
+      | ^
+  377 |
+  378 | function KPICard({
+  379 |   title, value, formatFn, icon, accent, delta, isLoading,
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component] 
+[browser] ./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+  374 |     </div>
+  375 |   );
+> 376 | }
+      | ^
+  377 |
+  378 | function KPICard({
+  379 |   title, value, formatFn, icon, accent, delta, isLoading,
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component] 
+[browser] Uncaught Error: ./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+  374 |     </div>
+  375 |   );
+> 376 | }
+      | ^
+  377 |
+  378 | function KPICard({
+  379 |   title, value, formatFn, icon, accent, delta, isLoading,
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component]
+
+
+    at <unknown> (Error: ./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1)
+    at <unknown> (Error: (./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1)
+[browser] ./apps/web/src/components/buddysaradhi/dashboard-client.tsx:376:1
+Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+  374 |     </div>
+  375 |   );
+> 376 | }
+      | ^
+  377 |
+  378 | function KPICard({
+  379 |   title, value, formatFn, icon, accent, delta, isLoading,
+
+Parsing ecmascript source code failed
+
+Import traces:
+  Client Component Browser:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component Browser]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./apps/web/src/components/buddysaradhi/dashboard-client.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Client Component SSR]
+    ./apps/web/src/app/(app)/dashboard/page.tsx [Server Component] 
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+[browser] ./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7
+Expected '>', got 'ident'
+  270 |         </div>
+  271 |       </div>
+> 272 |     </PaletteProvider>
+      |       ^^^^^^^^^^^^^^^
+  273 |   );
+  274 | }
+  275 |
+
+Parsing ecmascript source code failed
+
+Import trace:
+  Server Component:
+    ./apps/web/src/components/buddysaradhi/glass-shell.tsx
+    ./apps/web/src/app/(app)/layout.tsx 
+[browser] ./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7
+Expected '>', got 'ident'
+  270 |         </div>
+  271 |       </div>
+> 272 |     </PaletteProvider>
+      |       ^^^^^^^^^^^^^^^
+  273 |   );
+  274 | }
+  275 |
+
+Parsing ecmascript source code failed
+
+Import trace:
+  Server Component:
+    ./apps/web/src/components/buddysaradhi/glass-shell.tsx
+    ./apps/web/src/app/(app)/layout.tsx 
+[browser] Uncaught Error: ./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7
+Expected '>', got 'ident'
+  270 |         </div>
+  271 |       </div>
+> 272 |     </PaletteProvider>
+      |       ^^^^^^^^^^^^^^^
+  273 |   );
+  274 | }
+  275 |
+
+Parsing ecmascript source code failed
+
+Import trace:
+  Server Component:
+    ./apps/web/src/components/buddysaradhi/glass-shell.tsx
+    ./apps/web/src/app/(app)/layout.tsx
+
+
+    at <unknown> (Error: ./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7)
+    at <unknown> (Error: (./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7)
+[browser] ./apps/web/src/components/buddysaradhi/glass-shell.tsx:272:7
+Expected '>', got 'ident'
+  270 |         </div>
+  271 |       </div>
+> 272 |     </PaletteProvider>
+      |       ^^^^^^^^^^^^^^^
+  273 |   );
+  274 | }
+  275 |
+
+Parsing ecmascript source code failed
+
+Import trace:
+  Server Component:
+    ./apps/web/src/components/buddysaradhi/glass-shell.tsx
+    ./apps/web/src/app/(app)/layout.tsx 
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+Error [AuthApiError]: Invalid Refresh Token: Refresh Token Not Found
+    at ignore-listed frames {
+  __isAuthError: true,
+  status: 400,
+  code: 'refresh_token_not_found'
+}
+Error [AuthApiError]: Invalid Refresh Token: Refresh Token Not Found
+    at ignore-listed frames {
+  __isAuthError: true,
+  status: 400,
+  code: 'refresh_token_not_found'
+}
+Error [AuthApiError]: Invalid Refresh Token: Refresh Token Not Found
+    at ignore-listed frames {
+  __isAuthError: true,
+  status: 400,
+  code: 'refresh_token_not_found'
+}
+Error [AuthApiError]: Invalid Refresh Token: Refresh Token Not Found
+    at ignore-listed frames {
+  __isAuthError: true,
+  status: 400,
+  code: 'refresh_token_not_found'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+⨯ uncaughtException: Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+⨯ uncaughtException:  Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⚠ Fast Refresh had to perform a full reload when ./apps/web/src/lib/palette-provider.tsx changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET',
+  digest: '79808617'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET',
+  digest: '79808617'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET',
+  digest: '79808617'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET',
+  digest: '79808617'
+}
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+⨯ Error: aborted
+    at ignore-listed frames {
+  code: 'ECONNRESET',
+  digest: '79808617'
+}

@@ -1,0 +1,42 @@
+{
+  "name": "buddysaradhi",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "apps/services/*",
+    "apps/gateway",
+    "packages/*"
+  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "@prisma/client",
+      "argon2"
+    ]
+  },
+  "prisma": {
+    "seed": "bun run prisma/seed.ts"
+  },
+  "scripts": {
+    "lint": "pnpm --filter '*' lint",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:a11y": "pnpm --filter web test:a11y",
+    "version:check": "node scripts/version-check.js"
+  },
+  "devDependencies": {
+    "prisma": "^5.14.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.9",
+    "zod-prisma-types": "^3.3.11"
+  },
+  "dependencies": {
+    "@prisma/adapter-libsql": "^5.14.0",
+    "@prisma/client": "^5.14.0",
+    "argon2": "^0.44.0",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "3.24.2"
+  }
+}

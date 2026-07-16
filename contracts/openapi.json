@@ -1,0 +1,80 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Buddysaradhi API Gateway",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3030/v1"
+    }
+  ],
+  "paths": {
+    "/students": {
+      "post": {
+        "summary": "Create a new student",
+        "operationId": "createStudent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Student created successfully"
+          }
+        }
+      },
+      "get": {
+        "summary": "List students",
+        "operationId": "getStudents",
+        "responses": {
+          "200": {
+            "description": "A list of students"
+          }
+        }
+      }
+    },
+    "/students/{id}": {
+      "get": {
+        "summary": "Get a student by ID",
+        "operationId": "getStudentById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested student"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "StudentInput": {
+        "type": "object",
+        "properties": {
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "admission_date": { "type": "string" },
+          "grade": { "type": "string" },
+          "baseFeePaise": { "type": "integer" }
+        },
+        "required": ["first_name", "admission_date"]
+      }
+    }
+  }
+}

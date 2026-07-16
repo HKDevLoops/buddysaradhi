@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Buddysaradhi — Settings · Violet Nebula</title>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../shared/styles.css" />
+<style>
+  body { font-feature-settings: "ss01", "cv01", "tnum"; }
+  .app-shell { flex-direction: row; }
+  .main-col { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-y: auto; }
+
+  /* Sidebar */
+  .sidebar { width: 232px; padding: var(--space-5) var(--space-3); gap: var(--space-1); height: 100vh; }
+  .sidebar-brand { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
+  .sidebar-section-label { padding: var(--space-3) var(--space-3) var(--space-1); }
+  .sidebar-item { padding: var(--space-3); font-size: var(--text-sm); }
+  .sidebar-foot { margin-top: auto; padding: var(--space-3); display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid var(--border-default); }
+
+  /* Topbar */
+  .topbar { padding: var(--space-4) var(--space-6); background: var(--surface-glass-strong); gap: var(--space-4); position: sticky; top: 0; z-index: 10; }
+  .topbar-title h1 { font-size: var(--text-2xl); letter-spacing: -0.02em; }
+  .topbar-title .subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+  .topbar-right .dirty-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--accent-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-warning) 25%, transparent);
+    color: var(--accent-warning);
+    font-size: var(--text-xs); font-weight: 500;
+    font-family: var(--font-mono);
+  }
+  .topbar-right .dirty-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-warning); }
+
+  /* Settings layout: sub-nav + content + right rail */
+  .settings-grid { display: grid; grid-template-columns: 220px 1fr 296px; flex: 1; min-height: 0; }
+
+  /* Sub-nav */
+  .subnav { border-right: 1px solid var(--border-default); background: var(--bg-surface); padding: var(--space-4) var(--space-3); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+  .subnav-head { padding: var(--space-2) var(--space-3) var(--space-3); font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .subnav-item {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--motion-fast) var(--ease-out);
+    text-decoration: none;
+    border: 1px solid transparent;
+    position: relative;
+  }
+  .subnav-item:hover { background: var(--surface-glass); color: var(--text-primary); }
+  .subnav-item.active {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  }
+  .subnav-item.active::before {
+    content: ''; position: absolute; left: -3px; top: 8px; bottom: 8px; width: 3px;
+    background: var(--accent-primary); border-radius: var(--radius-full);
+  }
+  .subnav-item .nav-icon { width: 16px; height: 16px; stroke-width: 2; stroke: currentColor; fill: none; flex-shrink: 0; }
+  .subnav-item .nav-count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-surface-inset);
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    font-variant-numeric: tabular-nums;
+  }
+  .subnav-item.active .nav-count {
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--accent-primary);
+  }
+  .subnav-section-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; padding: var(--space-4) var(--space-3) var(--space-1); font-weight: 600; }
+
+  /* Main content column */
+  .content-col { padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; overflow-y: auto; }
+  .content-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-6); box-shadow: 0 1px 3px var(--shadow-color); }
+  .content-card h2 { font-size: var(--text-md); font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .content-card .card-subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: var(--space-5); }
+  .content-card h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-4); display: flex; align-items: center; justify-content: space-between; }
+  .content-card h3 .h-meta { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+
+  /* Profile section — avatar + form */
+  .profile-top { display: flex; align-items: flex-start; gap: var(--space-6); margin-bottom: var(--space-6); }
+  .avatar-zone { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); flex-shrink: 0; }
+  .avatar-zone .avatar-wrap { position: relative; }
+  .avatar-zone .avatar-ring {
+    position: absolute; inset: -4px; border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--accent-primary), var(--accent-tertiary), var(--accent-secondary), var(--accent-primary));
+  }
+  .avatar-zone .avatar { position: relative; z-index: 1; background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-surface)); border: 3px solid var(--bg-surface); color: var(--accent-secondary); font-family: var(--font-heading); font-weight: 600; }
+  .change-photo-btn { font-size: var(--text-xs); color: var(--accent-primary); background: transparent; border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent); padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 500; transition: all var(--motion-fast) var(--ease-out); display: inline-flex; align-items: center; gap: 4px; }
+  .change-photo-btn:hover { background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); flex: 1; }
+  .form-field { display: flex; flex-direction: column; gap: var(--space-2); }
+  .form-field.full { grid-column: 1 / -1; }
+  .form-field .label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary); }
+  .form-field .input, .form-field .textarea { background: var(--bg-surface-inset); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); font-size: var(--text-sm); color: var(--text-primary); min-height: 42px; font-family: var(--font-body); transition: all var(--motion-fast) var(--ease-out); width: 100%; }
+  .form-field .input:focus, .form-field .textarea:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent); }
+  .form-field .textarea { resize: vertical; min-height: 88px; font-family: var(--font-body); }
+  .form-field .helper { font-size: var(--text-xs); color: var(--text-muted); }
+  .form-field .input.dirty { border-color: var(--accent-warning); background: color-mix(in srgb, var(--accent-warning) 4%, var(--bg-surface-inset)); }
+  .form-field .dirty-marker { font-size: 10px; color: var(--accent-warning); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 3px; }
+
+  /* Multi-select chip box */
+  .multiselect { background: var(--bg-surface-inset); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2); display: flex; flex-wrap: wrap; gap: 6px; min-height: 42px; align-items: center; }
+  .multiselect.dirty { border-color: var(--accent-warning); }
+  .subject-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-surface)); border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent); border-radius: var(--radius-sm); font-size: var(--text-xs); color: var(--accent-primary); font-weight: 500; }
+  .subject-chip .x { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; cursor: pointer; transition: all var(--motion-fast) var(--ease-out); }
+  .subject-chip .x:hover { background: color-mix(in srgb, var(--accent-primary) 20%, transparent); }
+  .multiselect .add-subject { font-size: var(--text-xs); color: var(--text-muted); padding: 4px 10px; cursor: pointer; }
+  .multiselect .add-subject:hover { color: var(--accent-primary); }
+
+  /* Coaching class card */
+  .cc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .cc-row { display: flex; flex-direction: column; gap: 4px; padding: var(--space-3) 0; border-bottom: 1px dashed var(--border-default); }
+  .cc-row:last-child { border-bottom: none; }
+  .cc-row .label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
+  .cc-row .value { font-size: var(--text-sm); color: var(--text-primary); font-weight: 500; }
+  .cc-row .value.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* Appearance card */
+  .appearance-row { display: flex; flex-direction: column; gap: var(--space-4); }
+  .appearance-section { display: flex; flex-direction: column; gap: var(--space-3); }
+  .appearance-section .section-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg-surface-inset); border-radius: var(--radius-md); border: 1px solid var(--border-default); width: fit-content; }
+  .theme-btn { padding: 7px 16px; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); display: inline-flex; align-items: center; gap: 6px; min-height: 30px; }
+  .theme-btn:hover { color: var(--text-primary); }
+  .theme-btn.active { background: var(--bg-surface); color: var(--accent-primary); box-shadow: 0 1px 3px var(--shadow-color); }
+  .theme-btn .icon { width: 12px; height: 12px; stroke-width: 2; stroke: currentColor; fill: none; }
+
+  /* Palette swatches */
+  .palette-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+  .palette-swatch { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; padding: var(--space-2); border-radius: var(--radius-md); border: 2px solid transparent; transition: all var(--motion-fast) var(--ease-out); }
+  .palette-swatch:hover { background: var(--surface-glass); }
+  .palette-swatch.active { border-color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 6%, transparent); }
+  .palette-swatch .swatch-circle { width: 36px; height: 36px; border-radius: 50%; position: relative; box-shadow: 0 2px 6px var(--shadow-color); }
+  .palette-swatch .swatch-name { font-size: 10px; color: var(--text-secondary); font-weight: 500; text-align: center; }
+  .palette-swatch.active .swatch-name { color: var(--accent-primary); font-weight: 600; }
+  .palette-swatch .swatch-check { position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent-primary); color: var(--text-on-accent); display: none; align-items: center; justify-content: center; font-size: 9px; }
+  .palette-swatch.active .swatch-check { display: flex; }
+
+  /* Right rail */
+  .right-col { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6) var(--space-5); background: var(--bg-canvas); border-left: 1px solid var(--border-default); overflow-y: auto; }
+  .side-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-5); box-shadow: 0 1px 3px var(--shadow-color); }
+  .side-card h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-3); }
+  .side-card .summary-row { display: flex; justify-content: space-between; align-items: center; padding: var(--space-2) 0; border-bottom: 1px dashed var(--border-default); font-size: var(--text-sm); }
+  .side-card .summary-row:last-child { border-bottom: none; }
+  .side-card .summary-row .label { color: var(--text-muted); }
+  .side-card .summary-row .value { color: var(--text-primary); font-weight: 500; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .side-card .summary-row .value.badge { font-family: var(--font-body); font-size: var(--text-xs); padding: 2px 8px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent-tertiary) 14%, transparent); color: var(--accent-secondary); font-weight: 500; }
+
+  .danger-card { border-color: color-mix(in srgb, var(--accent-danger) 25%, var(--border-default)); background: linear-gradient(135deg, var(--bg-surface), color-mix(in srgb, var(--accent-danger) 4%, var(--bg-surface))); }
+  .danger-card h3 { color: var(--accent-danger); display: flex; align-items: center; gap: 6px; }
+  .danger-card .danger-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) 0; border-bottom: 1px dashed color-mix(in srgb, var(--accent-danger) 20%, var(--border-default)); }
+  .danger-card .danger-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .danger-card .danger-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .danger-card .danger-title { font-size: var(--text-sm); color: var(--text-primary); font-weight: 500; }
+  .danger-card .danger-desc { font-size: var(--text-xs); color: var(--text-muted); line-height: 1.4; }
+
+  /* Form actions */
+  .form-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--border-default); margin-top: var(--space-2); }
+
+  /* Footer */
+  .app-footer { padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border-default); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between; font-size: var(--text-xs); color: var(--text-muted); flex-shrink: 0; }
+  .footer-meta { display: flex; align-items: center; gap: var(--space-4); }
+  .kbd { font-family: var(--font-mono); padding: 1px 6px; background: var(--bg-surface-inset); border-radius: 4px; border: 1px solid var(--border-default); font-size: 10px; color: var(--text-secondary); }
+</style>
+</head>
+<body data-palette="violet-nebula" data-theme="light">
+<div class="mockup-frame-label">Web · Settings · Violet Nebula (light)</div>
+
+<div class="app-shell">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-mark">B</div>
+      <div class="sidebar-brand-name">Buddysaradhi</div>
+    </div>
+    <div class="sidebar-section-label">Manage</div>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      <span>Dashboard</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Students</span>
+      <span class="badge-count" style="margin-left:auto;">84</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+      <span>Attendance</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+      <span>Fees &amp; Payments</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 6-6"/></svg>
+      <span>Reports</span>
+    </a>
+    <div class="sidebar-section-label">System</div>
+    <a class="sidebar-item active">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Settings</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>Backup &amp; Export</span>
+    </a>
+    <div class="sidebar-foot">
+      <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-primary) 18%, var(--bg-surface-raised));">SP</div>
+      <div style="display:flex;flex-direction:column;min-width:0;">
+        <div style="font-size:var(--text-sm);font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sneha Patil</div>
+        <div style="font-size:10px;color:var(--text-muted);">Patil Physics · Pune</div>
+      </div>
+      <button class="btn-icon" style="margin-left:auto;padding:4px;color:var(--text-muted);background:none;" aria-label="Account menu">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN COLUMN ============ -->
+  <div class="main-col">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1>Settings</h1>
+        <div class="subtitle">Configure your account · coaching class · preferences</div>
+      </div>
+      <div class="topbar-right">
+        <span class="dirty-pill"><span class="dot"></span>2 unsaved changes</span>
+        <button class="btn btn-secondary">Discard</button>
+        <button class="btn btn-primary">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save changes
+        </button>
+      </div>
+    </header>
+
+    <!-- Settings 3-col grid -->
+    <div class="settings-grid">
+      <!-- ============ SUB-NAV ============ -->
+      <nav class="subnav" aria-label="Settings sections">
+        <div class="subnav-head">Personal</div>
+        <a class="subnav-item active">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Profile</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Coaching class</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>Batches &amp; subjects</span>
+          <span class="nav-count">5</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+          <span>Fee defaults</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>Attendance</span>
+        </a>
+
+        <div class="subnav-section-label">System</div>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span>Notifications</span>
+          <span class="nav-count">3</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Backup &amp; export</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <span>Appearance</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <span>Billing</span>
+        </a>
+        <a class="subnav-item">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>Security</span>
+        </a>
+      </nav>
+
+      <!-- ============ CONTENT COLUMN ============ -->
+      <div class="content-col">
+        <!-- Profile card -->
+        <div class="content-card">
+          <h2>Profile</h2>
+          <div class="card-subtitle">Your personal information. Used across receipts, reminders, and the dashboard.</div>
+
+          <div class="profile-top">
+            <div class="avatar-zone">
+              <div class="avatar-wrap">
+                <div class="avatar-ring"></div>
+                <div class="avatar avatar-xl">SP</div>
+              </div>
+              <button class="change-photo-btn">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Change photo
+              </button>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-field">
+                <span class="label">Full name <span class="dirty-marker">● edited</span></span>
+                <input class="input dirty" value="Sneha Patil" />
+                <span class="helper">As shown on receipts and reminders</span>
+              </div>
+              <div class="form-field">
+                <span class="label">Email</span>
+                <input class="input" value="sneha@patilphysics.in" />
+              </div>
+              <div class="form-field">
+                <span class="label">Phone</span>
+                <input class="input" value="+91 98765 43210" />
+              </div>
+              <div class="form-field">
+                <span class="label">City</span>
+                <input class="input" value="Pune" />
+              </div>
+              <div class="form-field full">
+                <span class="label">Tutor subjects <span class="dirty-marker">● edited</span></span>
+                <div class="multiselect dirty">
+                  <span class="subject-chip">Physics <span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></span>
+                  <span class="subject-chip">Maths <span class="x"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></span>
+                  <span class="add-subject">+ Add subject</span>
+                </div>
+                <span class="helper">Used to filter your batches and tag new students</span>
+              </div>
+              <div class="form-field full">
+                <span class="label">About</span>
+                <textarea class="textarea" rows="3">Physics and Maths tutor in Pune. 12+ years coaching Class 11–12 for JEE Main &amp; NEET. Patil Physics Classes since 2019.</textarea>
+                <span class="helper">Shown on your public profile and PDF receipts</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-ghost">Cancel</button>
+            <button class="btn btn-primary">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Save changes
+            </button>
+          </div>
+        </div>
+
+        <!-- Coaching class preview -->
+        <div class="content-card">
+          <h3>
+            <span>Coaching class</span>
+            <span class="h-meta">Read-only preview · edit in sub-nav</span>
+          </h3>
+          <div class="cc-grid">
+            <div class="cc-row"><span class="label">Name</span><span class="value">Patil Physics Classes</span></div>
+            <div class="cc-row"><span class="label">Established</span><span class="value num">2019</span></div>
+            <div class="cc-row"><span class="label">Address</span><span class="value">2nd floor, Karve Rd, Kothrud, Pune 411038</span></div>
+            <div class="cc-row"><span class="label">Students enrolled</span><span class="value num">84</span></div>
+            <div class="cc-row"><span class="label">GSTIN (optional)</span><span class="value num">27ABCDE1234F1Z5</span></div>
+            <div class="cc-row"><span class="label">Receipt prefix</span><span class="value num">PPC-2024</span></div>
+          </div>
+        </div>
+
+        <!-- Appearance card -->
+        <div class="content-card">
+          <h3>
+            <span>Appearance</span>
+            <span class="h-meta">Theme + palette override</span>
+          </h3>
+          <div class="appearance-row">
+            <div class="appearance-section">
+              <span class="section-label">Theme</span>
+              <div class="theme-toggle">
+                <button class="theme-btn active">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                  Light
+                </button>
+                <button class="theme-btn">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                  Dark
+                </button>
+                <button class="theme-btn">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  System
+                </button>
+              </div>
+            </div>
+
+            <div class="appearance-section">
+              <span class="section-label">Palette · 8 options · per-page assignment is automatic</span>
+              <div class="palette-grid">
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #0f0c29, #24243e);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Aurora</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #FFFBF5, #FF9933);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Saffron</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #FAF6EE, #059669);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Emerald</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #F0FAFC, #0891B2);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Cyan</span>
+                </div>
+                <div class="palette-swatch active">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #F5F0FF, #7C3AED);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Violet ●</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #FFFAF0, #EA580C);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Amber</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #FFF7F8, #E11D48);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Rose</span>
+                </div>
+                <div class="palette-swatch">
+                  <div class="swatch-circle" style="background:linear-gradient(135deg, #F8FAFC, #0F172A);"><span class="swatch-check">✓</span></div>
+                  <span class="swatch-name">Slate</span>
+                </div>
+              </div>
+              <span class="helper" style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2);">Active: <strong style="color:var(--accent-primary);">Violet Nebula</strong> · the only palette permitted to use violet as primary (auth/settings context)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ RIGHT RAIL ============ -->
+      <aside class="right-col">
+        <!-- Account summary -->
+        <div class="side-card">
+          <h3>Account summary</h3>
+          <div class="summary-row"><span class="label">Plan</span><span class="value badge">Free</span></div>
+          <div class="summary-row"><span class="label">Member since</span><span class="value">Aug 2024</span></div>
+          <div class="summary-row"><span class="label">Last backup</span><span class="value">2 hrs ago</span></div>
+          <div class="summary-row"><span class="label">Database size</span><span class="value">3.4 MB</span></div>
+          <div class="summary-row"><span class="label">Students</span><span class="value">84</span></div>
+          <div class="summary-row"><span class="label">Receipts YTD</span><span class="value">482</span></div>
+          <div class="summary-row"><span class="label">Version</span><span class="value">v1.0.0</span></div>
+        </div>
+
+        <!-- Plan card -->
+        <div class="side-card" style="background:linear-gradient(135deg, var(--bg-surface), color-mix(in srgb, var(--accent-primary) 6%, var(--bg-surface)));border-color:color-mix(in srgb, var(--accent-primary) 25%, var(--border-default));">
+          <h3 style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Upgrade to Pro</span>
+            <span style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--accent-primary);">₹299/mo</span>
+          </h3>
+          <p style="font-size:var(--text-xs);color:var(--text-secondary);line-height:1.5;margin-bottom:var(--space-3);">Unlock unlimited students, automated reminders, custom receipts, and priority support.</p>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:6px;margin-bottom:var(--space-4);font-size:var(--text-xs);color:var(--text-secondary);">
+            <li style="display:flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Unlimited students &amp; batches</li>
+            <li style="display:flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> WhatsApp + SMS reminders</li>
+            <li style="display:flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Custom receipt branding</li>
+            <li style="display:flex;align-items:center;gap:6px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Priority email support</li>
+          </ul>
+          <button class="btn btn-primary btn-sm" style="width:100%;">Upgrade to Pro</button>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="side-card danger-card">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Danger zone
+          </h3>
+          <div class="danger-row">
+            <div class="danger-stack">
+              <span class="danger-title">Export all data</span>
+              <span class="danger-desc">Download a full backup of your Turso DB + receipts as a zip</span>
+            </div>
+            <button class="btn btn-secondary btn-sm">Export</button>
+          </div>
+          <div class="danger-row">
+            <div class="danger-stack">
+              <span class="danger-title">Delete account</span>
+              <span class="danger-desc">Permanently delete all data · 30-day grace period · irreversible after</span>
+            </div>
+            <button class="btn btn-danger btn-sm">Delete</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-meta">
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--accent-warning);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent-warning) 25%, transparent);"></span>
+          2 unsaved changes · auto-saved drafts every 60s
+        </span>
+        <span>·</span>
+        <span>Press <span class="kbd">⌘S</span> to save · <span class="kbd">Esc</span> to discard</span>
+      </div>
+      <div class="footer-meta">
+        <span>Buddysaradhi v1.0.0 · contracts/v1.0.0</span>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

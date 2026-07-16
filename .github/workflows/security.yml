@@ -1,0 +1,87 @@
+# .github/workflows/security.yml
+# Comprehensive Security Harness workflow for BuddySaradhi
+name: security-agent
+
+on:
+  pull_request:
+    branches: [main, release/*]
+  push:
+    branches: [main]
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Secrets Scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  semgrep:
+    name: SAST Scan (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep with Custom Rules
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep \
+            --config=/src/semgrep.yml \
+            --config=p/typescript \
+            --config=p/react \
+            --config=p/javascript \
+            --config=p/owasp-top-ten \
+            --error
+
+  osv-scanner:
+    name: Dependency Vulnerability Audit (OSV-Scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/bootstrap-container@v1
+        with:
+          args: --lockfile=bun.lock --recursive .
+
+  license-checker:
+    name: License Compliance Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install
+      - name: Run License Audit Script
+        run: bun run scripts/license-checker.ts
+
+  sbom:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install CycloneDX tool
+        run: bun install -g @cyclonedx/cyclonedx-npm
+      - name: Generate SBOM
+        run: |
+          mkdir -p sbom
+          cyclonedx-npm --package-only --output-file sbom/bom.web.json --mc-type application
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclonedx-sbom
+          path: sbom/
+          retention-days: 7

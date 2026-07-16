@@ -1,0 +1,9 @@
+{
+  "name": "gateway-graphql",
+  "runtime": "deno2",
+  "entrypoint": "index.ts",
+  "dependencies": [
+    "https://esm.sh/@supabase/supabase-js@2",
+    "https://esm.sh/@libsql/client@0.14.0"
+  ]
+}

@@ -1,0 +1,549 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+  output          = "../src/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Setting {
+  tenantId         String  @id @map("tenant_id")
+  instituteName    String  @default("My Tuition") @map("institute_name")
+  instituteAddress String? @map("institute_address")
+  institutePhone   String? @map("institute_phone")
+  instituteEmail   String? @map("institute_email")
+  currencyCode     String  @default("INR") @map("currency_code")
+  locale           String  @default("en-IN")
+  timezone         String  @default("Asia/Kolkata")
+
+  // Fee Rules
+  defaultFeeModel String @default("postpaid") @map("default_fee_model")
+  invoicePrefix   String @default("INV-") @map("invoice_prefix")
+  receiptPrefix   String @default("RCP-") @map("receipt_prefix")
+  graceDays       Int    @default(0) @map("grace_days")
+  autoInvoice     Int    @default(0) @map("auto_invoice") // Boolean as Int 0/1
+  nextInvoiceSeq  Int    @default(1) @map("next_invoice_seq")
+  nextReceiptSeq  Int    @default(1) @map("next_receipt_seq")
+  nextStudentSeq  Int    @default(1) @map("next_student_seq")
+
+  // Attendance Rules
+  attendanceLockHours     Int    @default(48) @map("attendance_lock_hours")
+  defaultAttendanceStatus String @default("present") @map("default_attendance_status")
+  holidayListJson         String @default("[]") @map("holiday_list_json")
+
+  // Notifications
+  notifyDueFee            Int @default(1) @map("notify_due_fee")
+  notifyUpcomingDue       Int @default(1) @map("notify_upcoming_due")
+  notifyMissingAttendance Int @default(1) @map("notify_missing_attendance")
+  notifyInactiveStudent   Int @default(1) @map("notify_inactive_student")
+
+  // Security
+  sessionTimeoutMin    Int     @default(5) @map("session_timeout_min")
+  biometricEnabled     Int     @default(0) @map("biometric_enabled")
+  pinHash              String? @map("pin_hash")
+  backupPassphraseHash String? @map("backup_passphrase_hash")
+
+  // Data Privacy
+  autoArchiveInactiveDays Int @default(90) @map("auto_archive_inactive_days")
+
+  // Appearance
+  theme         String @default("system")
+  palette       String @default("aurora-cosmic") @map("palette")
+  density       String @default("comfortable")
+  reducedMotion Int    @default(0) @map("reduced_motion")
+
+  tenantSecret String   @map("tenant_secret")
+  createdAt    DateTime @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model Tutor {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  name      String
+  email     String?
+  phone     String?
+  role      String    @default("tutor")
+  isActive  Int       @default(1) @map("is_active")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  batches Batch[]
+
+  @@index([tenantId, isActive])
+  @@map("tutors")
+}
+
+model Batch {
+  id         String    @id
+  tenantId   String    @map("tenant_id")
+  tutorId    String?   @map("tutor_id")
+  name       String
+  subject    String?
+  schedule   String?
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  tutor         Tutor?              @relation(fields: [tutorId], references: [id])
+  students      StudentEnrollment[]
+  sessions      AttendanceSession[]
+  feePlans      FeePlan[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([tenantId, archivedAt])
+  @@index([tutorId, archivedAt])
+  @@map("batches")
+}
+
+model Student {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  code          String?
+  firstName     String    @map("first_name")
+  lastName      String?   @map("last_name")
+  dob           String?
+  gender        String?
+  phone         String?
+  email         String?
+  address       String?
+  school        String?
+  grade         String?
+  board         String?
+  admissionDate String    @map("admission_date")
+  status        String    @default("active")
+  feeModel      String    @default("postpaid") @map("fee_model")
+  baseFeePaise  Int       @default(0) @map("base_fee_paise")
+  balancePaise  Int       @default(0) @map("balance_paise")
+  dupKey        String    @map("dup_key")
+  mergedIntoId  String?   @map("merged_into_id")
+  customFields  String?   @map("custom_fields")
+  notes         String?
+  archivedAt    DateTime? @map("archived_at")
+  createdAt     DateTime  @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  mergedInto Student?  @relation("StudentMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom Student[] @relation("StudentMerge")
+
+  guardians     Guardian[]
+  enrollments   StudentEnrollment[]
+  tags          StudentTag[]
+  studentNotes  StudentNote[]
+  documents     StudentDocument[]
+  attendance    AttendanceRecord[]
+  feePlans      FeePlan[]
+  invoices      Invoice[]
+  ledgerEntries LedgerEntry[]
+  receipts      Receipt[]
+
+  @@index([tenantId, status, archivedAt])
+  @@index([tenantId, lastName, firstName])
+  @@index([tenantId, dupKey])
+  @@index([tenantId, balancePaise])
+  @@map("students")
+}
+
+model Guardian {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  studentId String    @map("student_id")
+  name      String
+  relation  String?
+  phone     String?
+  email     String?
+  isPrimary Int       @default(0) @map("is_primary")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([studentId])
+  @@index([tenantId, phone])
+  @@map("guardians")
+}
+
+model StudentEnrollment {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  studentId String    @map("student_id")
+  batchId   String    @map("batch_id")
+  joinedOn  String    @map("joined_on")
+  exitedOn  String?   @map("exited_on")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+  batch   Batch   @relation(fields: [batchId], references: [id])
+
+  @@unique([studentId, batchId, joinedOn])
+  @@index([batchId, exitedOn])
+  @@index([studentId])
+  @@map("student_enrollments")
+}
+
+model Tag {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  name      String
+  color     String?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  students StudentTag[]
+
+  @@unique([tenantId, name])
+  @@map("tags")
+}
+
+model StudentTag {
+  studentId String @map("student_id")
+  tagId     String @map("tag_id")
+
+  student Student @relation(fields: [studentId], references: [id])
+  tag     Tag     @relation(fields: [tagId], references: [id])
+
+  @@id([studentId, tagId])
+  @@map("student_tags")
+}
+
+model StudentNote {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  studentId String    @map("student_id")
+  category  String
+  body      String
+  pinned    Int       @default(0)
+  createdBy String?   @map("created_by")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, createdAt(sort: Desc)])
+  @@map("student_notes")
+}
+
+model StudentDocument {
+  id         String    @id
+  tenantId   String    @map("tenant_id")
+  studentId  String    @map("student_id")
+  label      String
+  blobKey    String    @map("blob_key")
+  mimeType   String    @map("mime_type")
+  sizeBytes  Int       @map("size_bytes")
+  sha256     String
+  deletedAt  DateTime? @map("deleted_at")
+  uploadedAt DateTime  @map("uploaded_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@index([studentId])
+  @@map("student_documents")
+}
+
+model AttendanceSession {
+  id          String    @id
+  tenantId    String    @map("tenant_id")
+  batchId     String    @map("batch_id")
+  sessionDate String    @map("session_date")
+  startedAt   DateTime? @map("started_at")
+  lockedAt    DateTime? @map("locked_at")
+  lockedBy    String?   @map("locked_by")
+  isHoliday   Int       @default(0) @map("is_holiday")
+  notes       String?
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  batch   Batch              @relation(fields: [batchId], references: [id])
+  records AttendanceRecord[]
+
+  @@unique([batchId, sessionDate])
+  @@index([sessionDate])
+  @@map("attendance_sessions")
+}
+
+model AttendanceRecord {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  sessionId String    @map("session_id")
+  studentId String    @map("student_id")
+  status    String
+  markedAt  DateTime  @map("marked_at")
+  markedBy  String?   @map("marked_by")
+  notes     String?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  session AttendanceSession @relation(fields: [sessionId], references: [id])
+  student Student           @relation(fields: [studentId], references: [id])
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, sessionId])
+  @@index([sessionId, status])
+  @@map("attendance_records")
+}
+
+model FeePlan {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  studentId     String    @map("student_id")
+  batchId       String?   @map("batch_id")
+  model         String
+  cycle         String
+  baseAmount    Int       @map("base_amount")
+  startDate     String    @map("start_date")
+  endDate       String?   @map("end_date")
+  discountType  String?   @map("discount_type")
+  discountValue Int?      @map("discount_value")
+  scholarship   String?
+  isActive      Int       @default(1) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  student       Student           @relation(fields: [studentId], references: [id])
+  batch         Batch?            @relation(fields: [batchId], references: [id])
+  scheduleItems FeeScheduleItem[]
+
+  @@index([studentId, isActive])
+  @@index([batchId])
+  @@map("fee_plans")
+}
+
+model FeeScheduleItem {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  feePlanId String    @map("fee_plan_id")
+  label     String
+  dueDate   String    @map("due_date")
+  amount    Int
+  status    String    @default("pending")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  plan     FeePlan   @relation(fields: [feePlanId], references: [id])
+  invoices Invoice[]
+
+  @@index([dueDate, status])
+  @@index([feePlanId, status])
+  @@map("fee_schedule_items")
+}
+
+model Invoice {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  number            String
+  studentId         String    @map("student_id")
+  feeScheduleItemId String?   @map("fee_schedule_item_id")
+  issueDate         String    @map("issue_date")
+  dueDate           String?   @map("due_date")
+  subtotal          Int
+  discount          Int       @default(0)
+  extraCharges      Int       @default(0) @map("extra_charges")
+  total             Int
+  status            String    @default("unpaid")
+  voidedAt          DateTime? @map("voided_at")
+  voidReason        String?   @map("void_reason")
+  tamperHash        String    @map("tamper_hash")
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  student         Student          @relation(fields: [studentId], references: [id])
+  feeScheduleItem FeeScheduleItem? @relation(fields: [feeScheduleItemId], references: [id])
+  ledgerEntries   LedgerEntry[]
+  receipts        Receipt[]
+
+  @@unique([tenantId, number])
+  @@index([studentId, status])
+  @@index([dueDate, status])
+  @@index([feeScheduleItemId])
+  @@map("invoices")
+}
+
+model LedgerEntry {
+  id                String    @id
+  tenantId          String    @map("tenant_id")
+  studentId         String    @map("student_id")
+  batchId           String?   @map("batch_id")
+  invoiceId         String?   @map("invoice_id")
+  type              String
+  debitPaise        Int       @default(0) @map("debit_paise")
+  creditPaise       Int       @default(0) @map("credit_paise")
+  balanceAfterPaise Int       @map("balance_after_paise")
+  description       String?
+  receiptNo         String?   @map("receipt_no")
+  paymentMethod     String?   @map("payment_method")
+  paymentRef        String?   @map("payment_ref")
+  prevHash          String?   @map("prev_hash")
+  thisHash          String    @map("this_hash")
+  voidOfId          String?   @map("void_of_id")
+  lockedAt          DateTime? @map("locked_at")
+  occurredOn        String    @map("occurred_on")
+  source            String    @default("manual")
+  deviceId          String?   @map("device_id")
+  createdBy         String?   @map("created_by")
+  createdAt         DateTime  @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  student  Student       @relation(fields: [studentId], references: [id])
+  batch    Batch?        @relation(fields: [batchId], references: [id])
+  invoice  Invoice?      @relation(fields: [invoiceId], references: [id])
+  voidOf   LedgerEntry?  @relation("VoidOf", fields: [voidOfId], references: [id])
+  voidedBy LedgerEntry[] @relation("VoidOf")
+  receipts Receipt[]
+
+  @@index([studentId, createdAt])
+  @@index([batchId])
+  @@index([invoiceId])
+  @@index([tenantId, type, occurredOn])
+  @@index([receiptNo])
+  @@index([thisHash])
+  @@index([voidOfId])
+  @@map("ledger_entries")
+}
+
+model Receipt {
+  id            String    @id
+  tenantId      String    @map("tenant_id")
+  number        String
+  ledgerEntryId String    @map("ledger_entry_id")
+  studentId     String    @map("student_id")
+  invoiceId     String?   @map("invoice_id")
+  amount        Int
+  paymentMethod String    @map("payment_method")
+  paymentRef    String?   @map("payment_ref")
+  receivedOn    String    @map("received_on")
+  tamperHash    String    @map("tamper_hash")
+  voidedAt      DateTime? @map("voided_at")
+  pdfBlobKey    String?   @map("pdf_blob_key")
+  deletedAt     DateTime? @map("deleted_at")
+  createdAt     DateTime  @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  ledgerEntry LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+  student     Student     @relation(fields: [studentId], references: [id])
+  invoice     Invoice?    @relation(fields: [invoiceId], references: [id])
+
+  @@unique([tenantId, number])
+  @@index([studentId, receivedOn])
+  @@index([ledgerEntryId])
+  @@index([invoiceId])
+  @@map("receipts")
+}
+
+model Reminder {
+  id          String    @id
+  tenantId    String    @map("tenant_id")
+  category    String
+  refType     String    @map("ref_type")
+  refId       String    @map("ref_id")
+  dueAt       DateTime  @map("due_at")
+  status      String    @default("pending")
+  snoozeUntil DateTime? @map("snooze_until")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, dueAt])
+  @@index([tenantId, refType, refId])
+  @@map("reminders")
+}
+
+model Notification {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  category  String
+  title     String
+  body      String?
+  refType   String?   @map("ref_type")
+  refId     String?   @map("ref_id")
+  readAt    DateTime? @map("read_at")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @map("created_at")
+
+  @@index([tenantId, readAt, createdAt])
+  @@index([tenantId, refType, refId])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id
+  tenantId  String   @map("tenant_id")
+  actor     String
+  action    String
+  refType   String?  @map("ref_type")
+  refId     String?  @map("ref_id")
+  metadata  String?
+  createdAt DateTime @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@index([tenantId, refType, refId])
+  @@map("audit_log")
+}
+
+model SyncOutbox {
+  id        String    @id
+  tenantId  String    @map("tenant_id")
+  tableName String    @map("table_name")
+  rowId     String    @map("row_id")
+  op        String
+  payload   String
+  status    String    @default("pending")
+  attempts  Int       @default(0)
+  lastError String?   @map("last_error")
+  createdAt DateTime  @map("created_at")
+  flushedAt DateTime? @map("flushed_at")
+
+  @@index([tenantId])
+  @@index([status, createdAt])
+  @@index([tableName, rowId])
+  @@map("sync_outbox")
+}
+
+model BackupManifest {
+  id              String   @id
+  tenantId        String   @map("tenant_id")
+  filename        String
+  sizeBytes       Int      @map("size_bytes")
+  schemaVersion   Int      @map("schema_version")
+  rowCounts       String   @map("row_counts")
+  dataSha256      String   @map("data_sha256")
+  encryptedSha256 String   @map("encrypted_sha256")
+  keyKdfSalt      String   @map("key_kdf_salt")
+  keyKdfParams    String   @map("key_kdf_params")
+  createdAt       DateTime @map("created_at")
+  createdBy       String?  @map("created_by")
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("backup_manifest")
+}
+
+model AppState {
+  tenantId      String    @id @map("tenant_id")
+  schemaVersion Int       @map("schema_version")
+  appLockState  String    @default("unlocked") @map("app_lock_state")
+  appLockUntil  DateTime? @map("app_lock_until")
+  lastBackupAt  DateTime? @map("last_backup_at")
+  lastExportAt  DateTime? @map("last_export_at")
+  lastSyncAt    DateTime? @map("last_sync_at")
+  createdAt     DateTime  @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("app_state")
+}

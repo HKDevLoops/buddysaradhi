@@ -1,0 +1,39 @@
+# .github/actions/agent-browser-smoke/action.yml
+name: agent-browser-smoke
+inputs:
+  url:
+    required: true
+  vercel_token:
+    required: true
+  vercel_project_id:
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Install agent-browser
+      shell: bash
+      run: npm install -g agent-browser
+    - name: Run smoke
+      shell: bash
+      run: |
+        agent-browser navigate "${{ inputs.url }}"
+        agent-browser screenshot /tmp/home.png
+        # Assert the page title contains "Buddysaradhi"
+        TITLE=$(agent-browser title)
+        if [[ "$TITLE" != *"Buddysaradhi"* ]]; then
+          echo "FAIL: title is '$TITLE', expected 'Buddysaradhi'"
+          exit 1
+        fi
+        # Assert no console errors
+        ERRORS=$(agent-browser console-errors)
+        if [ -n "$ERRORS" ]; then
+          echo "FAIL: console errors: $ERRORS"
+          exit 1
+        fi
+        # Assert sticky footer (per AGENTS.md §6.3)
+        FOOTER=$(agent-browser eval "document.querySelector('footer')?.getBoundingClientRect().top")
+        BODY_HEIGHT=$(agent-browser eval "document.body.scrollHeight")
+        VIEWPORT_HEIGHT=$(agent-browser eval "window.innerHeight")
+        # On a short page, footer top should equal viewport height (sticks to bottom)
+        # On a long page, footer top should equal body height (pushed below fold)
+        echo "Footer top: $FOOTER, body: $BODY_HEIGHT, viewport: $VIEWPORT_HEIGHT"

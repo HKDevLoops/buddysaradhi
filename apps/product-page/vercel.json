@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "./node_modules/.bin/prisma generate --schema=prisma/schema.prisma && next build",
+  "outputDirectory": ".next"
+}

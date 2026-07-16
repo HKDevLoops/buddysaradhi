@@ -1,0 +1,27 @@
+- generic [active] [ref=f4e1]:
+  - main [ref=f4e2]:
+    - generic [ref=f4e4]:
+      - generic [ref=f4e5]:
+        - heading "Welcome Back" [level=1] [ref=f4e6]
+        - paragraph [ref=f4e7]: Sign in to your tuition OS
+      - generic [ref=f4e8]:
+        - button "Continue with Google" [ref=f4e9] [cursor=pointer]
+        - generic [ref=f4e10]: OR
+        - generic [ref=f4e14]:
+          - generic [ref=f4e15]:
+            - text: Email
+            - textbox "Email" [ref=f4e16]:
+              - /placeholder: tutor@example.com
+              - text: hkdevloops@gmail.com
+          - generic [ref=f4e17]:
+            - text: Password
+            - textbox "Password" [ref=f4e18]:
+              - /placeholder: ••••••••
+              - text: hkdevs
+          - button "Sign In" [ref=f4e20] [cursor=pointer]
+      - generic [ref=f4e21]:
+        - text: Don't have an account?
+        - link "Sign up" [ref=f4e22] [cursor=pointer]:
+          - /url: /signup
+  - button "Open Next.js Dev Tools" [ref=f4e28] [cursor=pointer]
+  - alert [ref=f4e32]

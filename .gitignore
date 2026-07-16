@@ -1,0 +1,18 @@
+.vercel
+.env*
+
+# local settings store (embedded BFF)
+.data/
+
+# SQLite local dev databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+node_modules/
+.next/
+dist/
+out/
+build/
+*.log

@@ -1,0 +1,99 @@
+- generic [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - complementary [ref=f6e3]:
+      - generic [ref=f6e4]:
+        - generic [ref=f6e5]: T
+        - generic [ref=f6e6]: Jyothi Tutions
+      - navigation "Main navigation" [ref=f6e7]:
+        - button "Dashboard" [ref=f6e8] [cursor=pointer]
+        - button "Students" [ref=f6e15] [cursor=pointer]
+        - button "Attendance" [ref=f6e22] [cursor=pointer]
+        - button "Fees & Payments" [ref=f6e27] [cursor=pointer]
+        - button "Settings" [ref=f6e32] [cursor=pointer]
+      - generic [ref=f6e37]:
+        - generic [ref=f6e38] [cursor=pointer]:
+          - generic [ref=f6e39]: Sync
+          - generic "Online" [ref=f6e45]
+        - generic [ref=f6e46] [cursor=pointer]:
+          - generic [ref=f6e47]: Search...
+          - generic [ref=f6e51]: ⌘K
+    - generic [ref=f6e52]:
+      - banner [ref=f6e53]:
+        - heading "Jyothi Tutions" [level=2] [ref=f6e168]
+        - generic [ref=f6e56]:
+          - searchbox "Search students" [ref=f6e61]
+          - button "User profile" [ref=f6e62] [cursor=pointer]: RS
+      - main [ref=f6e63]:
+        - main [ref=f6e64]:
+          - generic [ref=f6e266]:
+            - generic [ref=f6e267]:
+              - heading "Settings" [level=1] [ref=f6e268]
+              - paragraph [ref=f6e269]: Manage your application preferences and security
+            - generic [ref=f6e270]:
+              - navigation "Settings sections" [ref=f6e271]:
+                - generic [ref=f6e272]:
+                  - button "Profile" [ref=f6e273] [cursor=pointer]
+                  - button "Appearance" [active] [ref=f6e279] [cursor=pointer]
+                  - button "Attendance Rules" [ref=f6e287] [cursor=pointer]
+                  - button "Fee Rules" [ref=f6e292] [cursor=pointer]
+                  - button "Notifications" [ref=f6e297] [cursor=pointer]
+                  - button "Security" [ref=f6e302] [cursor=pointer]
+                  - button "Database" [ref=f6e306] [cursor=pointer]
+                  - button "Backup & Restore" [ref=f6e312] [cursor=pointer]
+                  - button "Import & Export" [ref=f6e316] [cursor=pointer]
+                  - button "Data & Privacy" [ref=f6e322] [cursor=pointer]
+                  - button "About" [ref=f6e326] [cursor=pointer]
+                  - button "Help" [ref=f6e330] [cursor=pointer]
+                  - button "Diagnostics" [ref=f6e335] [cursor=pointer]
+              - generic [ref=f6e380]:
+                - generic [ref=f6e381]:
+                  - heading "Palette" [level=3] [ref=f6e382]
+                  - paragraph [ref=f6e389]: Pick the accent palette for BuddySaradhi. Your choice applies instantly.
+                  - generic [ref=f6e390]:
+                    - button "Use Aurora Cosmic palette" [pressed] [ref=f6e391] [cursor=pointer]:
+                      - generic [ref=f6e393]: Aurora Cosmic
+                    - button "Use Violet Nebula palette" [ref=f6e394] [cursor=pointer]:
+                      - generic [ref=f6e396]: Violet Nebula
+                    - button "Use Emerald Ledger palette" [ref=f6e397] [cursor=pointer]:
+                      - generic [ref=f6e399]: Emerald Ledger
+                    - button "Use Cyan Lagoon palette" [ref=f6e400] [cursor=pointer]:
+                      - generic [ref=f6e402]: Cyan Lagoon
+                    - button "Use Rose Petal palette" [ref=f6e403] [cursor=pointer]:
+                      - generic [ref=f6e405]: Rose Petal
+                    - button "Use Amber Sunrise palette" [ref=f6e406] [cursor=pointer]:
+                      - generic [ref=f6e408]: Amber Sunrise
+                    - button "Use Saffron Marigold palette" [ref=f6e409] [cursor=pointer]:
+                      - generic [ref=f6e411]: Saffron Marigold
+                    - button "Use Midnight Slate palette" [ref=f6e412] [cursor=pointer]:
+                      - generic [ref=f6e414]: Midnight Slate
+                - generic [ref=f6e416]:
+                  - heading "Appearance Mode" [level=3] [ref=f6e417]
+                  - generic [ref=f6e421]:
+                    - button "Light" [ref=f6e422] [cursor=pointer]
+                    - button "Dark" [pressed] [ref=f6e429] [cursor=pointer]
+                    - button "System" [ref=f6e432] [cursor=pointer]
+                - generic [ref=f6e436]:
+                  - heading "Display Density" [level=3] [ref=f6e437]
+                  - generic [ref=f6e440]:
+                    - button "Comfortable More whitespace, easier to tap on touch devices. Recommended for mobile." [pressed] [ref=f6e441] [cursor=pointer]:
+                      - generic [ref=f6e442]: Comfortable
+                      - generic [ref=f6e443]: More whitespace, easier to tap on touch devices. Recommended for mobile.
+                    - button "Compact Shows more data on screen. Recommended for desktop." [ref=f6e444] [cursor=pointer]:
+                      - generic [ref=f6e445]: Compact
+                      - generic [ref=f6e446]: Shows more data on screen. Recommended for desktop.
+                - generic [ref=f6e448]:
+                  - heading "Accessibility" [level=3] [ref=f6e449]
+                  - generic [ref=f6e455]:
+                    - generic [ref=f6e456]:
+                      - paragraph [ref=f6e457]: Reduced Motion
+                      - paragraph [ref=f6e458]: Disables non-essential animations and transitions.
+                    - switch "Reduced motion" [ref=f6e459] [cursor=pointer]
+        - generic [ref=f6e148]:
+          - generic [ref=f6e149]:
+            - generic [ref=f6e154]: Online · 0 pending
+            - generic [ref=f6e155]: "Local DB: 2.1 MB"
+          - generic [ref=f6e156]:
+            - generic [ref=f6e157]: v1.0.0-rc
+            - generic [ref=f6e158]: © 2026 BuddySaradhi
+  - button "Open Next.js Dev Tools" [ref=f6e164] [cursor=pointer]
+  - alert [ref=f6e265]

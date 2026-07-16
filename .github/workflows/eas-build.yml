@@ -1,0 +1,161 @@
+# .github/workflows/eas-build.yml
+# Implements: deployment/05_CI_CD_GitHub_Actions.md §4 — EAS build
+name: eas-build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 1.4.0)'
+        required: true
+
+concurrency:
+  group: eas-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: EAS Build (iOS + Android)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EAS_TOKEN }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: apps/mobile
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PKG_VERSION=$(jq -r .version apps/mobile/package.json)
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "FAIL: tag version $TAG_VERSION != package.json version $PKG_VERSION"
+            exit 1
+          fi
+          echo "OK: version $TAG_VERSION"
+
+      - name: EAS Build (iOS + Android, auto-submit, no-wait)
+        run: |
+          eas build --profile production --platform all \
+            --auto-submit --no-wait --non-interactive
+        working-directory: apps/mobile
+        env:
+          EXPO_PROJECT_ID: ${{ vars.EXPO_PROJECT_ID }}
+
+      - name: Capture build IDs
+        id: build-ids
+        run: |
+          IOS_BUILD_ID=$(eas build:list --platform ios --limit 1 --json | jq -r '.[0].id')
+          ANDROID_BUILD_ID=$(eas build:list --platform android --limit 1 --json | jq -r '.[0].id')
+          echo "ios_build_id=$IOS_BUILD_ID" >> $GITHUB_OUTPUT
+          echo "android_build_id=$ANDROID_BUILD_ID" >> $GITHUB_OUTPUT
+        working-directory: apps/mobile
+
+    outputs:
+      ios_build_id: ${{ steps.build-ids.outputs.ios_build_id }}
+      android_build_id: ${{ steps.build-ids.outputs.android_build_id }}
+
+  wait-and-mirror:
+    name: Wait for builds + mirror APK to Blob
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.4
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EAS_TOKEN }}
+
+      - name: Wait for Android build
+        run: |
+          BUILD_ID=${{ needs.build.outputs.android_build_id }}
+          for i in {1..60}; do
+            STATUS=$(eas build:view $BUILD_ID --json | jq -r '.build.status')
+            echo "Attempt $i: Android build $BUILD_ID status=$STATUS"
+            if [ "$STATUS" = "finished" ]; then
+              ARTIFACT_URL=$(eas build:view $BUILD_ID --json | jq -r '.build.artifacts.buildUrl')
+              echo "Android build URL: $ARTIFACT_URL"
+              echo "android_artifact_url=$ARTIFACT_URL" >> $GITHUB_ENV
+              exit 0
+            fi
+            if [ "$STATUS" = "errored" ] || [ "$STATUS" = "canceled" ]; then
+              echo "FAIL: Android build $STATUS"
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Android build did not finish in 60 minutes"
+          exit 1
+
+      - name: Download Android APK
+        run: |
+          curl -L -o Buddysaradhi.apk "${{ env.android_artifact_url }}"
+          ls -lh Buddysaradhi.apk
+
+      - name: Mirror APK to Vercel Blob
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          bun run scripts/blob-upload.mjs \
+            --local-path Buddysaradhi.apk \
+            --blob-pathname "mobile/android/Buddysaradhi-${VERSION}-universal.apk" \
+            --content-type "application/vnd.android.package-archive"
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+
+      - name: Verify iOS build (no mirror)
+        run: |
+          BUILD_ID=${{ needs.build.outputs.ios_build_id }}
+          for i in {1..60}; do
+            STATUS=$(eas build:view $BUILD_ID --json | jq -r '.build.status')
+            echo "Attempt $i: iOS build $BUILD_ID status=$STATUS"
+            if [ "$STATUS" = "finished" ]; then
+              echo "iOS build finished (not mirrored — TestFlight only)"
+              exit 0
+            fi
+            if [ "$STATUS" = "errored" ] || [ "$STATUS" = "canceled" ]; then
+              echo "FAIL: iOS build $STATUS"
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "iOS build did not finish in 60 minutes"
+          exit 1
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"content\": \"⚠️ eas-build failed on ${{ github.ref_name }}\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}

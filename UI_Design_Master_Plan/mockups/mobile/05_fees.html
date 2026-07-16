@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="saffron-marigold" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Buddysaradhi · Mobile · Fees · Saffron Marigold (light)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 80px 24px 60px;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at top, #FFF7E8 0%, #FFFBF5 60%, #FDF1DC 100%);
+    }
+    .mobile-frame {
+      background: var(--bg-canvas);
+      box-shadow: 0 25px 80px -20px rgba(255,153,51,0.20), 0 0 0 12px #1A0F08, 0 0 0 14px #261810;
+    }
+    .mobile-frame-content { background: var(--bg-canvas); }
+
+    /* Topbar */
+    .fees-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px;
+      padding: 12px 14px;
+      padding-top: calc(14px + env(safe-area-inset-top));
+      background: rgba(255,255,255,0.82);
+      backdrop-filter: blur(20px) saturate(160%);
+      border-bottom: 1px solid rgba(123,30,30,0.10);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-title-block { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .topbar-title {
+      font-family: var(--font-heading);
+      font-size: 22px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.015em;
+      line-height: 1.1;
+    }
+    .period-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 9px;
+      border-radius: var(--radius-full);
+      background: rgba(255,153,51,0.10);
+      border: 1px solid rgba(255,153,51,0.22);
+      color: var(--accent-primary);
+      font-size: 11px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      width: fit-content;
+      margin-top: 2px;
+    }
+    .period-chip svg { width: 11px; height: 11px; stroke-width: 2.5; }
+    .topbar-actions { display: flex; align-items: center; gap: 4px; }
+    .icon-btn {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: none;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .icon-btn:hover { background: rgba(255,153,51,0.08); color: var(--accent-primary); }
+    .icon-btn svg { width: 19px; height: 19px; stroke-width: 2; }
+
+    /* KPI mini cards row */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      padding: 12px 14px 8px;
+    }
+    .kpi-mini {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 10px 10px 9px;
+      box-shadow: 0 1px 3px rgba(123,30,30,0.04);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-mini::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--accent-color, var(--accent-primary));
+      opacity: 0.7;
+    }
+    .kpi-mini.expected { --accent-color: #FFB627; }
+    .kpi-mini.collected { --accent-color: #047857; }
+    .kpi-mini.arrears { --accent-color: #B91C1C; }
+    .kpi-mini-label {
+      font-size: 9px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .kpi-mini-label::before {
+      content: '';
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      background: var(--accent-color);
+    }
+    .kpi-mini-figure {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.015em;
+      line-height: 1.1;
+    }
+    .kpi-mini-figure .rupee { font-size: 10px; opacity: 0.7; }
+    .kpi-mini-sub {
+      font-size: 9.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-mini-sub .pct {
+      color: #047857;
+      font-weight: 600;
+    }
+    .kpi-mini.arrears .kpi-mini-sub .pct { color: #B91C1C; }
+
+    /* Tab strip */
+    .tab-strip {
+      display: flex; gap: 0;
+      padding: 0 14px;
+      border-bottom: 1px solid rgba(123,30,30,0.08);
+      margin-bottom: 4px;
+    }
+    .tab-item {
+      flex: 1;
+      padding: 10px 4px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all var(--motion-fast) var(--ease-out);
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      min-height: 44px;
+      justify-content: center;
+    }
+    .tab-item:hover { color: var(--text-primary); }
+    .tab-item.active {
+      color: var(--accent-primary);
+      border-bottom-color: var(--accent-primary);
+      font-weight: 600;
+    }
+    .tab-count {
+      font-size: 9.5px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .tab-item.active .tab-count { color: var(--accent-primary); }
+
+    /* Fee list */
+    .fees-main {
+      flex: 1;
+      padding: 8px 14px 110px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .fee-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      box-shadow: 0 1px 3px rgba(123,30,30,0.05);
+      transition: all var(--motion-fast) var(--ease-out);
+      position: relative;
+    }
+    .fee-card:hover { box-shadow: 0 4px 12px -2px rgba(123,30,30,0.10); border-color: var(--border-strong); }
+    .fee-card.expanded {
+      border: 1.5px solid var(--accent-primary);
+      box-shadow: 0 6px 18px -4px rgba(255,153,51,0.18);
+      background: linear-gradient(180deg, rgba(255,153,51,0.03), var(--bg-surface));
+    }
+    .fee-card.overdue {
+      border-left: 3px solid var(--accent-danger);
+      padding-left: 10px;
+    }
+    .fee-card-head {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .fee-avatar {
+      width: 38px; height: 38px;
+      border-radius: var(--radius-full);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 13px;
+      color: #FFFFFF;
+      flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+    .av-s1 { background: linear-gradient(135deg, #FF9933, #FFB627); }
+    .av-s2 { background: linear-gradient(135deg, #7B1E1E, #B45309); }
+    .av-s3 { background: linear-gradient(135deg, #C2410C, #FF9933); }
+    .av-s4 { background: linear-gradient(135deg, #B45309, #FFB627); }
+    .av-s5 { background: linear-gradient(135deg, #7B1E1E, #C2410C); }
+    .fee-info { flex: 1; min-width: 0; }
+    .fee-name {
+      font-family: var(--font-heading);
+      font-size: 14px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.005em;
+      margin-bottom: 2px;
+    }
+    .fee-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex; align-items: center; gap: 5px;
+      font-variant-numeric: tabular-nums;
+    }
+    .fee-meta .monthly {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); }
+    .fee-status {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 7px;
+      border-radius: var(--radius-full);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid;
+      flex-shrink: 0;
+    }
+    .fee-status::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .fee-status.paid { background: rgba(4,120,87,0.08); border-color: rgba(4,120,87,0.25); color: #047857; }
+    .fee-status.partial { background: rgba(217,119,6,0.08); border-color: rgba(217,119,6,0.25); color: #C2410C; }
+    .fee-status.overdue { background: rgba(185,28,28,0.08); border-color: rgba(185,28,28,0.25); color: #B91C1C; }
+
+    /* Mini progress bar (collected/expected) */
+    .fee-progress-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(123,30,30,0.10);
+    }
+    .fee-progress-text {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .fee-progress-text .collected-amt {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .fee-progress-text .expected-amt {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+    }
+    .fee-progress-bar-wrap {
+      flex: 1;
+      height: 5px;
+      background: rgba(123,30,30,0.08);
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+    .fee-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #FF9933, #FFB627);
+      border-radius: 3px;
+      box-shadow: 0 0 6px -1px rgba(255,153,51,0.5);
+    }
+    .fee-progress-bar.full { background: linear-gradient(90deg, #047857, #10B981); box-shadow: 0 0 6px -1px rgba(4,120,87,0.5); }
+    .fee-progress-bar.danger { background: linear-gradient(90deg, #B91C1C, #DC2626); }
+
+    .fee-action-btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #FF9933, #FFB627);
+      color: #FFFFFF;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      min-height: 36px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      box-shadow: 0 4px 10px -2px rgba(255,153,51,0.4);
+      transition: all var(--motion-fast) var(--ease-out);
+      border: none;
+    }
+    .fee-action-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .fee-action-btn svg { width: 13px; height: 13px; stroke-width: 2.5; }
+
+    /* Expanded card: fee history timeline + multi-actions */
+    .fee-history {
+      margin-top: 12px;
+      padding: 12px;
+      background: rgba(255,247,232,0.6);
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255,153,51,0.10);
+    }
+    .fee-history-title {
+      font-size: 10px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .fee-history-title::before {
+      content: '';
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--accent-primary);
+    }
+    .timeline {
+      display: flex; flex-direction: column;
+      gap: 0;
+      padding-left: 10px;
+      border-left: 1.5px dashed rgba(255,153,51,0.25);
+    }
+    .timeline-item {
+      display: flex; gap: 10px;
+      padding: 6px 0;
+      position: relative;
+    }
+    .timeline-item::before {
+      content: '';
+      position: absolute; left: -15px; top: 11px;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--bg-surface);
+      border: 2px solid var(--accent-primary);
+      box-shadow: 0 0 0 2px var(--bg-surface);
+    }
+    .timeline-item.unpaid::before { border-color: var(--accent-danger); }
+    .timeline-info { flex: 1; min-width: 0; }
+    .timeline-period {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+      margin-bottom: 1px;
+    }
+    .timeline-period .badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 0 5px;
+      border-radius: 3px;
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .timeline-period .badge.paid { background: rgba(4,120,87,0.10); color: #047857; }
+    .timeline-period .badge.unpaid { background: rgba(185,28,28,0.10); color: #B91C1C; }
+    .timeline-amount {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    .timeline-amount .muted { color: var(--text-muted); }
+    .timeline-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .fee-actions-row {
+      display: flex; gap: 6px;
+      margin-top: 10px;
+    }
+    .fee-actions-row .btn-mini {
+      flex: 1;
+      padding: 8px 6px;
+      border-radius: var(--radius-md);
+      font-size: 11px;
+      font-weight: 600;
+      min-height: 36px;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      transition: all var(--motion-fast) var(--ease-out);
+      border: 1px solid;
+    }
+    .btn-mini svg { width: 12px; height: 12px; stroke-width: 2.2; }
+    .btn-mini.primary {
+      background: var(--accent-primary);
+      border-color: var(--accent-primary);
+      color: #FFFFFF;
+      box-shadow: 0 4px 10px -2px rgba(255,153,51,0.4);
+    }
+    .btn-mini.primary:hover { filter: brightness(1.08); }
+    .btn-mini.ghost {
+      background: var(--bg-surface);
+      border-color: var(--border-strong);
+      color: var(--text-secondary);
+    }
+    .btn-mini.ghost:hover { background: var(--bg-surface-raised); color: var(--text-primary); }
+
+    /* FAB */
+    .fab {
+      position: absolute;
+      right: 16px; bottom: calc(90px + env(safe-area-inset-bottom));
+      width: 54px; height: 54px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, #FF9933, #C2410C);
+      color: #FFFFFF;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 12px 28px -6px rgba(255,153,51,0.50), inset 0 1px 0 rgba(255,255,255,0.25);
+      border: none;
+      z-index: 11;
+      transition: all var(--motion-fast) var(--ease-spring);
+      cursor: pointer;
+    }
+    .fab:hover { transform: scale(1.06) rotate(90deg); box-shadow: 0 16px 36px -6px rgba(255,153,51,0.60); }
+    .fab svg { width: 22px; height: 22px; stroke-width: 2.5; }
+
+    /* Bottom nav */
+    .bottom-nav {
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(24px) saturate(180%);
+      border-top: 1px solid rgba(123,30,30,0.10);
+    }
+    .bottom-nav-item.active { color: var(--accent-primary); }
+    .bottom-nav-item { position: relative; padding-top: 8px; }
+    .nav-indicator {
+      position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: transparent;
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .bottom-nav-item.active .nav-indicator { background: var(--accent-primary); box-shadow: 0 0 6px rgba(255,153,51,0.5); }
+
+    .frame-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: rgba(28,20,16,0.45);
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+    }
+    .mockup-frame-label {
+      background: rgba(26,15,8,0.85);
+      border: 1px solid rgba(255,153,51,0.3);
+      color: #FFB347;
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-frame-label">Mobile · Fees · Saffron Marigold (light)</div>
+
+  <div class="mobile-frame">
+    <div class="mobile-frame-content">
+      <!-- TOPBAR -->
+      <header class="fees-topbar">
+        <div class="topbar-title-block">
+          <span class="topbar-title">Fees</span>
+          <span class="period-chip">
+            Nov 2024
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" aria-label="Search fees">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="Filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- KPI MINI CARDS -->
+      <section class="kpi-row" aria-label="Fee summary">
+        <div class="kpi-mini expected">
+          <div class="kpi-mini-label">Expected</div>
+          <div class="kpi-mini-figure"><span class="rupee">₹</span>52,800</div>
+          <div class="kpi-mini-sub">84 students · Nov</div>
+        </div>
+        <div class="kpi-mini collected">
+          <div class="kpi-mini-label">Collected</div>
+          <div class="kpi-mini-figure"><span class="rupee">₹</span>47,250</div>
+          <div class="kpi-mini-sub"><span class="pct">89%</span> · 76 paid</div>
+        </div>
+        <div class="kpi-mini arrears">
+          <div class="kpi-mini-label">Arrears</div>
+          <div class="kpi-mini-figure"><span class="rupee">₹</span>8,400</div>
+          <div class="kpi-mini-sub"><span class="pct">7</span> overdue</div>
+        </div>
+      </section>
+
+      <!-- TAB STRIP -->
+      <div class="tab-strip" role="tablist">
+        <button class="tab-item active" role="tab" aria-selected="true">All <span class="tab-count">84</span></button>
+        <button class="tab-item" role="tab">Paid <span class="tab-count">76</span></button>
+        <button class="tab-item" role="tab">Partial <span class="tab-count">1</span></button>
+        <button class="tab-item" role="tab">Overdue <span class="tab-count">7</span></button>
+      </div>
+
+      <!-- FEE LIST -->
+      <main class="fees-main">
+
+        <!-- Card 1 — EXPANDED with fee history -->
+        <div class="fee-card expanded overdue">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s1">RS</div>
+            <div class="fee-info">
+              <div class="fee-name">Riya Sharma</div>
+              <div class="fee-meta">
+                Physics · Batch A
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,500/mo</span>
+              </div>
+            </div>
+            <span class="fee-status overdue">Overdue</span>
+          </div>
+
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹0</span> <span class="muted">/ ₹1,500</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar danger" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="fee-history">
+            <div class="fee-history-title">Fee history · last 3 months</div>
+            <div class="timeline">
+              <div class="timeline-item">
+                <div class="timeline-info">
+                  <div class="timeline-period">Nov 2024 <span class="badge unpaid">Due</span></div>
+                  <div class="timeline-amount">₹1,500 <span class="muted">· pending 12 days</span></div>
+                  <div class="timeline-meta">Due 5 Nov · 2 reminders sent</div>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-info">
+                  <div class="timeline-period">Oct 2024 <span class="badge paid">Paid</span></div>
+                  <div class="timeline-amount">₹1,500 <span class="muted">· UPI · 3 Oct</span></div>
+                  <div class="timeline-meta">Receipt #RC-2410-0042</div>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-info">
+                  <div class="timeline-period">Sep 2024 <span class="badge paid">Paid</span></div>
+                  <div class="timeline-amount">₹1,500 <span class="muted">· Cash · 4 Sep</span></div>
+                  <div class="timeline-meta">Receipt #RC-2409-0038</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fee-actions-row">
+            <button class="btn-mini primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Record payment
+            </button>
+            <button class="btn-mini ghost">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Receipt
+            </button>
+            <button class="btn-mini ghost">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+              Call
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2 — Paid -->
+        <div class="fee-card">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s2">AP</div>
+            <div class="fee-info">
+              <div class="fee-name">Aarav Patel</div>
+              <div class="fee-meta">
+                Maths · Batch B
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,800/mo</span>
+              </div>
+            </div>
+            <span class="fee-status paid">Paid</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹1,800</span> <span class="muted">/ ₹1,800</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar full" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3 — Overdue with Record Payment button -->
+        <div class="fee-card overdue">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s3">DV</div>
+            <div class="fee-info">
+              <div class="fee-name">Diya Verma</div>
+              <div class="fee-meta">
+                Chemistry · Batch C
+                <span class="meta-dot"></span>
+                <span class="monthly">₹2,000/mo</span>
+              </div>
+            </div>
+            <span class="fee-status overdue">Overdue</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹0</span> <span class="muted">/ ₹2,000</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar danger" style="width: 0%;"></div>
+            </div>
+          </div>
+          <button class="fee-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Record payment · pending 8 days
+          </button>
+        </div>
+
+        <!-- Card 4 — Partial -->
+        <div class="fee-card">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s4">IK</div>
+            <div class="fee-info">
+              <div class="fee-name">Ishaan Kapoor</div>
+              <div class="fee-meta">
+                Physics · Batch A
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,500/mo</span>
+              </div>
+            </div>
+            <span class="fee-status partial">Partial</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹1,000</span> <span class="muted">/ ₹1,500</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar" style="width: 67%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 5 — Paid -->
+        <div class="fee-card">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s5">MR</div>
+            <div class="fee-info">
+              <div class="fee-name">Meera Reddy</div>
+              <div class="fee-meta">
+                Maths · Batch B
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,800/mo</span>
+              </div>
+            </div>
+            <span class="fee-status paid">Paid</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹1,800</span> <span class="muted">/ ₹1,800</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar full" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 6 — Paid -->
+        <div class="fee-card">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s1">SN</div>
+            <div class="fee-info">
+              <div class="fee-name">Sai Nair</div>
+              <div class="fee-meta">
+                Physics · Batch A
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,500/mo</span>
+              </div>
+            </div>
+            <span class="fee-status paid">Paid</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹1,500</span> <span class="muted">/ ₹1,500</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar full" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 7 — Overdue -->
+        <div class="fee-card overdue">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s2">TG</div>
+            <div class="fee-info">
+              <div class="fee-name">Tanvi Gupta</div>
+              <div class="fee-meta">
+                Chemistry · Batch C
+                <span class="meta-dot"></span>
+                <span class="monthly">₹2,000/mo</span>
+              </div>
+            </div>
+            <span class="fee-status overdue">Overdue</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹0</span> <span class="muted">/ ₹2,000</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar danger" style="width: 0%;"></div>
+            </div>
+          </div>
+          <button class="fee-action-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Record payment · pending 15 days
+          </button>
+        </div>
+
+        <!-- Card 8 — Paid -->
+        <div class="fee-card">
+          <div class="fee-card-head">
+            <div class="fee-avatar av-s3">VK</div>
+            <div class="fee-info">
+              <div class="fee-name">Vihaan Khanna</div>
+              <div class="fee-meta">
+                Physics · Batch A
+                <span class="meta-dot"></span>
+                <span class="monthly">₹1,500/mo</span>
+              </div>
+            </div>
+            <span class="fee-status paid">Paid</span>
+          </div>
+          <div class="fee-progress-row">
+            <div class="fee-progress-text">
+              <span class="collected-amt">₹1,500</span> <span class="muted">/ ₹1,500</span>
+            </div>
+            <div class="fee-progress-bar-wrap">
+              <div class="fee-progress-bar full" style="width: 100%;"></div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      <!-- FAB -->
+      <button class="fab" aria-label="Record new payment">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+
+      <!-- BOTTOM NAV -->
+      <nav class="bottom-nav" aria-label="Primary">
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Students</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg>
+          <span>Attendance</span>
+        </button>
+        <button class="bottom-nav-item active">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <span>Fees</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+  <div class="frame-label">05_fees.html · 390 × 844</div>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "@buddysaradhi/shared",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "generate:sdk": "openapi -i ../../contracts/openapi.yaml -o ./sdk -c fetch --name BuddysaradhiSDK",
+    "generate:zod": "openapi-zod-client ../../contracts/openapi.yaml -o ./zod/index.ts",
+    "generate": "bun run generate:sdk && bun run generate:zod"
+  },
+  "dependencies": {
+    "@zodios/core": "^10.9.6",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "openapi-typescript-codegen": "^0.31.0",
+    "openapi-zod-client": "^1.18.3",
+    "swagger-parser": "^10.0.3",
+    "typescript": "^7.0.2"
+  }
+}

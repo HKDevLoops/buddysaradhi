@@ -1,0 +1,122 @@
+- generic [ref=f8e1]:
+  - generic [ref=f8e2]:
+    - generic [ref=f8e3]:
+      - banner [ref=f8e4]:
+        - heading "Jyothi Tutions" [level=2] [ref=f8e144]
+        - button "User profile" [ref=f8e8] [cursor=pointer]: RS
+      - main [ref=f8e9]:
+        - main [ref=f8e10]:
+          - generic [ref=f8e242]:
+            - region "Student list" [ref=f8e243]:
+              - generic [ref=f8e244]:
+                - generic [ref=f8e245]:
+                  - heading "Students" [level=1] [ref=f8e246]
+                  - generic [ref=f8e247]: 12 active
+                - searchbox "Search students" [ref=f8e252]
+                - button "Filters" [ref=f8e253] [cursor=pointer]
+              - list [ref=f8e257]:
+                - listitem [ref=f8e258]:
+                  - button "Open Aarav Sharma" [ref=f8e259] [cursor=pointer]:
+                    - generic [ref=f8e260]: AS
+                    - generic [ref=f8e261]:
+                      - paragraph [ref=f8e262]: Aarav Sharma
+                      - paragraph [ref=f8e263]: 10·Morning Batch
+                    - generic "No dues" [ref=f8e264]
+                - listitem [ref=f8e266]:
+                  - button "Open Aditya Das" [ref=f8e267] [cursor=pointer]:
+                    - generic [ref=f8e268]: AD
+                    - generic [ref=f8e269]:
+                      - paragraph [ref=f8e270]: Aditya Das
+                      - paragraph [ref=f8e271]: 11·Evening Batch
+                    - generic "No dues" [ref=f8e272]
+                - listitem [ref=f8e274]:
+                  - button "Open Ananya Iyer" [ref=f8e275] [cursor=pointer]:
+                    - generic [ref=f8e276]: AI
+                    - generic [ref=f8e277]:
+                      - paragraph [ref=f8e278]: Ananya Iyer
+                      - paragraph [ref=f8e279]: 11·Morning Batch
+                    - generic "No dues" [ref=f8e280]
+                - listitem [ref=f8e282]:
+                  - button "Open Arjun Nair" [ref=f8e283] [cursor=pointer]:
+                    - generic [ref=f8e284]: AN
+                    - generic [ref=f8e285]:
+                      - paragraph [ref=f8e286]: Arjun Nair
+                      - paragraph [ref=f8e287]: 12·Evening Batch
+                    - generic "Outstanding dues" [ref=f8e288]: Due ₹2,000.00
+                - listitem [ref=f8e290]:
+                  - button "Open Diya Patel" [ref=f8e291] [cursor=pointer]:
+                    - generic [ref=f8e292]: DP
+                    - generic [ref=f8e293]:
+                      - paragraph [ref=f8e294]: Diya Patel
+                      - paragraph [ref=f8e295]: 10·Morning Batch
+                    - generic "Outstanding dues" [ref=f8e296]: Due ₹450.00
+                - listitem [ref=f8e298]:
+                  - button "Open Isha Khan" [ref=f8e299] [cursor=pointer]:
+                    - generic [ref=f8e300]: IK
+                    - generic [ref=f8e301]:
+                      - paragraph [ref=f8e302]: Isha Khan
+                      - paragraph [ref=f8e303]: 10·Morning Batch
+                    - generic "No dues" [ref=f8e304]
+                - listitem [ref=f8e306]:
+                  - button "Open Kabir Singh" [ref=f8e307] [cursor=pointer]:
+                    - generic [ref=f8e308]: KS
+                    - generic [ref=f8e309]:
+                      - paragraph [ref=f8e310]: Kabir Singh
+                      - paragraph [ref=f8e311]: 9·Evening Batch
+                    - generic "Outstanding dues" [ref=f8e312]: Due ₹750.00
+                - listitem [ref=f8e314]:
+                  - button "Open Kiara Rao" [ref=f8e315] [cursor=pointer]:
+                    - generic [ref=f8e316]: KR
+                    - generic [ref=f8e317]:
+                      - paragraph [ref=f8e318]: Kiara Rao
+                      - paragraph [ref=f8e319]: 8·Morning Batch
+                    - generic "Outstanding dues" [ref=f8e320]: Due ₹600.00
+                - listitem [ref=f8e322]:
+                  - button "Open Myra Gupta" [ref=f8e323] [cursor=pointer]:
+                    - generic [ref=f8e324]: MG
+                    - generic [ref=f8e325]:
+                      - paragraph [ref=f8e326]: Myra Gupta
+                      - paragraph [ref=f8e327]: 8·Morning Batch
+                    - generic "No dues" [ref=f8e328]
+                - listitem [ref=f8e330]:
+                  - button "Open Pari Bhat" [ref=f8e331] [cursor=pointer]:
+                    - generic [ref=f8e332]: PB
+                    - generic [ref=f8e333]:
+                      - paragraph [ref=f8e334]: Pari Bhat
+                      - paragraph [ref=f8e335]: 9·Morning Batch
+                    - generic "Outstanding dues" [ref=f8e336]: Due ₹1,500.00
+                - listitem [ref=f8e338]:
+                  - button "Open Sara Jose" [ref=f8e339] [cursor=pointer]:
+                    - generic [ref=f8e340]: SJ
+                    - generic [ref=f8e341]:
+                      - paragraph [ref=f8e342]: Sara Jose
+                      - paragraph [ref=f8e343]: 10·Morning Batch
+                    - generic "Outstanding dues" [ref=f8e344]: Due ₹900.00
+                - listitem [ref=f8e346]:
+                  - button "Open Vivaan Reddy" [ref=f8e347] [cursor=pointer]:
+                    - generic [ref=f8e348]: VR
+                    - generic [ref=f8e349]:
+                      - paragraph [ref=f8e350]: Vivaan Reddy
+                      - paragraph [ref=f8e351]: 9·Evening Batch
+                    - generic "Outstanding dues" [ref=f8e352]: Due ₹1,200.00
+            - region "Student detail" [ref=f8e354]:
+              - generic [ref=f8e355]:
+                - paragraph [ref=f8e360]: Select a student
+                - paragraph [ref=f8e361]: Choose a student from the list to view their profile, fees, ledger and attendance.
+            - button "Add Student" [ref=f8e362] [cursor=pointer]
+        - generic [ref=f8e94]:
+          - generic [ref=f8e95]:
+            - generic [ref=f8e100]: Online · 0 pending
+            - generic [ref=f8e101]: "Local DB: 2.1 MB"
+          - generic [ref=f8e102]:
+            - generic [ref=f8e103]: v1.0.0-rc
+            - generic [ref=f8e104]: © 2026 BuddySaradhi
+    - navigation "Primary" [ref=f8e105]:
+      - button "Dashboard" [ref=f8e106] [cursor=pointer]
+      - button "Students" [active] [ref=f8e113] [cursor=pointer]
+      - button "Attendance" [ref=f8e120] [cursor=pointer]
+      - button "Fees & Payments" [ref=f8e125] [cursor=pointer]:
+        - generic [ref=f8e129]: Fees
+      - button "Settings" [ref=f8e130] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f8e140] [cursor=pointer]
+  - alert [ref=f8e241]

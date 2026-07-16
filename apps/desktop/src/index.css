@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas-start: #0f0c29;
+  --color-canvas-mid: #24243e;
+  --color-canvas-end: #0a0a1a;
+  
+  --color-accent-emerald: #00FF9D;
+  --color-accent-cyan: #00F0FF;
+  --color-accent-flare: #FF5E00;
+  --color-accent-amber: #FFB300;
+  --color-accent-violet: #B388FF;
+}
+
+body {
+  @apply bg-gradient-to-br from-canvas-start via-canvas-mid to-canvas-end text-white antialiased min-h-screen overflow-hidden;
+  font-family: 'Inter', -apple-system, sans-serif;
+}
+
+/* Glass Tiers */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.glass-faint {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* Neumorphic Recipes */
+.neumo-raised {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: -2px -2px 6px rgba(255, 255, 255, 0.05), 2px 2px 6px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.neumo-pressed {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.3), inset -2px -2px 6px rgba(255, 255, 255, 0.03);
+}
+
+.neumo-inset {
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.4), inset -1px -1px 4px rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}

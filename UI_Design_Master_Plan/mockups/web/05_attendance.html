@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Buddysaradhi — Attendance · Cyan Lagoon</title>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../shared/styles.css" />
+<style>
+  body { font-feature-settings: "ss01", "cv01", "tnum"; }
+  .app-shell { flex-direction: row; }
+  .main-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* Sidebar */
+  .sidebar { width: 232px; padding: var(--space-5) var(--space-3); gap: var(--space-1); }
+  .sidebar-brand { padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); }
+  .sidebar-section-label { padding: var(--space-3) var(--space-3) var(--space-1); }
+  .sidebar-item { padding: var(--space-3); font-size: var(--text-sm); }
+  .sidebar-foot { margin-top: auto; padding: var(--space-3); display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid var(--border-default); }
+
+  /* Topbar */
+  .topbar { padding: var(--space-4) var(--space-6); background: var(--surface-glass-strong); gap: var(--space-6); }
+  .topbar-left { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
+  .topbar-title h1 { font-size: var(--text-2xl); letter-spacing: -0.02em; }
+  .topbar-title .subtitle { font-size: var(--text-sm); color: var(--text-muted); margin-top: 2px; }
+  .topbar-right { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+
+  /* Date picker pill */
+  .date-pill {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 8px 14px; border-radius: var(--radius-md);
+    background: var(--bg-surface); border: 1px solid var(--border-default);
+    font-size: var(--text-sm); font-weight: 500; color: var(--text-primary);
+    cursor: pointer; transition: all var(--motion-fast) var(--ease-out);
+    min-height: 40px;
+  }
+  .date-pill:hover { border-color: var(--border-accent); }
+  .date-pill .cal-icon { color: var(--accent-primary); }
+  .date-pill .chev { color: var(--text-muted); margin-left: 4px; }
+
+  /* Batch selector */
+  .batch-select {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: 8px 14px; border-radius: var(--radius-md);
+    background: var(--bg-surface-inset); border: 1px solid var(--border-default);
+    font-size: var(--text-sm); color: var(--text-primary);
+    cursor: pointer; min-height: 40px;
+  }
+  .batch-select .batch-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-primary); }
+  .batch-select .student-count { font-family: var(--font-mono); color: var(--text-muted); font-size: var(--text-xs); }
+
+  /* KPI strip */
+  .kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); padding: var(--space-4) var(--space-6); background: var(--bg-canvas); border-bottom: 1px solid var(--border-default); }
+  .kpi-mini { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); position: relative; overflow: hidden; }
+  .kpi-mini.present::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent-success); }
+  .kpi-mini.absent::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent-danger); }
+  .kpi-mini.late::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent-warning); }
+  .kpi-mini .donut-wrap { flex-shrink: 0; width: 56px; height: 56px; position: relative; }
+  .kpi-mini .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .kpi-mini .donut-num { font-family: var(--font-mono); font-weight: 600; font-size: var(--text-md); color: var(--text-primary); line-height: 1; }
+  .kpi-mini .donut-denom { font-size: 9px; color: var(--text-muted); font-family: var(--font-mono); }
+  .kpi-mini .kpi-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .kpi-mini .kpi-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .kpi-mini .kpi-fig { font-family: var(--font-mono); font-size: var(--text-xl); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
+  .kpi-mini .kpi-pct { font-size: var(--text-xs); color: var(--text-secondary); font-family: var(--font-mono); }
+  .kpi-mini.present .kpi-pct { color: var(--accent-success); }
+  .kpi-mini.absent .kpi-pct { color: var(--accent-danger); }
+  .kpi-mini.late .kpi-pct { color: var(--accent-warning); }
+
+  /* Main content: 2-col */
+  .content-area { flex: 1; display: grid; grid-template-columns: 1fr 384px; gap: 0; min-height: 0; }
+
+  /* Attendance list card */
+  .att-card { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border-default); background: var(--bg-surface); }
+
+  /* Bulk action bar */
+  .bulk-bar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border-default); background: linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 4%, var(--bg-surface)), var(--bg-surface)); flex-shrink: 0; }
+  .bulk-bar .select-all-wrap { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--text-secondary); }
+  .bulk-bar .divider-v { width: 1px; height: 20px; background: var(--border-default); margin: 0 4px; }
+  .bulk-bar .bulk-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+  .bulk-toggle-group { display: inline-flex; align-items: center; gap: 4px; padding: 3px; background: var(--bg-surface-inset); border-radius: var(--radius-md); }
+  .bulk-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); border: 1px solid transparent; }
+  .bulk-btn:hover { background: var(--bg-surface); color: var(--text-primary); }
+  .bulk-btn .kbd { font-family: var(--font-mono); font-size: 10px; padding: 0 4px; border-radius: 3px; background: var(--bg-surface); color: var(--text-muted); }
+  .bulk-btn.p:hover { color: var(--accent-success); border-color: color-mix(in srgb, var(--accent-success) 25%, transparent); }
+  .bulk-btn.a:hover { color: var(--accent-danger); border-color: color-mix(in srgb, var(--accent-danger) 25%, transparent); }
+  .bulk-btn.l:hover { color: var(--accent-warning); border-color: color-mix(in srgb, var(--accent-warning) 25%, transparent); }
+  .bulk-bar .spacer { flex: 1; }
+  .bulk-bar .last-saved { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); display: inline-flex; align-items: center; gap: 6px; }
+  .bulk-bar .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-success) 25%, transparent); }
+
+  /* Attendance list */
+  .att-list { flex: 1; overflow-y: auto; }
+  .att-row { display: grid; grid-template-columns: 40px 1fr 220px 110px 48px; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--border-default); transition: background var(--motion-fast) var(--ease-out); position: relative; }
+  .att-row:hover { background: color-mix(in srgb, var(--accent-primary) 4%, transparent); }
+  .att-row.selected { background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-surface)); box-shadow: inset 3px 0 0 var(--accent-primary); }
+  .att-row.hover-demo { background: color-mix(in srgb, var(--accent-primary) 4%, transparent); }
+
+  .att-row .num-cell { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); text-align: center; }
+  .att-row .student-cell { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+  .att-row .student-cell .name-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .att-row .student-cell .name-stack .primary { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .att-row .student-cell .name-stack .secondary { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+
+  /* Toggle group P/A/L */
+  .pal-group { display: inline-flex; align-items: center; gap: 4px; padding: 3px; background: var(--bg-surface-inset); border-radius: var(--radius-full); }
+  .pal-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 14px; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 600; color: var(--text-muted); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); border: none; min-width: 56px; min-height: 28px; }
+  .pal-btn:hover { color: var(--text-primary); }
+  .pal-btn.active.p { background: var(--accent-success); color: #FFFFFF; box-shadow: 0 1px 4px color-mix(in srgb, var(--accent-success) 30%, transparent); }
+  .pal-btn.active.a { background: var(--accent-danger); color: #FFFFFF; box-shadow: 0 1px 4px color-mix(in srgb, var(--accent-danger) 30%, transparent); }
+  .pal-btn.active.l { background: var(--accent-warning); color: #FFFFFF; box-shadow: 0 1px 4px color-mix(in srgb, var(--accent-warning) 30%, transparent); }
+  .pal-btn .pal-kbd { font-family: var(--font-mono); font-size: 9px; opacity: 0.7; }
+
+  /* Time-in input */
+  .time-input { width: 100%; padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-primary); min-height: 32px; }
+  .time-input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 20%, transparent); }
+
+  .notes-btn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); background: transparent; border: 1px solid transparent; }
+  .notes-btn:hover { background: var(--surface-glass-strong); color: var(--accent-primary); }
+  .notes-btn.has-note { color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); border-color: color-mix(in srgb, var(--accent-primary) 20%, transparent); }
+
+  /* Right column cards */
+  .right-col { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-4); background: var(--bg-canvas); overflow-y: auto; }
+  .side-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg); padding: var(--space-5); box-shadow: 0 1px 3px var(--shadow-color); }
+  .side-card h3 { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); margin-bottom: var(--space-3); display: flex; align-items: center; justify-content: space-between; }
+  .side-card h3 .h-action { font-size: var(--text-xs); color: var(--accent-primary); cursor: pointer; font-weight: 500; }
+
+  /* Mini calendar */
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+  .cal-month { font-family: var(--font-heading); font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+  .cal-nav { display: flex; gap: 4px; }
+  .cal-nav-btn { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); }
+  .cal-nav-btn:hover { background: var(--bg-surface-inset); color: var(--accent-primary); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-dow { text-align: center; font-size: 10px; color: var(--text-muted); padding: 4px 0; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: var(--text-xs); font-family: var(--font-mono); color: var(--text-secondary); border-radius: var(--radius-sm); cursor: pointer; transition: all var(--motion-fast) var(--ease-out); position: relative; }
+  .cal-day:hover { background: var(--bg-surface-inset); color: var(--text-primary); }
+  .cal-day.today { background: var(--accent-primary); color: var(--text-on-accent); font-weight: 600; }
+  .cal-day.outside { color: var(--text-muted); opacity: 0.4; }
+  .cal-day .day-dot { width: 4px; height: 4px; border-radius: 50%; position: absolute; bottom: 3px; }
+  .cal-day.full .day-dot { background: var(--accent-success); }
+  .cal-day.partial .day-dot { background: var(--accent-warning); }
+  .cal-day.holiday .day-dot { background: var(--accent-danger); }
+  .cal-day.today .day-dot { background: var(--text-on-accent); }
+
+  .cal-legend { display: flex; align-items: center; gap: var(--space-4); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--border-default); }
+  .cal-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-xs); color: var(--text-muted); }
+  .cal-legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+  /* Week summary */
+  .week-bars { display: flex; align-items: flex-end; justify-content: space-between; height: 88px; padding: 0 4px; gap: var(--space-2); }
+  .week-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .week-bar { width: 100%; max-width: 24px; background: var(--bg-surface-inset); border-radius: var(--radius-sm); position: relative; height: 64px; overflow: hidden; }
+  .week-bar-fill { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(180deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 70%, var(--accent-secondary))); border-radius: var(--radius-sm); transition: height var(--motion-slow) var(--ease-out); }
+  .week-bar-fill.warn { background: linear-gradient(180deg, var(--accent-warning), color-mix(in srgb, var(--accent-warning) 70%, var(--accent-danger))); }
+  .week-bar-fill.danger { background: linear-gradient(180deg, var(--accent-danger), color-mix(in srgb, var(--accent-danger) 70%, #000000)); }
+  .week-bar-col .day-label { font-size: 10px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+  .week-bar-col.today .day-label { color: var(--accent-primary); font-weight: 700; }
+  .week-bar-col .day-pct { font-size: 9px; color: var(--text-muted); font-family: var(--font-mono); }
+  .week-bar-col.today .day-pct { color: var(--accent-primary); font-weight: 600; }
+
+  /* Trends line chart */
+  .trend-chart { width: 100%; height: 88px; }
+  .trend-meta { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); }
+  .trend-meta .trend-avg { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+  .trend-meta .trend-delta { font-size: var(--text-xs); color: var(--accent-success); display: inline-flex; align-items: center; gap: 3px; }
+
+  /* Footer */
+  .app-footer { padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border-default); background: var(--bg-surface); display: flex; align-items: center; justify-content: space-between; font-size: var(--text-xs); color: var(--text-muted); }
+  .footer-meta { display: flex; align-items: center; gap: var(--space-4); }
+  .kbd { font-family: var(--font-mono); padding: 1px 6px; background: var(--bg-surface-inset); border-radius: 4px; border: 1px solid var(--border-default); font-size: 10px; color: var(--text-secondary); }
+</style>
+</head>
+<body data-palette="cyan-lagoon" data-theme="light">
+<div class="mockup-frame-label">Web · Attendance · Cyan Lagoon (light)</div>
+
+<div class="app-shell">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-mark">B</div>
+      <div class="sidebar-brand-name">Buddysaradhi</div>
+    </div>
+    <div class="sidebar-section-label">Manage</div>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      <span>Dashboard</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Students</span>
+      <span class="badge-count" style="margin-left:auto;">84</span>
+    </a>
+    <a class="sidebar-item active">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+      <span>Attendance</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+      <span>Fees &amp; Payments</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 6-6"/></svg>
+      <span>Reports</span>
+    </a>
+    <div class="sidebar-section-label">System</div>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <span>Settings</span>
+    </a>
+    <a class="sidebar-item">
+      <svg class="sidebar-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>Backup &amp; Export</span>
+    </a>
+    <div class="sidebar-foot">
+      <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-primary) 18%, var(--bg-surface-raised));">SP</div>
+      <div style="display:flex;flex-direction:column;min-width:0;">
+        <div style="font-size:var(--text-sm);font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sneha Patil</div>
+        <div style="font-size:10px;color:var(--text-muted);">Patil Physics · Pune</div>
+      </div>
+      <button class="btn-icon" style="margin-left:auto;padding:4px;color:var(--text-muted);background:none;" aria-label="Account menu">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN COLUMN ============ -->
+  <div class="main-col">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="topbar-title">
+          <h1>Attendance</h1>
+          <div class="subtitle">Mark today's session · auto-saves every 30s</div>
+        </div>
+        <button class="date-pill">
+          <svg class="cal-icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          Tuesday, 12 Nov 2024
+          <svg class="chev icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button class="batch-select">
+          <span class="batch-dot"></span>
+          Physics 11th · Batch A
+          <span class="student-count">(24 students)</span>
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted);"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+      </div>
+      <div class="topbar-right">
+        <button class="btn btn-secondary">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Mark all present
+        </button>
+        <button class="btn btn-primary">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save session
+        </button>
+      </div>
+    </header>
+
+    <!-- KPI strip -->
+    <div class="kpi-strip">
+      <div class="kpi-mini present">
+        <div class="donut-wrap">
+          <svg width="56" height="56" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--bg-surface-inset)" stroke-width="3"></circle>
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--accent-success)" stroke-width="3" stroke-dasharray="75, 100" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+          </svg>
+          <div class="donut-center"><span class="donut-num">18</span><span class="donut-denom">/24</span></div>
+        </div>
+        <div class="kpi-text">
+          <span class="kpi-label">Present</span>
+          <span class="kpi-fig">18</span>
+          <span class="kpi-pct">75% · of 24 enrolled</span>
+        </div>
+      </div>
+      <div class="kpi-mini absent">
+        <div class="donut-wrap">
+          <svg width="56" height="56" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--bg-surface-inset)" stroke-width="3"></circle>
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--accent-danger)" stroke-width="3" stroke-dasharray="17, 100" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+          </svg>
+          <div class="donut-center"><span class="donut-num">4</span><span class="donut-denom">/24</span></div>
+        </div>
+        <div class="kpi-text">
+          <span class="kpi-label">Absent</span>
+          <span class="kpi-fig">4</span>
+          <span class="kpi-pct">17% · follow-up suggested</span>
+        </div>
+      </div>
+      <div class="kpi-mini late">
+        <div class="donut-wrap">
+          <svg width="56" height="56" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--bg-surface-inset)" stroke-width="3"></circle>
+            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="var(--accent-warning)" stroke-width="3" stroke-dasharray="8, 100" stroke-linecap="round" transform="rotate(-90 18 18)"></circle>
+          </svg>
+          <div class="donut-center"><span class="donut-num">2</span><span class="donut-denom">/24</span></div>
+        </div>
+        <div class="kpi-text">
+          <span class="kpi-label">Late</span>
+          <span class="kpi-fig">2</span>
+          <span class="kpi-pct">8% · within tolerance</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content area: list + right rail -->
+    <div class="content-area">
+      <!-- Attendance list card -->
+      <section class="att-card">
+        <!-- Bulk action bar -->
+        <div class="bulk-bar">
+          <label class="select-all-wrap">
+            <input type="checkbox" aria-label="Select all 24 students" />
+            <span>Select all</span>
+          </label>
+          <div class="divider-v"></div>
+          <span class="bulk-label">Mark selected as:</span>
+          <div class="bulk-toggle-group">
+            <button class="bulk-btn p">Present <span class="kbd">P</span></button>
+            <button class="bulk-btn a">Absent <span class="kbd">A</span></button>
+            <button class="bulk-btn l">Late <span class="kbd">L</span></button>
+          </div>
+          <div class="spacer"></div>
+          <span class="last-saved"><span class="pulse-dot"></span> Auto-saved 14s ago</span>
+        </div>
+
+        <!-- List -->
+        <div class="att-list">
+          <!-- Row 1: Present (selected) -->
+          <div class="att-row selected">
+            <div class="num-cell">01</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-primary) 16%, var(--bg-surface-raised));">रि</div>
+              <div class="name-stack">
+                <span class="primary" lang="hi">रिया शर्मा</span>
+                <span class="secondary">+91 98200 11234</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="09:02" aria-label="Time in for Riya" />
+            <button class="notes-btn" aria-label="Notes for Riya">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 2: Absent -->
+          <div class="att-row">
+            <div class="num-cell">02</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-secondary) 14%, var(--bg-surface-raised));color:var(--accent-secondary);">AP</div>
+              <div class="name-stack">
+                <span class="primary">Aarav Patel</span>
+                <span class="secondary">+91 98765 43210</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p">P</button>
+              <button class="pal-btn a active">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="" placeholder="—" aria-label="Time in for Aarav" disabled />
+            <button class="notes-btn has-note" aria-label="Notes for Aarav">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 3: Late (hover demo) -->
+          <div class="att-row hover-demo">
+            <div class="num-cell">03</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-info) 16%, var(--bg-surface-raised));color:var(--accent-info);">PI</div>
+              <div class="name-stack">
+                <span class="primary">Priya Iyer</span>
+                <span class="secondary">+91 90909 80808</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l active">L</button>
+            </div>
+            <input class="time-input" value="09:18" aria-label="Time in for Priya" />
+            <button class="notes-btn has-note" aria-label="Notes for Priya">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 4: Present -->
+          <div class="att-row">
+            <div class="num-cell">04</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-secondary) 14%, var(--bg-surface-raised));color:var(--accent-secondary);">MA</div>
+              <div class="name-stack">
+                <span class="primary">Mohammed Ali</span>
+                <span class="secondary">+91 99876 54321</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="08:58" aria-label="Time in for Mohammed" />
+            <button class="notes-btn" aria-label="Notes for Mohammed">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 5: Present -->
+          <div class="att-row">
+            <div class="num-cell">05</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-primary) 14%, var(--bg-surface-raised));">AR</div>
+              <div class="name-stack">
+                <span class="primary">Ananya Reddy</span>
+                <span class="secondary">+91 88776 65544</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="09:00" aria-label="Time in for Ananya" />
+            <button class="notes-btn" aria-label="Notes for Ananya">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 6: Present -->
+          <div class="att-row">
+            <div class="num-cell">06</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-tertiary) 18%, var(--bg-surface-raised));color:var(--accent-secondary);">KM</div>
+              <div class="name-stack">
+                <span class="primary">Karthik Menon</span>
+                <span class="secondary">+91 91234 56780</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="08:55" aria-label="Time in for Karthik" />
+            <button class="notes-btn" aria-label="Notes for Karthik">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 7: Absent -->
+          <div class="att-row">
+            <div class="num-cell">07</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-primary) 14%, var(--bg-surface-raised));">SJ</div>
+              <div class="name-stack">
+                <span class="primary" lang="hi">स्नेहा जोशी</span>
+                <span class="secondary">+91 99887 76655</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p">P</button>
+              <button class="pal-btn a active">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="" placeholder="—" aria-label="Time in for Sneha" disabled />
+            <button class="notes-btn has-note" aria-label="Notes for Sneha">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 8: Present -->
+          <div class="att-row">
+            <div class="num-cell">08</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-secondary) 14%, var(--bg-surface-raised));color:var(--accent-secondary);">VD</div>
+              <div class="name-stack">
+                <span class="primary">Vikram Desai</span>
+                <span class="secondary">+91 98989 78787</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="09:04" aria-label="Time in for Vikram" />
+            <button class="notes-btn" aria-label="Notes for Vikram">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 9: Late -->
+          <div class="att-row">
+            <div class="num-cell">09</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-info) 14%, var(--bg-surface-raised));color:var(--accent-info);">RG</div>
+              <div class="name-stack">
+                <span class="primary">Rohan Gupta</span>
+                <span class="secondary">+91 98000 12345</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l active">L</button>
+            </div>
+            <input class="time-input" value="09:21" aria-label="Time in for Rohan" />
+            <button class="notes-btn" aria-label="Notes for Rohan">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- Row 10: Present -->
+          <div class="att-row">
+            <div class="num-cell">10</div>
+            <div class="student-cell">
+              <div class="avatar avatar-sm" style="background:color-mix(in srgb, var(--accent-tertiary) 18%, var(--bg-surface-raised));color:var(--accent-secondary);">SK</div>
+              <div class="name-stack">
+                <span class="primary">Sai Krishnan</span>
+                <span class="secondary">+91 93939 20202</span>
+              </div>
+            </div>
+            <div class="pal-group">
+              <button class="pal-btn p active">P</button>
+              <button class="pal-btn a">A</button>
+              <button class="pal-btn l">L</button>
+            </div>
+            <input class="time-input" value="08:59" aria-label="Time in for Sai" />
+            <button class="notes-btn" aria-label="Notes for Sai">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+            </button>
+          </div>
+          <!-- implied remaining 14 students below -->
+          <div style="padding:var(--space-4) var(--space-5); text-align:center; font-size:var(--text-xs); color:var(--text-muted); font-family:var(--font-mono);">14 more students · scroll to view all</div>
+        </div>
+      </section>
+
+      <!-- Right column -->
+      <aside class="right-col">
+        <!-- Calendar card -->
+        <div class="side-card">
+          <div class="cal-head">
+            <span class="cal-month">November 2024</span>
+            <div class="cal-nav">
+              <button class="cal-nav-btn" aria-label="Previous month"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+              <button class="cal-nav-btn" aria-label="Next month"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+            </div>
+          </div>
+          <div class="cal-grid">
+            <div class="cal-dow">M</div><div class="cal-dow">T</div><div class="cal-dow">W</div><div class="cal-dow">T</div><div class="cal-dow">F</div><div class="cal-dow">S</div><div class="cal-dow">S</div>
+            <!-- Week 1: Nov 1 is Friday -->
+            <div class="cal-day outside">28</div><div class="cal-day outside">29</div><div class="cal-day outside">30</div><div class="cal-day outside">31</div>
+            <div class="cal-day full">1<span class="day-dot"></span></div>
+            <div class="cal-day">2</div><div class="cal-day">3</div>
+            <!-- Week 2 -->
+            <div class="cal-day full">4<span class="day-dot"></span></div>
+            <div class="cal-day full">5<span class="day-dot"></span></div>
+            <div class="cal-day partial">6<span class="day-dot"></span></div>
+            <div class="cal-day full">7<span class="day-dot"></span></div>
+            <div class="cal-day full">8<span class="day-dot"></span></div>
+            <div class="cal-day">9</div><div class="cal-day">10</div>
+            <!-- Week 3 -->
+            <div class="cal-day full">11<span class="day-dot"></span></div>
+            <div class="cal-day today">12<span class="day-dot"></span></div>
+            <div class="cal-day">13</div><div class="cal-day">14</div><div class="cal-day">15</div>
+            <div class="cal-day holiday">16<span class="day-dot"></span></div>
+            <div class="cal-day holiday">17<span class="day-dot"></span></div>
+            <!-- Week 4 -->
+            <div class="cal-day">18</div><div class="cal-day">19</div><div class="cal-day">20</div>
+            <div class="cal-day">21</div><div class="cal-day">22</div><div class="cal-day">23</div><div class="cal-day">24</div>
+            <!-- Week 5 -->
+            <div class="cal-day">25</div><div class="cal-day">26</div><div class="cal-day">27</div>
+            <div class="cal-day">28</div><div class="cal-day">29</div><div class="cal-day">30</div>
+            <div class="cal-day outside">1</div>
+          </div>
+          <div class="cal-legend">
+            <span class="cal-legend-item"><span class="cal-legend-dot" style="background:var(--accent-success);"></span>Full present</span>
+            <span class="cal-legend-item"><span class="cal-legend-dot" style="background:var(--accent-warning);"></span>Partial</span>
+            <span class="cal-legend-item"><span class="cal-legend-dot" style="background:var(--accent-danger);"></span>Holiday</span>
+          </div>
+        </div>
+
+        <!-- This week card -->
+        <div class="side-card">
+          <h3>This week <span class="h-action">Details →</span></h3>
+          <div class="week-bars">
+            <div class="week-bar-col">
+              <div class="week-bar"><div class="week-bar-fill" style="height:88%;"></div></div>
+              <span class="day-pct">88%</span>
+              <span class="day-label">Mon</span>
+            </div>
+            <div class="week-bar-col today">
+              <div class="week-bar"><div class="week-bar-fill" style="height:75%;"></div></div>
+              <span class="day-pct">75%</span>
+              <span class="day-label">Tue</span>
+            </div>
+            <div class="week-bar-col">
+              <div class="week-bar"><div class="week-bar-fill warn" style="height:62%;"></div></div>
+              <span class="day-pct">62%</span>
+              <span class="day-label">Wed</span>
+            </div>
+            <div class="week-bar-col">
+              <div class="week-bar"><div class="week-bar-fill" style="height:91%;"></div></div>
+              <span class="day-pct">91%</span>
+              <span class="day-label">Thu</span>
+            </div>
+            <div class="week-bar-col">
+              <div class="week-bar"><div class="week-bar-fill" style="height:84%;"></div></div>
+              <span class="day-pct">84%</span>
+              <span class="day-label">Fri</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trends card -->
+        <div class="side-card">
+          <h3>30-day trend <span class="h-action">All batches →</span></h3>
+          <svg class="trend-chart" viewBox="0 0 320 88" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="var(--accent-primary)" stop-opacity="0.30"/>
+                <stop offset="100%" stop-color="var(--accent-primary)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- gridlines -->
+            <line x1="0" y1="22" x2="320" y2="22" stroke="var(--border-default)" stroke-width="0.5" stroke-dasharray="2,3"/>
+            <line x1="0" y1="44" x2="320" y2="44" stroke="var(--border-default)" stroke-width="0.5" stroke-dasharray="2,3"/>
+            <line x1="0" y1="66" x2="320" y2="66" stroke="var(--border-default)" stroke-width="0.5" stroke-dasharray="2,3"/>
+            <!-- area fill -->
+            <path d="M0,60 L12,55 L24,48 L36,52 L48,40 L60,42 L72,35 L84,38 L96,30 L108,28 L120,32 L132,24 L144,22 L156,28 L168,20 L180,18 L192,24 L204,16 L216,14 L228,18 L240,10 L252,12 L264,16 L276,22 L288,18 L300,14 L312,18 L320,16 L320,88 L0,88 Z"
+                  fill="url(#trendGrad)"/>
+            <!-- line -->
+            <path d="M0,60 L12,55 L24,48 L36,52 L48,40 L60,42 L72,35 L84,38 L96,30 L108,28 L120,32 L132,24 L144,22 L156,28 L168,20 L180,18 L192,24 L204,16 L216,14 L228,18 L240,10 L252,12 L264,16 L276,22 L288,18 L300,14 L312,18 L320,16"
+                  fill="none" stroke="var(--accent-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <!-- hover dot at the rightmost point -->
+            <circle cx="320" cy="16" r="4" fill="var(--accent-primary)" stroke="var(--bg-surface)" stroke-width="2"/>
+          </svg>
+          <div class="trend-meta">
+            <span class="trend-avg">87% avg</span>
+            <span class="trend-delta">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+              +3% vs last 30d
+            </span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-meta">
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--accent-success);box-shadow:0 0 0 3px color-mix(in srgb, var(--accent-success) 25%, transparent);"></span>
+          Auto-saving · 14s ago
+        </span>
+        <span>·</span>
+        <span>Press <span class="kbd">P</span> / <span class="kbd">A</span> / <span class="kbd">L</span> on a row to mark attendance</span>
+      </div>
+      <div class="footer-meta">
+        <span>Buddysaradhi v1.0.0 · contracts/v1.0.0</span>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

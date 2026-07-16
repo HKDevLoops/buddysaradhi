@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="rose-petal" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Buddysaradhi · Mobile · Students · Rose Petal (light)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 80px 24px 60px;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at top, #FFE4E9 0%, #FFF7F8 60%, #FCEAEE 100%);
+    }
+    .mobile-frame {
+      background: var(--bg-canvas);
+      box-shadow: 0 25px 80px -20px rgba(225,29,72,0.18), 0 0 0 12px #1a0810, 0 0 0 14px #2a0e18;
+    }
+    .mobile-frame-content { background: var(--bg-canvas); }
+
+    /* Topbar */
+    .students-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px;
+      padding-top: calc(16px + env(safe-area-inset-top));
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border-bottom: 1px solid rgba(225,29,72,0.10);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .topbar-title-block { display: flex; flex-direction: column; gap: 1px; }
+    .topbar-title {
+      font-family: var(--font-heading);
+      font-size: 22px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.015em;
+      line-height: 1.1;
+    }
+    .topbar-count {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .topbar-count strong { color: var(--accent-primary); font-weight: 600; }
+    .topbar-actions { display: flex; align-items: center; gap: 4px; }
+    .icon-btn {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: none;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .icon-btn:hover { background: rgba(225,29,72,0.06); color: var(--accent-primary); }
+    .icon-btn svg { width: 19px; height: 19px; stroke-width: 2; }
+
+    /* Filter chip strip */
+    .filter-strip {
+      display: flex; gap: 6px;
+      padding: 12px 14px 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      background: rgba(255,255,255,0.4);
+      border-bottom: 1px solid rgba(225,29,72,0.06);
+      -webkit-overflow-scrolling: touch;
+    }
+    .filter-strip::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 12px;
+      border-radius: var(--radius-full);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all var(--motion-fast) var(--ease-out);
+      min-height: 32px;
+      flex-shrink: 0;
+    }
+    .filter-chip:hover { border-color: var(--border-accent); color: var(--accent-primary); }
+    .filter-chip.active {
+      background: var(--accent-primary);
+      border-color: var(--accent-primary);
+      color: #FFFFFF;
+      box-shadow: 0 4px 12px -2px rgba(225,29,72,0.35);
+    }
+    .filter-chip .count {
+      font-variant-numeric: tabular-nums;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      background: rgba(225,29,72,0.10);
+      color: var(--accent-primary);
+    }
+    .filter-chip.active .count {
+      background: rgba(255,255,255,0.22);
+      color: #FFFFFF;
+    }
+
+    /* Student list */
+    .students-main {
+      flex: 1;
+      padding: 10px 14px 110px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .student-card {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 1px 3px rgba(225,29,72,0.05);
+      transition: all var(--motion-fast) var(--ease-out);
+      position: relative;
+      cursor: pointer;
+    }
+    .student-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px -4px rgba(225,29,72,0.18);
+      border-color: var(--border-accent);
+    }
+    .student-card.selected {
+      border: 1.5px solid var(--accent-primary);
+      box-shadow: 0 0 0 4px rgba(225,29,72,0.10), 0 6px 18px -4px rgba(225,29,72,0.20);
+      background: linear-gradient(180deg, rgba(225,29,72,0.03), var(--bg-surface));
+    }
+    .student-card.selected::before {
+      content: '';
+      position: absolute; left: -1.5px; top: 14px; bottom: 14px;
+      width: 3px;
+      background: var(--accent-primary);
+      border-radius: 0 2px 2px 0;
+    }
+    .student-avatar {
+      width: 44px; height: 44px;
+      border-radius: var(--radius-full);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 15px;
+      color: #FFFFFF;
+      flex-shrink: 0;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
+      letter-spacing: 0.02em;
+    }
+    .av-1 { background: linear-gradient(135deg, #E11D48, #FB7185); }
+    .av-2 { background: linear-gradient(135deg, #9F1239, #E11D48); }
+    .av-3 { background: linear-gradient(135deg, #FB7185, #FDA4AF); }
+    .av-4 { background: linear-gradient(135deg, #BE123C, #FB7185); }
+    .av-5 { background: linear-gradient(135deg, #E11D48, #F43F5E); }
+    .av-6 { background: linear-gradient(135deg, #881337, #BE123C); }
+    .av-7 { background: linear-gradient(135deg, #FB7185, #FFB6C1); }
+    .student-card.selected .student-avatar {
+      box-shadow: 0 0 0 3px var(--bg-surface), 0 0 0 5px var(--accent-primary);
+    }
+    .student-info { flex: 1; min-width: 0; }
+    .student-name {
+      font-family: var(--font-heading);
+      font-size: 15px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.005em;
+      margin-bottom: 3px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .student-meta {
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      display: flex; align-items: center; gap: 6px;
+      flex-wrap: wrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .student-meta .fee {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .meta-dot {
+      width: 3px; height: 3px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .student-right {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+      flex-shrink: 0;
+    }
+    .status-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid;
+    }
+    .status-chip.active { background: rgba(5,150,105,0.08); border-color: rgba(5,150,105,0.25); color: #059669; }
+    .status-chip.paused { background: rgba(217,119,6,0.08); border-color: rgba(217,119,6,0.25); color: #D97706; }
+    .status-chip::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .chevron {
+      color: var(--text-muted);
+      width: 16px; height: 16px;
+      stroke-width: 2;
+    }
+
+    /* List section label */
+    .list-section-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.10em;
+      font-weight: 600;
+      padding: 4px 4px 0;
+      display: flex; justify-content: space-between;
+    }
+    .list-section-label .sort-indicator {
+      color: var(--accent-primary);
+      display: inline-flex; align-items: center; gap: 3px;
+      text-transform: none; letter-spacing: 0;
+    }
+
+    /* FAB */
+    .fab {
+      position: absolute;
+      right: 18px; bottom: calc(90px + env(safe-area-inset-bottom));
+      width: 56px; height: 56px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, #E11D48, #BE123C);
+      color: #FFFFFF;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 12px 28px -6px rgba(225,29,72,0.45), inset 0 1px 0 rgba(255,255,255,0.25);
+      border: none;
+      z-index: 11;
+      transition: all var(--motion-fast) var(--ease-spring);
+      cursor: pointer;
+    }
+    .fab:hover { transform: scale(1.06) rotate(90deg); box-shadow: 0 16px 36px -6px rgba(225,29,72,0.55); }
+    .fab svg { width: 24px; height: 24px; stroke-width: 2.4; }
+
+    /* Bottom nav */
+    .bottom-nav {
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(24px) saturate(180%);
+      border-top: 1px solid rgba(225,29,72,0.10);
+    }
+    .bottom-nav-item.active { color: var(--accent-primary); }
+    .bottom-nav-item {
+      position: relative; padding-top: 8px;
+    }
+    .nav-indicator {
+      position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: transparent;
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .bottom-nav-item.active .nav-indicator { background: var(--accent-primary); box-shadow: 0 0 6px rgba(225,29,72,0.5); }
+
+    .frame-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: rgba(42,10,18,0.45);
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+    }
+    .mockup-frame-label {
+      background: rgba(42,10,18,0.85);
+      border: 1px solid rgba(225,29,72,0.3);
+      color: #FB7185;
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-frame-label">Mobile · Students · Rose Petal (light)</div>
+
+  <div class="mobile-frame">
+    <div class="mobile-frame-content">
+      <!-- TOPBAR -->
+      <header class="students-topbar">
+        <div class="topbar-title-block">
+          <span class="topbar-title">Students</span>
+          <span class="topbar-count"><strong>84</strong> total · 81 active · 3 paused</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" aria-label="Search students">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="Filter">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </button>
+          <button class="icon-btn" aria-label="More options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- FILTER CHIPS -->
+      <div class="filter-strip" role="tablist" aria-label="Student filters">
+        <button class="filter-chip active" role="tab" aria-selected="true">All <span class="count">84</span></button>
+        <button class="filter-chip" role="tab">Active <span class="count">81</span></button>
+        <button class="filter-chip" role="tab">Paused <span class="count">3</span></button>
+        <button class="filter-chip" role="tab">Batch A <span class="count">24</span></button>
+        <button class="filter-chip" role="tab">Batch B <span class="count">18</span></button>
+        <button class="filter-chip" role="tab">Physics 11th <span class="count">32</span></button>
+      </div>
+
+      <!-- STUDENT LIST -->
+      <main class="students-main">
+        <div class="list-section-label">
+          <span>A — D · 24 students</span>
+          <span class="sort-indicator">Name ↓</span>
+        </div>
+
+        <div class="student-card selected">
+          <div class="student-avatar av-1">RS</div>
+          <div class="student-info">
+            <div class="student-name">Riya Sharma</div>
+            <div class="student-meta">
+              Physics · Batch A
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,500/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-2">AP</div>
+          <div class="student-info">
+            <div class="student-name">Aarav Patel</div>
+            <div class="student-meta">
+              Maths · Batch B
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,800/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-3">DV</div>
+          <div class="student-info">
+            <div class="student-name">Diya Verma</div>
+            <div class="student-meta">
+              Chemistry · Batch C
+              <span class="meta-dot"></span>
+              <span class="fee">₹2,000/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-4">IK</div>
+          <div class="student-info">
+            <div class="student-name">Ishaan Kapoor</div>
+            <div class="student-meta">
+              Physics · Batch A
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,500/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip paused">Paused</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-5">MR</div>
+          <div class="student-info">
+            <div class="student-name">Meera Reddy</div>
+            <div class="student-meta">
+              Maths · Batch B
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,800/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-6">SN</div>
+          <div class="student-info">
+            <div class="student-name">Sai Nair</div>
+            <div class="student-meta">
+              Physics · Batch A
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,500/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-7">TG</div>
+          <div class="student-info">
+            <div class="student-name">Tanvi Gupta</div>
+            <div class="student-meta">
+              Chemistry · Batch C
+              <span class="meta-dot"></span>
+              <span class="fee">₹2,000/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div class="student-card">
+          <div class="student-avatar av-2">VK</div>
+          <div class="student-info">
+            <div class="student-name">Vihaan Khanna</div>
+            <div class="student-meta">
+              Physics · Batch A
+              <span class="meta-dot"></span>
+              <span class="fee">₹1,500/mo</span>
+            </div>
+          </div>
+          <div class="student-right">
+            <span class="status-chip active">Active</span>
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+      </main>
+
+      <!-- FAB -->
+      <button class="fab" aria-label="Add new student">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+
+      <!-- BOTTOM NAV -->
+      <nav class="bottom-nav" aria-label="Primary">
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="bottom-nav-item active">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Students</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg>
+          <span>Attendance</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <span>Fees</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+  <div class="frame-label">03_students.html · 390 × 844</div>
+</body>
+</html>

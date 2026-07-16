@@ -1,0 +1,74 @@
+- generic [active] [ref=f6e1]:
+  - generic [ref=f6e2]:
+    - complementary [ref=f6e3]:
+      - generic [ref=f6e4]:
+        - generic [ref=f6e5]: T
+        - generic [ref=f6e6]: Tuition Centre
+      - navigation "Main navigation" [ref=f6e7]:
+        - button "Dashboard" [ref=f6e8] [cursor=pointer]
+        - button "Students" [ref=f6e15] [cursor=pointer]
+        - button "Attendance" [ref=f6e22] [cursor=pointer]
+        - button "Fees & Payments" [ref=f6e27] [cursor=pointer]
+        - button "Settings" [ref=f6e32] [cursor=pointer]
+      - generic [ref=f6e37]:
+        - generic [ref=f6e38] [cursor=pointer]:
+          - generic [ref=f6e39]: Sync
+          - generic "Online" [ref=f6e45]
+        - generic [ref=f6e46] [cursor=pointer]:
+          - generic [ref=f6e47]: Search...
+          - generic [ref=f6e51]: ⌘K
+    - generic [ref=f6e52]:
+      - banner [ref=f6e53]:
+        - heading "Tuition Centre" [level=2] [ref=f6e55]
+        - generic [ref=f6e56]:
+          - searchbox "Search students" [ref=f6e61]
+          - button "User profile" [ref=f6e62] [cursor=pointer]: RS
+      - main [ref=f6e63]:
+        - main [ref=f6e64]:
+          - generic [ref=f6e66]:
+            - generic [ref=f6e67]:
+              - generic [ref=f6e68]:
+                - heading "Dashboard" [level=1] [ref=f6e69]
+                - paragraph [ref=f6e70]: The truth of your tuition business, right now.
+              - generic [ref=f6e71]:
+                - button "This Month" [ref=f6e72] [cursor=pointer]
+                - button "Last Month" [ref=f6e73] [cursor=pointer]
+                - button "This Quarter" [ref=f6e74] [cursor=pointer]
+                - button "All Time" [ref=f6e75] [cursor=pointer]
+            - generic [ref=f6e76]:
+              - generic [ref=f6e77]:
+                - paragraph [ref=f6e79]: Collected
+                - paragraph [ref=f6e85]: 18% vs last month
+              - generic [ref=f6e89]:
+                - paragraph [ref=f6e91]: Due Till Date
+                - paragraph [ref=f6e96]: 0 students owe
+              - paragraph [ref=f6e99]: Active Students
+              - generic [ref=f6e107]:
+                - paragraph [ref=f6e109]: Overdue
+                - paragraph [ref=f6e114]: 0 students
+            - generic [ref=f6e115]:
+              - button "Overview" [ref=f6e116] [cursor=pointer]
+              - button "Collection" [ref=f6e117] [cursor=pointer]
+              - button "Attendance" [ref=f6e118] [cursor=pointer]
+            - generic [ref=f6e119]:
+              - generic [ref=f6e120]:
+                - generic [ref=f6e121]:
+                  - heading "Due Today" [level=2] [ref=f6e122]
+                  - generic [ref=f6e123]: 0 students
+                - paragraph [ref=f6e127]: No dues due today. Clean slate.
+              - generic [ref=f6e128]:
+                - heading "Activity" [level=2] [ref=f6e129]
+                - generic [ref=f6e130]: No recent activity
+            - generic [ref=f6e132]:
+              - button "Mark Attendance" [ref=f6e133] [cursor=pointer]
+              - button "Record Payment" [ref=f6e137] [cursor=pointer]
+              - button "Add Student" [ref=f6e140] [cursor=pointer]
+              - button "Generate Report" [ref=f6e144] [cursor=pointer]
+        - generic [ref=f6e148]:
+          - generic [ref=f6e149]:
+            - generic [ref=f6e154]: Online · 0 pending
+            - generic [ref=f6e155]: "Local DB: 2.1 MB"
+          - generic [ref=f6e156]:
+            - generic [ref=f6e157]: v1.0.0-rc
+            - generic [ref=f6e158]: © 2026 BuddySaradhi
+  - button "Open Next.js Dev Tools" [ref=f6e164] [cursor=pointer]

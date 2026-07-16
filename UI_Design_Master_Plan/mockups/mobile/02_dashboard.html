@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="aurora-cosmic" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Buddysaradhi · Mobile · Dashboard · Aurora Cosmic (dark)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../shared/styles.css">
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 80px 24px 60px;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse at top, #0f0c29 0%, #0a0a1a 100%);
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(circle at 15% 25%, rgba(0,255,157,0.06), transparent 40%),
+        radial-gradient(circle at 85% 15%, rgba(0,240,255,0.05), transparent 40%),
+        radial-gradient(circle at 50% 85%, rgba(179,136,255,0.05), transparent 40%);
+      pointer-events: none; z-index: 0;
+    }
+    .mobile-frame {
+      background: transparent;
+      box-shadow: 0 25px 80px -20px rgba(0,0,0,0.7), 0 0 0 12px #0a0a14, 0 0 0 14px #1a1a2a;
+    }
+    .mobile-frame-content {
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(0,255,157,0.08), transparent 50%),
+        radial-gradient(ellipse at 100% 30%, rgba(0,240,255,0.06), transparent 50%),
+        radial-gradient(ellipse at 0% 70%, rgba(179,136,255,0.06), transparent 50%),
+        linear-gradient(180deg, #0f0c29 0%, #1a1535 50%, #0a0a1a 100%);
+    }
+    /* Header — aurora glass */
+    .dash-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px calc(14px + env(safe-area-inset-top)) 18px;
+      padding-top: calc(18px + env(safe-area-inset-top));
+      background: rgba(15,12,41,0.65);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .greeting-block { display: flex; flex-direction: column; gap: 2px; }
+    .greeting-name {
+      font-family: var(--font-heading);
+      font-size: 18px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+    .greeting-date {
+      font-size: 12px; color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
+    }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .icon-btn {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      position: relative;
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+    .icon-btn svg { width: 18px; height: 18px; stroke-width: 2; }
+    .notif-badge {
+      position: absolute; top: -2px; right: -2px;
+      min-width: 16px; height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: #FF5E00;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 0 2px #0f0c29;
+      font-variant-numeric: tabular-nums;
+    }
+    .avatar-btn {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-full);
+      background: linear-gradient(135deg, #00FF9D, #00F0FF);
+      display: flex; align-items: center; justify-content: center;
+      color: #0a0a1a;
+      font-weight: 700; font-size: 14px;
+      font-family: var(--font-heading);
+      box-shadow: 0 4px 12px -2px rgba(0,255,157,0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+
+    /* Scrollable main */
+    .dash-main {
+      flex: 1;
+      padding: 16px 14px 100px;
+      display: flex; flex-direction: column; gap: 16px;
+      overflow-y: auto;
+    }
+
+    /* KPI grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .kpi-tile {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px -8px rgba(0,0,0,0.5);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-tile::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-color, #00FF9D), transparent);
+      opacity: 0.6;
+    }
+    .kpi-tile.collected { --accent-color: #00FF9D; }
+    .kpi-tile.arrears { --accent-color: #FF5E00; }
+    .kpi-tile-label {
+      font-size: 10px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .kpi-tile-label::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      box-shadow: 0 0 6px var(--accent-color);
+    }
+    .kpi-tile-figure {
+      font-family: var(--font-mono);
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-tile-figure .rupee { font-size: 14px; opacity: 0.7; margin-right: 1px; }
+    .kpi-tile-delta {
+      margin-top: 4px;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      display: inline-flex; align-items: center; gap: 3px;
+      font-weight: 600;
+    }
+    .kpi-tile-delta.up { color: #00FF9D; }
+    .kpi-tile-delta.down { color: #FF5E00; }
+    .kpi-tile-delta svg { width: 11px; height: 11px; stroke-width: 2.5; }
+    .kpi-tile-period {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Section card (generic) */
+    .section-card {
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(20px) saturate(140%);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -8px rgba(0,0,0,0.4);
+    }
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-family: var(--font-heading);
+      font-size: 13px; font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.005em;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .section-title-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #00FF9D;
+      box-shadow: 0 0 6px #00FF9D;
+    }
+    .section-link {
+      font-size: 11px;
+      color: var(--accent-secondary);
+      font-weight: 500;
+      text-decoration: none;
+      display: inline-flex; align-items: center; gap: 2px;
+    }
+    .section-link:hover { text-decoration: underline; }
+
+    /* Today's classes */
+    .class-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .class-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .class-row:first-of-type { padding-top: 4px; }
+    .class-time {
+      width: 48px;
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent-secondary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+    .class-time .ampm {
+      font-size: 9px;
+      color: var(--text-muted);
+      display: block;
+      letter-spacing: 0.04em;
+    }
+    .class-info { flex: 1; min-width: 0; }
+    .class-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.005em;
+      margin-bottom: 2px;
+    }
+    .class-meta {
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex; align-items: center; gap: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .class-meta-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); }
+    .class-mark-btn {
+      flex-shrink: 0;
+      padding: 7px 12px;
+      border-radius: var(--radius-md);
+      background: rgba(0,255,157,0.10);
+      border: 1px solid rgba(0,255,157,0.30);
+      color: #00FF9D;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      min-height: 32px;
+      display: inline-flex; align-items: center; gap: 4px;
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .class-mark-btn:hover { background: rgba(0,255,157,0.18); transform: translateY(-1px); }
+    .class-mark-btn svg { width: 12px; height: 12px; stroke-width: 2.5; }
+    .class-mark-btn.done {
+      background: rgba(0,255,157,0.04);
+      border-color: rgba(0,255,157,0.14);
+      color: var(--text-muted);
+    }
+    .class-mark-btn.done svg { color: #00FF9D; }
+
+    /* Quick actions grid */
+    .qa-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .qa-tile {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 6px;
+      border-radius: var(--radius-md);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+      transition: all var(--motion-fast) var(--ease-out);
+      cursor: pointer;
+      min-height: 76px;
+      justify-content: center;
+    }
+    .qa-tile:hover {
+      background: rgba(255,255,255,0.06);
+      transform: translateY(-2px);
+      border-color: rgba(0,255,157,0.2);
+    }
+    .qa-icon {
+      width: 32px; height: 32px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,255,157,0.10);
+      color: #00FF9D;
+      border: 1px solid rgba(0,255,157,0.18);
+    }
+    .qa-tile:nth-child(2) .qa-icon { background: rgba(0,240,255,0.10); color: #00F0FF; border-color: rgba(0,240,255,0.18); }
+    .qa-tile:nth-child(3) .qa-icon { background: rgba(255,179,0,0.10); color: #FFB300; border-color: rgba(255,179,0,0.18); }
+    .qa-tile:nth-child(4) .qa-icon { background: rgba(179,136,255,0.10); color: #B388FF; border-color: rgba(179,136,255,0.18); }
+    .qa-icon svg { width: 16px; height: 16px; stroke-width: 2; }
+    .qa-label {
+      font-size: 10px;
+      color: var(--text-secondary);
+      text-align: center;
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+      font-weight: 500;
+    }
+
+    /* Recent activity */
+    .activity-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .activity-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .activity-row:first-of-type { padding-top: 2px; }
+    .activity-icon {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      background: rgba(0,255,157,0.08);
+      color: #00FF9D;
+    }
+    .activity-icon.payment { background: rgba(255,179,0,0.08); color: #FFB300; }
+    .activity-icon.attendance { background: rgba(0,240,255,0.08); color: #00F0FF; }
+    .activity-icon.reminder { background: rgba(179,136,255,0.08); color: #B388FF; }
+    .activity-icon svg { width: 14px; height: 14px; stroke-width: 2; }
+    .activity-body { flex: 1; min-width: 0; }
+    .activity-text {
+      font-size: 12px;
+      color: var(--text-primary);
+      line-height: 1.35;
+      margin-bottom: 1px;
+    }
+    .activity-text strong { font-weight: 600; color: var(--text-primary); }
+    .activity-text .amt {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      color: #00FF9D;
+      font-weight: 600;
+    }
+    .activity-time {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+
+    /* Bar chart — hand-coded SVG */
+    .chart-wrap {
+      margin-top: 4px;
+    }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 8px;
+      height: 96px;
+      padding: 0 4px;
+      margin-bottom: 8px;
+    }
+    .chart-bar {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      position: relative;
+    }
+    .chart-bar-fill {
+      width: 100%;
+      background: linear-gradient(180deg, rgba(0,255,157,0.6), rgba(0,255,157,0.15));
+      border-radius: 4px 4px 2px 2px;
+      border-top: 1.5px solid rgba(0,255,157,0.85);
+      box-shadow: 0 0 12px -2px rgba(0,255,157,0.4);
+      position: relative;
+      min-height: 4px;
+    }
+    .chart-bar.current .chart-bar-fill {
+      background: linear-gradient(180deg, rgba(0,240,255,0.7), rgba(0,240,255,0.15));
+      border-top-color: rgba(0,240,255,0.9);
+      box-shadow: 0 0 12px -2px rgba(0,240,255,0.45);
+    }
+    .chart-bar-value {
+      position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      color: var(--accent-secondary);
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .chart-bar-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+    .chart-bar.current .chart-bar-label { color: var(--text-primary); font-weight: 600; }
+    .chart-summary {
+      display: flex; justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-secondary);
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .chart-summary strong {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+
+    /* Bottom nav override for aurora-cosmic — slightly different feel */
+    .bottom-nav {
+      background: rgba(15,12,41,0.85);
+      backdrop-filter: blur(28px) saturate(180%);
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .bottom-nav-item.active {
+      color: #00FF9D;
+    }
+    .bottom-nav-item.active .nav-indicator {
+      background: #00FF9D;
+      box-shadow: 0 0 8px #00FF9D;
+    }
+    .bottom-nav-item {
+      position: relative;
+      padding-top: 8px;
+    }
+    .nav-indicator {
+      position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: transparent;
+      transition: all var(--motion-fast) var(--ease-out);
+    }
+    .bottom-nav-item.active .bottom-nav-item-icon {
+      filter: drop-shadow(0 0 6px rgba(0,255,157,0.5));
+    }
+
+    .frame-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+    }
+    .mockup-frame-label {
+      background: rgba(15,12,41,0.85);
+      border: 1px solid rgba(0,255,157,0.3);
+      color: #00FF9D;
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-frame-label">Mobile · Dashboard · Aurora Cosmic (dark)</div>
+
+  <div class="mobile-frame">
+    <div class="mobile-frame-content">
+      <!-- TOPBAR -->
+      <header class="dash-topbar">
+        <div class="greeting-block">
+          <span class="greeting-name">Hi, Sneha <span style="filter:saturate(1.2)">👋</span></span>
+          <span class="greeting-date">Tue, 12 Nov · 4 classes today</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" aria-label="Notifications (3 new)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="notif-badge">3</span>
+          </button>
+          <button class="avatar-btn" aria-label="Profile">SP</button>
+        </div>
+      </header>
+
+      <!-- MAIN -->
+      <main class="dash-main">
+
+        <!-- KPI GRID -->
+        <section class="kpi-grid" aria-label="Fee KPIs">
+          <div class="kpi-tile collected">
+            <div class="kpi-tile-label">Collected</div>
+            <div class="kpi-tile-figure"><span class="rupee">₹</span>47,250</div>
+            <div class="kpi-tile-delta up">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 6 23 6 23 12"/><path d="M16 17l7-11M3 18l6-6"/></svg>
+              +12% vs last month
+            </div>
+            <div class="kpi-tile-period">Nov 1 – 12 · 38 students</div>
+          </div>
+          <div class="kpi-tile arrears">
+            <div class="kpi-tile-label">Arrears</div>
+            <div class="kpi-tile-figure"><span class="rupee">₹</span>8,400</div>
+            <div class="kpi-tile-delta down">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 18 23 18 23 12"/><path d="M16 7l7 11M3 6l6 6"/></svg>
+              −5% vs last month
+            </div>
+            <div class="kpi-tile-period">7 students overdue</div>
+          </div>
+        </section>
+
+        <!-- TODAY'S CLASSES -->
+        <section class="section-card" aria-label="Today's classes">
+          <div class="section-header">
+            <div class="section-title">
+              <span class="section-title-dot"></span>
+              Today's classes
+            </div>
+            <a class="section-link" href="#">View timetable →</a>
+          </div>
+
+          <div class="class-row">
+            <div class="class-time">10:00<span class="ampm">AM</span></div>
+            <div class="class-info">
+              <div class="class-name">Physics · Batch A</div>
+              <div class="class-meta">24 students <span class="class-meta-dot"></span> Hall 1 <span class="class-meta-dot"></span> 90 min</div>
+            </div>
+            <button class="class-mark-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Mark
+            </button>
+          </div>
+
+          <div class="class-row">
+            <div class="class-time">02:00<span class="ampm">PM</span></div>
+            <div class="class-info">
+              <div class="class-name">Maths · Batch B</div>
+              <div class="class-meta">18 students <span class="class-meta-dot"></span> Hall 2 <span class="class-meta-dot"></span> 60 min</div>
+            </div>
+            <button class="class-mark-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Mark
+            </button>
+          </div>
+
+          <div class="class-row">
+            <div class="class-time">04:00<span class="ampm">PM</span></div>
+            <div class="class-info">
+              <div class="class-name">Chemistry · Batch C</div>
+              <div class="class-meta">12 students <span class="class-meta-dot"></span> Hall 1 <span class="class-meta-dot"></span> 75 min</div>
+            </div>
+            <button class="class-mark-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Mark
+            </button>
+          </div>
+        </section>
+
+        <!-- QUICK ACTIONS -->
+        <section aria-label="Quick actions">
+          <div class="section-header" style="padding: 0 2px; margin-bottom: 10px;">
+            <div class="section-title">Quick actions</div>
+          </div>
+          <div class="qa-grid">
+            <button class="qa-tile">
+              <div class="qa-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+              </div>
+              <span class="qa-label">Mark<br>attendance</span>
+            </button>
+            <button class="qa-tile">
+              <div class="qa-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+              </div>
+              <span class="qa-label">Add<br>student</span>
+            </button>
+            <button class="qa-tile">
+              <div class="qa-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              </div>
+              <span class="qa-label">Record<br>payment</span>
+            </button>
+            <button class="qa-tile">
+              <div class="qa-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+              </div>
+              <span class="qa-label">Send<br>reminder</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- RECENT ACTIVITY -->
+        <section class="section-card" aria-label="Recent activity">
+          <div class="section-header">
+            <div class="section-title">Recent activity</div>
+            <a class="section-link" href="#">See all →</a>
+          </div>
+          <div class="activity-row">
+            <div class="activity-icon payment">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="activity-body">
+              <div class="activity-text"><strong>Riya Sharma</strong> paid <span class="amt">₹1,500</span></div>
+              <div class="activity-time">12 min ago · UPI · Batch A</div>
+            </div>
+          </div>
+          <div class="activity-row">
+            <div class="activity-icon attendance">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div class="activity-body">
+              <div class="activity-text">Marked <strong>Physics · Batch A</strong> — 22/24 present</div>
+              <div class="activity-time">38 min ago · Hall 1</div>
+            </div>
+          </div>
+          <div class="activity-row">
+            <div class="activity-icon reminder">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            </div>
+            <div class="activity-body">
+              <div class="activity-text">Fee reminder sent to <strong>4 students</strong></div>
+              <div class="activity-time">2 hr ago · WhatsApp</div>
+            </div>
+          </div>
+          <div class="activity-row">
+            <div class="activity-icon payment">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="activity-body">
+              <div class="activity-text"><strong>Aarav Patel</strong> paid <span class="amt">₹1,800</span></div>
+              <div class="activity-time">5 hr ago · Cash · Batch B</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- FEE COLLECTION CHART -->
+        <section class="section-card" aria-label="Fee collection trend">
+          <div class="section-header">
+            <div class="section-title">Fee collection</div>
+            <a class="section-link" href="#">6 months →</a>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-bars">
+              <div class="chart-bar"><div class="chart-bar-fill" style="height: 38%;"></div><div class="chart-bar-label">Jun</div></div>
+              <div class="chart-bar"><div class="chart-bar-fill" style="height: 52%;"></div><div class="chart-bar-label">Jul</div></div>
+              <div class="chart-bar"><div class="chart-bar-fill" style="height: 61%;"></div><div class="chart-bar-label">Aug</div></div>
+              <div class="chart-bar"><div class="chart-bar-fill" style="height: 74%;"></div><div class="chart-bar-label">Sep</div></div>
+              <div class="chart-bar"><div class="chart-bar-fill" style="height: 83%;"></div><div class="chart-bar-label">Oct</div></div>
+              <div class="chart-bar current">
+                <div class="chart-bar-value">47.2k</div>
+                <div class="chart-bar-fill" style="height: 89%;"></div>
+                <div class="chart-bar-label">Nov</div>
+              </div>
+            </div>
+            <div class="chart-summary">
+              <span>Total collected (6 mo)</span>
+              <span><strong>₹2,84,500</strong> · avg <strong>₹47,416</strong>/mo</span>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- BOTTOM NAV -->
+      <nav class="bottom-nav" aria-label="Primary">
+        <button class="bottom-nav-item active">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Students</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="9 16 11 18 15 14"/></svg>
+          <span>Attendance</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          <span>Fees</span>
+        </button>
+        <button class="bottom-nav-item">
+          <span class="nav-indicator"></span>
+          <svg class="bottom-nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+  <div class="frame-label">02_dashboard.html · 390 × 844</div>
+</body>
+</html>

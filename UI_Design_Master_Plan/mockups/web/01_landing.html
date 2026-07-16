@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buddysaradhi — Run your coaching class like a small school</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/styles.css">
+<style>
+  /* ------------------------------------------------------------------
+     Landing-page-only layer — uses tokens from shared/styles.css
+     Saffron Marigold (light) at body, Amber Sunrise on the features section
+     ------------------------------------------------------------------ */
+  body { background: var(--bg-canvas); overflow-x: hidden; }
+
+  /* Subtle paper grain — radial wash of warm light */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(255,153,51,0.10), transparent 45%),
+      radial-gradient(circle at 88% 0%, rgba(255,182,39,0.08), transparent 40%),
+      radial-gradient(circle at 50% 100%, rgba(123,30,30,0.04), transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-shell { position: relative; z-index: 1; }
+
+  /* ---- Top nav ---- */
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-4) var(--space-12);
+    background: color-mix(in srgb, var(--bg-canvas) 78%, transparent);
+    backdrop-filter: blur(16px) saturate(160%);
+    border-bottom: 1px solid var(--border-glass);
+  }
+  .nav-brand { display: flex; align-items: center; gap: var(--space-3); }
+  .nav-brand-mark {
+    width: 36px; height: 36px; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, #FF9933 0%, #FFB627 55%, #C2410C 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: #FFFFFF; font-weight: 700; font-family: var(--font-heading);
+    box-shadow: 0 4px 12px -2px rgba(255,153,51,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
+    font-size: 18px;
+  }
+  .nav-brand-name { font-family: var(--font-heading); font-weight: 600; font-size: var(--text-md); color: var(--text-primary); letter-spacing: -0.015em; }
+  .nav-brand-name .accent { color: var(--accent-primary); }
+  .nav-links { display: flex; align-items: center; gap: var(--space-8); }
+  .nav-links a { color: var(--text-secondary); font-size: var(--text-sm); font-weight: 500; text-decoration: none; transition: color var(--motion-fast) var(--ease-out); }
+  .nav-links a:hover { color: var(--accent-primary); }
+  .nav-right { display: flex; align-items: center; gap: var(--space-3); }
+  .lang-toggle {
+    display: inline-flex; align-items: center; gap: 2px;
+    border: 1px solid var(--border-default); border-radius: var(--radius-full);
+    padding: 3px; background: var(--bg-surface);
+  }
+  .lang-toggle button {
+    padding: 4px 10px; border-radius: var(--radius-full);
+    font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary);
+    font-family: var(--font-heading);
+  }
+  .lang-toggle button.active { background: var(--accent-primary); color: var(--text-on-accent); }
+
+  /* ---- Hero ---- */
+  .hero {
+    position: relative;
+    padding: var(--space-16) var(--space-12) var(--space-12);
+    max-width: 1440px; margin: 0 auto;
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: var(--space-12); align-items: center;
+  }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
+    color: var(--accent-primary);
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-bottom: var(--space-5);
+  }
+  .hero-eyebrow .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  }
+  .hero h1 {
+    font-size: 56px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 700;
+    color: var(--text-primary); margin-bottom: var(--space-5);
+    font-family: var(--font-heading);
+  }
+  .hero h1 .underline-mark {
+    position: relative; display: inline-block; color: var(--accent-secondary);
+  }
+  .hero h1 .underline-mark::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 8px;
+    background: linear-gradient(90deg, rgba(255,153,51,0.35), rgba(255,182,39,0.15));
+    border-radius: var(--radius-full); z-index: -1;
+  }
+  .hero p.subhead {
+    font-size: var(--text-lg); line-height: 1.55; color: var(--text-secondary);
+    max-width: 540px; margin-bottom: var(--space-8);
+  }
+  .hero-ctas { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-5); }
+  .btn-cta-primary {
+    padding: var(--space-4) var(--space-6); font-size: var(--text-md); font-weight: 600;
+    background: linear-gradient(135deg, #FF9933 0%, #FFB627 100%);
+    color: #FFFFFF; border-radius: var(--radius-md);
+    box-shadow: 0 8px 20px -4px rgba(255,153,51,0.45), inset 0 1px 0 rgba(255,255,255,0.3);
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+    min-height: 52px;
+  }
+  .btn-cta-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 28px -6px rgba(255,153,51,0.55), inset 0 1px 0 rgba(255,255,255,0.35); }
+  .btn-cta-ghost {
+    padding: var(--space-4) var(--space-5); font-size: var(--text-md); font-weight: 500;
+    background: var(--surface-glass-strong); color: var(--text-primary);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    backdrop-filter: blur(8px); min-height: 52px;
+    transition: all var(--motion-fast) var(--ease-out);
+  }
+  .btn-cta-ghost:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+  .hero-trustline { display: flex; align-items: center; gap: var(--space-4); font-size: var(--text-sm); color: var(--text-muted); }
+  .hero-trustline .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+
+  /* Hero preview card */
+  .hero-preview {
+    position: relative; padding: var(--space-6);
+    background: linear-gradient(160deg, rgba(255,255,255,0.95) 0%, rgba(255,247,232,0.85) 100%);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-2xl);
+    box-shadow: 0 25px 60px -15px rgba(123,30,30,0.18), 0 8px 20px -8px rgba(123,30,30,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
+    backdrop-filter: blur(20px);
+  }
+  .hero-preview-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-5); }
+  .hero-preview-title { font-size: var(--text-xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .hero-preview-amount { font-family: var(--font-mono); font-size: 42px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; margin: var(--space-2) 0; }
+  .hero-preview-meta { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-5); }
+  .hero-preview-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 500; background: color-mix(in srgb, var(--accent-success) 10%, transparent); color: var(--accent-success); border: 1px solid color-mix(in srgb, var(--accent-success) 22%, transparent); }
+  .hero-preview-bars { display: flex; align-items: flex-end; gap: 8px; height: 110px; padding-top: var(--space-3); border-top: 1px dashed var(--border-default); }
+  .hero-preview-bar { flex: 1; background: linear-gradient(180deg, #FFB627 0%, #FF9933 100%); border-radius: 4px 4px 0 0; position: relative; min-height: 6px; }
+  .hero-preview-bar.current { background: linear-gradient(180deg, #C2410C 0%, #7B1E1E 100%); box-shadow: 0 0 0 2px rgba(255,255,255,0.6), 0 4px 10px -2px rgba(123,30,30,0.4); }
+  .hero-preview-bars-labels { display: flex; gap: 8px; margin-top: 6px; }
+  .hero-preview-bars-labels span { flex: 1; text-align: center; font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+  .hero-preview-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) 0; border-top: 1px solid var(--border-glass); font-size: var(--text-sm); }
+  .hero-preview-row .label { color: var(--text-secondary); }
+  .hero-preview-row .value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 500; }
+
+  /* Floating chip on the preview card */
+  .hero-preview-float {
+    position: absolute; top: -16px; right: -16px;
+    background: linear-gradient(135deg, #047857, #10B981);
+    color: #FFFFFF; padding: 10px 14px; border-radius: var(--radius-md);
+    box-shadow: 0 12px 28px -8px rgba(4,120,87,0.5);
+    font-size: var(--text-xs); font-weight: 600; display: flex; align-items: center; gap: 6px;
+  }
+
+  /* ---- Trust bar ---- */
+  .trustbar {
+    max-width: 1440px; margin: 0 auto;
+    padding: var(--space-8) var(--space-12);
+    border-top: 1px solid var(--border-glass); border-bottom: 1px solid var(--border-glass);
+    background: var(--bg-surface);
+  }
+  .trustbar-head { text-align: center; margin-bottom: var(--space-6); color: var(--text-secondary); font-size: var(--text-sm); letter-spacing: 0.04em; }
+  .trustbar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .trust-tile {
+    text-align: center; padding: var(--space-4);
+    border-right: 1px solid var(--border-glass);
+  }
+  .trust-tile:last-child { border-right: none; }
+  .trust-tile .fig { font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: 600; color: var(--text-primary); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .trust-tile .fig .accent { color: var(--accent-primary); }
+  .trust-tile .lbl { font-size: var(--text-xs); color: var(--text-muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  /* ---- Section heads ---- */
+  .section-head { text-align: center; max-width: 720px; margin: 0 auto var(--space-12); }
+  .section-head .eyebrow { margin-bottom: var(--space-3); }
+  .section-head h2 { font-size: var(--text-4xl); line-height: 1.1; letter-spacing: -0.03em; color: var(--text-primary); margin-bottom: var(--space-4); font-weight: 700; }
+  .section-head p { font-size: var(--text-lg); color: var(--text-secondary); line-height: 1.5; }
+
+  /* ---- Features (Amber Sunrise) ---- */
+  .features-section { padding: var(--space-20) var(--space-12); position: relative; }
+  .features-section[data-palette="amber-sunrise"][data-theme="light"] {
+    background: linear-gradient(180deg, #FFFAF0 0%, #FFF3D6 100%);
+    border-top: 1px solid rgba(234,88,12,0.12); border-bottom: 1px solid rgba(234,88,12,0.12);
+  }
+  .features-grid { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); }
+  .feature-card {
+    background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+    padding: var(--space-6); position: relative; overflow: hidden;
+    transition: transform var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out), border-color var(--motion-base) var(--ease-out);
+  }
+  .feature-card:hover { transform: translateY(-3px); box-shadow: 0 20px 40px -12px var(--shadow-color), 0 6px 12px -4px var(--shadow-color); border-color: var(--border-accent); }
+  .feature-card .icon-wrap {
+    width: 48px; height: 48px; border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center; color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    margin-bottom: var(--space-5);
+  }
+  .feature-card h3 { font-size: var(--text-lg); color: var(--text-primary); margin-bottom: var(--space-2); font-weight: 600; }
+  .feature-card p { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.55; }
+  .feature-card .corner-mark {
+    position: absolute; top: var(--space-4); right: var(--space-4);
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.06em;
+  }
+  /* Hover state shown on one card */
+  .feature-card.hover-demo {
+    transform: translateY(-3px); box-shadow: 0 20px 40px -12px var(--shadow-color), 0 6px 12px -4px var(--shadow-color);
+    border-color: var(--border-accent);
+  }
+
+  /* ---- How it works ---- */
+  .how-section { padding: var(--space-20) var(--space-12); }
+  .how-grid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-8); align-items: start; position: relative; }
+  .how-step { text-align: center; position: relative; padding: 0 var(--space-4); }
+  .how-step-num {
+    width: 56px; height: 56px; margin: 0 auto var(--space-5);
+    border-radius: 50%;
+    background: linear-gradient(135deg, #FF9933 0%, #FFB627 100%);
+    color: #FFFFFF; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-heading); font-weight: 700; font-size: var(--text-lg);
+    box-shadow: 0 8px 20px -6px rgba(255,153,51,0.4), inset 0 1px 0 rgba(255,255,255,0.3);
+    position: relative; z-index: 2;
+  }
+  .how-step h3 { font-size: var(--text-lg); color: var(--text-primary); margin-bottom: var(--space-2); }
+  .how-step p { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.55; }
+  /* Dashed connector line */
+  .how-grid::before {
+    content: ''; position: absolute; top: 28px; left: 16%; right: 16%; height: 2px;
+    background: repeating-linear-gradient(90deg, var(--accent-primary) 0 6px, transparent 6px 14px);
+    opacity: 0.4; z-index: 1;
+  }
+
+  /* ---- Pricing ---- */
+  .pricing-section { padding: var(--space-20) var(--space-12); background: var(--bg-surface-inset); border-top: 1px solid var(--border-glass); border-bottom: 1px solid var(--border-glass); }
+  .pricing-card-wrap { max-width: 480px; margin: 0 auto; }
+  .pricing-card {
+    background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: var(--radius-2xl);
+    padding: var(--space-8); text-align: center; position: relative; overflow: hidden;
+    box-shadow: 0 25px 60px -20px var(--shadow-color), 0 8px 20px -8px var(--shadow-color);
+  }
+  .pricing-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px;
+    background: linear-gradient(90deg, #FF9933, #FFB627, #C2410C);
+  }
+  .pricing-badge {
+    display: inline-block; padding: 4px 12px; border-radius: var(--radius-full);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    color: var(--accent-primary); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    margin-bottom: var(--space-4);
+  }
+  .pricing-amount { font-family: var(--font-mono); font-size: 64px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; margin: var(--space-4) 0 var(--space-2); }
+  .pricing-amount .currency { font-size: var(--text-2xl); color: var(--text-secondary); vertical-align: top; margin-right: 4px; }
+  .pricing-amount .per { font-size: var(--text-md); color: var(--text-muted); font-family: var(--font-body); font-weight: 500; margin-left: 4px; }
+  .pricing-tagline { font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-6); }
+  .pricing-cta {
+    display: block; width: 100%; padding: var(--space-4) var(--space-6);
+    background: linear-gradient(135deg, #FF9933, #FFB627); color: #FFFFFF;
+    border-radius: var(--radius-md); font-size: var(--text-md); font-weight: 600;
+    text-decoration: none; box-shadow: 0 8px 20px -4px rgba(255,153,51,0.4);
+    margin-bottom: var(--space-5); transition: transform var(--motion-fast) var(--ease-out);
+  }
+  .pricing-cta:hover { transform: translateY(-1px); text-decoration: none; }
+  .pricing-features { text-align: left; display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--border-glass); }
+  .pricing-features li { list-style: none; display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm); color: var(--text-primary); }
+  .pricing-features li .check {
+    width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+    background: color-mix(in srgb, var(--accent-success) 12%, transparent);
+    color: var(--accent-success); display: flex; align-items: center; justify-content: center;
+  }
+  .pricing-note { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-5); padding: var(--space-3); background: var(--bg-surface-inset); border-radius: var(--radius-md); }
+
+  /* ---- Testimonials ---- */
+  .testimonials-section { padding: var(--space-20) var(--space-12); }
+  .testimonials-grid { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); }
+  .testimonial-card {
+    background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-lg);
+    padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4);
+    transition: transform var(--motion-base) var(--ease-out), box-shadow var(--motion-base) var(--ease-out);
+  }
+  .testimonial-card:hover { transform: translateY(-2px); box-shadow: 0 16px 36px -10px var(--shadow-color); }
+  .testimonial-quote { font-size: var(--text-md); line-height: 1.55; color: var(--text-primary); flex: 1; }
+  .testimonial-quote::before { content: '“'; font-family: var(--font-heading); font-size: 40px; line-height: 0.5; color: var(--accent-primary); margin-right: 4px; vertical-align: -10px; }
+  .testimonial-author { display: flex; align-items: center; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--border-glass); }
+  .testimonial-author .avatar { background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: #FFFFFF; }
+  .testimonial-author .name { font-weight: 600; font-size: var(--text-sm); color: var(--text-primary); }
+  .testimonial-author .meta { font-size: var(--text-xs); color: var(--text-muted); }
+
+  /* ---- FAQ ---- */
+  .faq-section { padding: var(--space-20) var(--space-12); background: var(--bg-surface-inset); border-top: 1px solid var(--border-glass); }
+  .faq-list { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-3); }
+  .faq-item {
+    background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .faq-q {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--space-5) var(--space-6); font-size: var(--text-md); font-weight: 500; color: var(--text-primary);
+    cursor: pointer;
+  }
+  .faq-q .chev { transition: transform var(--motion-fast) var(--ease-out); color: var(--text-muted); }
+  .faq-item.open .faq-q .chev { transform: rotate(180deg); color: var(--accent-primary); }
+  .faq-a {
+    max-height: 0; overflow: hidden; padding: 0 var(--space-6);
+    transition: max-height var(--motion-slow) var(--ease-out), padding var(--motion-slow) var(--ease-out);
+    color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.6;
+  }
+  .faq-item.open .faq-a { max-height: 200px; padding: 0 var(--space-6) var(--space-5); }
+
+  /* ---- Final CTA ---- */
+  .final-cta {
+    margin: var(--space-20) var(--space-12); padding: var(--space-16) var(--space-12);
+    background: linear-gradient(135deg, #FF9933 0%, #FFB627 50%, #C2410C 100%);
+    border-radius: var(--radius-2xl);
+    text-align: center; position: relative; overflow: hidden;
+    box-shadow: 0 25px 60px -20px rgba(255,153,51,0.4);
+    max-width: 1440px; margin-left: auto; margin-right: auto;
+  }
+  .final-cta::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18), transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(123,30,30,0.15), transparent 50%);
+  }
+  .final-cta > * { position: relative; z-index: 1; }
+  .final-cta h2 { font-size: var(--text-4xl); color: #FFFFFF; letter-spacing: -0.03em; margin-bottom: var(--space-4); font-weight: 700; }
+  .final-cta p { color: rgba(255,255,255,0.9); font-size: var(--text-lg); margin-bottom: var(--space-8); }
+  .final-cta .btn-final {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-4) var(--space-8); font-size: var(--text-md); font-weight: 600;
+    background: #FFFFFF; color: var(--accent-secondary); border-radius: var(--radius-md);
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.25);
+    text-decoration: none; min-height: 52px;
+  }
+
+  /* ---- Footer ---- */
+  .footer { background: #2A1810; color: rgba(255,247,232,0.85); padding: var(--space-12) var(--space-12) var(--space-6); margin-top: var(--space-12); }
+  .footer-grid { max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: 1.5fr repeat(4, 1fr); gap: var(--space-8); padding-bottom: var(--space-10); border-bottom: 1px solid rgba(255,200,140,0.10); }
+  .footer-brand .nav-brand-name { color: #FFF7E8; }
+  .footer-brand p { font-size: var(--text-sm); color: rgba(255,247,232,0.55); margin-top: var(--space-4); line-height: 1.55; max-width: 280px; }
+  .footer-col h4 { font-size: var(--text-xs); color: rgba(255,247,232,0.5); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-4); font-weight: 600; }
+  .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }
+  .footer-col ul li a { color: rgba(255,247,232,0.85); font-size: var(--text-sm); text-decoration: none; transition: color var(--motion-fast) var(--ease-out); }
+  .footer-col ul li a:hover { color: #FFB627; }
+  .footer-bottom { max-width: 1440px; margin: var(--space-6) auto 0; display: flex; align-items: center; justify-content: space-between; font-size: var(--text-xs); color: rgba(255,247,232,0.55); }
+  .made-in-india { display: inline-flex; align-items: center; gap: 8px; }
+  .flag-icon { width: 20px; height: 14px; border-radius: 2px; overflow: hidden; display: inline-block; box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
+  .flag-icon::before { content: ''; display: block; height: 33.33%; background: #FF9933; }
+  .flag-icon::after { content: ''; display: block; height: 33.33%; background: #FFFFFF; position: relative; }
+
+  /* Devanagari spans */
+  [lang="hi"] { font-family: var(--font-body); }
+
+  /* Responsive (basic) */
+  @media (max-width: 1024px) {
+    .hero { grid-template-columns: 1fr; gap: var(--space-8); }
+    .features-grid, .testimonials-grid, .how-grid { grid-template-columns: repeat(2, 1fr); }
+    .trustbar-grid { grid-template-columns: repeat(2, 1fr); }
+    .trust-tile:nth-child(2) { border-right: none; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 640px) {
+    .features-grid, .testimonials-grid, .how-grid, .trustbar-grid, .footer-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+    .hero { padding: var(--space-8) var(--space-6); }
+    .hero h1 { font-size: 38px; }
+    .section-head h2 { font-size: 32px; }
+  }
+</style>
+</head>
+<body data-palette="saffron-marigold" data-theme="light">
+<div class="mockup-frame-label">Web · Landing · Saffron Marigold (light)</div>
+
+<div class="app-shell">
+  <main class="app-main">
+
+    <!-- ========== TOP NAV ========== -->
+    <nav class="nav">
+      <div class="nav-brand">
+        <div class="nav-brand-mark">ब</div>
+        <div class="nav-brand-name">Buddysaradhi<span class="accent">.</span></div>
+      </div>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="nav-right">
+        <div class="lang-toggle" role="group" aria-label="Language">
+          <button class="active" type="button">EN</button>
+          <button type="button">हिं</button>
+        </div>
+        <a href="#" class="btn btn-primary">Start free →</a>
+      </div>
+    </nav>
+
+    <!-- ========== HERO ========== -->
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="hero-eyebrow"><span class="pulse"></span> FREE FOR EVERYONE · FOR NOW</div>
+        <h1>Run your coaching class like a small school. <span class="underline-mark">Without the spreadsheet chaos.</span></h1>
+        <p class="subhead">Buddysaradhi is the all-in-one platform for Indian private tutors — students, attendance, fees, receipts, reports. Free while our infra stays free.</p>
+        <div class="hero-ctas">
+          <a href="#" class="btn-cta-primary">Start free →</a>
+          <a href="#" class="btn-cta-ghost">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            See how it works
+          </a>
+        </div>
+        <div class="hero-trustline">
+          <span>No card</span><span class="dot"></span>
+          <span>Free for everyone</span><span class="dot"></span>
+          <span>Free while our infra stays free</span>
+        </div>
+      </div>
+
+      <!-- Hero preview card -->
+      <div class="hero-preview">
+        <div class="hero-preview-float">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Receipt sent
+        </div>
+        <div class="hero-preview-header">
+          <div>
+            <div class="hero-preview-title">Collected this month</div>
+            <div class="hero-preview-amount money">₹47,250</div>
+            <div class="hero-preview-meta">
+              <span class="hero-preview-chip">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 11 12 6 7 11"></polyline><polyline points="17 18 12 13 7 18"></polyline></svg>
+                +12% ↑
+              </span>
+              <span style="font-size: var(--text-xs); color: var(--text-muted);">vs October ₹42,180</span>
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em;">कार्तिक</div>
+            <div style="font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-secondary); margin-top: 4px;">Nov 2026</div>
+          </div>
+        </div>
+        <div class="hero-preview-bars">
+          <div class="hero-preview-bar" style="height: 38%"></div>
+          <div class="hero-preview-bar" style="height: 52%"></div>
+          <div class="hero-preview-bar" style="height: 60%"></div>
+          <div class="hero-preview-bar" style="height: 75%"></div>
+          <div class="hero-preview-bar" style="height: 68%"></div>
+          <div class="hero-preview-bar current" style="height: 92%"></div>
+        </div>
+        <div class="hero-preview-bars-labels">
+          <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span>
+        </div>
+        <div class="hero-preview-row"><span class="label">Active students</span><span class="value">84</span></div>
+        <div class="hero-preview-row"><span class="label">Arrears</span><span class="value" style="color: var(--accent-danger);">₹8,400</span></div>
+        <div class="hero-preview-row"><span class="label">Receipts this month</span><span class="value">47</span></div>
+      </div>
+    </section>
+
+    <!-- ========== TRUST BAR ========== -->
+    <section class="trustbar">
+      <div class="trustbar-head">Trusted by <strong style="color: var(--text-primary);">2,400+ tutors</strong> across <strong style="color: var(--text-primary);">18 cities</strong></div>
+      <div class="trustbar-grid">
+        <div class="trust-tile">
+          <div class="fig"><span class="accent">2,400</span>+</div>
+          <div class="lbl">Active tutors</div>
+        </div>
+        <div class="trust-tile">
+          <div class="fig"><span class="accent">47,000</span>+</div>
+          <div class="lbl">Students managed</div>
+        </div>
+        <div class="trust-tile">
+          <div class="fig">₹<span class="accent">2.3</span>Cr+</div>
+          <div class="lbl">Fees collected</div>
+        </div>
+        <div class="trust-tile">
+          <div class="fig"><span class="accent">4.9</span>★</div>
+          <div class="lbl">Tutor rating</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FEATURES (Amber Sunrise) ========== -->
+    <section class="features-section" id="features" data-palette="amber-sunrise" data-theme="light">
+      <div class="section-head">
+        <span class="eyebrow" style="color: var(--accent-primary);">Everything in one place</span>
+        <h2>Six tools. Zero spreadsheets.</h2>
+        <p>Each feature is built for the Indian coaching class — rupee-aware, batch-aware, works on a 2G connection.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="corner-mark">01</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          </div>
+          <h3>Students</h3>
+          <p>One record per child — name in Devanagari or English, guardian, batch, fee history, documents. Search in 30ms.</p>
+        </div>
+        <div class="feature-card hover-demo">
+          <div class="corner-mark">02</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line><path d="M9 16l2 2 4-4"></path></svg>
+          </div>
+          <h3>Attendance</h3>
+          <p>Mark a 30-student batch in 30 seconds. Tap present, tap absent, sync later offline. Auto-flag below 75%.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner-mark">03</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"></path><path d="M8 7h8"></path><path d="M8 11h8"></path><path d="M8 15h5"></path></svg>
+          </div>
+          <h3>Fees &amp; Receipts</h3>
+          <p>Record a payment → generate a numbered receipt with hash chain. Print, WhatsApp, or email — all from one tap.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner-mark">04</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          </div>
+          <h3>Reports</h3>
+          <p>Monthly collection, arrears, attendance — broken down by batch. Exportable to PDF for parent meetings.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner-mark">05</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+          </div>
+          <h3>Offline-first</h3>
+          <p>Mark attendance in a basement classroom with no signal. Syncs the moment you're back online. No data lost.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner-mark">06</div>
+          <div class="icon-wrap">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          </div>
+          <h3>Multi-batch</h3>
+          <p>Run Physics 10am, Maths 2pm, Chemistry 4pm — each with its own roster, attendance, fee calendar. Switch in one tap.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== HOW IT WORKS ========== -->
+    <section class="how-section" id="how">
+      <div class="section-head">
+        <span class="eyebrow">Three steps to launch</span>
+        <h2>From zero to running in 60 seconds.</h2>
+        <p>No onboarding call. No setup fee. No import nightmares. Add students, mark attendance, collect fees.</p>
+      </div>
+      <div class="how-grid">
+        <div class="how-step">
+          <div class="how-step-num">1</div>
+          <h3>Add your students</h3>
+          <p>Type names one-by-one or paste a list from your existing register. Devanagari and English both work.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">2</div>
+          <h3>Mark attendance in 30 seconds</h3>
+          <p>Open the batch, tap-tap-tap present/absent. Auto-flag students falling below 75% for the month.</p>
+        </div>
+        <div class="how-step">
+          <div class="how-step-num">3</div>
+          <h3>Collect fees with auto-receipts</h3>
+          <p>Enter the amount, pick the method. A numbered receipt generates instantly with a tamper-evident hash.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== PRICING ========== -->
+    <section class="pricing-section" id="pricing">
+      <div class="section-head">
+        <span class="eyebrow">Pricing</span>
+        <h2>One plan. Free.</h2>
+        <p>We're free while our infra stays free. When that changes, you'll know months in advance — never a surprise bill.</p>
+      </div>
+      <div class="pricing-card-wrap">
+        <div class="pricing-card">
+          <span class="pricing-badge">For everyone · For now</span>
+          <div class="pricing-amount"><span class="currency">₹</span>0<span class="per">/mo</span></div>
+          <div class="pricing-tagline">Every feature. Every tutor. Every batch.</div>
+          <a href="#" class="pricing-cta">Start free →</a>
+          <ul class="pricing-features">
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Unlimited students &amp; batches</li>
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Attendance, fees, receipts, reports</li>
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Offline-first sync across devices</li>
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Hash-chained, audit-ready receipts</li>
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Local backup + encrypted export</li>
+            <li><span class="check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></span> Devanagari &amp; English UI</li>
+          </ul>
+          <div class="pricing-note">Free while our infra stays free. No card required, no trial countdown, no locked features.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== TESTIMONIALS ========== -->
+    <section class="testimonials-section">
+      <div class="section-head">
+        <span class="eyebrow">Loved by tutors</span>
+        <h2>What coaches say after week one.</h2>
+        <p>Real tutors. Real batch sizes. Real hours saved per week.</p>
+      </div>
+      <div class="testimonials-grid">
+        <div class="testimonial-card">
+          <div class="testimonial-quote">Buddysaradhi replaced my 3 registers and 2 Excel sheets. I get 6 hours back every week — that's a full extra batch I can teach.</div>
+          <div class="testimonial-author">
+            <div class="avatar">SP</div>
+            <div>
+              <div class="name">Sneha Patil</div>
+              <div class="meta">Physics tutor · Pune · 84 students</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-quote">The fee reminders alone are worth it. Parents get the WhatsApp message, I get the money on time. No more awkward phone calls.</div>
+          <div class="testimonial-author">
+            <div class="avatar">RK</div>
+            <div>
+              <div class="name">Rajesh Kumar</div>
+              <div class="meta">Maths tutor · Patna · 142 students</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-quote">My basement has no signal. Attendance marks itself offline and syncs when I'm back upstairs. This is the first app that actually gets India.</div>
+          <div class="testimonial-author">
+            <div class="avatar">FS</div>
+            <div>
+              <div class="name">Fatima Sheikh</div>
+              <div class="meta">Chemistry tutor · Hyderabad · 56 students</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FAQ ========== -->
+    <section class="faq-section" id="faq">
+      <div class="section-head">
+        <span class="eyebrow">FAQ</span>
+        <h2>Questions, answered.</h2>
+        <p>Still curious? Email <a href="mailto:hello@buddysaradhi.in" style="color: var(--accent-primary);">hello@buddysaradhi.in</a> — a human replies in 24h.</p>
+      </div>
+      <div class="faq-list">
+        <div class="faq-item open">
+          <div class="faq-q">
+            <span>How many students can I add on the free plan?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Unlimited. Whether you teach 12 students or 250, every feature works the same. We don't believe in charging per-seat for software that should just work.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <span>What happens to my data if Buddysaradhi shuts down?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Your data is yours. Export to a single encrypted SQLite file at any time. If we ever sunset, you'll get 90 days notice and a one-click full export — including receipts, ledger entries, and audit log.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <span>Does attendance work without internet?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Yes. The mobile and desktop apps queue every action locally and sync the moment you're back online. Conflict resolution uses last-write-wins on attendance and a hard reject on conflicting fee entries.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <span>Are receipts legally valid for parents?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Every receipt carries a sequential number, a timestamp, a tutor signature line, and a SHA-256 hash that chains to the previous receipt. Parents can verify any receipt against your ledger at any time.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <span>Can I use Buddysaradhi for multiple subjects / batches?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Yes — create as many batches as you like. Each batch has its own roster, attendance schedule, and fee calendar. Switch batches in one tap from the sidebar.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <span>Will it stay free forever?</span>
+            <svg class="chev icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div class="faq-a">Free while our infra stays free. When that math changes — if it ever does — you'll know 90 days in advance. Existing tutors keep their plan; only new sign-ups migrate. No surprise bills.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== FINAL CTA ========== -->
+    <section class="final-cta">
+      <h2>Start free in 60 seconds.</h2>
+      <p>No card. No trial countdown. No locked features.</p>
+      <a href="#" class="btn-final">
+        Start free →
+      </a>
+    </section>
+
+  </main>
+
+  <!-- ========== FOOTER ========== -->
+  <footer class="app-footer footer">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="nav-brand">
+          <div class="nav-brand-mark">ब</div>
+          <div class="nav-brand-name">Buddysaradhi<span class="accent">.</span></div>
+        </div>
+        <p>The companion for Indian private tutors. Run your coaching class like a small school — without the spreadsheet chaos.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#">Features</a></li>
+          <li><a href="#">Pricing</a></li>
+          <li><a href="#">Mobile app</a></li>
+          <li><a href="#">Desktop app</a></li>
+          <li><a href="#">Changelog</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="#">Help center</a></li>
+          <li><a href="#">Tutor playbook</a></li>
+          <li><a href="#">Sample receipt</a></li>
+          <li><a href="#">Status</a></li>
+          <li><a href="#">API docs</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Company</h4>
+        <ul>
+          <li><a href="#">About</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">Careers</a></li>
+          <li><a href="#">Press kit</a></li>
+          <li><a href="#">Contact</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="#">Privacy policy</a></li>
+          <li><a href="#">Terms of service</a></li>
+          <li><a href="#">Refund policy</a></li>
+          <li><a href="#">Data export</a></li>
+          <li><a href="#">Security</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Buddysaradhi Technologies Pvt. Ltd. · v1.0.0</span>
+      <span class="made-in-india">
+        Made in India
+        <span class="flag-icon" aria-hidden="true"></span>
+      </span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

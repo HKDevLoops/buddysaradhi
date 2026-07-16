@@ -1,0 +1,38 @@
+# .gitleaks.toml
+# Configuration for Gitleaks secrets detection
+
+[allowlist]
+description = "Global allowlist for Gitleaks"
+paths = [
+  "node_modules",
+  ".next",
+  "dist",
+  "build",
+  "bun.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml"
+]
+
+[[rules]]
+id = "supabase-anon-key"
+description = "Supabase Anon/Public Key"
+regex = '''(?i)supabase_anon_key\s*=\s*['"]?[a-zA-Z0-9_\-\.]{100,}['"]?'''
+severity = "info"
+
+[[rules]]
+id = "supabase-service-key"
+description = "Supabase Service Role Key"
+regex = '''(?i)supabase_service_role_key\s*=\s*['"]?[a-zA-Z0-9_\-\.]{100,}['"]?'''
+severity = "error"
+
+[[rules]]
+id = "turso-api-token"
+description = "Turso API Token"
+regex = '''(?i)turso_api_token\s*=\s*['"]?ey[a-zA-Z0-9_\-\.]{50,}['"]?'''
+severity = "error"
+
+[[rules]]
+id = "generic-private-key"
+description = "Generic Private Key"
+regex = '''-----BEGIN[ A-Z0-9_-]+PRIVATE KEY-----'''
+severity = "error"

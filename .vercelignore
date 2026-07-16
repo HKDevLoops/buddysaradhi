@@ -1,0 +1,23 @@
+# Exclude large directories from Vercel CLI uploads
+node_modules/
+**/node_modules/
+.git/
+.github/
+.gemini/
+
+# Apps we don't need in these Vercel projects
+apps/desktop/
+apps/mobile/
+apps/services/
+
+# Build caches & outputs
+**/target/
+**/.next/
+**/dist/
+**/build/
+**/.turbo/
+**/.cache/
+**/tmp/
+pnpm-workspace.yaml
+pnpm-lock.yaml
+
