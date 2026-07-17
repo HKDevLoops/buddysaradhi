@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glass-faint {
+    background-color: var(--color-surface-glass-faint);
+  }
+  .glass {
+    background-color: var(--color-surface-glass);
+  }
+  .glass-strong {
+    background-color: var(--color-surface-glass-strong);
+  }
+
+  .neumo-raised {
+    background-color: var(--color-bg-neumo-light);
+  }
+  .neumo-inset {
+    background-color: var(--color-bg-neumo-light);
+  }
+  .neumo-pressed {
+    background-color: var(--color-bg-neumo-light);
+  }
+}

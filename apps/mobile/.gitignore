@@ -1,0 +1,68 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# generated native folders
+/ios
+/android
+
+# Ignore all planning/spec files and session logs
+*.md
+
+# Ignore all temporary scripting files
+*.py
+*.js
+*.ps1
+*.sh
+
+# Ignore internal workspace directories
+.gemini/
+.opencode/
+.playwright-mcp/
+.swarm/
+.agents/
+.claude/
+.claude-flow/
+.superpowers/
+.temp/
+.ruff_cache/
+coverage/
+reviews/
+reference-implementations/
+packages/graphify-out/
