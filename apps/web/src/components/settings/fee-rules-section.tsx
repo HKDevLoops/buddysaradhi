@@ -44,6 +44,16 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
   });
 
   useEffect(() => {
+    if (settings && !isDirty) {
+      reset({
+        invoicePrefix: settings?.invoicePrefix || "INV-",
+        receiptPrefix: settings?.receiptPrefix || "RCP-",
+        graceDays: settings?.graceDays ?? 0,
+      });
+    }
+  }, [settings, isDirty, reset]);
+
+  useEffect(() => {
     if (isDirty) {
       markDirty("fee-rules");
     } else {

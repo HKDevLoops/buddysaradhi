@@ -16,7 +16,7 @@ const profileSchema = z.object({
   instituteAddress: z.string().max(200).nullable().optional(),
   institutePhone: z
     .string()
-    .regex(/^\+[1-9]\d{6,14}$/, "Phone must be E.164 (e.g., +919876543210)")
+    .regex(/^\+?[0-9\s\-]{7,20}$/, "Invalid phone format (e.g., +91 98765 43210)")
     .nullable()
     .optional()
     .or(z.literal("")),
@@ -53,6 +53,20 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
       plan: (settings?.plan as "free" | "growth" | "institute") || "free",
     },
   });
+
+  useEffect(() => {
+    if (settings && !isDirty) {
+      reset({
+        instituteName: settings?.instituteName || "My Tuition",
+        instituteAddress: settings?.instituteAddress || "",
+        institutePhone: settings?.institutePhone || "",
+        instituteEmail: settings?.instituteEmail || "",
+        currencyCode: (settings?.currencyCode as any) || "INR",
+        locale: settings?.locale || "en-IN",
+        plan: (settings?.plan as any) || "free",
+      });
+    }
+  }, [settings, isDirty, reset]);
 
   useEffect(() => {
     if (isDirty) {
