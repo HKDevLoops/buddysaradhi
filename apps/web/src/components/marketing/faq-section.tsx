@@ -152,7 +152,7 @@ export function FAQSection() {
             <AlertCircle className="w-8 h-8 mx-auto text-[var(--accent-flare)]" />
             <h4 className="font-semibold text-lg text-[var(--text-primary)]">No matching questions</h4>
             <p className="text-xs text-[var(--text-secondary)]">
-              We couldn't find an answer matching &ldquo;{searchQuery}&rdquo;. Drop us an email and we'll reply in under 4 hours.
+              We couldn&apos;t find an answer matching &ldquo;{searchQuery}&rdquo;. Drop us an email and we&apos;ll reply in under 4 hours.
             </p>
             <a
               href="mailto:hello@buddysaradhi.app"

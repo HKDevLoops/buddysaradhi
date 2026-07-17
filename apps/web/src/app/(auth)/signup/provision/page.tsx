@@ -9,7 +9,6 @@ import { log } from "@/lib/logger";
 
 export default function ProvisionPage() {
   const [status, setStatus] = useState<"creating" | "done" | "error">("creating");
-  const [attempts, setAttempts] = useState(0);
   const router = useRouter();
   const supabase = createSupabaseBrowser();
 

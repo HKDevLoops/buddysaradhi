@@ -66,7 +66,7 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
     return null;
   });
 
-  const [localDensity, setLocalDensity] = useState<string | null>(() => {
+  const [localDensity] = useState<string | null>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("buddysaradhi.density");
     }

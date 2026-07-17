@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, prefer-const */
 // apps/web/src/app/api/v1/[...slug]/route.ts
 // Embedded API Gateway (BFF) for BuddySaradhi.
 // Directly integrated with local Prisma SQLite DB.

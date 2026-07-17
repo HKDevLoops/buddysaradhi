@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState } from "react";
@@ -81,7 +82,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
         setNewPassword("");
         setConfirmPassword("");
       }
-    } catch (err) {
+    } catch {
       setPasswordStatus("error");
       setPasswordError("An unexpected error occurred");
     } finally {

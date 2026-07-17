@@ -12,7 +12,7 @@ export function ImportExportSection() {
 
   const handleExportJSON = () => {
     try {
-      const settingsData = queryClient.getQueryData(["settings"]) as any;
+      const settingsData = queryClient.getQueryData(["settings"]) as { data?: Record<string, unknown> } | null | undefined;
       const settingsObj = settingsData?.data || { message: "No settings cached yet." };
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settingsObj, null, 2));
       const a = document.createElement("a");
@@ -28,7 +28,7 @@ export function ImportExportSection() {
 
   const handleExportCSV = () => {
     try {
-      const settingsData = queryClient.getQueryData(["settings"]) as any;
+      const settingsData = queryClient.getQueryData(["settings"]) as { data?: Record<string, unknown> } | null | undefined;
       const settingsObj = settingsData?.data || {};
       let csvContent = "Setting Key,Setting Value\n";
       Object.entries(settingsObj).forEach(([k, v]) => {
