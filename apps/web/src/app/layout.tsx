@@ -99,6 +99,7 @@ export default async function RootLayout({
                   var html = document.documentElement;
                   var palette = localStorage.getItem("buddysaradhi.palette");
                   var theme = localStorage.getItem("buddysaradhi.theme");
+                  var density = localStorage.getItem("buddysaradhi.density");
                   // Resolve "system" theme to a concrete light/dark so the first
                   // paint is correct; PaletteProvider refines after hydration.
                   if (theme === "system" || !theme) {
@@ -111,6 +112,7 @@ export default async function RootLayout({
                   if (palette === "midnight-slate" && theme === "dark") palette = "aurora-cosmic";
                   if (palette) html.setAttribute("data-palette", palette);
                   if (theme) html.setAttribute("data-theme", theme);
+                  if (density) html.setAttribute("data-density", density);
                 } catch (e) {
                   /* no-op: PaletteProvider will still apply after hydration */
                 }

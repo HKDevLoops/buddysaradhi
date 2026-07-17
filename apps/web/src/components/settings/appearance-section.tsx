@@ -84,7 +84,13 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
     setActiveMode(settings?.theme || "system");
   }, [settings?.theme]);
 
-  const density = settings?.density || "comfortable";
+  const [activeDensity, setActiveDensity] = useState<string>(settings?.density || "comfortable");
+
+  useEffect(() => {
+    setActiveDensity(settings?.density || "comfortable");
+  }, [settings?.density]);
+
+  const density = activeDensity;
   const reducedMotion = settings?.reducedMotion === 1;
   const mode = activeMode;
 
@@ -209,7 +215,12 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button
             type="button"
-            onClick={() => updateMutation.mutate({ field: "density", value: "comfortable" })}
+            onClick={() => {
+              setActiveDensity("comfortable");
+              localStorage.setItem("buddysaradhi.density", "comfortable");
+              document.documentElement.setAttribute("data-density", "comfortable");
+              updateMutation.mutate({ field: "density", value: "comfortable" });
+            }}
             aria-pressed={density === "comfortable"}
             className={cn(
               "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left border",
@@ -223,7 +234,12 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
           </button>
           <button
             type="button"
-            onClick={() => updateMutation.mutate({ field: "density", value: "compact" })}
+            onClick={() => {
+              setActiveDensity("compact");
+              localStorage.setItem("buddysaradhi.density", "compact");
+              document.documentElement.setAttribute("data-density", "compact");
+              updateMutation.mutate({ field: "density", value: "compact" });
+            }}
             aria-pressed={density === "compact"}
             className={cn(
               "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left border",

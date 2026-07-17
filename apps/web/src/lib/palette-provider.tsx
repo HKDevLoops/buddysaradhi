@@ -66,6 +66,13 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
     return null;
   });
 
+  const [localDensity, setLocalDensity] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("buddysaradhi.density");
+    }
+    return null;
+  });
+
   // Track system preference matching via media query
   const [systemTheme, setSystemTheme] = useState<ThemeId>(() => {
     if (typeof window !== "undefined") {
@@ -108,15 +115,15 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
   const resolvedPalette = (localPalette || dbPalette || palette) as PaletteId;
 
   const dbDensity = data?.data?.density || "comfortable";
+  const resolvedDensity = localDensity || dbDensity;
 
   useEffect(() => {
     const html = document.documentElement;
     html.setAttribute("data-palette", resolvedPalette);
     html.setAttribute("data-theme", resolvedTheme);
     html.setAttribute("data-theme-preference", themePreference || "system");
-    html.setAttribute("data-density", dbDensity);
-
-  }, [resolvedPalette, resolvedTheme, themePreference, dbDensity]);
+    html.setAttribute("data-density", resolvedDensity);
+  }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity]);
 
   // Update localStorage when resolvedTheme changes
   useEffect(() => {
@@ -124,6 +131,13 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
       localStorage.setItem("buddysaradhi.theme", resolvedTheme);
     }
   }, [resolvedTheme]);
+
+  // Update localStorage when resolvedDensity changes
+  useEffect(() => {
+    if (resolvedDensity) {
+      localStorage.setItem("buddysaradhi.density", resolvedDensity);
+    }
+  }, [resolvedDensity]);
 
   return (
     <PaletteContext.Provider value={{ palette: resolvedPalette, theme: resolvedTheme }}>

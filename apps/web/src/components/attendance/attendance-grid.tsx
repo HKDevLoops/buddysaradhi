@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, X, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
+import { cn } from "@/lib/utils";
 
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
   { key: "present", label: "Present", accent: "var(--accent-emerald)" },
@@ -85,6 +86,9 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
     searchQuery ? r.name.toLowerCase().includes(searchQuery.toLowerCase()) : true
   );
 
+  const isAllPresent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "present");
+  const isAllAbsent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "absent");
+
   const counts = SUMMARY_META.reduce(
     (acc, m) => {
       acc[m.key] = records.filter((r) => r.status === m.key).length;
@@ -130,18 +134,27 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
           <button
             onClick={() => handleBulk("present")}
             disabled={isLocked}
-            className="neumo-raised px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 min-h-[44px]"
+            className={cn(
+              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
+              !isAllPresent && "neumo-raised"
+            )}
             style={{
-              background: "var(--bg-surface-raised)",
+              background: isAllPresent
+                ? "color-mix(in srgb, var(--accent-success) 15%, transparent)"
+                : "var(--bg-surface-raised)",
               color: "var(--text-primary)",
-              border: "1px solid var(--border-default)",
-              boxShadow: !isLocked ? "0 0 12px color-mix(in srgb, var(--accent-success) 20%, transparent)" : undefined,
+              border: isAllPresent
+                ? "1px solid var(--accent-success)"
+                : "1px solid var(--border-default)",
+              boxShadow: isAllPresent
+                ? "0 0 14px color-mix(in srgb, var(--accent-success) 20%, transparent)"
+                : undefined,
             }}
             onMouseEnter={(e) => {
-              if (!isLocked) e.currentTarget.style.color = "var(--accent-success)";
+              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--accent-success)";
             }}
             onMouseLeave={(e) => {
-              if (!isLocked) e.currentTarget.style.color = "var(--text-primary)";
+              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
             <Check className="w-4 h-4" style={{ color: "var(--accent-success)" }} /> Mark all Present
@@ -149,17 +162,27 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
           <button
             onClick={() => handleBulk("absent")}
             disabled={isLocked}
-            className="neumo-raised px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 min-h-[44px]"
+            className={cn(
+              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
+              !isAllAbsent && "neumo-raised"
+            )}
             style={{
-              background: "var(--bg-surface-raised)",
+              background: isAllAbsent
+                ? "color-mix(in srgb, var(--accent-danger) 15%, transparent)"
+                : "var(--bg-surface-raised)",
               color: "var(--text-primary)",
-              border: "1px solid var(--border-default)",
+              border: isAllAbsent
+                ? "1px solid var(--accent-danger)"
+                : "1px solid var(--border-default)",
+              boxShadow: isAllAbsent
+                ? "0 0 14px color-mix(in srgb, var(--accent-danger) 20%, transparent)"
+                : undefined,
             }}
             onMouseEnter={(e) => {
-              if (!isLocked) e.currentTarget.style.color = "var(--accent-danger)";
+              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--accent-danger)";
             }}
             onMouseLeave={(e) => {
-              if (!isLocked) e.currentTarget.style.color = "var(--text-primary)";
+              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
             <X className="w-4 h-4" style={{ color: "var(--accent-danger)" }} /> Mark all Absent
