@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction } from "@/server/actions/settings";
 import { Moon, Sun, Smartphone, Palette, Type, Eye, EyeOff } from "lucide-react";
@@ -36,26 +36,54 @@ const MODES = [
 
 export function AppearanceSection({ settings }: AppearanceSectionProps) {
   const queryClient = useQueryClient();
-  const [selectedPalette, setSelectedPalette] = useState<string>(() => {
+  const [selectedPalette, setSelectedPalette] = useState<string>(settings?.palette || "aurora-cosmic");
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
-      return (
-        localStorage.getItem("buddysaradhi.palette")
+      const p = localStorage.getItem("buddysaradhi.palette")
         || document.documentElement.getAttribute("data-palette")
         || settings?.palette
-        || "aurora-cosmic"
-      );
+        || "aurora-cosmic";
+      setSelectedPalette(p);
     }
-    return settings?.palette || "aurora-cosmic";
-  });
+  }, [settings?.palette]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
-      await updateSettingAction(field, value);
+      const res = await updateSettingAction(field, value);
+      if (!res.success) throw new Error(res.error || "Update failed");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onMutate: async ({ field, value }) => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      const previousSettings = queryClient.getQueryData(["settings"]);
+      queryClient.setQueryData(["settings"], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            [field]: value,
+          },
+        };
+      });
+      return { previousSettings };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(["settings"], context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 
-  const [activeMode, setActiveMode] = useState<string>(() => settings?.theme || "system");
+  const [activeMode, setActiveMode] = useState<string>(settings?.theme || "system");
+
+  useEffect(() => {
+    setActiveMode(settings?.theme || "system");
+  }, [settings?.theme]);
+
   const density = settings?.density || "comfortable";
   const reducedMotion = settings?.reducedMotion === 1;
   const mode = activeMode;
@@ -100,10 +128,10 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                 aria-pressed={isActive}
                 aria-label={`Use ${p.label} palette`}
                 className={cn(
-                  "glass-card p-4 rounded-xl flex flex-col items-center gap-3 transition-all cursor-pointer",
+                  "glass-card p-4 rounded-xl flex flex-col items-center gap-3 transition-all cursor-pointer border",
                   isActive
-                    ? "border-[var(--accent-primary)] bg-[var(--surface-glass-strong)] shadow-[0_0_14px_color-mix(in_srgb,var(--accent-primary)_30%,transparent)]"
-                    : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                    ? "border-[var(--accent-primary)] bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-primary)_25%,transparent)]"
+                    : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
                 )}
               >
                 <div
@@ -157,10 +185,10 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                 }}
                 aria-pressed={isActive}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all min-h-[44px] cursor-pointer",
+                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all min-h-[44px] cursor-pointer border border-transparent",
                   isActive
-                    ? "neumo-raised text-[var(--accent-primary)]"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    ? "bg-[color-mix(in_srgb,var(--accent-primary)_20%,transparent)] text-[var(--accent-primary)] border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent-primary)_15%,transparent)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-glass)]"
                 )}
               >
                 <Icon className="w-4 h-4" />
@@ -184,10 +212,10 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
             onClick={() => updateMutation.mutate({ field: "density", value: "comfortable" })}
             aria-pressed={density === "comfortable"}
             className={cn(
-              "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left",
+              "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left border",
               density === "comfortable"
-                ? "border-[var(--accent-violet)] bg-[var(--surface-glass-strong)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-violet)] bg-[color-mix(in_srgb,var(--accent-violet)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-violet)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <span className={cn("text-sm font-semibold", density === "comfortable" ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>Comfortable</span>
@@ -198,10 +226,10 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
             onClick={() => updateMutation.mutate({ field: "density", value: "compact" })}
             aria-pressed={density === "compact"}
             className={cn(
-              "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left",
+              "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer text-left border",
               density === "compact"
-                ? "border-[var(--accent-violet)] bg-[var(--surface-glass-strong)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-violet)] bg-[color-mix(in_srgb,var(--accent-violet)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-violet)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <span className={cn("text-sm font-semibold", density === "compact" ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>Compact</span>

@@ -1,7 +1,7 @@
 "use server";
 
 import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch } from "@/server/get-db";
-import { createSupabaseServer } from "@/lib/supabase/server";
+import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
@@ -112,4 +112,34 @@ export async function updateSettingAction(field: string, value: unknown) {
 
 export async function updateThemeAction(theme: string) {
   return updateSettingAction("theme", theme);
+}
+
+export async function deleteAccountAction() {
+  try {
+    const supabase = await createSupabaseServer();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: "Unauthorized" };
+    }
+    const userId = user.id;
+
+    // Delete database records matching the tenant ID
+    const { client, tenantId } = await getAuthenticatedDb();
+    await client.execute({ sql: "DELETE FROM settings WHERE tenant_id = ?", args: [tenantId] });
+    await client.execute({ sql: "DELETE FROM students WHERE tenant_id = ?", args: [tenantId] });
+    await client.execute({ sql: "DELETE FROM attendance WHERE tenant_id = ?", args: [tenantId] });
+    await client.execute({ sql: "DELETE FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] });
+    await client.execute({ sql: "DELETE FROM audit_log WHERE tenant_id = ?", args: [tenantId] });
+
+    // Delete Supabase Auth account using the Admin client
+    const supabaseAdmin = await createSupabaseAdmin();
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      return { success: false, error: "Auth delete failed: " + deleteError.message };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: "Failed to delete account" };
+  }
 }

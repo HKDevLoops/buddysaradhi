@@ -16,9 +16,32 @@ export function AttendanceRulesSection({ settings }: AttendanceRulesSectionProps
 
   const updateMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
-      await updateSettingAction(field, value);
+      const res = await updateSettingAction(field, value);
+      if (!res.success) throw new Error(res.error || "Update failed");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onMutate: async ({ field, value }) => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      const previousSettings = queryClient.getQueryData(["settings"]);
+      queryClient.setQueryData(["settings"], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            [field]: value,
+          },
+        };
+      });
+      return { previousSettings };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(["settings"], context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,8 +96,8 @@ export function AttendanceRulesSection({ settings }: AttendanceRulesSectionProps
             className={cn(
               "glass-card p-5 rounded-xl flex items-center gap-4 transition-all cursor-pointer border text-left",
               defaultAttendanceStatus === "present"
-                ? "border-[var(--accent-emerald)] bg-[var(--surface-glass-strong)] shadow-[0_0_12px_rgba(0,255,157,0.15)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-emerald)] bg-[color-mix(in_srgb,var(--accent-emerald)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-emerald)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <CheckCircle2 className={cn("w-6 h-6 shrink-0 transition-transform", defaultAttendanceStatus === "present" ? "text-[var(--accent-emerald)] scale-110" : "text-[var(--text-muted)]")} />
@@ -91,8 +114,8 @@ export function AttendanceRulesSection({ settings }: AttendanceRulesSectionProps
             className={cn(
               "glass-card p-5 rounded-xl flex items-center gap-4 transition-all cursor-pointer border text-left",
               defaultAttendanceStatus === "absent"
-                ? "border-[var(--accent-flare)] bg-[var(--surface-glass-strong)] shadow-[0_0_12px_rgba(239,68,68,0.15)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-flare)] bg-[color-mix(in_srgb,var(--accent-flare)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-flare)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <XCircle className={cn("w-6 h-6 shrink-0 transition-transform", defaultAttendanceStatus === "absent" ? "text-[var(--accent-flare)] scale-110" : "text-[var(--text-muted)]")} />

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { deleteTenantDataAction, updateSettingAction } from "@/server/actions/settings";
+import { deleteTenantDataAction, updateSettingAction, deleteAccountAction } from "@/server/actions/settings";
 import { Trash2, AlertOctagon, ShieldAlert, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,9 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [typedConfirm, setTypedConfirm] = useState("");
   const [pin, setPin] = useState("");
+  
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [typedConfirmAccount, setTypedConfirmAccount] = useState("");
   
   const queryClient = useQueryClient();
 
@@ -32,6 +35,16 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
       if (res.success) {
         queryClient.clear();
         window.location.href = '/'; 
+      }
+    }
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: () => deleteAccountAction(),
+    onSuccess: (res) => {
+      if (res.success) {
+        queryClient.clear();
+        window.location.href = '/login';
       }
     }
   });
@@ -170,6 +183,77 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
               >
                 <Trash2 className="w-4 h-4" />
                 {deleteMutation.isPending ? "Deleting..." : "Permanently Delete Data"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="border border-[var(--accent-flare)]/25 rounded-xl p-6 bg-white/[0.01] mt-6">
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <h3 className="text-base font-medium text-[var(--text-primary)] mb-1">Delete Account Forever</h3>
+              <p className="text-sm text-[var(--text-muted)]">
+                Permanently close your BuddySaradhi account and destroy all databases, backups, and settings. This cannot be undone.
+              </p>
+            </div>
+            {!isDeletingAccount ? (
+              <button 
+                onClick={() => setIsDeletingAccount(true)}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[var(--accent-flare)] btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-flare)_35%,transparent)] transition-all cursor-pointer shrink-0"
+              >
+                Delete Account...
+              </button>
+            ) : (
+              <button 
+                onClick={() => { setIsDeletingAccount(false); setTypedConfirmAccount(""); }}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-[var(--text-muted)] btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] transition-all cursor-pointer shrink-0"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          {isDeletingAccount && (
+            <div className="mt-6 pt-6 border-t border-[var(--accent-flare)]/10 space-y-6 animate-in fade-in slide-in-from-top-4">
+              <div className="bg-[var(--accent-flare)]/10 border border-[var(--accent-flare)]/30 rounded-xl p-4 flex gap-4">
+                <AlertOctagon className="w-5 h-5 text-[var(--accent-flare)] shrink-0 mt-0.5" />
+                <div className="text-sm text-[var(--accent-flare)]">
+                  <p className="font-bold mb-1">Warning: Irreversible action</p>
+                  <p>Deleting your account will permanently delete your authentication record and wipe clean all subscription configurations. There is no recovery option.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                    Type <strong>DELETE MY ACCOUNT FOREVER</strong> to confirm
+                  </label>
+                  <input 
+                    type="text" 
+                    value={typedConfirmAccount}
+                    onChange={(e) => setTypedConfirmAccount(e.target.value)}
+                    placeholder="DELETE MY ACCOUNT FOREVER"
+                    className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-flare)]"
+                  />
+                </div>
+              </div>
+
+              {deleteAccountMutation.error && (
+                <p className="text-[var(--accent-flare)] text-xs">{(deleteAccountMutation.error as Error).message}</p>
+              )}
+
+              <button 
+                onClick={() => deleteAccountMutation.mutate()}
+                disabled={typedConfirmAccount !== "DELETE MY ACCOUNT FOREVER" || deleteAccountMutation.isPending}
+                className={cn(
+                  "w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
+                  typedConfirmAccount === "DELETE MY ACCOUNT FOREVER"
+                    ? "bg-[var(--accent-flare)]/20 text-[var(--accent-flare)] border border-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/40 shadow-[0_0_15px_rgba(255,51,102,0.2)] cursor-pointer" 
+                    : "bg-[var(--bg-surface-inset)] text-[var(--text-muted)] opacity-70 cursor-not-allowed shadow-none border border-[var(--border-glass)]"
+                )}
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleteAccountMutation.isPending ? "Closing Account..." : "Confirm Delete Account"}
               </button>
             </div>
           )}

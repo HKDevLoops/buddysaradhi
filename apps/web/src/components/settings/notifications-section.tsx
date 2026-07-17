@@ -16,9 +16,32 @@ export function NotificationsSection({ settings }: NotificationsSectionProps) {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
-      await updateSettingAction(field, value);
+      const res = await updateSettingAction(field, value);
+      if (!res.success) throw new Error(res.error || "Update failed");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onMutate: async ({ field, value }) => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      const previousSettings = queryClient.getQueryData(["settings"]);
+      queryClient.setQueryData(["settings"], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            [field]: value,
+          },
+        };
+      });
+      return { previousSettings };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(["settings"], context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 
   const notifyDueFee = settings?.notifyDueFee !== 0;

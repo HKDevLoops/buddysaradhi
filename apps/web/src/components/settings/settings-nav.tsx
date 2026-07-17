@@ -54,8 +54,8 @@ export function SettingsNav() {
               className={cn(
                 "flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-150 whitespace-nowrap text-left cursor-pointer border min-h-[44px]",
                 isActive
-                  ? "neumo-inset text-[var(--accent-primary)] border-[color-mix(in_srgb,var(--accent-primary)_30%,transparent)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent-primary)_22%,transparent)]"
-                  : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)]"
+                  ? "bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] text-[var(--accent-primary)] border-[var(--accent-primary)] shadow-[0_0_16px_color-mix(in_srgb,var(--accent-primary)_20%,transparent)]"
+                  : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[var(--border-glass)]"
               )}
             >
               <div className="flex items-center gap-3">

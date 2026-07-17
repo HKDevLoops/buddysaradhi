@@ -53,9 +53,12 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
 
   const updateMutation = useMutation({
     mutationFn: async (data: FeeRulesFormValues) => {
-      await updateSettingAction("invoicePrefix", data.invoicePrefix);
-      await updateSettingAction("receiptPrefix", data.receiptPrefix);
-      await updateSettingAction("graceDays", data.graceDays);
+      const res1 = await updateSettingAction("invoicePrefix", data.invoicePrefix);
+      if (!res1.success) throw new Error(res1.error || "Update invoicePrefix failed");
+      const res2 = await updateSettingAction("receiptPrefix", data.receiptPrefix);
+      if (!res2.success) throw new Error(res2.error || "Update receiptPrefix failed");
+      const res3 = await updateSettingAction("graceDays", data.graceDays);
+      if (!res3.success) throw new Error(res3.error || "Update graceDays failed");
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
@@ -65,9 +68,32 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
 
   const toggleMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
-      await updateSettingAction(field, value);
+      const res = await updateSettingAction(field, value);
+      if (!res.success) throw new Error(res.error || "Update failed");
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onMutate: async ({ field, value }) => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      const previousSettings = queryClient.getQueryData(["settings"]);
+      queryClient.setQueryData(["settings"], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            [field]: value,
+          },
+        };
+      });
+      return { previousSettings };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousSettings) {
+        queryClient.setQueryData(["settings"], context.previousSettings);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
 
   const onSubmit = (data: FeeRulesFormValues) => {
@@ -95,8 +121,8 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
             className={cn(
               "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer border text-left",
               defaultFeeModel === "prepaid"
-                ? "border-[var(--accent-amber)] bg-[var(--surface-glass-strong)] shadow-[0_0_12px_rgba(245,158,11,0.15)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-amber)] bg-[color-mix(in_srgb,var(--accent-amber)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-amber)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <span className={cn("text-sm font-semibold", defaultFeeModel === "prepaid" ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>Prepaid</span>
@@ -109,8 +135,8 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
             className={cn(
               "glass-card p-5 rounded-xl flex flex-col items-start gap-2 transition-all cursor-pointer border text-left",
               defaultFeeModel === "postpaid"
-                ? "border-[var(--accent-amber)] bg-[var(--surface-glass-strong)] shadow-[0_0_12px_rgba(245,158,11,0.15)]"
-                : "bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]"
+                ? "border-[var(--accent-amber)] bg-[color-mix(in_srgb,var(--accent-amber)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-amber)_20%,transparent)]"
+                : "border-transparent bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] hover:border-[var(--border-glass)]"
             )}
           >
             <span className={cn("text-sm font-semibold", defaultFeeModel === "postpaid" ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>Postpaid</span>

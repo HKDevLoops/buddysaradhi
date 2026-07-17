@@ -4,7 +4,7 @@
 // GlassShell — the persistent 5-screen layout wrapping all app pages.
 // Sidebar + topbar + main + sticky-footer.
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -15,12 +15,15 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  LogOut,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShellStore, ScreenId } from "@/stores/shell-store";
 import { useQuery } from "@tanstack/react-query";
 import { getSettings } from "@/server/queries/settings";
 import { getPendingSyncCount } from "@/server/queries/sync";
+import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -32,6 +35,7 @@ const NAV_ITEMS = [
 
 export function GlassShell({ children }: { children: React.ReactNode }) {
   const { activeScreen, setActiveScreen } = useShellStore();
+  const [menuOpen, setMenuOpen] = useState(false);
   
   const { data: syncData } = useQuery({
     queryKey: ["pendingSyncCount"],
@@ -231,20 +235,74 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                   }}
                 />
               </div>
-              {/* Avatar */}
-              <div
-                className="w-9 h-9 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-xs font-semibold cursor-pointer transition-all"
-                style={{
-                  background: `color-mix(in srgb, var(--accent-primary) 15%, var(--bg-surface-raised))`,
-                  border: "2px solid var(--border-glass-strong)",
-                  color: "var(--accent-primary)",
-                  fontFamily: "var(--font-mono)",
-                }}
-                role="button"
-                aria-label="User profile"
-                tabIndex={0}
-              >
-                RS
+              {/* Avatar with profile dropdown */}
+              <div className="relative">
+                <div
+                  className="w-9 h-9 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-xs font-semibold cursor-pointer transition-all"
+                  style={{
+                    background: `color-mix(in srgb, var(--accent-primary) 15%, var(--bg-surface-raised))`,
+                    border: "2px solid var(--border-glass-strong)",
+                    color: "var(--accent-primary)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                  role="button"
+                  aria-label="User profile"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  tabIndex={0}
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setMenuOpen(!menuOpen);
+                    }
+                  }}
+                >
+                  RS
+                </div>
+
+                {menuOpen && (
+                  <>
+                    {/* Backdrop to close dropdown on click outside */}
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    
+                    {/* Dropdown Menu */}
+                    <div
+                      className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-glass)] overflow-hidden shadow-2xl"
+                      style={{
+                        background: "var(--surface-glass-strong)",
+                        backdropFilter: "blur(24px)",
+                      }}
+                      role="menu"
+                      aria-label="User menu"
+                    >
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setActiveScreen("/settings");
+                          setMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-glass)] text-left min-h-[44px] cursor-pointer"
+                      >
+                        <User className="w-4 h-4 text-[var(--text-muted)]" />
+                        Settings Profile
+                      </button>
+                      <div className="h-px bg-[var(--border-glass)] w-full" />
+                      <button
+                        role="menuitem"
+                        onClick={async () => {
+                          const supabase = createSupabaseBrowser();
+                          await supabase.auth.signOut();
+                          window.location.href = "/login";
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Log Out
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </header>

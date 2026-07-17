@@ -68,9 +68,7 @@ export function BackupSection() {
           type="button"
           onClick={() => mutation.mutate(passphrase)}
           disabled={!valid || mutation.isPending}
-          className={
-            "neumo-raised py-3 px-6 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer text-[var(--accent-emerald)] shadow-[0_0_14px_rgba(0,255,157,0.25)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
-          }
+          className="py-3 px-6 rounded-xl text-sm font-bold text-[var(--accent-emerald)] border border-[var(--accent-emerald)] bg-[color-mix(in_srgb,var(--accent-emerald)_15%,transparent)] shadow-[0_0_14px_color-mix(in_srgb,var(--accent-emerald)_20%,transparent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 w-full sm:w-auto cursor-pointer transition-all"
         >
           {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><HardDrive className="w-4 h-4" /> Generate Backup</>}
         </button>

@@ -60,7 +60,7 @@ export function DatabaseSection() {
           type="button"
           onClick={testConnection}
           disabled={status === "testing"}
-          className="neumo-raised py-3 px-6 rounded-xl text-sm font-bold text-[var(--accent-cyan)] shadow-[0_0_14px_rgba(0,240,255,0.22)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 cursor-pointer"
+          className="py-3 px-6 rounded-xl text-sm font-bold text-[var(--accent-cyan)] border border-[var(--accent-cyan)] bg-[color-mix(in_srgb,var(--accent-cyan)_15%,transparent)] shadow-[0_0_14px_color-mix(in_srgb,var(--accent-cyan)_20%,transparent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 cursor-pointer transition-all"
         >
           {status === "testing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
           Test Connection
