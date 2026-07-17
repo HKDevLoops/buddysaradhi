@@ -16,3 +16,31 @@ dist/
 out/
 build/
 *.log
+
+# Ignore all planning/spec files and session logs
+*.md
+
+# Ignore all temporary scripting files
+*.py
+*.js
+*.ps1
+*.sh
+
+# Ignore internal workspace directories
+.gemini/
+.opencode/
+.playwright-mcp/
+.swarm/
+.agents/
+.claude/
+.claude-flow/
+.superpowers/
+.temp/
+.ruff_cache/
+coverage/
+reviews/
+reference-implementations/
+packages/graphify-out/
+
+.vercel
+.env*

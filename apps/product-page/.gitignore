@@ -1,1 +1,28 @@
+# Dependency directories
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Vercel configuration and CLI files
+.vercel/
+.env*
+
+# Local SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Ignore all planning, documentation and markdown files
+*.md
+
+# Ignore scripts and other temporary files
+*.py
+*.js
+*.ps1
+*.sh
+
 .vercel
+.env*
