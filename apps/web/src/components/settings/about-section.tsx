@@ -23,16 +23,16 @@ export function AboutSection() {
       </div>
       
       <div className="space-y-3">
-        <a href="#" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
+        <a href="/terms" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
           <span className="text-sm font-semibold text-[var(--text-primary)]">Terms of Service</span>
           <ExternalLink className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
         </a>
-        <a href="#" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
+        <a href="/privacy" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
           <span className="text-sm font-semibold text-[var(--text-primary)]">Privacy Manifest</span>
           <ExternalLink className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
         </a>
-        <a href="#" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
-          <span className="text-sm font-semibold text-[var(--text-primary)]">Open Source Licenses</span>
+        <a href="/faq" target="_blank" rel="noopener noreferrer" className="w-full flex items-center justify-between p-4 glass-card rounded-xl btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-primary)_35%,transparent)] transition-all cursor-pointer group">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">Open Source Licenses & FAQ</span>
           <ExternalLink className="w-4 h-4 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
         </a>
       </div>

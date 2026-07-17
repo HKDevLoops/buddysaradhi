@@ -12,7 +12,7 @@ export function HelpSection() {
         </h3>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <a href="#" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-emerald)_35%,transparent)] text-left transition-all cursor-pointer group">
+          <a href="/faq" target="_blank" rel="noopener noreferrer" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-emerald)_35%,transparent)] text-left transition-all cursor-pointer group">
             <div className="w-10 h-10 rounded-lg bg-[var(--accent-emerald)]/10 flex items-center justify-center shrink-0">
               <Book className="w-5 h-5 text-[var(--accent-emerald)]" />
             </div>
@@ -22,7 +22,7 @@ export function HelpSection() {
             </div>
           </a>
           
-          <a href="#" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-cyan)_35%,transparent)] text-left transition-all cursor-pointer group">
+          <a href="/faq#requests" target="_blank" rel="noopener noreferrer" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-cyan)_35%,transparent)] text-left transition-all cursor-pointer group">
             <div className="w-10 h-10 rounded-lg bg-[var(--accent-cyan)]/10 flex items-center justify-center shrink-0">
               <Lightbulb className="w-5 h-5 text-[var(--accent-cyan)]" />
             </div>
@@ -32,7 +32,7 @@ export function HelpSection() {
             </div>
           </a>
           
-          <a href="#" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-violet)_35%,transparent)] text-left transition-all cursor-pointer group">
+          <a href="/faq#community" target="_blank" rel="noopener noreferrer" className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-violet)_35%,transparent)] text-left transition-all cursor-pointer group">
             <div className="w-10 h-10 rounded-lg bg-[var(--accent-violet)]/10 flex items-center justify-center shrink-0">
               <MessageCircle className="w-5 h-5 text-[var(--accent-violet)]" />
             </div>
