@@ -1,6 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Sentinels that mean "not yet provisioned" — see lib/db.ts
+const DUMMY_DB_SENTINELS = ["dummy-local-dev-url", "dummy", "file:"];
+function isDummyDbUrl(url: string | undefined | null): boolean {
+  if (!url) return true;
+  return DUMMY_DB_SENTINELS.some((s) => url.includes(s));
+}
+
 export async function updateSession(
   request: NextRequest,
   baseResponse: NextResponse
@@ -81,8 +88,8 @@ export async function updateSession(
         console.warn("Single session enforcement warning:", e);
       }
 
-      const dbUrl = user.user_metadata?.db_url;
-      if (!dbUrl) {
+      const dbUrl = user.user_metadata?.db_url as string | undefined;
+      if (isDummyDbUrl(dbUrl)) {
         url.pathname = '/signup/provision';
         return NextResponse.redirect(url);
       }
@@ -100,8 +107,8 @@ export async function updateSession(
         console.warn("Failed to set active session ID on login:", e);
       }
 
-      const dbUrl = user.user_metadata?.db_url;
-      if (!dbUrl) {
+      const dbUrl = user.user_metadata?.db_url as string | undefined;
+      if (isDummyDbUrl(dbUrl)) {
           url.pathname = '/signup/provision';
           return NextResponse.redirect(url);
       }
