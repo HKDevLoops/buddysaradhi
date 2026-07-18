@@ -1,116 +1,184 @@
 "use client";
 
+// Implements: 18_Microservice_Architecture.md — provision-db client
+// This page is shown when a user needs their database provisioned.
+// It calls /api/provision which creates a real Turso DB and stores
+// credentials in Supabase user_metadata, then refreshes the session.
+
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Database, CheckCircle2 } from "lucide-react";
+import { Loader2, Database, CheckCircle2, AlertCircle } from "lucide-react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { log } from "@/lib/logger";
 
+type ProvisionStatus = "checking" | "creating" | "done" | "error";
+
 export default function ProvisionPage() {
-  const [status, setStatus] = useState<"creating" | "done" | "error">("creating");
+  const [status, setStatus] = useState<ProvisionStatus>("checking");
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const router = useRouter();
   const supabase = createSupabaseBrowser();
 
-  useEffect(() => {
-    let active = true;
+  const provision = async () => {
+    setStatus("checking");
+    setErrorMessage("");
 
-    const performProvision = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          if (active) router.replace("/login");
-          return;
-        }
-
-        // If the user does not have db_url, provision them immediately!
-        if (!user.user_metadata?.db_url) {
-          const { error: updateError } = await supabase.auth.updateUser({
-            data: {
-              db_url: "libsql://dummy-local-dev-url",
-              db_token: "dummy"
-            }
-          });
-          if (updateError) throw updateError;
-          
-          // Refresh session to sync the updated metadata to the session cookie
-          await supabase.auth.refreshSession();
-        } else {
-          // If metadata has db_url but they still landed here, refresh to sync cookie
-          await supabase.auth.refreshSession();
-        }
-
-        if (active) {
-          setStatus("done");
-          setTimeout(() => {
-            if (active) router.push("/dashboard");
-          }, 1500);
-        }
-      } catch (e) {
-        log.error('provision_immediate_failed', e instanceof Error ? e.message : String(e), { phase: 'immediate' });
-        if (active) setStatus("error");
-      }
-    };
-
-    performProvision();
-
-    return () => {
-      active = false;
-    };
-  }, [router, supabase.auth]);
-
-  const handleManualRetry = async () => {
-    setStatus("creating");
     try {
-      await supabase.auth.updateUser({
-        data: {
-          db_url: "libsql://dummy-local-dev-url",
-          db_token: "dummy"
-        }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      // Check if user is already provisioned (has a real, non-dummy db_url)
+      const dbUrl = session.user.user_metadata?.db_url as string | undefined;
+      if (
+        dbUrl &&
+        !dbUrl.includes("dummy-local-dev-url") &&
+        !dbUrl.includes("file:")
+      ) {
+        // Already provisioned — just refresh session and redirect
+        await supabase.auth.refreshSession();
+        setStatus("done");
+        setTimeout(() => router.push("/dashboard"), 1000);
+        return;
+      }
+
+      setStatus("creating");
+
+      // Call our provisioning API to create a real Turso DB
+      const res = await fetch("/api/provision", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
       });
-      // Refresh session to sync the updated metadata to the session cookie
-      await supabase.auth.refreshSession();
-      
+
+      const data = (await res.json()) as {
+        success: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Provisioning failed (HTTP ${res.status})`);
+      }
+
+      // Refresh the Supabase session so the new db_url/db_token land in the cookie
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr) {
+        // Non-fatal: the metadata is stored, cookie refresh may take a moment
+        log.warn("session_refresh_failed", refreshErr.message);
+      }
+
       setStatus("done");
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 1500);
+      setTimeout(() => router.push("/dashboard"), 1500);
     } catch (e) {
-      log.error('provision_manual_retry_failed', e instanceof Error ? e.message : String(e), { phase: 'manual_retry' });
+      const msg = e instanceof Error ? e.message : "Unknown provisioning error";
+      log.error("provision_page_failed", msg, { phase: "auto" });
+      setErrorMessage(msg);
       setStatus("error");
     }
   };
 
+  useEffect(() => {
+    provision();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const statusConfig = {
+    checking: {
+      icon: <Loader2 className="w-12 h-12 animate-spin" />,
+      color: "bg-[var(--accent-cyan)]/20 text-[var(--accent-cyan)]",
+      title: "Checking your workspace...",
+      desc: "Just a moment while we verify your account.",
+    },
+    creating: {
+      icon: <Loader2 className="w-12 h-12 animate-spin" />,
+      color: "bg-[var(--accent-violet)]/20 text-[var(--accent-violet)]",
+      title: "Provisioning your database...",
+      desc: "We are spinning up an isolated edge database for your tuition center. This usually takes a few seconds.",
+    },
+    done: {
+      icon: <CheckCircle2 className="w-12 h-12" />,
+      color: "bg-[var(--accent-emerald)]/20 text-[var(--accent-emerald)]",
+      title: "Ready to go!",
+      desc: "Redirecting you to your dashboard...",
+    },
+    error: {
+      icon: <AlertCircle className="w-12 h-12" />,
+      color: "bg-[var(--accent-flare)]/20 text-[var(--accent-flare)]",
+      title: "Provisioning failed",
+      desc:
+        errorMessage ||
+        "Something went wrong while setting up your workspace. Please try again.",
+    },
+  };
+
+  const cfg = statusConfig[status];
+
   return (
     <div className="flex flex-col items-center justify-center space-y-8 py-12 animate-in fade-in zoom-in-95 duration-500">
       <div className="relative">
-        <div className={`w-24 h-24 rounded-full flex items-center justify-center transition-colors duration-500 ${status === 'done' ? 'bg-[var(--accent-emerald)]/20 text-[var(--accent-emerald)]' : status === 'error' ? 'bg-[var(--accent-flare)]/20 text-[var(--accent-flare)]' : 'bg-[var(--accent-cyan)]/20 text-[var(--accent-cyan)]'}`}>
-          {status === 'creating' && <Loader2 className="w-12 h-12 animate-spin" />}
-          {status === 'done' && <CheckCircle2 className="w-12 h-12" />}
-          {status === 'error' && <Database className="w-12 h-12" />}
-        </div>
-      </div>
-
-      <div className="text-center space-y-2">
-        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
-          {status === 'creating' && "Provisioning your database..."}
-          {status === 'done' && "Ready to go!"}
-          {status === 'error' && "Provisioning taking longer than expected"}
-        </h1>
-        <p className="text-sm text-gray-400 max-w-sm mx-auto">
-          {status === 'creating' && "We are spinning up an isolated edge database for your tuition center. This usually takes a moment."}
-          {status === 'done' && "Redirecting to your dashboard..."}
-          {status === 'error' && "The webhook might have failed. You can wait a bit longer or try retrying manually."}
-        </p>
-      </div>
-
-      {status === 'error' && (
-        <Button 
-          onClick={handleManualRetry}
-          className="rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20"
+        <div
+          className={`w-24 h-24 rounded-full flex items-center justify-center transition-colors duration-500 ${cfg.color}`}
         >
-          Try Again
-        </Button>
+          {cfg.icon}
+        </div>
+        {status === "creating" && (
+          <div className="absolute inset-0 rounded-full border-2 border-[var(--accent-violet)]/30 animate-ping" />
+        )}
+      </div>
+
+      <div className="text-center space-y-2 max-w-sm mx-auto">
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
+          {cfg.title}
+        </h1>
+        <p className="text-sm text-gray-400">{cfg.desc}</p>
+      </div>
+
+      {status === "creating" && (
+        <div className="flex flex-col items-center gap-2 text-xs text-gray-500">
+          <div className="flex gap-1">
+            {[...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="w-2 h-2 rounded-full bg-[var(--accent-violet)]/60 animate-bounce"
+                style={{ animationDelay: `${i * 150}ms` }}
+              />
+            ))}
+          </div>
+          <span>Setting up your isolated workspace</span>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            onClick={provision}
+            className="rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20 px-6"
+          >
+            Try Again
+          </Button>
+          <a
+            href="mailto:support@buddysaradhi.app"
+            className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2"
+          >
+            Contact support
+          </a>
+        </div>
+      )}
+
+      {status === "done" && (
+        <div className="flex items-center gap-2 text-sm text-[var(--accent-emerald)]">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>Database ready</span>
+        </div>
       )}
     </div>
   );
