@@ -587,49 +587,51 @@ async function dispatch(req: NextRequest, slug: string[]) {
 
 type RouteCtx = { params: Promise<{ slug: string[] }> };
 
-export async function GET(req: NextRequest, ctx: RouteCtx) {
+/**
+ * Wraps a dispatch call with DB_NOT_PROVISIONED detection.
+ * Returns 503 { needs_provision: true } so the client can auto-heal
+ * by calling /api/provision and retrying — no user-visible error.
+ */
+async function safeDispatch(req: NextRequest, slug: string[]): Promise<NextResponse> {
   try {
-    const { slug } = await ctx.params;
     return await dispatch(req, slug ?? []);
   } catch (err) {
-    return NextResponse.json({ success: false, error: errMsg(err) }, { status: 500 });
+    const msg = errMsg(err);
+    if (msg.startsWith("DB_NOT_PROVISIONED")) {
+      log.warn("db_not_provisioned", "Returning 503 needs_provision to client for auto-heal", { path: "/" + slug.join("/") });
+      return NextResponse.json(
+        { success: false, error: msg, needs_provision: true },
+        { status: 503 }
+      );
+    }
+    log.error("gateway_dispatch_error", msg, { path: "/" + slug.join("/") });
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
+}
+
+export async function GET(req: NextRequest, ctx: RouteCtx) {
+  const { slug } = await ctx.params;
+  return safeDispatch(req, slug ?? []);
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
-  try {
-    const { slug } = await ctx.params;
-    return await dispatch(req, slug ?? []);
-  } catch (err) {
-    return NextResponse.json({ success: false, error: errMsg(err) }, { status: 500 });
-  }
+  const { slug } = await ctx.params;
+  return safeDispatch(req, slug ?? []);
 }
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx) {
-  try {
-    const { slug } = await ctx.params;
-    return await dispatch(req, slug ?? []);
-  } catch (err) {
-    return NextResponse.json({ success: false, error: errMsg(err) }, { status: 500 });
-  }
+  const { slug } = await ctx.params;
+  return safeDispatch(req, slug ?? []);
 }
 
 export async function PUT(req: NextRequest, ctx: RouteCtx) {
-  try {
-    const { slug } = await ctx.params;
-    return await dispatch(req, slug ?? []);
-  } catch (err) {
-    return NextResponse.json({ success: false, error: errMsg(err) }, { status: 500 });
-  }
+  const { slug } = await ctx.params;
+  return safeDispatch(req, slug ?? []);
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
-  try {
-    const { slug } = await ctx.params;
-    return await dispatch(req, slug ?? []);
-  } catch (err) {
-    return NextResponse.json({ success: false, error: errMsg(err) }, { status: 500 });
-  }
+  const { slug } = await ctx.params;
+  return safeDispatch(req, slug ?? []);
 }
 
 export async function OPTIONS() {
