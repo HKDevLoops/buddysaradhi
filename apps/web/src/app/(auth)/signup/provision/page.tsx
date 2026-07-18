@@ -32,6 +32,12 @@ export default function ProvisionPage() {
             }
           });
           if (updateError) throw updateError;
+          
+          // Refresh session to sync the updated metadata to the session cookie
+          await supabase.auth.refreshSession();
+        } else {
+          // If metadata has db_url but they still landed here, refresh to sync cookie
+          await supabase.auth.refreshSession();
         }
 
         if (active) {
@@ -62,6 +68,9 @@ export default function ProvisionPage() {
           db_token: "dummy"
         }
       });
+      // Refresh session to sync the updated metadata to the session cookie
+      await supabase.auth.refreshSession();
+      
       setStatus("done");
       setTimeout(() => {
         router.push("/dashboard");
