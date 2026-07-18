@@ -28,7 +28,7 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
   const dbName = `buddysaradhi-${userId.slice(0, 16)}`;
 
   try {
-    // Create DB
+    // Create DB — use the "buddysaradhi" group that exists in the org
     const createRes = await fetch(
       `https://api.turso.tech/v1/organizations/${TURSO_ORGANISATION_SLUG}/databases`,
       {
@@ -37,14 +37,22 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
           Authorization: `Bearer ${TURSO_API_TOKEN}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: dbName, group: "default" }),
+        body: JSON.stringify({ name: dbName, group: "buddysaradhi" }),
       }
     );
 
+    // 422 = already exists (idempotent); other errors are real failures
     if (!createRes.ok && createRes.status !== 422) {
-      // 422 = already exists, which is OK (idempotent)
-      console.error("Turso create DB failed:", createRes.status, await createRes.text());
+      const errText = await createRes.text();
+      console.error("Turso create DB failed:", createRes.status, errText);
       return null;
+    }
+
+    // Get the created DB's hostname from the response
+    let dbHostname: string | null = null;
+    if (createRes.ok) {
+      const createData = (await createRes.json()) as { database?: { Hostname?: string } };
+      dbHostname = createData.database?.Hostname ?? null;
     }
 
     // Generate a token for this DB
@@ -56,7 +64,7 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
           Authorization: `Bearer ${TURSO_API_TOKEN}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ expiration: "never" }),
+        body: JSON.stringify({ expiration: "never", authorization: "full-access" }),
       }
     );
 
@@ -68,7 +76,9 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
     const tokenData = (await tokenRes.json()) as { jwt?: string };
     if (!tokenData.jwt) return null;
 
-    const url = `libsql://${dbName}-${TURSO_ORGANISATION_SLUG}.turso.io`;
+    // Use hostname from API response or construct it
+    const hostname = dbHostname ?? `${dbName}-${TURSO_ORGANISATION_SLUG}.aws-ap-south-1.turso.io`;
+    const url = `libsql://${hostname}`;
     return { url, token: tokenData.jwt };
   } catch (err) {
     console.error("Turso API error:", err);
