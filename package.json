@@ -25,18 +25,18 @@
     "version:check": "node scripts/version-check.js"
   },
   "devDependencies": {
-    "prisma": "^5.14.0",
+    "prisma": "^7.8.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.10",
     "zod-prisma-types": "^3.3.11"
   },
   "dependencies": {
-    "@prisma/adapter-libsql": "^5.14.0",
-    "@prisma/client": "^5.14.0",
-    "argon2": "^0.44.0",
-    "next": "16.2.9",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "zod": "3.24.2"
+    "@prisma/adapter-libsql": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "argon2": "^0.45.0",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
   }
 }

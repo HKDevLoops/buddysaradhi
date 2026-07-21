@@ -69,3 +69,6 @@ coverage/
 reviews/
 reference-implementations/
 packages/graphify-out/
+
+.vercel
+.env*

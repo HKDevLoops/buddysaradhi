@@ -24,7 +24,11 @@ async function authenticate(page: import("@playwright/test").Page) {
   await fillField(page, "Password", password);
   await expect(signIn).toBeEnabled({ timeout: 10000 });
   await signIn.click();
-  await page.waitForURL("**/dashboard", { timeout: 20000 });
+  // Handle auto-provision redirect for existing users without a real DB
+  await page.waitForURL(/\/(dashboard|signup\/provision)/, { timeout: 25000 });
+  if (page.url().includes("signup/provision")) {
+    await page.waitForURL("**/dashboard", { timeout: 30000 });
+  }
 }
 
 async function clickNav(page: import("@playwright/test").Page, name: RegExp) {

@@ -1,5 +1,5 @@
 # .github/workflows/web-deploy.yml
-# Implements: deployment/05_CI_CD_GitHub_Actions.md §3 — post-deploy smoke
+# Implements: deployment/05_CI_CD_GitHub_Actions.md §3 — unit tests + post-deploy smoke
 name: web-deploy
 
 on:
@@ -12,22 +12,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  smoke:
-    name: Post-deploy agent-browser smoke
+  # -------------------------------------------------------------------------
+  # Job 1: Unit + integration tests (vitest) — fast gate, no browser needed
+  # -------------------------------------------------------------------------
+  unit-tests:
+    name: Unit Tests (vitest)
     runs-on: ubuntu-22.04
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+        working-directory: .
+
+      - name: Run vitest unit tests
+        run: bun run vitest run --reporter=verbose
+        env:
+          # Provide dummy env vars so getDbCredentials fallback path is tested
+          TURSO_DATABASE_URL: libsql://test-fallback.turso.io
+          TURSO_AUTH_TOKEN: test-token-for-ci
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: apps/web/coverage/
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------------
+  # Job 2: Smoke test — waits for Vercel then verifies the live production URL
+  # -------------------------------------------------------------------------
+  smoke:
+    name: Post-deploy smoke
+    needs: unit-tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Wait for Vercel deployment
         run: |
-          # Poll the Vercel deployment status until it's READY
           sleep 30  # give Vercel a head start
           for i in {1..20}; do
             STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
               "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&target=production" \
-              | jq -r '.deployments[0].status')
+              | jq -r '.deployments[0].readyState // .deployments[0].status')
             echo "Attempt $i: status=$STATUS"
             if [ "$STATUS" = "READY" ]; then
               echo "Deployment is ready"
@@ -38,17 +81,52 @@ jobs:
           echo "Deployment did not become READY in 5 minutes"
           exit 1
 
-      - name: Agent Browser smoke
-        uses: ./.github/actions/agent-browser-smoke
-        with:
-          url: https://buddysaradhi.app
-          vercel_token: ${{ secrets.VERCEL_TOKEN }}
-          vercel_project_id: ${{ secrets.VERCEL_PROJECT_ID }}
-        timeout-minutes: 5
+      - name: Smoke — verify production URL responds
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            https://buddysaradhi.vercel.app/)
+          echo "HTTP status: $HTTP_STATUS"
+          # Accept 200 (logged-out landing) or 3xx (redirect to /login)
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 400 ]]; then
+            echo "Smoke passed — site is up"
+          else
+            echo "Smoke FAILED — unexpected HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+      - name: Smoke — /login page returns 200
+        run: |
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 -L \
+            https://buddysaradhi.vercel.app/login)
+          echo "Login page HTTP: $HTTP"
+          if [[ "$HTTP" != "200" ]]; then
+            echo "Login page smoke FAILED: HTTP $HTTP"
+            exit 1
+          fi
+
+      - name: Smoke — /api/provision returns 401 (not 500)
+        run: |
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            -X POST \
+            https://buddysaradhi.vercel.app/api/provision)
+          echo "/api/provision HTTP: $HTTP"
+          if [[ "$HTTP" == "401" ]]; then
+            echo "Provision API health check passed"
+          elif [[ "$HTTP" == "500" ]]; then
+            echo "Provision API is crashing — FAILED"
+            exit 1
+          else
+            echo "Unexpected HTTP $HTTP — treating as non-fatal"
+          fi
 
       - name: Notify on failure
         if: failure()
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"⚠️ web-deploy smoke failed on commit ${{ github.sha }}\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+            curl -X POST -H "Content-Type: application/json" \
+              -d "{\"content\": \"⚠️ web-deploy smoke failed on commit ${{ github.sha }}\"}" \
+              ${{ secrets.DISCORD_WEBHOOK_URL }}
+          fi

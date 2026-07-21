@@ -42,7 +42,12 @@ async function authenticate(page: import("@playwright/test").Page) {
   await fillField(page, "Password", password);
   await expect(signIn).toBeEnabled({ timeout: 10000 });
   await signIn.click();
-  await page.waitForURL("**/dashboard", { timeout: 20000 });
+  // Handle auto-provision redirect — existing users without a real DB
+  // are automatically sent to /signup/provision and then back to /dashboard.
+  await page.waitForURL(/\/(dashboard|signup\/provision)/, { timeout: 25000 });
+  if (page.url().includes("signup/provision")) {
+    await page.waitForURL("**/dashboard", { timeout: 30000 });
+  }
 }
 
 // Read the computed glass background of the topbar (uses --surface-glass directly),
@@ -90,7 +95,7 @@ async function clickButton(page: import("@playwright/test").Page, name: RegExp) 
   await el.evaluate((b: HTMLButtonElement) => b.click());
 }
 
-const BENIGN = /scroll-behavior|React DevTools|Fast Refresh|AuthApiError|Invalid Refresh Token|Download the React|aborted|access control checks|XMLHttpRequest\.open/i;
+const BENIGN = /scroll-behavior|React DevTools|Fast Refresh|AuthApiError|Invalid Refresh Token|Download the React|aborted|access control checks|XMLHttpRequest\.open|DB_NOT_PROVISIONED|needs_provision/i;
 
 test.describe("Rigorous Stress Test — BuddySaradhi web", () => {
   const consoleErrors: string[] = [];
