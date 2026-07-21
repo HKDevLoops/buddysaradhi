@@ -60,34 +60,49 @@ export async function updateSession(
   
   if (user) {
     if (isAppRoute) {
-      // Single Active Session Enforcement (Only verified on actual app dashboard/content pages)
-      const activeSessionId = user.user_metadata?.active_session_id;
+      // ── Single Active Session Enforcement ──────────────────────────────
+      // Only enforce when BOTH sides have an active_session_id AND they
+      // actively disagree. Never force-signout if the cookie is absent
+      // (that means the user just logged in and the cookie hasn't been set yet).
+      const activeSessionId = user.user_metadata?.active_session_id as string | undefined;
       const deviceSessionCookie = request.cookies.get('buddysaradhi_session')?.value;
 
       try {
-        if (!deviceSessionCookie) {
-          if (activeSessionId) {
-            // Sync cookie to match the existing server session ID
-            supabaseResponse.cookies.set('buddysaradhi_session', activeSessionId, { maxAge: 2592000, httpOnly: true, path: '/' });
-          } else {
-            // First time login ever - generate and save a new session ID
-            const newSessionId = crypto.randomUUID();
-            await supabase.auth.updateUser({ data: { active_session_id: newSessionId } });
-            supabaseResponse.cookies.set('buddysaradhi_session', newSessionId, { maxAge: 2592000, httpOnly: true, path: '/' });
-          }
-        } else if (activeSessionId && deviceSessionCookie !== activeSessionId) {
-          // This device has an OLD cookie, but another device logged in and overwrote activeSessionId.
-          // Forcibly log out the old session.
+        if (deviceSessionCookie && activeSessionId && deviceSessionCookie !== activeSessionId) {
+          // Both sides have a session ID and they disagree — this device was
+          // superseded by another login. Force-signout the stale session.
           await supabase.auth.signOut();
           supabaseResponse.cookies.delete('buddysaradhi_session');
           url.pathname = '/login';
           return NextResponse.redirect(url);
         }
+
+        if (!deviceSessionCookie) {
+          // Cookie absent — first request after login (or cleared on logout).
+          // Mint/sync the cookie from metadata if we have one, or create a fresh one.
+          if (activeSessionId) {
+            supabaseResponse.cookies.set('buddysaradhi_session', activeSessionId, {
+              maxAge: 2592000,
+              httpOnly: true,
+              path: '/',
+            });
+          } else {
+            // Truly first login ever — generate and persist a new session ID.
+            const newSessionId = crypto.randomUUID();
+            await supabase.auth.updateUser({ data: { active_session_id: newSessionId } });
+            supabaseResponse.cookies.set('buddysaradhi_session', newSessionId, {
+              maxAge: 2592000,
+              httpOnly: true,
+              path: '/',
+            });
+          }
+        }
       } catch (e) {
-        // Rule 9 compliance: log warning but fail-open so the user is not locked out of their app
-        console.warn("Single session enforcement warning:", e);
+        // Rule 9: log warning but fail-open so the user is not locked out
+        console.warn('Single session enforcement warning:', e);
       }
 
+      // ── Provision Guard ─────────────────────────────────────────────────
       const dbUrl = user.user_metadata?.db_url as string | undefined;
       if (isDummyDbUrl(dbUrl)) {
         url.pathname = '/signup/provision';
@@ -96,24 +111,15 @@ export async function updateSession(
     }
   }
 
-  // Auth Routes that redirect if already logged in (e.g. they just successfully entered password on /login)
+  // Auth Routes: redirect authenticated users away from login/signup
   if ((pathname === '/login' || pathname === '/signup') && user) {
-      // Initialize/Reset the session ID upon active login
-      const newSessionId = crypto.randomUUID();
-      try {
-        await supabase.auth.updateUser({ data: { active_session_id: newSessionId } });
-        supabaseResponse.cookies.set('buddysaradhi_session', newSessionId, { maxAge: 2592000, httpOnly: true, path: '/' });
-      } catch (e) {
-        console.warn("Failed to set active session ID on login:", e);
-      }
-
-      const dbUrl = user.user_metadata?.db_url as string | undefined;
-      if (isDummyDbUrl(dbUrl)) {
-          url.pathname = '/signup/provision';
-          return NextResponse.redirect(url);
-      }
-      url.pathname = '/dashboard';
+    const dbUrl = user.user_metadata?.db_url as string | undefined;
+    if (isDummyDbUrl(dbUrl)) {
+      url.pathname = '/signup/provision';
       return NextResponse.redirect(url);
+    }
+    url.pathname = '/dashboard';
+    return NextResponse.redirect(url);
   }
 
   return supabaseResponse;

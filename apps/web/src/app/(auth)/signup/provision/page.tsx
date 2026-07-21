@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Database, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { log } from "@/lib/logger";
@@ -41,11 +41,13 @@ export default function ProvisionPage() {
         !dbUrl.includes("dummy-local-dev-url") &&
         !dbUrl.includes("file:")
       ) {
-        // Already provisioned — just refresh session and redirect
-        await supabase.auth.refreshSession();
-        setStatus("done");
-        setTimeout(() => router.push("/dashboard"), 1000);
-        return;
+      // Already provisioned — just refresh session and hard-redirect
+      // so the middleware reads the fresh session token from the cookie.
+      await supabase.auth.refreshSession();
+      setStatus("done");
+      setTimeout(() => { window.location.href = '/dashboard'; }, 800);
+      return;
+
       }
 
       setStatus("creating");
@@ -77,7 +79,10 @@ export default function ProvisionPage() {
       }
 
       setStatus("done");
-      setTimeout(() => router.push("/dashboard"), 1500);
+      // Hard navigation so the browser sends a fresh request with the
+      // updated Supabase session cookie (which now contains db_url/db_token).
+      setTimeout(() => { window.location.href = '/dashboard'; }, 1200);
+
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown provisioning error";
       log.error("provision_page_failed", msg, { phase: "auto" });
