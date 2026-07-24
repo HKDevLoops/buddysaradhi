@@ -29,14 +29,18 @@ export async function getAuthenticatedDb(): Promise<{
 }> {
   const user = await getUser();
   if (user) {
-    const { dbUrl, dbToken } = getDbCredentials(
-      user.user_metadata as Record<string, unknown>
-    );
-    return { client: getDb(dbUrl, dbToken), userId: user.id, tenantId: user.id };
+    try {
+      const { dbUrl, dbToken } = getDbCredentials(
+        user.user_metadata as Record<string, unknown>
+      );
+      return { client: getDb(dbUrl, dbToken), userId: user.id, tenantId: user.id };
+    } catch {
+      // User metadata not provisioned yet — fall back to environment or local DB
+    }
   }
-  const url = process.env.TURSO_DATABASE_URL || "";
+  const url = process.env.TURSO_DATABASE_URL || "file:./dev.db";
   const token = process.env.TURSO_AUTH_TOKEN || "";
-  return { client: getDb(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
+  return { client: getDb(url, token), userId: user?.id || LOCAL_TENANT, tenantId: user?.id || LOCAL_TENANT };
 }
 
 function toDbCol(col: string): string {
