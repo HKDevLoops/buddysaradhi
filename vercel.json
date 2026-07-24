@@ -1,37 +1,4 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "bun install && cd packages/shared && bun run build && cd ../../apps/web && bun run build",
-  "outputDirectory": "apps/web/.next",
-  "regions": ["bom1"],
-  "functions": {
-    "src/app/api/provision/route.ts": { "maxDuration": 60 },
-    "src/app/api/backup/create/route.ts": { "maxDuration": 60 },
-    "src/app/api/backup/restore/route.ts": { "maxDuration": 120 },
-    "src/app/api/reports/[type]/route.ts": { "maxDuration": 30 }
-  },
-  "crons": [
-    {
-      "path": "/api/cron/rotate-tokens",
-      "schedule": "0 3 1 * *"
-    },
-    {
-      "path": "/api/cron/alerts-check",
-      "schedule": "0 0 * * *"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/((?!api/).*)",
-      "headers": [
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "geolocation=(), microphone=(), camera=()" }
-      ]
-    }
-  ],
-  "redirects": [
-    { "source": "/app", "destination": "/dashboard", "permanent": true },
-    { "source": "/home", "destination": "/dashboard", "permanent": true }
-  ]
+  "buildCommand": "npx prisma generate && pnpm --filter web build",
+  "installCommand": "pnpm install && npx prisma generate"
 }
