@@ -157,11 +157,15 @@ export function createLibsqlProxy(client: Client): any {
 
   return new Proxy({}, {
     get: (_, prop: string) => {
-      if (prop === "$transaction") {
-        return async (tasks: any[]) => {
-          const results = [];
-          for (const t of tasks) results.push(await t);
-          return results;
+      if (prop === "$executeRawUnsafe" || prop === "$executeRaw") {
+        return async (sql: string, ...args: any[]) => {
+          return await execSafe(client, sql, args);
+        };
+      }
+      if (prop === "$queryRaw" || prop === "$queryRawUnsafe") {
+        return async (sql: string, ...args: any[]) => {
+          const res = await execSafe(client, sql, args);
+          return res.rows.map(toJsRow);
         };
       }
       return modelProxy(prop);

@@ -164,6 +164,17 @@ export function createLibsqlProxy(client: Client): any {
           return results;
         };
       }
+      if (prop === "$executeRawUnsafe" || prop === "$executeRaw") {
+        return async (sql: string, ...args: any[]) => {
+          return await execSafe(client, sql, args);
+        };
+      }
+      if (prop === "$queryRaw" || prop === "$queryRawUnsafe") {
+        return async (sql: string, ...args: any[]) => {
+          const res = await execSafe(client, sql, args);
+          return res.rows.map(toJsRow);
+        };
+      }
       return modelProxy(prop);
     }
   });

@@ -1,5 +1,4 @@
-import type { PrismaClient } from "../../prisma-client";
-import { Prisma } from "../../prisma-client";
+import type { PrismaClient, Prisma } from "../../prisma-client";
 import { vacuum } from "../db/admin";
 
 /**
