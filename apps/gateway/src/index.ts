@@ -197,7 +197,10 @@ registerLedger(app);
 registerReports(app);
 registerGraphQL(app);
 
-const port = Number(process.env.PORT) || 3001;
-log.info("gateway_boot", `TutorOS API Gateway listening on :${port}`, { port });
+export default app;
 
-Bun.serve({ port, fetch: app.fetch });
+if (typeof Bun !== "undefined") {
+  const port = Number(process.env.PORT) || 3001;
+  log.info("gateway_boot", `TutorOS API Gateway listening on :${port}`, { port });
+  Bun.serve({ port, fetch: app.fetch });
+}

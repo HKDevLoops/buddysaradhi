@@ -10,16 +10,25 @@ const LOCAL_TENANT = "local-dev";
 
 // Resolve the current Supabase user without throwing. In local/dev there is
 // no session, so we return null and callers fall back to a local-dev identity.
-async function getUser() {
+async function getUserAndSession() {
   try {
     const supabase = await createSupabaseServer();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    return user ?? null;
+    const [userRes, sessionRes] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getSession(),
+    ]);
+    return {
+      user: userRes.data.user ?? null,
+      accessToken: sessionRes.data.session?.access_token ?? null,
+    };
   } catch {
-    return null;
+    return { user: null, accessToken: null };
   }
+}
+
+async function getUser() {
+  const { user } = await getUserAndSession();
+  return user;
 }
 
 export async function getAuthenticatedDb(): Promise<{
@@ -86,8 +95,9 @@ export async function getGatewayHeaders(): Promise<{
     "X-Client-UA": string;
   };
 }> {
-  const user = await getUser();
+  const { user, accessToken } = await getUserAndSession();
   const timestamp = String(Date.now());
+  const tokenHeader = accessToken ? `Bearer ${accessToken}` : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
   
   let clientIp = "127.0.0.1";
   let userAgent = "unknown";
@@ -110,7 +120,7 @@ export async function getGatewayHeaders(): Promise<{
       tenantId: user.id,
       headers: {
         "X-Tutor-Id": user.id,
-        Authorization: `Bearer mock-token-${user.id}`,
+        Authorization: tokenHeader,
         "X-Db-Url": dbUrl,
         "X-Db-Token": dbToken,
         "X-Timestamp": timestamp,
