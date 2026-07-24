@@ -2,7 +2,7 @@
 import { Student, StudentListRow } from "@buddysaradhi/shared";
 import { StudentFilters, SortCol } from "@/types/students";
 import { cache } from "react";
-import { gatewayGet } from "@/server/get-db";
+import { getAuthenticatedDb, createLibsqlProxy, gatewayGet } from "@/server/get-db";
 import { log } from "@/lib/logger";
 
 export const getStudents = cache(async (
@@ -30,11 +30,25 @@ export const getStudents = cache(async (
       }
     );
 
-    if (!res.success) {
-      return { success: false, error: res.error };
+    if (res.success) {
+      return { success: true, data: res.data };
     }
 
-    return { success: true, data: res.data };
+    log.warn('get_students_gateway_failed_using_direct_db', res.error);
+    const { client, tenantId } = await getAuthenticatedDb();
+    const proxy = createLibsqlProxy(client);
+    const rawStudents = await proxy.student.findMany({ where: { tenantId } });
+    const mapped = rawStudents.map((s: any) => ({
+      id: s.id,
+      code: s.code,
+      name: `${s.firstName} ${s.lastName ?? ""}`.trim(),
+      grade: s.grade,
+      batch: null,
+      fee_model: s.feeModel || "postpaid",
+      balance_due: s.balancePaise || 0,
+      status: s.status || "active",
+    }));
+    return { success: true, data: { students: mapped, total: mapped.length } };
   } catch (error) {
     log.error('students_list_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: error instanceof Error ? error.message : "Failed to fetch students" };

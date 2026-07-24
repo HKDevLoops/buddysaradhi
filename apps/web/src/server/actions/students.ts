@@ -23,30 +23,20 @@ export async function fetchStudentDetailAction(studentId: string) {
 
 export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
   try {
-    const res = await gatewayPost<Student>("/api/v1/students", data, {
-      "X-Batch-Name": batchName || "",
-    });
-
-    if (res.success) {
-      revalidatePath("/students");
-      return { success: true, data: res.data };
-    }
-
-    log.warn('student_create_gateway_post_failed_using_direct_db', res.error);
+    const s = data as any;
     const { client, tenantId } = await getAuthenticatedDb();
     const proxy = createLibsqlProxy(client);
-    const s = data as any;
     const id = crypto.randomUUID();
     const code = s.code || `S-${Math.floor(100 + Math.random() * 900)}`;
     const studentData = {
       id,
       tenantId,
       code,
-      firstName: s.first_name || s.firstName || "Student",
-      lastName: s.last_name || s.lastName || "",
+      firstName: s.first_name || s.firstName || s.name?.split(" ")[0] || "Student",
+      lastName: s.last_name || s.lastName || s.name?.split(" ").slice(1).join(" ") || "",
       status: s.status || "active",
       feeModel: s.fee_model || s.feeModel || "postpaid",
-      baseFeePaise: Number(s.baseFeePaise || s.base_fee_paise || 200000),
+      baseFeePaise: Number(s.baseFeePaise || s.base_fee_paise || s.baseFee || 2000) * 100,
       balancePaise: Number(s.balancePaise || 0),
       dupKey: code,
       admissionDate: s.admission_date || new Date().toISOString(),
@@ -54,6 +44,36 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       updatedAt: new Date(),
     };
     await proxy.student.create({ data: studentData });
+
+    if (batchName) {
+      let batch = await proxy.batch.findFirst({ where: { tenantId, name: batchName } });
+      if (!batch) {
+        const batchId = crypto.randomUUID();
+        batch = await proxy.batch.create({
+          data: {
+            id: batchId,
+            tenantId,
+            tutorId: tenantId,
+            name: batchName,
+            subject: "General",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }
+        });
+      }
+      await proxy.studentEnrollment.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          studentId: id,
+          batchId: batch.id,
+          joinedOn: new Date().toISOString(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+      });
+    }
+
     revalidatePath("/students");
     return { success: true, data: studentData as any };
   } catch (err) {
