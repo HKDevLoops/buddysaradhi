@@ -30,46 +30,15 @@ export function getDbClient(dbUrl: string, dbToken: string): Client {
   return client;
 }
 
-export function getPrismaClient(dbUrl: string, dbToken: string): PrismaClient {
+import { createLibsqlProxy } from "./libsql-proxy";
+
+export function getPrismaClient(dbUrl: string, dbToken: string): any {
   const key = `${dbUrl}::${dbToken}`;
   const existing = prismaCache.get(key);
-  if (existing) {
-    const idx = connectionKeys.indexOf(key);
-    if (idx !== -1) {
-      connectionKeys.splice(idx, 1);
-    }
-    connectionKeys.push(key);
-    return existing;
-  }
-
-  // Evict oldest if limit reached
-  if (connectionKeys.length >= MAX_CONNECTIONS) {
-    const oldestKey = connectionKeys.shift();
-    if (oldestKey) {
-      const oldestPrisma = prismaCache.get(oldestKey);
-      if (oldestPrisma) {
-        prismaCache.delete(oldestKey);
-        oldestPrisma.$disconnect().catch(() => {});
-      }
-      const [oldestUrl] = oldestKey.split("::");
-      const normalizedOldestUrl = normalizeLocalDbUrl(oldestUrl);
-      const oldestLibsql = clientCache.get(normalizedOldestUrl);
-      if (oldestLibsql) {
-        clientCache.delete(normalizedOldestUrl);
-        try {
-          oldestLibsql.close();
-        } catch (_) {}
-      }
-    }
-  }
+  if (existing) return existing;
 
   const libsql = getDbClient(dbUrl, dbToken);
-  const adapter = new PrismaLibSQL(libsql) as unknown as ConstructorParameters<
-    typeof PrismaClient
-  >[0] extends { adapter?: infer A } ? A : never;
-  const prisma = new PrismaClient({ adapter } as unknown as ConstructorParameters<typeof PrismaClient>[0]);
-
-  prismaCache.set(key, prisma);
-  connectionKeys.push(key);
-  return prisma;
+  const proxy = createLibsqlProxy(libsql);
+  prismaCache.set(key, proxy);
+  return proxy;
 }
