@@ -39,21 +39,162 @@ export async function getAuthenticatedDb(): Promise<{
   return { client: getDb(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
 }
 
+function createLibsqlProxy(client: Client): any {
+  const modelProxy = (modelName: string) => {
+    // Map camelCase modelName to DB table name
+    const tableMap: Record<string, string> = {
+      setting: "settings",
+      tutor: "tutors",
+      batch: "batches",
+      student: "students",
+      guardian: "guardians",
+      studentEnrollment: "student_enrollments",
+      tag: "tags",
+      studentTag: "student_tags",
+      studentNote: "student_notes",
+      studentDocument: "student_documents",
+      attendanceSession: "attendance_sessions",
+      attendanceRecord: "attendance_records",
+      feePlan: "fee_plans",
+      feeScheduleItem: "fee_schedule_items",
+      invoice: "invoices",
+      receipt: "receipts",
+      ledgerEntry: "ledger_entries",
+      syncOutbox: "sync_outbox",
+      auditLog: "audit_logs",
+    };
+    const tableName = tableMap[modelName] || modelName;
+
+    return {
+      findUnique: async ({ where }: any) => {
+        const key = Object.keys(where)[0];
+        const val = where[key];
+        const res = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${key}" = ? LIMIT 1`, args: [val] });
+        return res.rows[0] ? (res.rows[0] as any) : null;
+      },
+      findFirst: async ({ where }: any) => {
+        if (!where) {
+          const res = await client.execute({ sql: `SELECT * FROM "${tableName}" LIMIT 1`, args: [] });
+          return res.rows[0] ? (res.rows[0] as any) : null;
+        }
+        const keys = Object.keys(where);
+        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
+        const vals = keys.map(k => where[k]);
+        const res = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE ${whereClause} LIMIT 1`, args: vals });
+        return res.rows[0] ? (res.rows[0] as any) : null;
+      },
+      findMany: async ({ where }: any = {}) => {
+        if (!where || Object.keys(where).length === 0) {
+          const res = await client.execute({ sql: `SELECT * FROM "${tableName}"`, args: [] });
+          return res.rows as any[];
+        }
+        const keys = Object.keys(where).filter(k => where[k] !== undefined && k !== "archivedAt");
+        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
+        const vals = keys.map(k => where[k]);
+        const sql = keys.length > 0 ? `SELECT * FROM "${tableName}" WHERE ${whereClause}` : `SELECT * FROM "${tableName}"`;
+        const res = await client.execute({ sql, args: vals });
+        return res.rows as any[];
+      },
+      count: async ({ where }: any = {}) => {
+        if (!where || Object.keys(where).length === 0) {
+          const res = await client.execute({ sql: `SELECT COUNT(*) as c FROM "${tableName}"`, args: [] });
+          return Number(res.rows[0]?.c || 0);
+        }
+        const keys = Object.keys(where).filter(k => where[k] !== undefined);
+        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
+        const vals = keys.map(k => where[k]);
+        const sql = keys.length > 0 ? `SELECT COUNT(*) as c FROM "${tableName}" WHERE ${whereClause}` : `SELECT COUNT(*) as c FROM "${tableName}"`;
+        const res = await client.execute({ sql, args: vals });
+        return Number(res.rows[0]?.c || 0);
+      },
+      create: async ({ data }: any) => {
+        const cols = Object.keys(data).filter(k => data[k] !== undefined);
+        const vals = cols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
+        const sql = `INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(",")}) VALUES (${cols.map(() => "?").join(",")})`;
+        await client.execute({ sql, args: vals });
+        return data;
+      },
+      update: async ({ where, data }: any) => {
+        const key = Object.keys(where)[0];
+        const val = where[key];
+        const cols = Object.keys(data).filter(k => data[k] !== undefined);
+        const vals = cols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
+        const setStr = cols.map(c => `"${c}" = ?`).join(",");
+        const sql = `UPDATE "${tableName}" SET ${setStr} WHERE "${key}" = ?`;
+        await client.execute({ sql, args: [...vals, val] });
+        return data;
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const key = Object.keys(where)[0];
+        const val = where[key];
+        const existing = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${key}" = ? LIMIT 1`, args: [val] });
+        if (existing.rows.length > 0) {
+          const cols = Object.keys(update).filter(k => update[k] !== undefined);
+          const vals = cols.map(k => update[k] instanceof Date ? update[k].toISOString() : update[k]);
+          const setStr = cols.map(c => `"${c}" = ?`).join(",");
+          await client.execute({ sql: `UPDATE "${tableName}" SET ${setStr} WHERE "${key}" = ?`, args: [...vals, val] });
+          return { ...existing.rows[0], ...update };
+        } else {
+          const cols = Object.keys(create).filter(k => create[k] !== undefined);
+          const vals = cols.map(k => create[k] instanceof Date ? create[k].toISOString() : create[k]);
+          await client.execute({ sql: `INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(",")}) VALUES (${cols.map(() => "?").join(",")})`, args: vals });
+          return create;
+        }
+      },
+      deleteMany: async ({ where }: any = {}) => {
+        if (!where || Object.keys(where).length === 0) {
+          const res = await client.execute({ sql: `DELETE FROM "${tableName}"`, args: [] });
+          return { count: Number(res.rowsAffected || 0) };
+        }
+        const keys = Object.keys(where).filter(k => where[k] !== undefined);
+        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
+        const vals = keys.map(k => where[k]);
+        const res = await client.execute({ sql: `DELETE FROM "${tableName}" WHERE ${whereClause}`, args: vals });
+        return { count: Number(res.rowsAffected || 0) };
+      }
+    };
+  };
+
+  return new Proxy({}, {
+    get: (_, prop: string) => {
+      if (prop === "$transaction") {
+        return async (tasks: any[]) => {
+          const results = [];
+          for (const t of tasks) results.push(await t);
+          return results;
+        };
+      }
+      return modelProxy(prop);
+    }
+  });
+}
+
 export async function getAuthenticatedPrisma(): Promise<{
   db: any;
   userId: string;
   tenantId: string;
 }> {
   const user = await getUser();
-  if (user) {
-    const { dbUrl, dbToken } = getDbCredentials(
-      user.user_metadata as Record<string, unknown>
-    );
-    return { db: await getPrismaClientAsync(dbUrl, dbToken), userId: user.id, tenantId: user.id };
+  const userId = user ? user.id : LOCAL_TENANT;
+  const tenantId = userId;
+  try {
+    let dbUrl: string;
+    let dbToken: string;
+    if (user) {
+      const creds = getDbCredentials(user.user_metadata as Record<string, unknown>);
+      dbUrl = creds.dbUrl;
+      dbToken = creds.dbToken;
+    } else {
+      dbUrl = process.env.TURSO_DATABASE_URL || "";
+      dbToken = process.env.TURSO_AUTH_TOKEN || "";
+    }
+    const prisma = await getPrismaClientAsync(dbUrl, dbToken);
+    return { db: prisma, userId, tenantId };
+  } catch (err) {
+    log.warn("prisma_client_init_failed_using_libsql_fallback", err instanceof Error ? err.message : String(err));
+    const { client } = await getAuthenticatedDb();
+    return { db: createLibsqlProxy(client), userId, tenantId };
   }
-  const url = process.env.TURSO_DATABASE_URL || "";
-  const token = process.env.TURSO_AUTH_TOKEN || "";
-  return { db: await getPrismaClientAsync(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
 }
 
 // Keep this alias for files that use getAuthenticatedRawClient
