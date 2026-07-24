@@ -19,6 +19,7 @@ import {
   gatewayGet,
   gatewayPost,
   gatewayPatch,
+  gatewayDelete,
   getAuthenticatedPrisma,
 } from "@/server/get-db";
 import { log } from "@/lib/logger";
@@ -86,11 +87,7 @@ async function dispatchGateway(
       else if (method === "PUT") r = await gatewayPost<unknown>(`/api/v1${path}`, body, extra); // gateway has no PUT — bow-tie to POST
       else r = await gatewayPatch<unknown>(`/api/v1${path}`, body);
     } else if (method === "DELETE") {
-      // No DELETE helper exists yet; surface that explicitly rather than fail silently.
-      return NextResponse.json(
-        { success: false, error: "DELETE not yet proxied through BFF; call gateway directly." },
-        { status: 501 }
-      );
+      r = await gatewayDelete<unknown>(`/api/v1${path}`);
     } else {
       return NextResponse.json(
         { success: false, error: "Method not allowed in BFF" },

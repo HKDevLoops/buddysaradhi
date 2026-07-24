@@ -24,13 +24,14 @@ export function registerSettings(app: Hono) {
     const { db, tenantId } = getContext(c);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     try {
-      const setting = await db.setting.update({
+      const setting = await db.setting.upsert({
         where: { tenantId },
-        data: body as never,
+        update: body as never,
+        create: { tenantId, ...(body as object) } as never,
       });
       return ok(c, setting);
-    } catch {
-      return fail(c, "Setting not found for tenant", 404);
+    } catch (err) {
+      return fail(c, err instanceof Error ? err.message : "Failed to update setting", 500);
     }
   });
 }

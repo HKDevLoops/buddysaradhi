@@ -149,25 +149,14 @@ export async function getGatewayHeaders(): Promise<{
 // same-origin host from the incoming request so server-side calls work on any
 // port without hardcoding localhost:3000.
 async function gatewayBase(): Promise<string> {
-  const env = process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_SITE_URL;
+  const env = process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL;
   if (env) return env.replace(/\/$/, "");
-  try {
-    const h = await headers();
-    const host = h.get("host");
-    if (host) {
-      const scheme =
-        host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
-      return `${scheme}://${host}`;
-    }
-  } catch {
-    // not in a request scope
+  // In local development, default to port 3001 where apps/gateway runs.
+  // Avoid returning the incoming request host (port 3000) which causes an infinite loop back to BFF.
+  if (process.env.NODE_ENV !== "production") {
+    return "http://localhost:3001";
   }
-  // No env override AND no incoming request → fail closed. W-AP-5 / FM-06 forbids
-  // silently swallowing this; callers receive a typed Err via gatewayGet/Post/Patch.
-  throw new Error(
-    "GATEWAY_BASE_UNRESOLVED: set GATEWAY_URL or NEXT_PUBLIC_APP_URL, " +
-      "or invoke this inside a Next.js request scope."
-  );
+  return "https://api.buddysaradhi.app";
 }
 
 export async function gatewayGet<T = unknown>(
@@ -243,6 +232,29 @@ export async function gatewayPost<T = unknown>(
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown gateway error";
     log.error('gateway_post_failed', `Gateway POST ${path} failed: ${message}`, { path, method: 'POST' });
+    return { success: false, error: message };
+  }
+}
+
+export async function gatewayDelete<T = unknown>(
+  path: string
+): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  try {
+    const { headers: h } = await getGatewayHeaders();
+    const base = await gatewayBase();
+    const res = await fetch(`${base}${path}`, {
+      method: "DELETE",
+      headers: { ...h },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gateway ${res.status}: ${await res.text()}`);
+    }
+
+    return (await res.json()) as { success: true; data: T };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown gateway error";
+    log.error('gateway_delete_failed', `Gateway DELETE ${path} failed: ${message}`, { path, method: 'DELETE' });
     return { success: false, error: message };
   }
 }

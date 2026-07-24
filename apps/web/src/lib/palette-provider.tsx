@@ -52,26 +52,29 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
   });
 
   const dbTheme = data?.data?.theme; // 'light', 'dark', 'system', or undefined
-  const [localTheme] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("buddysaradhi.theme");
-    }
-    return null;
-  });
+  const dbPalette = data?.data?.palette as PaletteId | undefined;
+  const dbDensity = data?.data?.density || "comfortable";
 
-  const [localPalette] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("buddysaradhi.palette");
-    }
-    return null;
-  });
+  const [localTheme, setLocalTheme] = useState<string | null>(null);
+  const [localPalette, setLocalPalette] = useState<string | null>(null);
+  const [localDensity, setLocalDensity] = useState<string | null>(null);
 
-  const [localDensity] = useState<string | null>(() => {
+  useEffect(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("buddysaradhi.density");
+      setLocalTheme(localStorage.getItem("buddysaradhi.theme"));
+      setLocalPalette(localStorage.getItem("buddysaradhi.palette"));
+      setLocalDensity(localStorage.getItem("buddysaradhi.density"));
+
+      const handleStorage = () => {
+        setLocalTheme(localStorage.getItem("buddysaradhi.theme"));
+        setLocalPalette(localStorage.getItem("buddysaradhi.palette"));
+        setLocalDensity(localStorage.getItem("buddysaradhi.density"));
+      };
+
+      window.addEventListener("storage", handleStorage);
+      return () => window.removeEventListener("storage", handleStorage);
     }
-    return null;
-  });
+  }, []);
 
   // Track system preference matching via media query
   const [systemTheme, setSystemTheme] = useState<ThemeId>(() => {
@@ -92,7 +95,7 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
     return () => mediaQuery.removeEventListener("change", listener);
   }, []);
 
-  // Theme resolution: DB settings -> localStorage override -> route default prop
+  // Theme resolution: DB settings (user's saved settings on login) -> localStorage override -> fallback theme prop
   const themePreference = dbTheme || localTheme || theme;
 
   const isCustomDarkTheme = ["onedark", "nord", "gruvbox", "tokyonight", "monochrome"].includes(themePreference);
@@ -107,23 +110,23 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
       ? "dark"
       : theme;
 
-  // The user's explicit global choice (localStorage) always wins over any
-  // fallback prop, so a single chosen palette applies to every page.
-  // Every palette now ships both a light and a dark CSS variant, so the
-  // chosen palette is honored regardless of the active Appearance Mode.
-  const dbPalette = data?.data?.palette as PaletteId | undefined;
-  const resolvedPalette = (localPalette || dbPalette || palette) as PaletteId;
-
-  const dbDensity = data?.data?.density || "comfortable";
-  const resolvedDensity = localDensity || dbDensity;
+  // Palette resolution: DB settings (user's saved settings on login) -> localStorage -> fallback palette prop
+  const resolvedPalette = (dbPalette || localPalette || palette) as PaletteId;
+  const resolvedDensity = dbDensity || localDensity || "comfortable";
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const html = document.documentElement;
     html.setAttribute("data-palette", resolvedPalette);
     html.setAttribute("data-theme", resolvedTheme);
     html.setAttribute("data-theme-preference", themePreference || "system");
     html.setAttribute("data-density", resolvedDensity);
-  }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity]);
+
+    // Sync localStorage with DB settings when logged in
+    if (dbPalette) localStorage.setItem("buddysaradhi.palette", dbPalette);
+    if (dbTheme) localStorage.setItem("buddysaradhi.theme", dbTheme);
+    if (dbDensity) localStorage.setItem("buddysaradhi.density", dbDensity);
+  }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity, dbPalette, dbTheme, dbDensity]);
 
   // Update localStorage when resolvedTheme changes
   useEffect(() => {

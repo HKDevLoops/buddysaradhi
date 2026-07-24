@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-07-16T11:18:30.058Z",
+  "timestamp": "2026-07-24T06:10:26.670Z",
   "distillationEnabled": true,
   "patternsConsolidated": 0,
   "memoryCleaned": 0,
@@ -12,5 +12,5 @@
   "namespaces": [],
   "dryRun": false,
   "corrupt": false,
-  "skipped": "no-db"
+  "skipped": "error: Could not locate the bindings file. Tried:\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\build\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\build\\Debug\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\build\\Release\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\out\\Debug\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\Debug\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\out\\Release\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\Release\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\build\\default\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\compiled\\26.1.0\\win32\\x64\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\addon-build\\release\\install-root\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\addon-build\\debug\\install-root\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\addon-build\\default\\install-root\\better_sqlite3.node\n → C:\\Users\\HKDEVS\\AppData\\Roaming\\npm\\node_modules\\ruflo\\node_modules\\better-sqlite3\\lib\\binding\\node-v147-win32-x64\\better_sqlite3.node"
 }

@@ -103,10 +103,37 @@ export async function updateSettingAction(field: string, value: unknown) {
     }
 
     revalidatePath("/settings");
+    revalidatePath("/dashboard");
     return { success: true };
   } catch (error) {
     log.error('settings_update_failed', error instanceof Error ? error.message : String(error), { field });
     return { success: false, error: "Failed to update setting" };
+  }
+}
+
+export async function updateSettingsBatchAction(settingsObj: Record<string, unknown>) {
+  try {
+    await getAuthenticatedPrisma();
+    const updateData: Record<string, unknown> = {};
+    
+    for (const [key, val] of Object.entries(settingsObj)) {
+      if (val !== undefined) {
+        updateData[key] = val;
+      }
+    }
+
+    const res = await gatewayPatch("/api/v1/settings", updateData);
+    if (!res.success) {
+      log.error('settings_batch_update_failed', res.error);
+      return { success: false, error: res.error };
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/dashboard");
+    return { success: true };
+  } catch (error) {
+    log.error('settings_batch_update_error', error instanceof Error ? error.message : String(error));
+    return { success: false, error: "Failed to update settings" };
   }
 }
 

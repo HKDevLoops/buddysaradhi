@@ -1,5 +1,4 @@
-// Local re-export of the Prisma Client generated into ./prisma.
-// Generated output path is set in prisma/schema.prisma (generator `output`).
-export * from "./prisma";
-export { PrismaClient } from "./prisma";
-export type { Prisma } from "./prisma";
+// Re-export of standard @prisma/client generated into node_modules.
+export * from "@prisma/client";
+export { PrismaClient } from "@prisma/client";
+export type { Prisma } from "@prisma/client";

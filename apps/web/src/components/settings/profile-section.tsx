@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateSettingAction } from "@/server/actions/settings";
+import { updateSettingAction, updateSettingsBatchAction } from "@/server/actions/settings";
 import { Store, Loader2, Save, X } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
 
@@ -84,16 +84,22 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
         window.location.href = `http://localhost:3010/checkout?plan=${data.plan}&tenantId=${tenantId}`;
         return;
       }
-      await updateSettingAction("instituteName", data.instituteName);
-      if (data.instituteAddress !== undefined) await updateSettingAction("instituteAddress", data.instituteAddress || null);
-      if (data.institutePhone !== undefined) await updateSettingAction("institutePhone", data.institutePhone || null);
-      if (data.instituteEmail !== undefined) await updateSettingAction("instituteEmail", data.instituteEmail || null);
-      await updateSettingAction("currencyCode", data.currencyCode);
-      await updateSettingAction("locale", data.locale);
-      await updateSettingAction("plan", data.plan);
+      const res = await updateSettingsBatchAction({
+        instituteName: data.instituteName,
+        instituteAddress: data.instituteAddress || null,
+        institutePhone: data.institutePhone || null,
+        instituteEmail: data.instituteEmail || null,
+        currencyCode: data.currencyCode,
+        locale: data.locale,
+        plan: data.plan,
+      });
+      if (!res.success) {
+        throw new Error(res.error || "Failed to update settings");
+      }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
+      markClean("profile");
       reset(variables);
     },
   });

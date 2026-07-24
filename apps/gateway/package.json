@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
+    "build": "prisma generate",
+    "postinstall": "prisma generate",
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "seed": "bun run prisma/seed.ts",
@@ -14,15 +16,15 @@
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
-    "@prisma/adapter-libsql": "^5.22.0",
-    "@prisma/client": "^5.22.0",
+    "@prisma/adapter-libsql": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "graphql": "^17.0.2",
     "graphql-yoga": "^5.21.2",
     "hono": "^4.6.0",
     "zod": "3.24.2"
   },
   "devDependencies": {
-    "prisma": "^5.22.0",
+    "prisma": "^7.8.0",
     "typescript": "^7.0.2"
   }
 }

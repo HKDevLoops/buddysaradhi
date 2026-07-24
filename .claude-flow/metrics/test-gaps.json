@@ -1,7 +1,7 @@
 {
-  "timestamp": "2026-07-16T11:20:30.085Z",
+  "timestamp": "2026-07-24T05:52:26.613Z",
   "mode": "local",
-  "hasTestDir": false,
+  "hasTestDir": true,
   "estimatedCoverage": "unknown",
   "gaps": [],
   "note": "Install Claude Code CLI for AI-powered test gap analysis"
