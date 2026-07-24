@@ -11,6 +11,7 @@ import { registerLedger } from "./routes/ledger";
 import { registerReports } from "./routes/reports";
 import { registerGraphQL } from "./routes/graphql";
 import { provisionTutorDb } from "./provisionTutorDb";
+import { log } from "./lib/logger";
 
 const app = new Hono();
 
@@ -83,14 +84,14 @@ app.use("*", async (c, next) => {
 
       if (storedSignature) {
         if (storedSignature !== currentSignature) {
-          console.warn(`[SECURITY WARNING] Session hijacking attempt detected for tenant ${tenantId}!`);
+          log.warn("session_hijacking_attempt", `tenant=${tenantId}`, { tenantId });
           return c.json({ success: false, error: "SECURITY_VIOLATION: Session hijacking detected." } as const, 401);
         }
       } else {
         await cacheSet(cacheKey, currentSignature);
       }
     } catch (err) {
-      console.error("Error verifying fingerprint:", err);
+      log.error("fingerprint_verification_failed", err instanceof Error ? err.message : String(err));
     }
   }
   await next();
@@ -197,6 +198,6 @@ registerReports(app);
 registerGraphQL(app);
 
 const port = Number(process.env.PORT) || 3001;
-console.log(`[gateway] TutorOS API Gateway listening on :${port}`);
+log.info("gateway_boot", `TutorOS API Gateway listening on :${port}`, { port });
 
 Bun.serve({ port, fetch: app.fetch });

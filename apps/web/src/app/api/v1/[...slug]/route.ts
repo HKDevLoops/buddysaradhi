@@ -1,16 +1,118 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, prefer-const */
 // apps/web/src/app/api/v1/[...slug]/route.ts
 // Embedded API Gateway (BFF) for BuddySaradhi.
-// Directly integrated with local Prisma SQLite DB.
+//
+// History: this route originally imported @prisma/client directly. After the
+// root-level Prisma upgrade to v7 broke the generated-client artefact for
+// `apps/web` (v7 wasm payload missing in bun cache → "Prisma client did not
+// initialize yet" at runtime), we shifted this BFF to be a thin pass-through
+// to `apps/gateway` (Hono service on port 3001, fully ORM/GraphQL).
+//
+// Per `17_API_Gateway_System.md` §6 and `18_Microservice_Architecture.md`, the
+// gateway is the single source of truth for DB calls; web, mobile, and desktop
+// all hit the same edge endpoint via this shared SDK. The local fallback below
+// mirrors the original demo/seed behaviour for local dev so the five screens
+// still render populated without a running gateway.
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedPrisma } from "@/server/get-db";
+import {
+  gatewayGet,
+  gatewayPost,
+  gatewayPatch,
+  getAuthenticatedPrisma,
+} from "@/server/get-db";
 import { log } from "@/lib/logger";
+import {
+  ALL_STUDENTS,
+  BATCHES,
+  DEMO_TENANT,
+  getActivityFeed,
+  getAttendanceForDate,
+  getBatches,
+  getDashboardKpis,
+  getDueToday,
+  getHeatmaps,
+  getStudentById,
+  getStudentList,
+  type Student,
+  type StudentListRow,
+} from "./fixtures";
 
-const LOCAL_TENANT = "local-dev";
+const LOCAL_TENANT = DEMO_TENANT;
 
 function ok(data: unknown) {
   return NextResponse.json({ success: true, data });
+}
+
+type GatewayResult<T> = { success: true; data: T } | { success: false; error: string };
+
+function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: unknown } {
+  if (r.success) return { ok: true, status: 200, body: r.data };
+  // Map a few common gateway failure shapes to HTTP statuses.
+  const msg = (r as { error: string }).error;
+  if (msg.startsWith("DB_NOT_PROVISIONED")) return { ok: false, status: 503, body: { success: false, error: msg, needs_provision: true } };
+  if (msg.startsWith("SECURITY_VIOLATION")) return { ok: false, status: 401, body: { success: false, error: msg } };
+  if (msg.startsWith("Free tier limit")) return { ok: false, status: 403, body: { success: false, error: msg } };
+  if (msg.startsWith("Not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
+  if (msg.startsWith("Student not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
+  // If the gateway returned an error string like "Gateway 502 ..." keep it as 502.
+  const m = /^Gateway (\d{3}):/.exec(msg);
+  if (m) return { ok: false, status: Number(m[1]) || 500, body: { success: false, error: msg } };
+  return { ok: false, status: 500, body: { success: false, error: msg } };
+}
+
+async function dispatchGateway(
+  req: NextRequest,
+  path: string,
+  method: string
+): Promise<NextResponse> {
+  try {
+    let r: GatewayResult<unknown>;
+    if (method === "GET") {
+      const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
+      r = await gatewayGet<unknown>(`/api/v1${path}`, qp as Record<string, string>);
+    } else if (method === "POST" || method === "PUT" || method === "PATCH") {
+      let body: unknown = {};
+      try {
+        body = await req.clone().json().catch(() => ({}));
+      } catch {
+        body = {};
+      }
+      // Forward X-Batch-Name header if present (gateway uses it for enrollment)
+      const extra: Record<string, string> = {};
+      const xbn = req.headers.get("x-batch-name");
+      if (xbn) extra["X-Batch-Name"] = xbn;
+      if (method === "POST") r = await gatewayPost<unknown>(`/api/v1${path}`, body, extra);
+      else if (method === "PUT") r = await gatewayPost<unknown>(`/api/v1${path}`, body, extra); // gateway has no PUT — bow-tie to POST
+      else r = await gatewayPatch<unknown>(`/api/v1${path}`, body);
+    } else if (method === "DELETE") {
+      // No DELETE helper exists yet; surface that explicitly rather than fail silently.
+      return NextResponse.json(
+        { success: false, error: "DELETE not yet proxied through BFF; call gateway directly." },
+        { status: 501 }
+      );
+    } else {
+      return NextResponse.json(
+        { success: false, error: "Method not allowed in BFF" },
+        { status: 405 }
+      );
+    }
+
+    const u = unwrap(r);
+    return NextResponse.json(u.body, { status: u.status });
+  } catch (err) {
+    log.error("gateway_proxy_failed", err instanceof Error ? err.message : String(err), {
+      path,
+      method,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: "GATEWAY_UNREACHABLE: apps/gateway on :3001 is offline. Start it with `cd apps/gateway && bun run dev`.",
+      },
+      { status: 502 }
+    );
+  }
 }
 
 function hashStr(s: string): number {
@@ -58,22 +160,37 @@ async function handleSettings(db: any, tenantId: string, req: NextRequest, metho
 }
 
 async function handleSecurityErase(db: any, tenantId: string) {
-  // Safe cascade erase
-  await db.$transaction([
-    db.attendanceRecord.deleteMany({ where: { tenantId } }),
-    db.attendanceSession.deleteMany({ where: { tenantId } }),
-    db.ledgerEntry.deleteMany({ where: { tenantId } }),
-    db.invoice.deleteMany({ where: { tenantId } }),
-    db.receipt.deleteMany({ where: { tenantId } }),
-    db.studentEnrollment.deleteMany({ where: { tenantId } }),
-    db.student.deleteMany({ where: { tenantId } }),
-    db.batch.deleteMany({ where: { tenantId } }),
-    db.setting.deleteMany({ where: { tenantId } }),
-    db.auditLog.deleteMany({ where: { tenantId } }),
-    db.syncOutbox.deleteMany({ where: { tenantId } }),
-  ]);
-  return NextResponse.json({ success: true, erased: tenantId });
-}
+    // Rule 7: attack audit_log + delete in one tx; the pre-erase audit row
+    // stays because we filter it out of the cascade by id.
+    const eraseAuditId = crypto.randomUUID();
+    const eraseTs = new Date();
+    await db.$transaction([
+      db.auditLog.create({
+        data: {
+          id: eraseAuditId,
+          tenantId,
+          actor: "tutor",
+          action: "secure_erase",
+          refType: "tenant",
+          refId: tenantId,
+          metadata: JSON.stringify({ erasedAt: eraseTs.toISOString() }),
+          createdAt: eraseTs,
+        },
+      }),
+      db.attendanceRecord.deleteMany({ where: { tenantId } }),
+      db.attendanceSession.deleteMany({ where: { tenantId } }),
+      db.ledgerEntry.deleteMany({ where: { tenantId } }),
+      db.invoice.deleteMany({ where: { tenantId } }),
+      db.receipt.deleteMany({ where: { tenantId } }),
+      db.studentEnrollment.deleteMany({ where: { tenantId } }),
+      db.student.deleteMany({ where: { tenantId } }),
+      db.batch.deleteMany({ where: { tenantId } }),
+      db.setting.deleteMany({ where: { tenantId } }),
+      db.auditLog.deleteMany({ where: { tenantId, id: { not: eraseAuditId } } }),
+      db.syncOutbox.deleteMany({ where: { tenantId } }),
+    ]);
+    return NextResponse.json({ success: true, erased: tenantId, auditLogId: eraseAuditId });
+  }
 
 async function ensureSeeded(db: any, tenantId: string) {
   const count = await db.student.count({ where: { tenantId } });
@@ -395,24 +512,44 @@ async function dispatch(req: NextRequest, slug: string[]) {
   if (path === "/attendance" && method === "POST") {
     const body = await req.json();
     const { sessionId, records } = body;
-    
-    for (const r of records) {
-      await db.attendanceRecord.upsert({
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return NextResponse.json({ success: false, error: "records must be a non-empty array" }, { status: 400 });
+    }
+
+    // Rule 7: many upserts + one audit_log in one tx.
+    const auditTs = new Date();
+    const auditId = crypto.randomUUID();
+    const recordOps = records.map((r: any) =>
+      db.attendanceRecord.upsert({
         where: { sessionId_studentId: { sessionId, studentId: r.student_id } },
-        update: { status: r.status, updatedAt: new Date() },
+        update: { status: r.status, updatedAt: auditTs },
         create: {
           id: crypto.randomUUID(),
           tenantId,
           sessionId,
           studentId: r.student_id,
           status: r.status,
-          markedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          markedAt: auditTs,
+          createdAt: auditTs,
+          updatedAt: auditTs,
         }
-      });
-    }
-    return ok({ success: true });
+      }),
+    );
+    const auditOp = db.auditLog.create({
+      data: {
+        id: auditId,
+        tenantId,
+        actor: "tutor",
+        action: "attendance_mark_session",
+        refType: "session",
+        refId: sessionId,
+        metadata: JSON.stringify({ count: records.length }),
+        createdAt: auditTs,
+      },
+    });
+    await db.$transaction([...recordOps, auditOp] as any);
+    return ok({ success: true, count: records.length, auditLogId: auditId });
   }
 
   if (path === "/attendance/batches" && method === "GET") {
@@ -437,11 +574,11 @@ async function dispatch(req: NextRequest, slug: string[]) {
     const payments = await db.ledgerEntry.findMany({
       where: {
         tenantId,
-        type: "payment",
+        type: "PAYMENT_RECEIVED",
         createdAt: { gte: startOfMonth }
       }
     });
-    const collectedThisMonthMinor = payments.reduce((sum: number, p: any) => sum + p.credit, 0);
+    const collectedThisMonthMinor = payments.reduce((sum: number, p: any) => sum + p.creditPaise, 0);
 
     return ok({
       totalStudents,
@@ -487,6 +624,7 @@ async function dispatch(req: NextRequest, slug: string[]) {
   }
 
   if (path === "/reports/dashboard/heatmaps" && method === "GET") {
+    // STUB: deterministic hash, not real attendance/financial rows.
     const periodStartIso = qp.periodStartIso || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const activeStudents = await db.student.findMany({
       where: { tenantId, status: "active", archivedAt: null }
@@ -535,6 +673,7 @@ async function dispatch(req: NextRequest, slug: string[]) {
     }
 
     return ok({
+      _data_origin: "STUB",
       attendance: { records: attendanceRecords, holidays: ["2026-07-15", "2026-07-20"] },
       financial: financialRecords,
     });

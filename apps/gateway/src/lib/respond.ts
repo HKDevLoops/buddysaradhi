@@ -9,7 +9,16 @@ export interface ReqContext {
   tenantId: string;
 }
 
-const SHARED_SECRET = process.env.GATEWAY_SHARED_SECRET || "buddysaradhi-dev-secret-key-128bits";
+function resolveSharedSecret(): string {
+  const s = process.env.GATEWAY_SHARED_SECRET;
+  if (!s || s.length < 32) {
+    throw new Error(
+      "GATEWAY_SHARED_SECRET is missing or shorter than 32 chars; refusing to start the gateway (set it in the runtime env)."
+    );
+  }
+  return s;
+}
+const SHARED_SECRET = resolveSharedSecret();
 
 function validateDbUrl(dbUrl: string): boolean {
   // Allow Turso databases starting with libsql: or https:

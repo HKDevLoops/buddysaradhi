@@ -1,10 +1,10 @@
 "use server";
-
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { getDb, getDbCredentials, getPrismaClient } from "@/lib/db";
 import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
 import { headers } from "next/headers";
+import { createHmac } from "crypto";
 
 const LOCAL_TENANT = "local-dev";
 
@@ -59,15 +59,24 @@ export async function getAuthenticatedPrisma(): Promise<{
 // Keep this alias for files that use getAuthenticatedRawClient
 export { getAuthenticatedDb as getAuthenticatedRawClient };
 
-import { createHmac } from "crypto";
 
-const SHARED_SECRET = process.env.GATEWAY_SHARED_SECRET || "buddysaradhi-dev-secret-key-128bits";
+// R-CRYPTO-2: refuse module load if the secret is missing. The previous
+// `|| "buddysaradhi-dev-secret-key-128bits"` fallback was a hard-coded public
+// default shipped in source: any deployment that forgot to set the env var
+// silently signed + verified HMACs with a value anyone could grep. That is a
+// P0 (BFF → gateway impersonation). Throw at module load so the failure is
+// loud, at boot, not on the first request.
+function resolveSharedSecret(): string {
+  const s = process.env.GATEWAY_SHARED_SECRET;
+  if (!s || s.length < 32) {
+    throw new Error(
+      "GATEWAY_SHARED_SECRET is missing or shorter than 32 chars; refusing to start the BFF (set it in .env.local)."
+    );
+  }
+  return s;
+}
+const SHARED_SECRET = resolveSharedSecret();
 
-/**
- * Resolves the tenant identity + gateway-compatible headers. Never throws:
- * when there is no Supabase session (local dev) it returns a local-dev
- * identity so the embedded BFF still resolves its data.
- */
 export async function getGatewayHeaders(): Promise<{
   tenantId: string;
   headers: {

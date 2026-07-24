@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/logger";
 
 // Sentinels that mean "not yet provisioned" — see lib/db.ts
 const DUMMY_DB_SENTINELS = ["dummy-local-dev-url", "dummy", "file:"];
@@ -69,25 +70,31 @@ export async function updateSession(
 
       try {
         if (deviceSessionCookie && activeSessionId && deviceSessionCookie !== activeSessionId) {
-          // Both sides have a session ID and they disagree — this device was
-          // superseded by another login. Force-signout the stale session.
+          // Stale session from a different device.
           await supabase.auth.signOut();
           supabaseResponse.cookies.delete('buddysaradhi_session');
-          url.pathname = '/login';
-          return NextResponse.redirect(url);
+          // Forward the cookie deletes into the redirect response.
+          const redirectWithDeletes = NextResponse.redirect(url);
+          for (const name of supabaseResponse.cookies.getAll().map((c) => c.name)) {
+            const value = supabaseResponse.cookies.get(name)?.value ?? "";
+            redirectWithDeletes.cookies.set(name, value);
+          }
+          return redirectWithDeletes;
         }
 
         if (!deviceSessionCookie) {
-          // Cookie absent — first request after login (or cleared on logout).
-          // Mint/sync the cookie from metadata if we have one, or create a fresh one.
+          // Stickiness: only mint a fresh active_session_id on the very first
+          // login (no provisioned_at marker). Otherwise re-mint the cookie
+          // without rotating the metadata id — rotating it kicks the user's
+          // other device off.
+          const isFirstEver = !user.user_metadata?.provisioned_at;
           if (activeSessionId) {
             supabaseResponse.cookies.set('buddysaradhi_session', activeSessionId, {
               maxAge: 2592000,
               httpOnly: true,
               path: '/',
             });
-          } else {
-            // Truly first login ever — generate and persist a new session ID.
+          } else if (isFirstEver) {
             const newSessionId = crypto.randomUUID();
             await supabase.auth.updateUser({ data: { active_session_id: newSessionId } });
             supabaseResponse.cookies.set('buddysaradhi_session', newSessionId, {
@@ -98,8 +105,7 @@ export async function updateSession(
           }
         }
       } catch (e) {
-        // Rule 9: log warning but fail-open so the user is not locked out
-        console.warn('Single session enforcement warning:', e);
+        log.warn('middleware_single_session_enforcement_failed', e instanceof Error ? e.message : String(e));
       }
 
       // ── Provision Guard ─────────────────────────────────────────────────

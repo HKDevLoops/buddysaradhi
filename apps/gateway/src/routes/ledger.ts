@@ -1,14 +1,11 @@
 import type { Hono } from "hono";
+import { createHmac, randomUUID } from "crypto";
 import { ok, fail, getContext } from "../lib/respond";
 
-// Mirrors the simple hash chain used by apps/web/src/server/actions/fees.ts
-function simpleHash(prevHash: string | null, payload: string, ts: string, secret: string): string {
-  const raw = `${prevHash ?? ""}:${payload}:${ts}:${secret}`;
-  let h = 0;
-  for (let i = 0; i < raw.length; i++) {
-    h = ((h << 5) - h + raw.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(16).padStart(8, "0");
+// HMAC-SHA256 ledger chain (Rule 1 / LEDGER-4).
+function chainHash(prevHash: string | null, payload: string, ts: string, secret: string): string {
+  const raw = `${prevHash ?? ""}|${payload}|${ts}|${secret}`;
+  return createHmac("sha256", secret).update(raw).digest("hex");
 }
 
 async function getSecret(db: any, tenantId: string): Promise<string> {
@@ -16,7 +13,8 @@ async function getSecret(db: any, tenantId: string): Promise<string> {
     where: { tenantId },
     select: { tenantSecret: true },
   });
-  return s?.tenantSecret ?? "default-secret";
+  if (!s?.tenantSecret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
+  return s.tenantSecret;
 }
 
 async function lastEntry(db: any, tenantId: string, studentId: string) {
@@ -123,11 +121,17 @@ export function registerLedger(app: Hono) {
     if (!studentId || !(amount > 0)) {
       return fail(c, "student_id and positive amount_minor required", 400);
     }
+    // Fail-closed if the tenant secret was never minted (R-CRYPTO-1).
+    let secret: string;
+    try {
+      secret = await getSecret(db, tenantId);
+    } catch (e) {
+      return fail(c, e instanceof Error ? e.message : "secret_missing", 412);
+    }
     const now = new Date().toISOString();
     const last = await lastEntry(db, tenantId, studentId);
     const newBalance = (last?.balanceAfterPaise ?? 0) - amount;
-    const secret = await getSecret(db, tenantId);
-    const entryId = crypto.randomUUID();
+    const entryId = randomUUID();
     const occurred = body.date || now;
     const payload = JSON.stringify({
       id: entryId,
@@ -138,29 +142,54 @@ export function registerLedger(app: Hono) {
       balanceAfterPaise: newBalance,
       occurredOn: occurred,
     });
-    const thisHash = simpleHash(last?.thisHash ?? null, payload, now, secret);
-    await db.ledgerEntry.create({
-      data: {
-        id: entryId,
-        tenantId,
-        studentId,
-        type: "PAYMENT_RECEIVED",
-        debitPaise: 0,
-        creditPaise: amount,
-        balanceAfterPaise: newBalance,
-        description: body.description || "Payment received",
-        occurredOn: occurred,
-        thisHash,
-        prevHash: last?.thisHash ?? null,
-        source: "gateway",
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-    await db.student.update({
-      where: { id: studentId },
-      data: { balancePaise: newBalance },
-    });
+    const thisHash = chainHash(last?.thisHash ?? null, payload, now, secret);
+    await db.$transaction([
+      db.ledgerEntry.create({
+        data: {
+          id: entryId,
+          tenantId,
+          studentId,
+          type: "PAYMENT_RECEIVED",
+          debitPaise: 0,
+          creditPaise: amount,
+          balanceAfterPaise: newBalance,
+          description: body.description || "Payment received",
+          occurredOn: occurred,
+          thisHash,
+          prevHash: last?.thisHash ?? null,
+          source: "gateway",
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+      db.student.update({
+        where: { id: studentId },
+        data: { balancePaise: newBalance, updatedAt: now },
+      }),
+      db.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          tableName: "ledger_entries",
+          rowId: entryId,
+          op: "INSERT",
+          payload: JSON.stringify({ type: "PAYMENT_RECEIVED", amount }),
+          createdAt: now,
+        },
+      }),
+      db.auditLog.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "ledger.payment",
+          refType: "student",
+          refId: studentId,
+          metadata: JSON.stringify({ entryId, creditPaise: amount }),
+          createdAt: now,
+        },
+      }),
+    ]);
     return ok(c, { id: entryId, balance_after: newBalance });
   });
 
@@ -172,11 +201,16 @@ export function registerLedger(app: Hono) {
     if (!studentId || !(amount > 0)) {
       return fail(c, "student_id and positive amount required", 400);
     }
+    let secret: string;
+    try {
+      secret = await getSecret(db, tenantId);
+    } catch (e) {
+      return fail(c, e instanceof Error ? e.message : "secret_missing", 412);
+    }
     const now = new Date().toISOString();
     const last = await lastEntry(db, tenantId, studentId);
     const newBalance = (last?.balanceAfterPaise ?? 0) + amount;
-    const secret = await getSecret(db, tenantId);
-    const entryId = crypto.randomUUID();
+    const entryId = randomUUID();
     const occurred = body.dateIso || now;
     const payload = JSON.stringify({
       id: entryId,
@@ -187,29 +221,54 @@ export function registerLedger(app: Hono) {
       balanceAfterPaise: newBalance,
       occurredOn: occurred,
     });
-    const thisHash = simpleHash(last?.thisHash ?? null, payload, now, secret);
-    await db.ledgerEntry.create({
-      data: {
-        id: entryId,
-        tenantId,
-        studentId,
-        type: "FEE_CHARGED",
-        debitPaise: amount,
-        creditPaise: 0,
-        balanceAfterPaise: newBalance,
-        description: body.description || "Fee charged",
-        occurredOn: occurred,
-        thisHash,
-        prevHash: last?.thisHash ?? null,
-        source: "gateway",
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-    await db.student.update({
-      where: { id: studentId },
-      data: { balancePaise: newBalance },
-    });
+    const thisHash = chainHash(last?.thisHash ?? null, payload, now, secret);
+    await db.$transaction([
+      db.ledgerEntry.create({
+        data: {
+          id: entryId,
+          tenantId,
+          studentId,
+          type: "FEE_CHARGED",
+          debitPaise: amount,
+          creditPaise: 0,
+          balanceAfterPaise: newBalance,
+          description: body.description || "Fee charged",
+          occurredOn: occurred,
+          thisHash,
+          prevHash: last?.thisHash ?? null,
+          source: "gateway",
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+      db.student.update({
+        where: { id: studentId },
+        data: { balancePaise: newBalance, updatedAt: now },
+      }),
+      db.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          tableName: "ledger_entries",
+          rowId: entryId,
+          op: "INSERT",
+          payload: JSON.stringify({ type: "FEE_CHARGED", amount }),
+          createdAt: now,
+        },
+      }),
+      db.auditLog.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "ledger.invoice",
+          refType: "student",
+          refId: studentId,
+          metadata: JSON.stringify({ entryId, debitPaise: amount }),
+          createdAt: now,
+        },
+      }),
+    ]);
     return ok(c, { id: entryId, balance_after: newBalance });
   });
 
@@ -220,37 +279,67 @@ export function registerLedger(app: Hono) {
     if (!entryIdToVoid) return fail(c, "entryId required", 400);
     const entry = await db.ledgerEntry.findFirst({ where: { id: entryIdToVoid, tenantId } });
     if (!entry) return fail(c, "Entry not found", 404);
+    let secret: string;
+    try {
+      secret = await getSecret(db, tenantId);
+    } catch (e) {
+      return fail(c, e instanceof Error ? e.message : "secret_missing", 412);
+    }
     const now = new Date().toISOString();
     const last = await lastEntry(db, tenantId, entry.studentId);
     const voidedAmount = entry.creditPaise ?? 0;
     const newBalance = (last?.balanceAfterPaise ?? 0) + voidedAmount;
-    const secret = await getSecret(db, tenantId);
-    const voidId = crypto.randomUUID();
+    const voidId = randomUUID();
     const payload = JSON.stringify({ id: voidId, type: "VOID", entryIdToVoid, newBalance });
-    const thisHash = simpleHash(last?.thisHash ?? null, payload, now, secret);
-    await db.ledgerEntry.create({
-      data: {
-        id: voidId,
-        tenantId,
-        studentId: entry.studentId,
-        type: "VOID",
-        debitPaise: voidedAmount,
-        creditPaise: 0,
-        balanceAfterPaise: newBalance,
-        description: "Voided via Gateway",
-        occurredOn: entry.occurredOn,
-        thisHash,
-        prevHash: last?.thisHash ?? null,
-        voidOfId: entryIdToVoid,
-        source: "gateway",
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-    await db.student.update({
-      where: { id: entry.studentId },
-      data: { balancePaise: newBalance },
-    });
+    const thisHash = chainHash(last?.thisHash ?? null, payload, now, secret);
+    await db.$transaction([
+      db.ledgerEntry.create({
+        data: {
+          id: voidId,
+          tenantId,
+          studentId: entry.studentId,
+          type: "VOID",
+          debitPaise: voidedAmount,
+          creditPaise: 0,
+          balanceAfterPaise: newBalance,
+          description: "Voided via Gateway",
+          occurredOn: entry.occurredOn,
+          thisHash,
+          prevHash: last?.thisHash ?? null,
+          voidOfId: entryIdToVoid,
+          source: "gateway",
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+      db.student.update({
+        where: { id: entry.studentId },
+        data: { balancePaise: newBalance, updatedAt: now },
+      }),
+      db.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          tableName: "ledger_entries",
+          rowId: voidId,
+          op: "INSERT",
+          payload: JSON.stringify({ void_of: entryIdToVoid }),
+          createdAt: now,
+        },
+      }),
+      db.auditLog.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "ledger.void",
+          refType: "ledger",
+          refId: entryIdToVoid,
+          metadata: JSON.stringify({ voidId }),
+          createdAt: now,
+        },
+      }),
+    ]);
     return ok(c, { id: voidId, balance_after: newBalance });
   });
 }

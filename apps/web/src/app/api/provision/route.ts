@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { log } from "@/lib/logger";
 
 const TURSO_API_TOKEN = process.env.TURSO_API_TOKEN;
 const TURSO_ORGANISATION_SLUG = process.env.TURSO_ORGANISATION_SLUG || process.env.TURSO_ORGANISATION_NAME;
@@ -44,7 +45,7 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
     // 422 = already exists (idempotent); other errors are real failures
     if (!createRes.ok && createRes.status !== 422) {
       const errText = await createRes.text();
-      console.error("Turso create DB failed:", createRes.status, errText);
+      log.error("turso_create_db_failed", `status=${createRes.status}`, { status: createRes.status, body: errText });
       return null;
     }
 
@@ -69,7 +70,8 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
     );
 
     if (!tokenRes.ok) {
-      console.error("Turso generate token failed:", tokenRes.status, await tokenRes.text());
+      const tokenErr = await tokenRes.text();
+      log.error("turso_generate_token_failed", `status=${tokenRes.status}`, { status: tokenRes.status, body: tokenErr });
       return null;
     }
 
@@ -81,7 +83,7 @@ async function createTursoDb(userId: string): Promise<{ url: string; token: stri
     const url = `libsql://${hostname}`;
     return { url, token: tokenData.jwt };
   } catch (err) {
-    console.error("Turso API error:", err);
+    log.error("turso_api_error", err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -163,7 +165,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (updateErr) {
-      console.error("Failed to update user metadata:", updateErr);
+      log.error("provision_metadata_update_failed", updateErr.message ?? "Failed to update user metadata");
       return NextResponse.json(
         { success: false, error: "Failed to store database credentials." },
         { status: 500 }
@@ -172,7 +174,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, message: "provisioned", method });
   } catch (err) {
-    console.error("Provision API error:", err);
+    log.error("provision_api_error", err instanceof Error ? err.message : String(err));
     return NextResponse.json(
       { success: false, error: "Internal server error during provisioning." },
       { status: 500 }

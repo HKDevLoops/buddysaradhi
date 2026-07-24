@@ -80,20 +80,24 @@ async function recordOutbox(
   op: string,
   payload: unknown,
 ) {
-  await run(
-    db,
-    `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, status, attempts, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
-    [
-      crypto.randomUUID(),
-      tenantId,
-      table,
-      rowId,
-      op,
-      JSON.stringify(payload ?? {}),
-      new Date().toISOString(),
-    ],
-  ).catch(() => {});
+  try {
+    await run(
+      db,
+      `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, status, attempts, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      [
+        crypto.randomUUID(),
+        tenantId,
+        table,
+        rowId,
+        op,
+        JSON.stringify(payload ?? {}),
+        new Date().toISOString(),
+      ],
+    );
+  } catch (e) {
+    console.error("sync_outbox_insert_failed", { tenantId, table, rowId, op, error: String(e) });
+  }
 }
 async function recordAudit(
   db: ReturnType<typeof createLibsql>,
@@ -104,21 +108,25 @@ async function recordAudit(
   refId: string | null,
   metadata: unknown,
 ) {
-  await run(
-    db,
-    `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      crypto.randomUUID(),
-      tenantId,
-      actor,
-      action,
-      refType,
-      refId,
-      JSON.stringify(metadata ?? {}),
-      new Date().toISOString(),
-    ],
-  ).catch(() => {});
+  try {
+    await run(
+      db,
+      `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        crypto.randomUUID(),
+        tenantId,
+        actor,
+        action,
+        refType,
+        refId,
+        JSON.stringify(metadata ?? {}),
+        new Date().toISOString(),
+      ],
+    );
+  } catch (e) {
+    console.error("audit_log_insert_failed", { tenantId, action, error: String(e) });
+  }
 }
 
 // ---- Settings key mapping (camelCase -> snake_case) ----------------------

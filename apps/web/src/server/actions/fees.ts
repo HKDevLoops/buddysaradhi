@@ -1,8 +1,8 @@
 "use server";
 
 import { z } from "zod";
+import { createHmac, randomUUID } from "crypto";
 import { getAuthenticatedDb } from "@/server/get-db";
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 
@@ -16,18 +16,10 @@ const FeeInputSchema = z.object({
   dateIso: z.string().refine((v) => !Number.isNaN(Date.parse(v)), { message: "Invalid date" }),
 });
 
-// Helper: compute a ledger entry hash (mirrors packages/core/ledger.ts logic)
+// R-CRYPTO-1, R-CRYPTO-2, Rule 8. Paise integer + HMAC-SHA256 chain.
 function computeSimpleHash(prevHash: string | null, payload: string, timestamp: string, secret: string): string {
-  // Simple deterministic hash for the web layer
-  // The real implementation in packages/core uses crypto subtle/createHmac
-  const raw = `${prevHash ?? ""}:${payload}:${timestamp}:${secret}`;
-  let hash = 0;
-  for (let i = 0; i < raw.length; i++) {
-    const char = raw.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).padStart(8, "0");
+  const raw = `${prevHash ?? ""}|${payload}|${timestamp}|${secret}`;
+  return createHmac("sha256", secret).update(raw).digest("hex");
 }
 
 async function postLedgerEntryRaw(
@@ -44,44 +36,59 @@ async function postLedgerEntryRaw(
   const entryId = randomUUID();
 
   // 1. Get last entry for running balance + hash chain
-  const lastRes = await client.execute({
-    sql: `SELECT balance_after_paise, this_hash FROM ledger_entries
-          WHERE tenant_id = ? AND student_id = ?
-          ORDER BY created_at DESC LIMIT 1`,
-    args: [tenantId, studentId],
-  });
+  const [lastRes, settingRes] = await Promise.all([
+    client.execute({
+      sql: `SELECT balance_after_paise, this_hash FROM ledger_entries
+            WHERE tenant_id = ? AND student_id = ?
+            ORDER BY created_at DESC LIMIT 1`,
+      args: [tenantId, studentId],
+    }),
+    client.execute({
+      sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`,
+      args: [tenantId],
+    }),
+  ]);
 
   const lastEntry = lastRes.rows[0];
   const prevBalance = lastEntry ? (lastEntry.balance_after_paise as number) : 0;
   const prevHash = lastEntry ? (lastEntry.this_hash as string) : null;
   const newBalance = prevBalance + debitPaise - creditPaise;
-
-  // 2. Get tenant secret for hash
-  const settingRes = await client.execute({
-    sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`,
-    args: [tenantId],
-  });
-  const secret = settingRes.rows[0]?.tenant_secret as string ?? "default-secret";
+  const secret = settingRes.rows[0]?.tenant_secret as string | null;
+  if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
 
   const payload = JSON.stringify({ id: entryId, studentId, type, debitPaise, creditPaise, balanceAfterPaise: newBalance, occurredOn });
   const thisHash = computeSimpleHash(prevHash, payload, now, secret);
 
-  // 3. Insert entry (BR-LED-01: append-only)
-  await client.execute({
-    sql: `INSERT INTO ledger_entries (
-            id, tenant_id, student_id, type, debit_paise, credit_paise,
-            balance_after_paise, description, occurred_on, this_hash, prev_hash,
-            source, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)`,
-    args: [entryId, tenantId, studentId, type, debitPaise, creditPaise, newBalance, description, occurredOn, thisHash, prevHash, now, now],
-  });
-
-  // 4. Sync outbox (Rule 7)
-  await client.execute({
-    sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-          VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
-    args: [randomUUID(), tenantId, entryId, payload, now],
-  });
+  // Rule 7: ledger + sync_outbox + audit_log in one batch.
+  await client.batch(
+    [
+      {
+        sql: `INSERT INTO ledger_entries (
+                id, tenant_id, student_id, type, debit_paise, credit_paise,
+                balance_after_paise, description, occurred_on, this_hash, prev_hash,
+                source, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)`,
+        args: [entryId, tenantId, studentId, type, debitPaise, creditPaise, newBalance, description, occurredOn, thisHash, prevHash, now, now],
+      },
+      {
+        sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
+              VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
+        args: [randomUUID(), tenantId, entryId, payload, now],
+      },
+      {
+        sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          randomUUID(), tenantId, tenantId,
+          `ledger.${type.toLowerCase()}`,
+          "student", studentId,
+          JSON.stringify({ entryId, debitPaise, creditPaise, newBalance }),
+          now,
+        ],
+      },
+    ],
+    "write",
+  );
 
   return entryId;
 }
@@ -177,7 +184,12 @@ export async function recordPaymentAction(
 
 export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
   try {
-    if (pin !== "1234") return { success: false, error: "Invalid PIN" };
+    // Fail-closed: previous `if (pin !== "1234")` was a backdoor.
+    if (!pin || !pin.trim()) {
+      return { success: false, error: "PIN required to void a receipt" };
+    }
+    log.error('fee_void_receipt_blocked', 'PIN verification disabled; awaiting Argon2', { entryIdToVoid });
+    return { success: false, error: "PIN verification disabled — contact support" };
 
     const { client, tenantId } = await getAuthenticatedDb();
 
