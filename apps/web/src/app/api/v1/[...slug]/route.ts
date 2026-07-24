@@ -21,6 +21,8 @@ import {
   gatewayPatch,
   gatewayDelete,
   getAuthenticatedPrisma,
+  getAuthenticatedDb,
+  createLibsqlProxy,
 } from "@/server/get-db";
 import { log } from "@/lib/logger";
 import {
@@ -318,8 +320,10 @@ async function dispatch(req: NextRequest, slug: string[]) {
     db = auth.db;
     tenantId = auth.tenantId;
   } catch (err) {
-    log.error("prisma_client_init_failed", err instanceof Error ? err.message : String(err), { path, method });
-    return dispatchGateway(req, path, method);
+    log.error("prisma_client_init_failed_using_libsql", err instanceof Error ? err.message : String(err), { path, method });
+    const authDb = await getAuthenticatedDb();
+    db = createLibsqlProxy(authDb.client);
+    tenantId = authDb.tenantId;
   }
 
   await ensureSeeded(db, tenantId);

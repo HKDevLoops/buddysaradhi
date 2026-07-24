@@ -39,7 +39,7 @@ export async function getAuthenticatedDb(): Promise<{
   return { client: getDb(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
 }
 
-function createLibsqlProxy(client: Client): any {
+export function createLibsqlProxy(client: Client): any {
   const modelProxy = (modelName: string) => {
     // Map camelCase modelName to DB table name
     const tableMap: Record<string, string> = {
@@ -297,11 +297,10 @@ async function gatewayBase(): Promise<string> {
   const env = process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL;
   if (env) return env.replace(/\/$/, "");
   // In local development, default to port 3001 where apps/gateway runs.
-  // Avoid returning the incoming request host (port 3000) which causes an infinite loop back to BFF.
   if (process.env.NODE_ENV !== "production") {
     return "http://localhost:3001";
   }
-  return "https://api.buddysaradhi.app";
+  return "https://buddysaradhi.vercel.app";
 }
 
 export async function gatewayGet<T = unknown>(
