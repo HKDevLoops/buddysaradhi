@@ -44,20 +44,9 @@ export async function getPrismaClientAsync(dbUrl: string, dbToken: string): Prom
   if (existing) return existing;
 
   const libsql = getDb(dbUrl, dbToken);
-  try {
-    const { PrismaClient } = await import("@prisma/client");
-    const { PrismaLibSQL } = await import("@prisma/adapter-libsql");
-    const adapter = new PrismaLibSQL(libsql) as any;
-    const prisma = new PrismaClient({ adapter });
-    // Actively test query execution to catch un-generated engine errors
-    await prisma.student.count();
-    prismaCache.set(dbUrl, prisma);
-    return prisma;
-  } catch {
-    const proxy = createLibsqlProxy(libsql);
-    prismaCache.set(dbUrl, proxy);
-    return proxy;
-  }
+  const proxy = createLibsqlProxy(libsql);
+  prismaCache.set(dbUrl, proxy);
+  return proxy;
 }
 
 export function getPrismaClient(dbUrl: string, dbToken: string): any {

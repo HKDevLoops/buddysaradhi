@@ -1,13 +1,9 @@
 import { createClient, type Client } from "@libsql/client";
-import { PrismaClient } from "./prisma-client";
-import { PrismaLibSQL } from "@prisma/adapter-libsql";
-
+import { createLibsqlProxy } from "./libsql-proxy";
 import { resolve } from "path";
 
-// In-memory cache of PrismaClients keyed by db_url::token so we don't
-// re-open a Turso connection on every request. Mirrors apps/web/src/lib/db.ts.
 const clientCache = new Map<string, Client>();
-const prismaCache = new Map<string, PrismaClient>();
+const prismaCache = new Map<string, any>();
 const connectionKeys: string[] = [];
 const MAX_CONNECTIONS = 50;
 

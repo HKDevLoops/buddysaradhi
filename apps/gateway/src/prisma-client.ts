@@ -1,4 +1,3 @@
-// Re-export of standard @prisma/client generated into node_modules.
-export * from "@prisma/client";
-export { PrismaClient } from "@prisma/client";
-export type { Prisma } from "@prisma/client";
+// Type-only definitions for Prisma to avoid runtime @prisma/client initialization errors.
+export type PrismaClient = any;
+export type Prisma = any;
