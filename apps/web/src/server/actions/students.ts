@@ -28,6 +28,17 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     const proxy = createLibsqlProxy(client);
     const id = crypto.randomUUID();
     const code = s.code || `S-${Math.floor(100 + Math.random() * 900)}`;
+    let validAdmissionDate = new Date().toISOString().slice(0, 10);
+    const rawDate = s.admission_date || s.joined_at || s.admissionDate;
+    if (rawDate) {
+      try {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          validAdmissionDate = d.toISOString().slice(0, 10);
+        }
+      } catch {}
+    }
+
     const studentData = {
       id,
       tenantId,
@@ -39,7 +50,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       baseFeePaise: Number(s.baseFeePaise || s.base_fee_paise || s.baseFee || 2000) * 100,
       balancePaise: Number(s.balancePaise || 0),
       dupKey: code,
-      admissionDate: s.admission_date || new Date().toISOString(),
+      admissionDate: validAdmissionDate,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
