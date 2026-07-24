@@ -192,8 +192,9 @@ async function handleSecurityErase(db: any, tenantId: string) {
   }
 
 async function ensureSeeded(db: any, tenantId: string) {
-  const count = await db.student.count({ where: { tenantId } });
-  if (count > 0) return;
+  try {
+    const count = await db.student.count({ where: { tenantId } });
+    if (count > 0) return;
 
   // 1. Seed setting
   let settings = await db.setting.findUnique({ where: { tenantId } });
@@ -305,6 +306,9 @@ async function ensureSeeded(db: any, tenantId: string) {
         updatedAt: new Date(s.admitted),
       }
     });
+  }
+  } catch (err) {
+    log.warn("ensure_seeded_failed", err instanceof Error ? err.message : String(err));
   }
 }
 
