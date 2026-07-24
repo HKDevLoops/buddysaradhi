@@ -1,7 +1,7 @@
 "use server";
 
 import { Student } from "@buddysaradhi/shared";
-import { getAuthenticatedPrisma, gatewayPost } from "@/server/get-db";
+import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayPost } from "@/server/get-db";
 import { StudentFilters, SortCol } from "@/types/students";
 import { revalidatePath } from "next/cache";
 import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "../queries/students";
