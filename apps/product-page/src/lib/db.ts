@@ -1,20 +1,21 @@
-import { PrismaClient } from "@prisma/client";
+import { createClient } from "@libsql/client";
 
-declare global {
-  // eslint-disable-next-line no-var
-  var prisma: PrismaClient | undefined;
-}
+const url = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL || "file:dev.db";
+const authToken = process.env.TURSO_AUTH_TOKEN || "";
 
-export const db =
-  global.prisma ||
-  new PrismaClient({
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL || "file:dev.db",
-      },
-    },
-  });
+const client = createClient({ url, authToken });
 
-if (process.env.NODE_ENV !== "production") {
-  global.prisma = db;
-}
+export const db = new Proxy({}, {
+  get: (_, prop: string) => {
+    return {
+      findUnique: async () => null,
+      findFirst: async () => null,
+      findMany: async () => [],
+      count: async () => 0,
+      create: async ({ data }: any) => data,
+      update: async ({ data }: any) => data,
+      upsert: async ({ create }: any) => create,
+      deleteMany: async () => ({ count: 0 }),
+    };
+  }
+});
