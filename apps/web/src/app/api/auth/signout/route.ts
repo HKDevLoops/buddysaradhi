@@ -17,8 +17,8 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const APP_COOKIES = new Set(["buddysaradhi_session"]);
 
 function isSupabaseAuthCookie(name: string): boolean {
-  if (!name.startsWith("sb-")) return false;
-  return name.endsWith("-auth-token") || name.includes("-auth-token-code-verifier-");
+  if (name.startsWith("sb-")) return true;
+  return name.includes("auth-token") || name.includes("supabase");
 }
 
 function noStoreHeaders(): HeadersInit {

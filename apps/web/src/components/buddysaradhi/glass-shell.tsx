@@ -287,16 +287,27 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                         Settings Profile
                       </button>
                       <div className="h-px bg-[var(--border-glass)] w-full" />
-                      <form action="/api/auth/signout" method="POST" className="m-0 p-0">
-                        <button
-                          type="submit"
-                          role="menuitem"
-                          className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          Log Out
-                        </button>
-                      </form>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={async () => {
+                          try {
+                            const { createSupabaseBrowser } = await import("@/lib/supabase/client");
+                            const sb = createSupabaseBrowser();
+                            await sb.auth.signOut();
+                          } catch {}
+                          document.cookie.split(";").forEach((c) => {
+                            document.cookie = c
+                              .replace(/^ +/, "")
+                              .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                          });
+                          window.location.href = "/login";
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Log Out
+                      </button>
                     </div>
                   </>
                 )}
