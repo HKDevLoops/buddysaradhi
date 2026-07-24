@@ -189,11 +189,10 @@ export async function getAuthenticatedPrisma(): Promise<{
       dbToken = process.env.TURSO_AUTH_TOKEN || "";
     }
     const prisma = await getPrismaClientAsync(dbUrl, dbToken);
-    // Verify Prisma client engine works by executing a lightweight query check;
-    // if un-generated, this throws and falls through to the @libsql/client proxy.
-    if (prisma && prisma.student && typeof prisma.student.count === "function") {
-      await prisma.student.count({ where: { tenantId } });
-    }
+    // Execute a real query against the Prisma engine; if engine initialization fails,
+    // this throws and cleanly falls through to the zero-failure @libsql/client proxy.
+    const testCount = await prisma.student.count({ where: { tenantId } });
+    if (typeof testCount !== "number") throw new Error("Prisma query failed");
     return { db: prisma, userId, tenantId };
   } catch (err) {
     log.warn("prisma_client_init_failed_using_libsql_fallback", err instanceof Error ? err.message : String(err));
