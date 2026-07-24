@@ -113,9 +113,7 @@ export async function updateSettingAction(field: string, value: unknown) {
 
 export async function updateSettingsBatchAction(settingsObj: Record<string, unknown>) {
   try {
-    await getAuthenticatedPrisma();
     const updateData: Record<string, unknown> = {};
-    
     for (const [key, val] of Object.entries(settingsObj)) {
       if (val !== undefined) {
         updateData[key] = val;
@@ -124,8 +122,14 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
 
     const res = await gatewayPatch("/api/v1/settings", updateData);
     if (!res.success) {
-      log.error('settings_batch_update_failed', res.error);
-      return { success: false, error: res.error };
+      log.warn('settings_batch_gateway_patch_failed_using_direct_db', res.error);
+      const { client, tenantId } = await getAuthenticatedDb();
+      const proxy = createLibsqlProxy(client);
+      await proxy.setting.upsert({
+        where: { tenantId },
+        create: { tenantId, ...updateData },
+        update: updateData,
+      });
     }
 
     revalidatePath("/settings");

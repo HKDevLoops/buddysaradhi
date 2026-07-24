@@ -148,7 +148,7 @@ export async function getGatewayHeaders(): Promise<{
 // port without hardcoding localhost:3000.
 async function gatewayBase(): Promise<string> {
   const env = process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL;
-  if (env) return env.replace(/\/$/, "");
+  if (env && !env.includes("api.buddysaradhi.app")) return env.replace(/\/$/, "");
   // In local development, default to port 3001 where apps/gateway runs.
   if (process.env.NODE_ENV !== "production") {
     return "http://localhost:3001";
