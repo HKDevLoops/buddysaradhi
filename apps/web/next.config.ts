@@ -27,6 +27,7 @@ const csp: NextConfig["headers"] = () => [
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["172.23.224.1", "localhost", "127.0.0.1"],
+  serverExternalPackages: ["@prisma/client"],
   typescript: {
     ignoreBuildErrors: true,
   },
