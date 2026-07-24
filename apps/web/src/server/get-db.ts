@@ -194,31 +194,8 @@ export async function getAuthenticatedPrisma(): Promise<{
   userId: string;
   tenantId: string;
 }> {
-  const user = await getUser();
-  const userId = user ? user.id : LOCAL_TENANT;
-  const tenantId = userId;
-  try {
-    let dbUrl: string;
-    let dbToken: string;
-    if (user) {
-      const creds = getDbCredentials(user.user_metadata as Record<string, unknown>);
-      dbUrl = creds.dbUrl;
-      dbToken = creds.dbToken;
-    } else {
-      dbUrl = process.env.TURSO_DATABASE_URL || "";
-      dbToken = process.env.TURSO_AUTH_TOKEN || "";
-    }
-    const prisma = await getPrismaClientAsync(dbUrl, dbToken);
-    // Execute a real query against the Prisma engine; if engine initialization fails,
-    // this throws and cleanly falls through to the zero-failure @libsql/client proxy.
-    const testCount = await prisma.student.count({ where: { tenantId } });
-    if (typeof testCount !== "number") throw new Error("Prisma query failed");
-    return { db: prisma, userId, tenantId };
-  } catch (err) {
-    log.warn("prisma_client_init_failed_using_libsql_fallback", err instanceof Error ? err.message : String(err));
-    const { client } = await getAuthenticatedDb();
-    return { db: createLibsqlProxy(client), userId, tenantId };
-  }
+  const { client, userId, tenantId } = await getAuthenticatedDb();
+  return { db: createLibsqlProxy(client), userId, tenantId };
 }
 
 // Keep this alias for files that use getAuthenticatedRawClient
