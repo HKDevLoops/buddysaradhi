@@ -37,7 +37,7 @@ export function getDb(dbUrl: string, dbToken: string): Client {
 /**
  * Returns a PrismaClient connected to the user's personal Turso cloud DB.
  */
-import { createLibsqlProxy } from "@/server/get-db";
+import { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 export async function getPrismaClientAsync(dbUrl: string, dbToken: string): Promise<any> {
   const existing = prismaCache.get(dbUrl);
