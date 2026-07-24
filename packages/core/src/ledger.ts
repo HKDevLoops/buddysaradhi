@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { randomUUID, createHash } from "crypto";
 
 export type LedgerEntryType =
