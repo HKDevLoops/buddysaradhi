@@ -37,37 +37,47 @@ export function getDb(dbUrl: string, dbToken: string): Client {
 /**
  * Returns a PrismaClient connected to the user's personal Turso cloud DB.
  */
+import { createLibsqlProxy } from "@/server/get-db";
+
 export async function getPrismaClientAsync(dbUrl: string, dbToken: string): Promise<any> {
   const existing = prismaCache.get(dbUrl);
   if (existing) return existing;
 
-  const { PrismaClient } = await import("@prisma/client");
-  const { PrismaLibSQL } = await import("@prisma/adapter-libsql");
-
   const libsql = getDb(dbUrl, dbToken);
-  const adapter = new PrismaLibSQL(libsql) as any;
-  const prisma = new PrismaClient({ adapter });
-  
-  prismaCache.set(dbUrl, prisma);
-  return prisma;
+  try {
+    const { PrismaClient } = await import("@prisma/client");
+    const { PrismaLibSQL } = await import("@prisma/adapter-libsql");
+    const adapter = new PrismaLibSQL(libsql) as any;
+    const prisma = new PrismaClient({ adapter });
+    prismaCache.set(dbUrl, prisma);
+    return prisma;
+  } catch {
+    const proxy = createLibsqlProxy(libsql);
+    prismaCache.set(dbUrl, proxy);
+    return proxy;
+  }
 }
 
 export function getPrismaClient(dbUrl: string, dbToken: string): any {
   const existing = prismaCache.get(dbUrl);
   if (existing) return existing;
 
-  // Sync fallback requiring runtime client
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { PrismaClient } = require("@prisma/client");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { PrismaLibSQL } = require("@prisma/adapter-libsql");
-
   const libsql = getDb(dbUrl, dbToken);
-  const adapter = new PrismaLibSQL(libsql) as any;
-  const prisma = new PrismaClient({ adapter });
-  
-  prismaCache.set(dbUrl, prisma);
-  return prisma;
+  try {
+    // Sync fallback requiring runtime client
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient } = require("@prisma/client");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaLibSQL } = require("@prisma/adapter-libsql");
+    const adapter = new PrismaLibSQL(libsql) as any;
+    const prisma = new PrismaClient({ adapter });
+    prismaCache.set(dbUrl, prisma);
+    return prisma;
+  } catch {
+    const proxy = createLibsqlProxy(libsql);
+    prismaCache.set(dbUrl, proxy);
+    return proxy;
+  }
 }
 
 /**
