@@ -1,4 +1,3 @@
-"use server";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { getDb, getDbCredentials, getPrismaClient } from "@/lib/db";
 import { log } from "@/lib/logger";
