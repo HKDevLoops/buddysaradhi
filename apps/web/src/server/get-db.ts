@@ -40,7 +40,7 @@ export async function getAuthenticatedDb(): Promise<{
 }
 
 export async function getAuthenticatedPrisma(): Promise<{
-  db: import("@prisma/client").PrismaClient;
+  db: any;
   userId: string;
   tenantId: string;
 }> {
@@ -49,11 +49,11 @@ export async function getAuthenticatedPrisma(): Promise<{
     const { dbUrl, dbToken } = getDbCredentials(
       user.user_metadata as Record<string, unknown>
     );
-    return { db: getPrismaClient(dbUrl, dbToken), userId: user.id, tenantId: user.id };
+    return { db: await getPrismaClientAsync(dbUrl, dbToken), userId: user.id, tenantId: user.id };
   }
   const url = process.env.TURSO_DATABASE_URL || "";
   const token = process.env.TURSO_AUTH_TOKEN || "";
-  return { db: getPrismaClient(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
+  return { db: await getPrismaClientAsync(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
 }
 
 // Keep this alias for files that use getAuthenticatedRawClient

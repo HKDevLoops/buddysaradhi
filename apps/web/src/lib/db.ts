@@ -1,6 +1,4 @@
 import { createClient, Client } from "@libsql/client";
-import { PrismaClient } from "@prisma/client";
-import { PrismaLibSQL } from "@prisma/adapter-libsql";
 import { resolve } from "path";
 
 // ---------------------------------------------------------------------------
@@ -10,7 +8,7 @@ import { resolve } from "path";
 // Clients are cached in-process by db_url to avoid re-connecting each call.
 // ---------------------------------------------------------------------------
 const clientCache = new Map<string, Client>();
-const prismaCache = new Map<string, PrismaClient>();
+const prismaCache = new Map<string, any>();
 
 function normalizeLocalDbUrl(url: string): string {
   if (!url.startsWith("file:")) return url;
@@ -39,12 +37,32 @@ export function getDb(dbUrl: string, dbToken: string): Client {
 /**
  * Returns a PrismaClient connected to the user's personal Turso cloud DB.
  */
-export function getPrismaClient(dbUrl: string, dbToken: string): PrismaClient {
+export async function getPrismaClientAsync(dbUrl: string, dbToken: string): Promise<any> {
   const existing = prismaCache.get(dbUrl);
   if (existing) return existing;
 
+  const { PrismaClient } = await import("@prisma/client");
+  const { PrismaLibSQL } = await import("@prisma/adapter-libsql");
+
   const libsql = getDb(dbUrl, dbToken);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const adapter = new PrismaLibSQL(libsql) as any;
+  const prisma = new PrismaClient({ adapter });
+  
+  prismaCache.set(dbUrl, prisma);
+  return prisma;
+}
+
+export function getPrismaClient(dbUrl: string, dbToken: string): any {
+  const existing = prismaCache.get(dbUrl);
+  if (existing) return existing;
+
+  // Sync fallback requiring runtime client
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { PrismaClient } = require("@prisma/client");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { PrismaLibSQL } = require("@prisma/adapter-libsql");
+
+  const libsql = getDb(dbUrl, dbToken);
   const adapter = new PrismaLibSQL(libsql) as any;
   const prisma = new PrismaClient({ adapter });
   
