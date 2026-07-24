@@ -39,9 +39,22 @@ export async function getAuthenticatedDb(): Promise<{
   return { client: getDb(url, token), userId: LOCAL_TENANT, tenantId: LOCAL_TENANT };
 }
 
+function toDbCol(col: string): string {
+  return col.replace(/([A-Z])/g, "_$1").toLowerCase();
+}
+
+function toJsRow(row: any): any {
+  if (!row || typeof row !== "object") return row;
+  const out: any = {};
+  for (const k of Object.keys(row)) {
+    const camel = k.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    out[camel] = row[k];
+  }
+  return out;
+}
+
 export function createLibsqlProxy(client: Client): any {
   const modelProxy = (modelName: string) => {
-    // Map camelCase modelName to DB table name
     const tableMap: Record<string, string> = {
       setting: "settings",
       tutor: "tutors",
@@ -67,77 +80,84 @@ export function createLibsqlProxy(client: Client): any {
 
     return {
       findUnique: async ({ where }: any) => {
-        const key = Object.keys(where)[0];
-        const val = where[key];
-        const res = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${key}" = ? LIMIT 1`, args: [val] });
-        return res.rows[0] ? (res.rows[0] as any) : null;
+        const rawKey = Object.keys(where)[0];
+        const dbKey = toDbCol(rawKey);
+        const val = where[rawKey];
+        const res = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${dbKey}" = ? LIMIT 1`, args: [val] });
+        return res.rows[0] ? toJsRow(res.rows[0]) : null;
       },
       findFirst: async ({ where }: any) => {
         if (!where) {
           const res = await client.execute({ sql: `SELECT * FROM "${tableName}" LIMIT 1`, args: [] });
-          return res.rows[0] ? (res.rows[0] as any) : null;
+          return res.rows[0] ? toJsRow(res.rows[0]) : null;
         }
-        const keys = Object.keys(where);
-        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
-        const vals = keys.map(k => where[k]);
+        const rawKeys = Object.keys(where);
+        const whereClause = rawKeys.map(k => `"${toDbCol(k)}" = ?`).join(" AND ");
+        const vals = rawKeys.map(k => where[k]);
         const res = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE ${whereClause} LIMIT 1`, args: vals });
-        return res.rows[0] ? (res.rows[0] as any) : null;
+        return res.rows[0] ? toJsRow(res.rows[0]) : null;
       },
       findMany: async ({ where }: any = {}) => {
         if (!where || Object.keys(where).length === 0) {
           const res = await client.execute({ sql: `SELECT * FROM "${tableName}"`, args: [] });
-          return res.rows as any[];
+          return res.rows.map(toJsRow);
         }
-        const keys = Object.keys(where).filter(k => where[k] !== undefined && k !== "archivedAt");
-        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
-        const vals = keys.map(k => where[k]);
-        const sql = keys.length > 0 ? `SELECT * FROM "${tableName}" WHERE ${whereClause}` : `SELECT * FROM "${tableName}"`;
+        const rawKeys = Object.keys(where).filter(k => where[k] !== undefined && k !== "archivedAt");
+        const whereClause = rawKeys.map(k => `"${toDbCol(k)}" = ?`).join(" AND ");
+        const vals = rawKeys.map(k => where[k]);
+        const sql = rawKeys.length > 0 ? `SELECT * FROM "${tableName}" WHERE ${whereClause}` : `SELECT * FROM "${tableName}"`;
         const res = await client.execute({ sql, args: vals });
-        return res.rows as any[];
+        return res.rows.map(toJsRow);
       },
       count: async ({ where }: any = {}) => {
         if (!where || Object.keys(where).length === 0) {
           const res = await client.execute({ sql: `SELECT COUNT(*) as c FROM "${tableName}"`, args: [] });
           return Number(res.rows[0]?.c || 0);
         }
-        const keys = Object.keys(where).filter(k => where[k] !== undefined);
-        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
-        const vals = keys.map(k => where[k]);
-        const sql = keys.length > 0 ? `SELECT COUNT(*) as c FROM "${tableName}" WHERE ${whereClause}` : `SELECT COUNT(*) as c FROM "${tableName}"`;
+        const rawKeys = Object.keys(where).filter(k => where[k] !== undefined);
+        const whereClause = rawKeys.map(k => `"${toDbCol(k)}" = ?`).join(" AND ");
+        const vals = rawKeys.map(k => where[k]);
+        const sql = rawKeys.length > 0 ? `SELECT COUNT(*) as c FROM "${tableName}" WHERE ${whereClause}` : `SELECT COUNT(*) as c FROM "${tableName}"`;
         const res = await client.execute({ sql, args: vals });
         return Number(res.rows[0]?.c || 0);
       },
       create: async ({ data }: any) => {
-        const cols = Object.keys(data).filter(k => data[k] !== undefined);
-        const vals = cols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
-        const sql = `INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(",")}) VALUES (${cols.map(() => "?").join(",")})`;
+        const rawCols = Object.keys(data).filter(k => data[k] !== undefined);
+        const dbCols = rawCols.map(toDbCol);
+        const vals = rawCols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
+        const sql = `INSERT INTO "${tableName}" (${dbCols.map(c => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`;
         await client.execute({ sql, args: vals });
         return data;
       },
       update: async ({ where, data }: any) => {
-        const key = Object.keys(where)[0];
-        const val = where[key];
-        const cols = Object.keys(data).filter(k => data[k] !== undefined);
-        const vals = cols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
-        const setStr = cols.map(c => `"${c}" = ?`).join(",");
-        const sql = `UPDATE "${tableName}" SET ${setStr} WHERE "${key}" = ?`;
+        const rawKey = Object.keys(where)[0];
+        const dbKey = toDbCol(rawKey);
+        const val = where[rawKey];
+        const rawCols = Object.keys(data).filter(k => data[k] !== undefined);
+        const dbCols = rawCols.map(toDbCol);
+        const vals = rawCols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
+        const setStr = dbCols.map(c => `"${c}" = ?`).join(",");
+        const sql = `UPDATE "${tableName}" SET ${setStr} WHERE "${dbKey}" = ?`;
         await client.execute({ sql, args: [...vals, val] });
         return data;
       },
       upsert: async ({ where, create, update }: any) => {
-        const key = Object.keys(where)[0];
-        const val = where[key];
-        const existing = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${key}" = ? LIMIT 1`, args: [val] });
+        const rawKey = Object.keys(where)[0];
+        const dbKey = toDbCol(rawKey);
+        const val = where[rawKey];
+        const existing = await client.execute({ sql: `SELECT * FROM "${tableName}" WHERE "${dbKey}" = ? LIMIT 1`, args: [val] });
         if (existing.rows.length > 0) {
-          const cols = Object.keys(update).filter(k => update[k] !== undefined);
-          const vals = cols.map(k => update[k] instanceof Date ? update[k].toISOString() : update[k]);
-          const setStr = cols.map(c => `"${c}" = ?`).join(",");
-          await client.execute({ sql: `UPDATE "${tableName}" SET ${setStr} WHERE "${key}" = ?`, args: [...vals, val] });
-          return { ...existing.rows[0], ...update };
+          const rawCols = Object.keys(update).filter(k => update[k] !== undefined);
+          const dbCols = rawCols.map(toDbCol);
+          const vals = rawCols.map(k => update[k] instanceof Date ? update[k].toISOString() : update[k]);
+          const setStr = dbCols.map(c => `"${c}" = ?`).join(",");
+          await client.execute({ sql: `UPDATE "${tableName}" SET ${setStr} WHERE "${dbKey}" = ?`, args: [...vals, val] });
+          return { ...toJsRow(existing.rows[0]), ...update };
         } else {
-          const cols = Object.keys(create).filter(k => create[k] !== undefined);
-          const vals = cols.map(k => create[k] instanceof Date ? create[k].toISOString() : create[k]);
-          await client.execute({ sql: `INSERT INTO "${tableName}" (${cols.map(c => `"${c}"`).join(",")}) VALUES (${cols.map(() => "?").join(",")})`, args: vals });
+          const rawCols = Object.keys(create).filter(k => create[k] !== undefined);
+          const dbCols = rawCols.map(toDbCol);
+          const vals = rawCols.map(k => create[k] instanceof Date ? create[k].toISOString() : create[k]);
+          await client.execute({ sql: `INSERT INTO "${tableName}" (${dbCols.map(c => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`, args: vals });
           return create;
         }
       },
@@ -146,9 +166,9 @@ export function createLibsqlProxy(client: Client): any {
           const res = await client.execute({ sql: `DELETE FROM "${tableName}"`, args: [] });
           return { count: Number(res.rowsAffected || 0) };
         }
-        const keys = Object.keys(where).filter(k => where[k] !== undefined);
-        const whereClause = keys.map(k => `"${k}" = ?`).join(" AND ");
-        const vals = keys.map(k => where[k]);
+        const rawKeys = Object.keys(where).filter(k => where[k] !== undefined);
+        const whereClause = rawKeys.map(k => `"${toDbCol(k)}" = ?`).join(" AND ");
+        const vals = rawKeys.map(k => where[k]);
         const res = await client.execute({ sql: `DELETE FROM "${tableName}" WHERE ${whereClause}`, args: vals });
         return { count: Number(res.rowsAffected || 0) };
       }
