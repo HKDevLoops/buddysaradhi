@@ -5,7 +5,7 @@ import { existsSync, unlinkSync, mkdirSync, mkdtempSync, rmdirSync } from "fs";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
 import { getPrismaClient } from "../../../apps/gateway/src/db";
-import { PrismaClient } from "../../../apps/gateway/src/prisma";
+import { PrismaClient } from "@prisma/client";
 import {
   postLedgerEntry,
   voidEntry,

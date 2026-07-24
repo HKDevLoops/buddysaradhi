@@ -8,11 +8,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node"],
-    "baseUrl": ".",
-    "paths": {
-      "@prisma/client": ["../../apps/gateway/src/prisma"]
-    }
+    "types": ["node"]
   },
   "include": ["src/**/*"]
 }
