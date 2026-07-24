@@ -311,9 +311,16 @@ async function dispatch(req: NextRequest, slug: string[]) {
   const method = req.method;
   const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
 
-  const auth = await getAuthenticatedPrisma();
-  const db = auth.db;
-  const tenantId = auth.tenantId;
+  let db: any;
+  let tenantId: string;
+  try {
+    const auth = await getAuthenticatedPrisma();
+    db = auth.db;
+    tenantId = auth.tenantId;
+  } catch (err) {
+    log.error("prisma_client_init_failed", err instanceof Error ? err.message : String(err), { path, method });
+    return dispatchGateway(req, path, method);
+  }
 
   await ensureSeeded(db, tenantId);
 
