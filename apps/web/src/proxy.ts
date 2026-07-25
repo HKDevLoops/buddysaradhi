@@ -154,10 +154,12 @@ export default function proxy(req: NextRequest) {
 
   if (isHtmlPage && nonce) {
     const devConnect = process.env.NODE_ENV !== 'production' ? ' ws://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3010 ws://localhost:3100' : '';
-    const devScript = process.env.NODE_ENV !== 'production' ? " 'unsafe-eval'" : '';
+    const scriptCsp = process.env.NODE_ENV !== 'production'
+      ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.supabase.co";
     res.headers.set('Content-Security-Policy', `
       default-src 'self';
-      script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${devScript};
+      ${scriptCsp};
       style-src 'self' 'unsafe-inline';
       img-src 'self' data: https://*.supabase.co;
       connect-src 'self' https://*.supabase.co https://*.turso.ai https://api.buddysaradhi.app${devConnect};
