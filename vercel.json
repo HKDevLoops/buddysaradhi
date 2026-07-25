@@ -1,4 +1,4 @@
 {
-  "buildCommand": "npx prisma generate && pnpm --filter web build",
-  "installCommand": "pnpm install && npx prisma generate"
+  "buildCommand": "bun x prisma generate && bun --filter web build",
+  "installCommand": "bun install && bun x prisma generate"
 }

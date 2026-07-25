@@ -22,7 +22,7 @@ const __dirname = dirname(__filename);
 const TENANT = "test-tenant";
 
 const REPO = resolve(__dirname, "../../../"); // packages/core/src -> repo root
-const SCHEMA = resolve(REPO, "apps/gateway/prisma/schema.prisma");
+const SCHEMA = resolve(REPO, "prisma/schema.prisma");
 
 let TEST_DB: string;
 let DATABASE_URL: string;
@@ -76,9 +76,15 @@ beforeAll(() => {
     {
       stdio: "ignore",
       env: { ...process.env, DATABASE_URL },
-    },
+    }
   );
-  prisma = getPrismaClient(DATABASE_URL, "");
+  prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url: DATABASE_URL,
+      },
+    },
+  });
 });
 
 afterAll(async () => {

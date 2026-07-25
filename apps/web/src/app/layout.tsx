@@ -27,6 +27,8 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
+export const runtime = "edge";
+
 export const viewport: Viewport = {
   viewportFit: 'cover',
   themeColor: [

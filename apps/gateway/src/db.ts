@@ -26,7 +26,7 @@ export function getDbClient(dbUrl: string, dbToken: string): Client {
   return client;
 }
 
-import { createLibsqlProxy } from "./libsql-proxy";
+// Connection Cache
 
 export function getPrismaClient(dbUrl: string, dbToken: string): any {
   const key = `${dbUrl}::${dbToken}`;

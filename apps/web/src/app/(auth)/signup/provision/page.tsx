@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-static";
+
 // Implements: 18_Microservice_Architecture.md — provision-db client
 // This page is shown when a user needs their database provisioned.
 // It calls /api/provision which creates a real Turso DB and stores
@@ -53,7 +55,7 @@ export default function ProvisionPage() {
       setStatus("creating");
 
       // Call our provisioning API to create a real Turso DB
-      const res = await fetch("/api/provision", {
+      const res = await fetch("/api/v1/provision", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,

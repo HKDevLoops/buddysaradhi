@@ -44,7 +44,7 @@ export function useAutoProvision() {
         return;
       }
 
-      const res = await fetch("/api/provision", {
+      const res = await fetch("/api/v1/provision", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,

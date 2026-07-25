@@ -4,6 +4,7 @@ import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
 import { headers } from "next/headers";
 import { createHmac } from "crypto";
+import { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 const LOCAL_TENANT = "local-dev";
 

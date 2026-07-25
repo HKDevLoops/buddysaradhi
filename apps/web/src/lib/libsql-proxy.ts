@@ -128,6 +128,93 @@ export function createLibsqlProxy(client: Client): any {
         const res = await execSafe(client, sql, vals);
         return Number(res.rows[0]?.c || 0);
       },
+      aggregate: async ({ where, _sum, _avg, _min, _max, _count }: any = {}) => {
+        const { whereClause, vals } = buildWhereClause(where);
+        const selects: string[] = [];
+        if (_sum) {
+          for (const k of Object.keys(_sum)) {
+            selects.push(`SUM(CAST("${toDbCol(k)}" AS INTEGER)) as "sum_${k}"`);
+          }
+        }
+        if (_avg) {
+          for (const k of Object.keys(_avg)) {
+            selects.push(`AVG(CAST("${toDbCol(k)}" AS REAL)) as "avg_${k}"`);
+          }
+        }
+        if (_min) {
+          for (const k of Object.keys(_min)) {
+            selects.push(`MIN("${toDbCol(k)}") as "min_${k}"`);
+          }
+        }
+        if (_max) {
+          for (const k of Object.keys(_max)) {
+            selects.push(`MAX("${toDbCol(k)}") as "max_${k}"`);
+          }
+        }
+        if (_count) {
+          if (typeof _count === "object") {
+            for (const k of Object.keys(_count)) {
+              selects.push(`COUNT("${toDbCol(k)}") as "count_${k}"`);
+            }
+          } else {
+            selects.push(`COUNT(*) as "count_all"`);
+          }
+        }
+        if (selects.length === 0) selects.push("COUNT(*) as \"count_all\"");
+        const sql = `SELECT ${selects.join(", ")} FROM "${tableName}" ${whereClause}`.trim();
+        const res = await execSafe(client, sql, vals);
+        const row = res.rows[0] || {};
+        const getVal = (r: any, key: string) => {
+          if (r[key] !== undefined) return r[key];
+          const camel = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+          if (r[camel] !== undefined) return r[camel];
+          const lower = key.toLowerCase();
+          for (const rk of Object.keys(r)) {
+            if (rk.toLowerCase() === lower) return r[rk];
+          }
+          return undefined;
+        };
+        const out: any = {};
+        if (_sum) {
+          out._sum = {};
+          for (const k of Object.keys(_sum)) {
+            const sumVal = getVal(row, `sum_${k}`);
+            out._sum[k] = sumVal !== undefined && sumVal !== null && !isNaN(Number(sumVal)) ? Number(sumVal) : null;
+          }
+        }
+        if (_avg) {
+          out._avg = {};
+          for (const k of Object.keys(_avg)) {
+            const avgVal = getVal(row, `avg_${k}`);
+            out._avg[k] = avgVal !== undefined && avgVal !== null && !isNaN(Number(avgVal)) ? Number(avgVal) : null;
+          }
+        }
+        if (_min) {
+          out._min = {};
+          for (const k of Object.keys(_min)) {
+            out._min[k] = getVal(row, `min_${k}`) ?? null;
+          }
+        }
+        if (_max) {
+          out._max = {};
+          for (const k of Object.keys(_max)) {
+            out._max[k] = getVal(row, `max_${k}`) ?? null;
+          }
+        }
+        if (_count) {
+          out._count = {};
+          if (typeof _count === "object") {
+            for (const k of Object.keys(_count)) {
+              const countVal = getVal(row, `count_${k}`);
+              out._count[k] = countVal !== undefined && countVal !== null ? Number(countVal) : 0;
+            }
+          } else {
+            const countAllVal = getVal(row, "count_all");
+            out._count = countAllVal !== undefined && countAllVal !== null ? Number(countAllVal) : 0;
+          }
+        }
+        return out;
+      },
       create: async ({ data }: any) => {
         const rawCols = Object.keys(data).filter(k => data[k] !== undefined);
         const dbCols = rawCols.map(toDbCol);

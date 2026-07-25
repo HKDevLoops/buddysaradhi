@@ -1,6 +1,6 @@
 "use server";
 
-import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch } from "@/server/get-db";
+import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlProxy } from "@/server/get-db";
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";

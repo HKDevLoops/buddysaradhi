@@ -58,6 +58,9 @@ jobs:
       - name: Web / Unit Tests (Vitest)
         run: cd apps/web && bun test --run
 
+      - name: Web / Build
+        run: cd apps/web && bun run build
+
       - name: Install Playwright Browsers
         run: cd apps/web && bunx playwright install --with-deps
 

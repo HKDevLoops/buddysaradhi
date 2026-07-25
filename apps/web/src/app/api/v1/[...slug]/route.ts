@@ -2,6 +2,8 @@
 // apps/web/src/app/api/v1/[...slug]/route.ts
 // Embedded API Gateway (BFF) for BuddySaradhi.
 //
+
+export const runtime = "edge";
 // History: this route originally imported @prisma/client directly. After the
 // root-level Prisma upgrade to v7 broke the generated-client artefact for
 // `apps/web` (v7 wasm payload missing in bun cache → "Prisma client did not
@@ -316,6 +318,209 @@ async function dispatch(req: NextRequest, slug: string[]) {
   const path = "/" + slug.join("/");
   const method = req.method;
   const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
+
+  // For all standard routes, try routing to the API gateway first.
+  if (path !== "/releases/latest" && path !== "/auth/signout" && path !== "/provision") {
+    try {
+      const res = await dispatchGateway(req, path, method);
+      if (res.status !== 502) {
+        return res;
+      }
+    } catch (err) {
+      log.warn("gateway_dispatch_fallback", `Gateway request failed, falling back to local DB proxy: ${err}`);
+    }
+  }
+
+  // --- Releases ---
+  if (path === "/releases/latest" && method === "GET") {
+    const manifest = {
+      version: "1.4.0",
+      releasedAt: "2025-06-27T10:00:00Z",
+      changelogUrl: "/changelog/1.4.0",
+      platforms: {
+        macos: {
+          url: "https://public.blob.vercel-storage.com/buddysaradhi/desktop/macos/Buddysaradhi-1.4.0-universal.dmg",
+          size: 14212456,
+          sha256: "a3f5e8b9c1d2e4f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0",
+          minOs: "11.0"
+        },
+        windows: {
+          url: "https://public.blob.vercel-storage.com/buddysaradhi/desktop/windows/Buddysaradhi-Setup-1.4.0-x64.msi",
+          size: 11800000,
+          sha256: "b4f6e9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
+          minOs: "10.0.19041"
+        },
+        android: {
+          url: "https://public.blob.vercel-storage.com/buddysaradhi/mobile/android/Buddysaradhi-1.4.0-universal.apk",
+          size: 28000000,
+          sha256: "c5f7e0d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          minSdk: "26"
+        },
+        ios: {
+          url: null,
+          testFlightUrl: "https://testflight.apple.com/join/abc123XY",
+          minIos: "16.0"
+        }
+      }
+    };
+    return NextResponse.json(manifest, {
+      headers: { 'Cache-Control': 'public, max-age=3600' },
+    });
+  }
+
+  // --- Auth Signout ---
+  if (path === "/auth/signout" && method === "POST") {
+    const accept = req.headers.get("accept") ?? "";
+    const wantsJson = accept.includes("application/json");
+    const url = new URL("/login", req.url);
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const APP_COOKIES = new Set(["buddysaradhi_session"]);
+    const isSupabaseAuthCookie = (name: string) => name.startsWith("sb-") || name.includes("auth-token") || name.includes("supabase");
+
+    let accessToken: string | null = null;
+    for (const cookie of req.cookies.getAll()) {
+      if (isSupabaseAuthCookie(cookie.name)) {
+        accessToken = cookie.value;
+        break;
+      }
+    }
+
+    if (SUPABASE_URL && SUPABASE_SERVICE_KEY && accessToken) {
+      try {
+        const { createClient } = await import("@supabase/supabase-js");
+        const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        await admin.auth.admin.signOut(accessToken, "global");
+      } catch (err) {
+        log.error("auth_signout_admin_failed", err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    const noStoreHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" };
+    const body = wantsJson
+      ? NextResponse.json({ success: true, signedOut: true }, { headers: noStoreHeaders })
+      : NextResponse.redirect(url, { status: 302, headers: noStoreHeaders });
+
+    for (const cookie of req.cookies.getAll()) {
+      if (isSupabaseAuthCookie(cookie.name) || APP_COOKIES.has(cookie.name)) {
+        body.cookies.delete(cookie.name);
+      }
+    }
+    return body;
+  }
+
+  // --- Provision ---
+  if (path === "/provision" && method === "POST") {
+    const TURSO_API_TOKEN = process.env.TURSO_API_TOKEN;
+    const TURSO_ORGANISATION_SLUG = process.env.TURSO_ORGANISATION_SLUG || process.env.TURSO_ORGANISATION_NAME;
+    const TURSO_SHARED_URL = process.env.TURSO_DATABASE_URL;
+    const TURSO_SHARED_TOKEN = process.env.TURSO_AUTH_TOKEN;
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const jwt = authHeader.replace(/^Bearer\s+/i, "");
+    if (!jwt) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const adminSupabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
+    const { data: userData, error: userErr } = await adminSupabase.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      return NextResponse.json({ success: false, error: "Invalid session" }, { status: 401 });
+    }
+
+    const user = userData.user;
+    const existingDbUrl = user.user_metadata?.db_url as string | undefined;
+
+    if (existingDbUrl && !existingDbUrl.includes("dummy-local-dev-url") && !existingDbUrl.includes("file:")) {
+      return NextResponse.json({ success: true, message: "already_provisioned", dbUrl: existingDbUrl });
+    }
+
+    let dbUrl: string | null = null;
+    let dbToken: string | null = null;
+    let method = "turso";
+
+    if (TURSO_API_TOKEN && TURSO_ORGANISATION_SLUG) {
+      const dbName = `buddysaradhi-${user.id.slice(0, 16)}`;
+      try {
+        const createRes = await fetch(
+          `https://api.turso.tech/v1/organizations/${TURSO_ORGANISATION_SLUG}/databases`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${TURSO_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ name: dbName, group: "buddysaradhi" }),
+          }
+        );
+
+        if (createRes.ok || createRes.status === 422) {
+          let dbHostname: string | null = null;
+          if (createRes.ok) {
+            const createData = await createRes.json() as any;
+            dbHostname = createData.database?.Hostname ?? null;
+          }
+          const tokenRes = await fetch(
+            `https://api.turso.tech/v1/organizations/${TURSO_ORGANISATION_SLUG}/databases/${dbName}/auth/tokens`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${TURSO_API_TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ expiration: "never", authorization: "full-access" }),
+            }
+          );
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json() as any;
+            if (tokenData.jwt) {
+              const hostname = dbHostname ?? `${dbName}-${TURSO_ORGANISATION_SLUG}.aws-ap-south-1.turso.io`;
+              dbUrl = `libsql://${hostname}`;
+              dbToken = tokenData.jwt;
+            }
+          }
+        }
+      } catch (err) {
+        log.error("turso_api_error", err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    if (!dbUrl || !dbToken) {
+      if (TURSO_SHARED_URL && TURSO_SHARED_TOKEN) {
+        dbUrl = TURSO_SHARED_URL;
+        dbToken = TURSO_SHARED_TOKEN;
+        method = "shared";
+      }
+    }
+
+    if (!dbUrl || !dbToken) {
+      return NextResponse.json({ success: false, error: "Unable to provision database." }, { status: 503 });
+    }
+
+    const { error: updateErr } = await adminSupabase.auth.admin.updateUserById(user.id, {
+      user_metadata: {
+        ...user.user_metadata,
+        db_url: dbUrl,
+        db_token: dbToken,
+        provisioned_at: new Date().toISOString(),
+        provision_method: method,
+      },
+    });
+
+    if (updateErr) {
+      return NextResponse.json({ success: false, error: "Failed to store database credentials." }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: "provisioned", method });
+  }
 
   let db: any;
   let tenantId: string;

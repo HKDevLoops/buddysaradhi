@@ -34,6 +34,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return csp();
   },
+  async redirects() {
+    return [
+      { source: "/landing", destination: "/", permanent: true },
+      { source: "/dpa", destination: "/", permanent: true },
+      { source: "/faq", destination: "/", permanent: true },
+      { source: "/privacy", destination: "/", permanent: true },
+      { source: "/terms", destination: "/", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;
