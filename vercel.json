@@ -1,4 +1,4 @@
 {
-  "buildCommand": "bun x prisma generate && bun --filter web build",
+  "buildCommand": "bun x prisma generate && bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && bun --filter web build",
   "installCommand": "bun install && bun x prisma generate"
 }
