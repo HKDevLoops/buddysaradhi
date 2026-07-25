@@ -189,7 +189,7 @@ async function gatewayBase(): Promise<string> {
   if (process.env.NODE_ENV !== "production") {
     return "http://localhost:3001";
   }
-  return "https://buddysaradhi.vercel.app";
+  return "https://gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway";
 }
 
 export async function gatewayGet<T = unknown>(
