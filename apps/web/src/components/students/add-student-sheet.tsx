@@ -39,7 +39,7 @@ export function AddStudentSheet() {
   const router = useRouter();
 
   const { register, control, handleSubmit, formState: { errors }, reset } = useForm<FormValues>({
-    resolver: zodResolver(FormSchema),
+    resolver: zodResolver(FormSchema as any),
     defaultValues: {
       name: "",
       batch: "",

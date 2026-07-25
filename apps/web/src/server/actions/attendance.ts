@@ -3,7 +3,6 @@
 import { getAttendanceForDate } from "../queries/attendance";
 import { getAuthenticatedDb } from "@/server/get-db";
 import { UpdateAttendancePayload } from "@buddysaradhi/shared";
-import { randomUUID } from "crypto";
 import { log } from "@/lib/logger";
 
 export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
@@ -28,7 +27,7 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       if (existing.locked_at) throw new Error("Session is locked. Unlock it to edit.");
       sessionId = existing.id as string;
     } else {
-      sessionId = randomUUID();
+      sessionId = crypto.randomUUID();
       await client.execute({
         sql: `INSERT INTO attendance_sessions (id, tenant_id, session_date, batch_id, created_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?)`,
@@ -38,8 +37,8 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
 
     // 2. Upsert attendance records + sync_outbox
     for (const update of payload.updates) {
-      const recordId = randomUUID();
-      const outboxId = randomUUID();
+      const recordId = crypto.randomUUID();
+      const outboxId = crypto.randomUUID();
 
       await client.execute({
         sql: `INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, marked_at, created_at, updated_at)
@@ -81,7 +80,7 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     await client.execute({
       sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
             VALUES (?, ?, ?, 'attendance_session', ?, 'session_locked', ?, ?)`,
-      args: [randomUUID(), tenantId, tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
+      args: [crypto.randomUUID(), tenantId, tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
     });
 
     return { success: true };

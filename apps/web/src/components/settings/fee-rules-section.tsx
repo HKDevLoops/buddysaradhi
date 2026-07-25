@@ -36,7 +36,7 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
     reset,
     formState: { errors, isDirty },
   } = useForm<FeeRulesFormValues>({
-    resolver: zodResolver(feeRulesSchema),
+    resolver: zodResolver(feeRulesSchema as any),
     defaultValues: {
       invoicePrefix: settings?.invoicePrefix || "INV-",
       receiptPrefix: settings?.receiptPrefix || "RCP-",

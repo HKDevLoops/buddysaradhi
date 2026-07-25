@@ -1,5 +1,4 @@
 import { createClient, Client } from "@libsql/client";
-import { resolve } from "path";
 
 // ---------------------------------------------------------------------------
 // Per-user cloud DB client cache
@@ -13,9 +12,6 @@ const prismaCache = new Map<string, any>();
 function normalizeLocalDbUrl(url: string): string {
   if (!url.startsWith("file:")) return url;
   let filePath = url.slice("file:".length);
-  if (!filePath.startsWith("/") && !filePath.startsWith("\\") && !/^[a-zA-Z]:/.test(filePath)) {
-    filePath = resolve(filePath);
-  }
   const cleanPath = filePath.replace(/^\/+/, "").replace(/\\/g, "/");
   return `file:///${cleanPath}`;
 }

@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  window.fetch = originalFetch;
+  (window as any).fetch = originalFetch;
   vi.clearAllMocks();
 });
 
@@ -76,7 +76,7 @@ describe('useAutoProvision', () => {
   // ── 1. Patches window.fetch on mount and restores on unmount ──
   it('patches window.fetch when mounted and restores it on unmount', () => {
     const nativeFetch = vi.fn().mockResolvedValue(makeResponse(200, {}));
-    window.fetch = nativeFetch;
+    (window as any).fetch = nativeFetch as any;
 
     const { unmount } = renderHook(() => useAutoProvision());
 
@@ -106,7 +106,7 @@ describe('useAutoProvision', () => {
       if (url.includes('/api/provision')) return Promise.resolve(provisionResponse);
       return Promise.resolve(studentResponse);
     });
-    window.fetch = fetchMock;
+    (window as any).fetch = fetchMock as any;
 
     renderHook(() => useAutoProvision());
 
@@ -134,7 +134,7 @@ describe('useAutoProvision', () => {
     const response503NoFlag = makeResponse(503, { error: 'something_else' });
 
     const fetchMock = vi.fn().mockResolvedValue(response503NoFlag);
-    window.fetch = fetchMock;
+    (window as any).fetch = fetchMock as any;
 
     renderHook(() => useAutoProvision());
 
@@ -157,7 +157,7 @@ describe('useAutoProvision', () => {
     const response200 = makeResponse(200, { students: [] });
 
     const fetchMock = vi.fn().mockResolvedValue(response200);
-    window.fetch = fetchMock;
+    (window as any).fetch = fetchMock as any;
 
     renderHook(() => useAutoProvision());
 
@@ -180,7 +180,7 @@ describe('useAutoProvision', () => {
     const response503 = makeResponse(503, { needs_provision: true });
 
     const fetchMock = vi.fn().mockResolvedValue(response503);
-    window.fetch = fetchMock;
+    (window as any).fetch = fetchMock as any;
 
     renderHook(() => useAutoProvision());
 
@@ -204,7 +204,7 @@ describe('useAutoProvision', () => {
     const response404 = makeResponse(404, { error: 'not_found' });
 
     const fetchMock = vi.fn().mockResolvedValue(response404);
-    window.fetch = fetchMock;
+    (window as any).fetch = fetchMock as any;
 
     renderHook(() => useAutoProvision());
 

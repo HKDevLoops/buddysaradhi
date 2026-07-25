@@ -3,7 +3,6 @@ import { getDb, getDbCredentials, getPrismaClient } from "@/lib/db";
 import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
 import { headers } from "next/headers";
-import { createHmac } from "crypto";
 import { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 const LOCAL_TENANT = "local-dev";
@@ -82,6 +81,35 @@ function resolveSharedSecret(): string {
 }
 const SHARED_SECRET = resolveSharedSecret();
 
+async function signHmacSha256(secret: string, data: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(data);
+
+  const cryptoSubtle = typeof globalThis !== 'undefined' ? globalThis.crypto?.subtle : null;
+  if (!cryptoSubtle) {
+    throw new Error("Web Crypto API (crypto.subtle) is not available.");
+  }
+
+  const key = await cryptoSubtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await cryptoSubtle.sign(
+    "HMAC",
+    key,
+    messageData
+  );
+
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function getGatewayHeaders(): Promise<{
   tenantId: string;
   headers: {
@@ -114,7 +142,7 @@ export async function getGatewayHeaders(): Promise<{
       user.user_metadata as Record<string, unknown>
     );
     const dataToSign = `${user.id}:${dbUrl}:${dbToken}:${timestamp}`;
-    const signature = createHmac("sha256", SHARED_SECRET).update(dataToSign).digest("hex");
+    const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
 
     return {
       tenantId: user.id,
@@ -134,7 +162,7 @@ export async function getGatewayHeaders(): Promise<{
   const dbUrl = process.env.TURSO_DATABASE_URL || "";
   const dbToken = process.env.TURSO_AUTH_TOKEN || "";
   const dataToSign = `${LOCAL_TENANT}:${dbUrl}:${dbToken}:${timestamp}`;
-  const signature = createHmac("sha256", SHARED_SECRET).update(dataToSign).digest("hex");
+  const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
 
   return {
     tenantId: LOCAL_TENANT,

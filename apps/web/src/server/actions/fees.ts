@@ -1,7 +1,6 @@
 "use server";
 
 import { z } from "zod";
-import { createHmac, randomUUID } from "crypto";
 import { getAuthenticatedDb } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
@@ -17,9 +16,35 @@ const FeeInputSchema = z.object({
 });
 
 // R-CRYPTO-1, R-CRYPTO-2, Rule 8. Paise integer + HMAC-SHA256 chain.
-function computeSimpleHash(prevHash: string | null, payload: string, timestamp: string, secret: string): string {
+async function computeSimpleHash(prevHash: string | null, payload: string, timestamp: string, secret: string): Promise<string> {
   const raw = `${prevHash ?? ""}|${payload}|${timestamp}|${secret}`;
-  return createHmac("sha256", secret).update(raw).digest("hex");
+  
+  const cryptoSubtle = typeof globalThis !== 'undefined' ? globalThis.crypto?.subtle : null;
+  if (!cryptoSubtle) {
+    throw new Error("Web Crypto API (crypto.subtle) is not available.");
+  }
+
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(raw);
+
+  const key = await cryptoSubtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await cryptoSubtle.sign(
+    "HMAC",
+    key,
+    messageData
+  );
+
+  return Array.from(new Uint8Array(signature))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function postLedgerEntryRaw(
@@ -33,7 +58,7 @@ async function postLedgerEntryRaw(
   occurredOn: string,
 ) {
   const now = new Date().toISOString();
-  const entryId = randomUUID();
+  const entryId = crypto.randomUUID();
 
   // 1. Get last entry for running balance + hash chain
   const [lastRes, settingRes] = await Promise.all([
@@ -57,7 +82,7 @@ async function postLedgerEntryRaw(
   if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
 
   const payload = JSON.stringify({ id: entryId, studentId, type, debitPaise, creditPaise, balanceAfterPaise: newBalance, occurredOn });
-  const thisHash = computeSimpleHash(prevHash, payload, now, secret);
+  const thisHash = await computeSimpleHash(prevHash, payload, now, secret);
 
   // Rule 7: ledger + sync_outbox + audit_log in one batch.
   await client.batch(
@@ -73,13 +98,13 @@ async function postLedgerEntryRaw(
       {
         sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
               VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
-        args: [randomUUID(), tenantId, entryId, payload, now],
+        args: [crypto.randomUUID(), tenantId, entryId, payload, now],
       },
       {
         sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
-          randomUUID(), tenantId, tenantId,
+          crypto.randomUUID(), tenantId, tenantId,
           `ledger.${type.toLowerCase()}`,
           "student", studentId,
           JSON.stringify({ entryId, debitPaise, creditPaise, newBalance }),
@@ -142,7 +167,7 @@ export async function recordPaymentAction(
 
     // 3. If there is remaining payment (or no invoices existed), auto-generate a paid invoice
     if (remainingPayment > 0) {
-      const autoInvoiceId = randomUUID();
+      const autoInvoiceId = crypto.randomUUID();
       const code = `INV-AUTO-${Math.floor(1000 + Math.random() * 9000)}`;
       
       // Auto-create a matching invoice
@@ -203,7 +228,7 @@ export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
 
     // Insert reversing entry (BR-LED-01: append-only, voids are new rows)
     const now = new Date().toISOString();
-    const voidId = randomUUID();
+    const voidId = crypto.randomUUID();
     const voidedAmount = entry.credit_paise as number;
 
     const lastRes = await client.execute({
@@ -218,7 +243,7 @@ export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
     const settingRes = await client.execute({ sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`, args: [tenantId] });
     const secret = settingRes.rows[0]?.tenant_secret as string ?? "default-secret";
     const payload = JSON.stringify({ id: voidId, type: "VOID", entryIdToVoid, newBalance });
-    const thisHash = computeSimpleHash(prevHash, payload, now, secret);
+    const thisHash = await computeSimpleHash(prevHash, payload, now, secret);
 
     await client.execute({
       sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, type, debit_paise, credit_paise, balance_after_paise, description, occurred_on, this_hash, prev_hash, void_of_id, source, created_at, updated_at)
@@ -230,7 +255,7 @@ export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
     await client.execute({
       sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
             VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
-      args: [randomUUID(), tenantId, voidId, payload, now],
+      args: [crypto.randomUUID(), tenantId, voidId, payload, now],
     });
 
     // Adjust student profile balance
@@ -279,7 +304,7 @@ export async function createInvoiceAction(
     const entryId = await postLedgerEntryRaw(client, tenantId, parsed.data.studentId, "FEE_CHARGED", parsed.data.amountMinor, 0, parsed.data.description, parsed.data.dateIso);
     
     // 2. Insert into invoices table
-    const invoiceId = randomUUID();
+    const invoiceId = crypto.randomUUID();
     const code = `INV-${Math.floor(1000 + Math.random() * 9000)}`;
     await client.execute({
       sql: `INSERT INTO invoices (id, tenant_id, student_id, code, amount_paise, due_paise, due_date, status, created_at, updated_at)

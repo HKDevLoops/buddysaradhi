@@ -43,7 +43,7 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
     reset,
     formState: { errors, isDirty },
   } = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileSchema),
+    resolver: zodResolver(profileSchema as any),
     defaultValues: {
       instituteName: settings?.instituteName || "My Tuition",
       instituteAddress: settings?.instituteAddress || "",

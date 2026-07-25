@@ -2,7 +2,6 @@
 
 import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlProxy } from "@/server/get-db";
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 
@@ -47,7 +46,7 @@ export async function deleteTenantDataAction(pin: string) {
     await client.execute({
       sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
             VALUES (?, ?, ?, 'tenant', ?, 'tenant_data_deleted', ?, ?)`,
-      args: [randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ deleted_at: now }), now],
+      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ deleted_at: now }), now],
     });
 
     return { success: true };

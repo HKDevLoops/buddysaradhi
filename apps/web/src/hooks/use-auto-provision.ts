@@ -73,10 +73,9 @@ export function useAutoProvision() {
     if (installed.current) return;
     installed.current = true;
 
-    // Patch the global fetch to intercept 503 + needs_provision responses
     const originalFetch = window.fetch.bind(window);
 
-    window.fetch = async (...args: Parameters<typeof fetch>) => {
+    (window as any).fetch = async (...args: Parameters<typeof fetch>) => {
       const response = await originalFetch(...args);
 
       // Only intercept our own API routes
@@ -100,7 +99,7 @@ export function useAutoProvision() {
 
     // Restore on cleanup
     return () => {
-      window.fetch = originalFetch;
+      (window as any).fetch = originalFetch;
       installed.current = false;
     };
   }, [runProvision]);

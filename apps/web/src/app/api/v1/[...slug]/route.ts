@@ -73,9 +73,10 @@ async function dispatchGateway(
 ): Promise<NextResponse> {
   try {
     let r: GatewayResult<unknown>;
+    const gatewayPath = path === "/graphql" ? "/graphql" : `/api/v1${path}`;
     if (method === "GET") {
       const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
-      r = await gatewayGet<unknown>(`/api/v1${path}`, qp as Record<string, string>);
+      r = await gatewayGet<unknown>(gatewayPath, qp as Record<string, string>);
     } else if (method === "POST" || method === "PUT" || method === "PATCH") {
       let body: unknown = {};
       try {
@@ -87,11 +88,11 @@ async function dispatchGateway(
       const extra: Record<string, string> = {};
       const xbn = req.headers.get("x-batch-name");
       if (xbn) extra["X-Batch-Name"] = xbn;
-      if (method === "POST") r = await gatewayPost<unknown>(`/api/v1${path}`, body, extra);
-      else if (method === "PUT") r = await gatewayPost<unknown>(`/api/v1${path}`, body, extra); // gateway has no PUT — bow-tie to POST
-      else r = await gatewayPatch<unknown>(`/api/v1${path}`, body);
+      if (method === "POST") r = await gatewayPost<unknown>(gatewayPath, body, extra);
+      else if (method === "PUT") r = await gatewayPost<unknown>(gatewayPath, body, extra); // gateway has no PUT — bow-tie to POST
+      else r = await gatewayPatch<unknown>(gatewayPath, body);
     } else if (method === "DELETE") {
-      r = await gatewayDelete<unknown>(`/api/v1${path}`);
+      r = await gatewayDelete<unknown>(gatewayPath);
     } else {
       return NextResponse.json(
         { success: false, error: "Method not allowed in BFF" },

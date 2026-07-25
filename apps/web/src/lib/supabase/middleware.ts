@@ -27,7 +27,9 @@ export async function updateSession(
           });
           
           supabaseResponse = NextResponse.next({
-            request,
+            request: {
+              headers: request.headers,
+            },
           });
           
           toSet.forEach(({ name, value, options }) => {
