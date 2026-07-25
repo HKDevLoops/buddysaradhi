@@ -48,7 +48,18 @@ export async function updateSession(
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let user: any = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch (err) {
+    log.warn("middleware_auth_get_user_failed", err instanceof Error ? err.message : String(err));
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.includes("auth-token") || cookie.name.startsWith("sb-")) {
+        supabaseResponse.cookies.delete(cookie.name);
+      }
+    });
+  }
   const url = request.nextUrl.clone();
   const pathname = url.pathname;
   
