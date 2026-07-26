@@ -103,7 +103,7 @@ describe('useAutoProvision', () => {
     // Track all fetch calls
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : (input as Request).url ?? String(input);
-      if (url.includes('/api/provision')) return Promise.resolve(provisionResponse);
+      if (url.includes('/api/v1/provision')) return Promise.resolve(provisionResponse);
       return Promise.resolve(studentResponse);
     });
     (window as any).fetch = fetchMock as any;
@@ -117,12 +117,12 @@ describe('useAutoProvision', () => {
 
     // Give the async runProvision() a tick to fire
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
     });
 
     // /api/provision should have been called
     const provisionCalls = fetchMock.mock.calls.filter(([url]) =>
-      typeof url === 'string' && url.includes('/api/provision')
+      typeof url === 'string' && url.includes('/api/v1/provision')
     );
     expect(provisionCalls.length).toBeGreaterThanOrEqual(1);
     const [, provisionInit] = provisionCalls[0] as [string, RequestInit];
@@ -143,11 +143,11 @@ describe('useAutoProvision', () => {
     });
 
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
     });
 
     const provisionCalls = fetchMock.mock.calls.filter(([url]) =>
-      typeof url === 'string' && url.includes('/api/provision')
+      typeof url === 'string' && url.includes('/api/v1/provision')
     );
     expect(provisionCalls.length).toBe(0);
   });
@@ -166,11 +166,11 @@ describe('useAutoProvision', () => {
     });
 
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
     });
 
     const provisionCalls = fetchMock.mock.calls.filter(([url]) =>
-      typeof url === 'string' && url.includes('/api/provision')
+      typeof url === 'string' && url.includes('/api/v1/provision')
     );
     expect(provisionCalls.length).toBe(0);
   });
@@ -190,11 +190,11 @@ describe('useAutoProvision', () => {
     });
 
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
     });
 
     const provisionCalls = fetchMock.mock.calls.filter(([url]) =>
-      typeof url === 'string' && url.includes('/api/provision')
+      typeof url === 'string' && url.includes('/api/v1/provision')
     );
     expect(provisionCalls.length).toBe(0);
   });
@@ -213,11 +213,11 @@ describe('useAutoProvision', () => {
     });
 
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
     });
 
     const provisionCalls = fetchMock.mock.calls.filter(([url]) =>
-      typeof url === 'string' && url.includes('/api/provision')
+      typeof url === 'string' && url.includes('/api/v1/provision')
     );
     expect(provisionCalls.length).toBe(0);
   });

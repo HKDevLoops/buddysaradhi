@@ -24,6 +24,7 @@
     "postinstall": "prisma generate",
     "build": "prisma generate && pnpm --filter web build",
     "lint": "pnpm --filter '*' lint",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "test:a11y": "pnpm --filter web test:a11y",
