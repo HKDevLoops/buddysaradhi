@@ -16,7 +16,7 @@
     "seed": "bun run prisma/seed.ts"
   },
   "scripts": {
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build",
     "build": "prisma generate && pnpm --filter web build",
     "lint": "pnpm --filter '*' lint",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
