@@ -23,6 +23,8 @@ build/
 # Ignore all temporary scripting files
 *.py
 *.js
+!scripts/**/*.js
+!scripts/**/*.ts
 *.ps1
 *.sh
 
