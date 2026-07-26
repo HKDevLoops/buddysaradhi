@@ -13,29 +13,35 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
       - name: Install dependencies
-        run: bun install
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: bun run typecheck
-        working-directory: ./apps/web
+        run: pnpm --filter web typecheck
 
       - name: Lint
-        run: bun run lint
-        working-directory: ./apps/web
+        run: pnpm --filter web lint
 
       - name: Unit & Component Tests (Vitest)
-        run: bun run test:unit
-        working-directory: ./apps/web
+        run: pnpm --filter web test -- run
 
       - name: Install Playwright Browsers
-        run: bunx playwright install --with-deps
-        working-directory: ./apps/web
+        run: pnpm --filter web exec playwright install --with-deps
 
       - name: End-to-End Tests (Playwright)
-        run: bunx playwright test
-        working-directory: ./apps/web
+        run: pnpm --filter web exec playwright test

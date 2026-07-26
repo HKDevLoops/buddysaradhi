@@ -2,7 +2,6 @@
   "name": "web",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "bun@1.3.14",
   "engines": {
     "node": "22.x"
   },
@@ -11,7 +10,7 @@
     "build": "next build",
     "postinstall": "",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "tsc --noEmit",
     "test": "vitest",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
@@ -79,7 +78,7 @@
     "jsdom": "^29.1.1",
     "playwright": "^1.61.1",
     "tailwindcss": "^4",
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
 }

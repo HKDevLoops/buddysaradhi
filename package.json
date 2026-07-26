@@ -10,6 +10,7 @@
   "engines": {
     "node": "22.x"
   },
+  "packageManager": "pnpm@11.15.0",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@prisma/engines",

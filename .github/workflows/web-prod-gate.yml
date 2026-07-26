@@ -32,40 +32,51 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
       - name: Install dependencies
-        run: bun install
+        run: pnpm install --frozen-lockfile
 
       # --- packages/core (ledger engine) ---
       - name: Generate Prisma client (root schema, used by packages/core)
-        run: bun x prisma generate
+        run: pnpm exec prisma generate
 
       - name: Core / Typecheck
-        run: cd packages/core && bun run typecheck
+        run: pnpm --filter @buddysaradhi/core typecheck
 
       - name: Core / Lint
-        run: cd packages/core && bun run lint
+        run: pnpm --filter @buddysaradhi/core lint
 
       - name: Core / Unit Tests (Vitest)
-        run: cd packages/core && bun run test
+        run: pnpm --filter @buddysaradhi/core test
 
       # --- apps/web ---
       - name: Web / Lint
-        run: cd apps/web && bun run lint
+        run: pnpm --filter web lint
 
       - name: Web / Typecheck
-        run: cd apps/web && bunx tsc --noEmit
+        run: pnpm --filter web typecheck
 
       - name: Web / Unit Tests (Vitest)
-        run: cd apps/web && bun test --run
+        run: pnpm --filter web test -- run
 
       - name: Web / Build
-        run: cd apps/web && bun run build
+        run: pnpm --filter web build
 
       - name: Install Playwright Browsers
-        run: cd apps/web && bunx playwright install --with-deps
+        run: pnpm --filter web exec playwright install --with-deps
 
       - name: E2E Tests (Playwright)
-        run: cd apps/web && bunx playwright test
+        run: pnpm --filter web exec playwright test
 
       - name: Upload Playwright Report
         if: always()
@@ -77,10 +88,10 @@ jobs:
 
       # --- apps/gateway ledger verify (final gate) ---
       - name: Generate Prisma client (gateway)
-        run: cd apps/gateway && bun run generate
+        run: pnpm --filter @buddysaradhi/gateway generate
 
       - name: Gateway / Provision sqlite schema
-        run: cd apps/gateway && bun run db:push
+        run: pnpm --filter @buddysaradhi/gateway db:push
 
       - name: Gateway / Ledger verify
-        run: cd apps/gateway && bun run verify
+        run: pnpm --filter @buddysaradhi/gateway verify
