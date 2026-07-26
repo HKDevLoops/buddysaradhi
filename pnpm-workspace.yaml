@@ -17,14 +17,14 @@ minimumReleaseAgeExclude:
   - eslint-config-next@16.2.12
   - next@16.2.12
 
-onlyBuiltDependencies:
-  - "@prisma/engines"
-  - "@prisma/client"
-  - "argon2"
-  - "esbuild"
-  - "prisma"
-  - "sharp"
-  - "unrs-resolver"
+allowBuilds:
+  "@prisma/engines": true
+  "@prisma/client": true
+  "argon2": true
+  "esbuild": true
+  "prisma": true
+  "sharp": true
+  "unrs-resolver": true
 
 overrides:
   react-router: "^6.30.4"
