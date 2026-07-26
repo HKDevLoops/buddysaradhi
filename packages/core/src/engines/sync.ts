@@ -27,7 +27,7 @@ export async function pushSyncOutbox(
   // Mark as sent
   await db.syncOutbox.updateMany({
     where: {
-      id: { in: pending.map((p) => p.id) },
+      id: { in: pending.map((p: typeof pending[number]) => p.id) },
       tenantId,
     },
     data: {

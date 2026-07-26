@@ -44,7 +44,7 @@ export async function searchAll(
     take: 10,
   });
 
-  return students.map((s, index) => ({
+  return students.map((s: typeof students[number], index: number) => ({
     id: s.id,
     type: "student",
     title: `${s.firstName} ${s.lastName || ""}`.trim(),

@@ -97,7 +97,7 @@ export async function generateReport(
     });
 
     // Serialize Dates for worker passing
-    const serializedEntries = entries.map((e) => ({
+    const serializedEntries = entries.map((e: typeof entries[number]) => ({
       ...e,
       createdAt: e.createdAt.toISOString(),
     }));

@@ -179,7 +179,7 @@ export async function voidEntry(
   actor: string,
 ): Promise<Result<string>> {
   try {
-    return await db.$transaction(async (tx) => {
+    return await db.$transaction(async (tx: any) => {
       // 1. Fetch the entry to void
       const original = await tx.ledgerEntry.findUnique({
         where: { id: entryToVoidId, tenantId: tenantId },
@@ -224,7 +224,7 @@ export async function voidEntry(
         },
       });
 
-      return { ok: true, value: postResult.value };
+      return { ok: true, value: (postResult as any).value } as Result<string>;
     });
   } catch (error) {
     return { ok: false, error: error as Error };

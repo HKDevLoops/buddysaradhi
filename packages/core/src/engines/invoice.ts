@@ -54,7 +54,7 @@ export async function generateBatchInvoices(
   const invoicePrefix = setting.invoicePrefix;
 
   // 3. Process each invoice generation in parallel using Promise.allSettled
-  const invoicePromises = feePlans.map(async (plan): Promise<InvoiceResult> => {
+  const invoicePromises = feePlans.map(async (plan: typeof feePlans[number]): Promise<InvoiceResult> => {
     try {
       const invoiceId = randomUUID();
       const seq = currentSeq++; // Local sequential increment
@@ -76,7 +76,7 @@ export async function generateBatchInvoices(
         .digest("hex");
 
       // Use a transaction for the individual invoice creation
-      await db.$transaction(async (tx) => {
+      await db.$transaction(async (tx: any) => {
         // Create fee schedule item
         const itemId = randomUUID();
         await tx.feeScheduleItem.create({
