@@ -187,7 +187,7 @@ async function gatewayBase(): Promise<string> {
   if (env && !env.includes("api.buddysaradhi.app")) return env.replace(/\/$/, "");
   // In local development, default to port 3001 where apps/gateway runs.
   if (process.env.NODE_ENV !== "production") {
-    return "http://localhost:3001";
+    return "http://127.0.0.1:3001";
   }
   return "https://gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway";
 }

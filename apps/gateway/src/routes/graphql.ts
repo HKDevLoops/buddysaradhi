@@ -188,23 +188,31 @@ const resolvers = {
           deletedAt: null,
           voidedAt: null,
         },
-        include: { student: true },
         orderBy: { dueDate: "asc" },
       });
 
-      const result = invoices.map((inv: any) => ({
-        id: inv.id,
-        number: inv.number,
-        issueDate: inv.issueDate,
-        dueDate: inv.dueDate,
-        total: inv.total,
-        status: inv.status,
-        student: {
-          id: inv.student.id,
-          firstName: inv.student.firstName,
-          lastName: inv.student.lastName,
-        },
-      }));
+      const studentIds = invoices.map((inv: any) => inv.studentId).filter(Boolean);
+      const students = studentIds.length > 0 ? await db.student.findMany({
+        where: { tenantId, id: { in: studentIds } },
+      }) : [];
+      const studentMap = new Map(students.map((s: any) => [s.id, s]));
+
+      const result = invoices.map((inv: any) => {
+        const student = studentMap.get(inv.studentId);
+        return {
+          id: inv.id,
+          number: inv.number,
+          issueDate: inv.issueDate,
+          dueDate: inv.dueDate,
+          total: inv.total,
+          status: inv.status,
+          student: student ? {
+            id: student.id,
+            firstName: student.firstName,
+            lastName: student.lastName,
+          } : null,
+        };
+      });
       await cacheSet(cacheKey, JSON.stringify(result));
       return result;
     },

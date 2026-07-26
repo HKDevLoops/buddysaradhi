@@ -105,20 +105,27 @@ export function registerReports(app: Hono) {
         status: { in: ["unpaid", "partial", "overdue"] },
         dueDate: { lte: today },
       },
-      include: { student: true },
       orderBy: { dueDate: "asc" },
     });
+    const studentIds = invoices.map((inv: any) => inv.studentId).filter(Boolean);
+    const students = studentIds.length > 0 ? await db.student.findMany({
+      where: { tenantId, id: { in: studentIds } },
+    }) : [];
+    const studentMap = new Map(students.map((s: any) => [s.id, s]));
+
     const data = await Promise.all(
       invoices.map(async (inv: any) => {
         const paid = await db.ledgerEntry.aggregate({
           where: { tenantId, invoiceId: inv.id, creditPaise: { gt: 0 } },
           _sum: { creditPaise: true },
         });
+        const student = studentMap.get(inv.studentId);
+        const student_name = student
+          ? [student.firstName, student.lastName].filter(Boolean).join(" ")
+          : "Unknown Student";
         return {
           student_id: inv.studentId,
-          student_name: [inv.student.firstName, inv.student.lastName]
-            .filter(Boolean)
-            .join(" "),
+          student_name,
           due_minor: inv.total - (paid._sum.creditPaise ?? 0),
           invoice_number: inv.number,
           due_date: inv.dueDate,

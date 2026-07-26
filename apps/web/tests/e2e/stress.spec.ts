@@ -95,6 +95,19 @@ async function clickButton(page: import("@playwright/test").Page, name: RegExp) 
   await el.evaluate((b: HTMLButtonElement) => b.click());
 }
 
+async function clickButtonAndWaitForAction(page: import("@playwright/test").Page, name: RegExp) {
+  const responsePromise = page.waitForResponse(
+    (resp) =>
+      resp.request().method() === "POST" &&
+      (resp.request().headers()["next-action"] !== undefined ||
+        resp.url().includes("/api/v1/settings")),
+    { timeout: 10000 }
+  ).catch(() => null);
+  await clickButton(page, name);
+  await responsePromise;
+  await page.waitForTimeout(100);
+}
+
 const BENIGN = /scroll-behavior|React DevTools|Fast Refresh|AuthApiError|Invalid Refresh Token|Download the React|aborted|access control checks|XMLHttpRequest\.open|DB_NOT_PROVISIONED|needs_provision/i;
 
 test.describe("Rigorous Stress Test — BuddySaradhi web", () => {
@@ -159,17 +172,17 @@ test.describe("Rigorous Stress Test — BuddySaradhi web", () => {
     const glassByPalette: string[] = [];
     for (const p of PALETTES) {
       // select the palette (accent only; Appearance Mode stays the source of truth)
-      await clickButton(page, new RegExp(`Use ${p.label} palette`, "i"));
+      await clickButtonAndWaitForAction(page, new RegExp(`Use ${p.label} palette`, "i"));
       await expect(page.locator("html")).toHaveAttribute("data-palette", p.id, { timeout: 5000 });
 
       // LIGHT mode
-      await clickButton(page, /^Light$/);
+      await clickButtonAndWaitForAction(page, /^Light$/);
       await expect(page.locator("html")).toHaveAttribute("data-theme", "light", { timeout: 5000 });
       const lightGlass = await glassColorOf(page);
       expect(lightGlass, `Glass is transparent for ${p.id} (light)`).not.toBe("rgba(0, 0, 0, 0)");
 
       // DARK mode
-      await clickButton(page, /^Dark$/);
+      await clickButtonAndWaitForAction(page, /^Dark$/);
       await expect(page.locator("html")).toHaveAttribute("data-theme", "dark", { timeout: 5000 });
       const darkGlass = await glassColorOf(page);
       expect(darkGlass, `Glass is transparent for ${p.id} (dark)`).not.toBe("rgba(0, 0, 0, 0)");

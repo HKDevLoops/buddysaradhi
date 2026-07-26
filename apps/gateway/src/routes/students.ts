@@ -126,10 +126,33 @@ export function registerStudents(app: Hono) {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
-        enrollments: { where: { exitedOn: null }, include: { batch: true } },
-      },
     });
+
+    const retrievedStudentIds = students.map((s: any) => s.id);
+    const enrollments = retrievedStudentIds.length > 0 ? await db.studentEnrollment.findMany({
+      where: { tenantId, exitedOn: null, studentId: { in: retrievedStudentIds } },
+    }) : [];
+
+    const retrievedBatchIds = enrollments.map((e: any) => e.batchId).filter(Boolean);
+    const batches = retrievedBatchIds.length > 0 ? await db.batch.findMany({
+      where: { tenantId, id: { in: retrievedBatchIds } },
+    }) : [];
+    const batchMap = new Map(batches.map((b: any) => [b.id, b]));
+
+    const enrollmentsByStudent = new Map<string, any[]>();
+    for (const e of enrollments) {
+      const b = batchMap.get(e.batchId);
+      const enrollmentWithBatch = { ...e, batch: b ?? null };
+      if (!enrollmentsByStudent.has(e.studentId)) {
+        enrollmentsByStudent.set(e.studentId, []);
+      }
+      enrollmentsByStudent.get(e.studentId)!.push(enrollmentWithBatch);
+    }
+
+    students = students.map((s: any) => ({
+      ...s,
+      enrollments: enrollmentsByStudent.get(s.id) || [],
+    }));
 
     if (search && isVectorSearch) {
       // Sort retrieved students according to HNSW hit rank order

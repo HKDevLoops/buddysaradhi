@@ -43,7 +43,7 @@
     "lodash.debounce": "^4.0.8",
     "lucide-react": "^1.21.0",
     "maath": "^0.10.8",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-day-picker": "8.10.1",

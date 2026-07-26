@@ -106,8 +106,8 @@ test.describe('Settings and Auth E2E Tests', () => {
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
-  test('API /api/provision returns 401 without auth header', async ({ request }) => {
-    const res = await request.post('/api/provision');
+  test('API /api/v1/provision returns 401 without auth header', async ({ request }) => {
+    const res = await request.post('/api/v1/provision');
     expect(res.status()).toBe(401);
     const body = await res.json() as { success: boolean; error: string };
     expect(body.success).toBe(false);

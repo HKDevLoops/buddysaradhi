@@ -60,6 +60,9 @@ function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: un
   if (msg.startsWith("Free tier limit")) return { ok: false, status: 403, body: { success: false, error: msg } };
   if (msg.startsWith("Not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
   if (msg.startsWith("Student not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
+  if (msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("connect ECONNREFUSED")) {
+    return { ok: false, status: 502, body: { success: false, error: msg } };
+  }
   // If the gateway returned an error string like "Gateway 502 ..." keep it as 502.
   const m = /^Gateway (\d{3}):/.exec(msg);
   if (m) return { ok: false, status: Number(m[1]) || 500, body: { success: false, error: msg } };

@@ -11,13 +11,7 @@
     "node": "22.x"
   },
   "packageManager": "pnpm@11.15.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/engines",
-      "@prisma/client",
-      "argon2"
-    ]
-  },
+
   "prisma": {
     "seed": "bun run prisma/seed.ts"
   },
@@ -41,10 +35,10 @@
   "dependencies": {
     "@prisma/adapter-libsql": "6.2.1",
     "@prisma/client": "6.2.1",
-    "@supabase/supabase-js": "^2.110.5",
-    "argon2": "^0.45.0",
+    "@supabase/supabase-js": "^2.110.8",
+    "argon2": "^0.45.1",
     "dotenv": "^16.6.1",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "zod": "^3.24.2"

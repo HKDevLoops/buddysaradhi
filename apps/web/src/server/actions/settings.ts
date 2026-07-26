@@ -97,8 +97,14 @@ export async function updateSettingAction(field: string, value: unknown) {
     const res = await gatewayPatch("/api/v1/settings", updateData);
 
     if (!res.success) {
-      log.error('settings_gateway_update_failed', res.error, { field });
-      return { success: false, error: res.error };
+      log.warn('settings_gateway_update_failed_using_direct_db', res.error);
+      const { client, tenantId } = await getAuthenticatedDb();
+      const proxy = createLibsqlProxy(client);
+      await proxy.setting.upsert({
+        where: { tenantId },
+        create: { tenantId, ...updateData },
+        update: updateData,
+      });
     }
 
     revalidatePath("/settings");

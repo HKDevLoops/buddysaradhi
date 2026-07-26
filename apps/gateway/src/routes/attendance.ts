@@ -14,31 +14,55 @@ export function registerAttendance(app: Hono) {
 
     const students = await db.student.findMany({
       where: { tenantId, status: "active", archivedAt: null },
-      include: {
-        enrollments: { where: { exitedOn: null }, include: { batch: true } },
-      },
       orderBy: { firstName: "asc" },
     });
+
+    const studentIds = students.map((s: any) => s.id);
+    const enrollments = studentIds.length > 0 ? await db.studentEnrollment.findMany({
+      where: { tenantId, exitedOn: null, studentId: { in: studentIds } },
+    }) : [];
+
+    const batchIds = enrollments.map((e: any) => e.batchId).filter(Boolean);
+    const batches = batchIds.length > 0 ? await db.batch.findMany({
+      where: { tenantId, id: { in: batchIds } },
+    }) : [];
+    const batchMap = new Map(batches.map((b: any) => [b.id, b]));
+
+    const enrollmentsByStudent = new Map<string, any[]>();
+    for (const e of enrollments) {
+      const b = batchMap.get(e.batchId);
+      const enrollmentWithBatch = { ...e, batch: b ?? null };
+      if (!enrollmentsByStudent.has(e.studentId)) {
+        enrollmentsByStudent.set(e.studentId, []);
+      }
+      enrollmentsByStudent.get(e.studentId)!.push(enrollmentWithBatch);
+    }
 
     let records: any[];
     if (session) {
       const recs = await db.attendanceRecord.findMany({
         where: { sessionId: session.id, tenantId },
       });
-      const byStudent = new Map(recs.map((r) => [r.studentId, r]));
-      records = students.map((s) => ({
-        student_id: s.id,
-        name: [s.firstName, s.lastName].filter(Boolean).join(" "),
-        batch: s.enrollments[0]?.batch?.name ?? null,
-        status: byStudent.get(s.id)?.status ?? null,
-      }));
+      const byStudent = new Map(recs.map((r: any) => [r.studentId, r]));
+      records = students.map((s: any) => {
+        const sEnrollments = enrollmentsByStudent.get(s.id) || [];
+        return {
+          student_id: s.id,
+          name: [s.firstName, s.lastName].filter(Boolean).join(" "),
+          batch: sEnrollments[0]?.batch?.name ?? null,
+          status: byStudent.get(s.id)?.status ?? null,
+        };
+      });
     } else {
-      records = students.map((s) => ({
-        student_id: s.id,
-        name: [s.firstName, s.lastName].filter(Boolean).join(" "),
-        batch: s.enrollments[0]?.batch?.name ?? null,
-        status: null,
-      }));
+      records = students.map((s: any) => {
+        const sEnrollments = enrollmentsByStudent.get(s.id) || [];
+        return {
+          student_id: s.id,
+          name: [s.firstName, s.lastName].filter(Boolean).join(" "),
+          batch: sEnrollments[0]?.batch?.name ?? null,
+          status: null,
+        };
+      });
     }
 
     return ok(c, {

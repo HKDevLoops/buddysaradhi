@@ -3,3 +3,32 @@ packages:
   - 'apps/services/*'
   - 'apps/gateway'
   - 'packages/*'
+minimumReleaseAgeExclude:
+  - '@next/env@16.2.12'
+  - '@next/eslint-plugin-next@16.2.12'
+  - '@next/swc-darwin-arm64@16.2.12'
+  - '@next/swc-darwin-x64@16.2.12'
+  - '@next/swc-linux-arm64-gnu@16.2.12'
+  - '@next/swc-linux-arm64-musl@16.2.12'
+  - '@next/swc-linux-x64-gnu@16.2.12'
+  - '@next/swc-linux-x64-musl@16.2.12'
+  - '@next/swc-win32-arm64-msvc@16.2.12'
+  - '@next/swc-win32-x64-msvc@16.2.12'
+  - eslint-config-next@16.2.12
+  - next@16.2.12
+
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - "@prisma/client"
+  - "argon2"
+
+overrides:
+  react-router: "^6.30.4"
+  react-router-dom: "^6.30.4"
+  valibot: "^1.4.2"
+  next: "^16.2.12"
+  postcss: "^8.5.18"
+  sharp: "^0.35.0"
+  fast-uri: "^3.1.4"
+  "@hono/node-server": "^2.0.5"
+  brace-expansion: "^5.0.8"
