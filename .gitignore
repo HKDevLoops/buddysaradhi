@@ -41,7 +41,6 @@ build/
 .ruff_cache/
 coverage/
 reviews/
-reference-implementations/
 packages/graphify-out/
 
 .vercel
