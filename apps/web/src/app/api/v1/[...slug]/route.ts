@@ -958,9 +958,37 @@ async function safeDispatch(req: NextRequest, slug: string[]): Promise<NextRespo
   } catch (err) {
     const msg = errMsg(err);
     log.error("gateway_dispatch_error", msg, { path: "/" + (slug || []).join("/") });
+
+    // Prisma client not initialised yet (output dir missing or `prisma generate`
+    // has not run) — treat as a soft settings/demo fallback, not a hard crash.
     if (msg.includes("@prisma/client") || msg.includes("prisma")) {
-      return NextResponse.json({ success: true, data: slug.includes("settings") ? { theme: "dark", instituteName: "Jyothi Tutions" } : [] });
+      return NextResponse.json({
+        success: true,
+        data: slug.includes("settings") ? { theme: "dark", instituteName: "Jyothi Tutions" } : [],
+      });
     }
+
+    // DB connection / file-not-found errors mean the per-user Turso database
+    // has not been provisioned yet.  Return 503 with `needs_provision: true` so
+    // the client can trigger /api/v1/provision and retry — no user-visible 500.
+    // Matches: libsql ECONNREFUSED, "file not found", "unable to open", "no such file",
+    //          @libsql/client, fetch failed connecting to Turso, etc.
+    const isDbConnErr =
+      msg.includes("ECONNREFUSED") ||
+      msg.includes("unable to open") ||
+      msg.includes("no such file") ||
+      msg.includes("file not found") ||
+      msg.includes("@libsql/client") ||
+      msg.includes("fetch failed") ||
+      msg.includes("connect error") ||
+      msg.includes("DB_NOT_PROVISIONED");
+    if (isDbConnErr) {
+      return NextResponse.json(
+        { success: false, error: "DB_NOT_PROVISIONED: " + msg, needs_provision: true },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }

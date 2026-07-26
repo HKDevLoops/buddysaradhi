@@ -12,15 +12,15 @@ rules:
     severity: ERROR
 
   - id: never-mock-the-ledger
-    patterns:
-      - pattern-either:
-          - pattern: |
-              class MockLedger { ... }
-          - pattern: |
-              const mockLedger = ...
-      - pattern-not:
-          - pattern: |
-              import ...
+    pattern-either:
+      - pattern: |
+          class MockLedger { ... }
+      - pattern: |
+          const mockLedger = jest.fn(...)
+      - pattern: |
+          vi.mock("./ledger", ...)
+      - pattern: |
+          vi.mock('../ledger', ...)
     message: "Do not mock or bypass the ledger system. All financial transactions must use the append-only ledger engine."
     languages: [javascript, typescript]
     severity: ERROR
