@@ -31,6 +31,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  experimental: {
+    useTypeScriptCli: true,
+  },
   async headers() {
     return csp();
   },
