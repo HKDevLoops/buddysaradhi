@@ -21,6 +21,10 @@ onlyBuiltDependencies:
   - "@prisma/engines"
   - "@prisma/client"
   - "argon2"
+  - "esbuild"
+  - "prisma"
+  - "sharp"
+  - "unrs-resolver"
 
 overrides:
   react-router: "^6.30.4"
