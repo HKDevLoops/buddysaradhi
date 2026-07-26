@@ -23,9 +23,14 @@ jobs:
       # URL against the schema directory while @libsql/client resolves it
       # against the process CWD, so an absolute path is required for db:push
       # and the ledger verify step to hit the same SQLite file.
-      DATABASE_URL: file:${{ github.workspace }}/apps/gateway/prisma/dev.db
-      TURSO_DATABASE_URL: libsql://test-fallback.turso.io
+      DATABASE_URL: file:${{ github.workspace }}/prisma/dev.db
+      TURSO_DATABASE_URL: file:${{ github.workspace }}/prisma/dev.db
       TURSO_AUTH_TOKEN: test-token
+      NEXT_PUBLIC_SUPABASE_URL: https://gmqwdnvbfnwpzpctwvho.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtcXdkbnZiZm53cHpwY3R3dmhvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1NzYyMjAsImV4cCI6MjA5ODE1MjIyMH0.M--_VPKADCmwai3jHgF1id7kIpBAtvA6qvljDHU6JUI
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtcXdkbnZiZm53cHpwY3R3dmhvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjU3NjIyMCwiZXhwIjoyMDk4MTUyMjIwfQ.9W7J61sK2nPMw7IDRB678UQYjktR0VOfNbs3TXHPdz8
+      E2E_EMAIL: hkdevloops@gmail.com
+      E2E_PASSWORD: hkdevs
     steps:
       - uses: actions/checkout@v4
 
