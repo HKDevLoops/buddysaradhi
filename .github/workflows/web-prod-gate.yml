@@ -24,6 +24,8 @@ jobs:
       # against the process CWD, so an absolute path is required for db:push
       # and the ledger verify step to hit the same SQLite file.
       DATABASE_URL: file:${{ github.workspace }}/apps/gateway/prisma/dev.db
+      TURSO_DATABASE_URL: libsql://test-fallback.turso.io
+      TURSO_AUTH_TOKEN: test-token
     steps:
       - uses: actions/checkout@v4
 

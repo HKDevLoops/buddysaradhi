@@ -16,6 +16,10 @@ jobs:
   testing_agent:
     name: Testing Agent (Lint + Typecheck + Tests)
     runs-on: ubuntu-22.04
+    env:
+      TURSO_DATABASE_URL: libsql://test-fallback.turso.io
+      TURSO_AUTH_TOKEN: test-token
+      DATABASE_URL: file:${{ github.workspace }}/apps/gateway/prisma/dev.db
     timeout-minutes: 15
     steps:
       - name: Checkout
