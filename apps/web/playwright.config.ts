@@ -48,10 +48,20 @@ export default defineConfig({
       use: { ...devices['iPhone 12'] },
     },
   ],
-  webServer: {
-    command: 'cd ../.. && bun run scripts/start-all.js',
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
+  // Only spawn a local server when targeting localhost.
+  // When PLAYWRIGHT_TEST_BASE_URL points to a deployed URL (Vercel etc),
+  // skip local server — Playwright will hit the remote app directly.
+  ...(baseURL.startsWith('http://localhost') ? {
+    webServer: {
+      command: process.env.CI
+        // In CI the app is pre-built; just start Next.js.
+        // The BFF handles gateway-down gracefully (503/fallback).
+        ? 'pnpm run start'
+        // Local dev: start all services for full integration.
+        : 'cd ../.. && bun run scripts/start-all.js',
+      url: baseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+    },
+  } : {}),
 });

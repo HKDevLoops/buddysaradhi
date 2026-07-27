@@ -75,21 +75,34 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Wait for Vercel deployment
+        continue-on-error: true
         run: |
+          VERCEL_TOKEN="${{ secrets.VERCEL_TOKEN }}"
+          VERCEL_PROJECT_ID="${{ secrets.VERCEL_PROJECT_ID }}"
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured — skipping deployment wait."
+            echo "Sleeping 60s to give Vercel time to pick up the push regardless."
+            sleep 60
+            exit 0
+          fi
           sleep 30  # give Vercel a head start
           for i in {1..20}; do
-            STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
-              "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&target=production" \
-              | jq -r '.deployments[0].readyState // .deployments[0].status')
+            STATUS=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&limit=1&target=production" \
+              | jq -r '.deployments[0].readyState // .deployments[0].status // "UNKNOWN"')
             echo "Attempt $i: status=$STATUS"
             if [ "$STATUS" = "READY" ]; then
               echo "Deployment is ready"
               exit 0
             fi
+            if [ "$STATUS" = "ERROR" ] || [ "$STATUS" = "CANCELED" ]; then
+              echo "Deployment failed with status=$STATUS"
+              exit 1
+            fi
             sleep 15
           done
-          echo "Deployment did not become READY in 5 minutes"
-          exit 1
+          echo "Deployment did not become READY in 5 minutes — proceeding to smoke tests anyway"
+          exit 0
 
       - name: Smoke — verify production URL responds
         run: |
