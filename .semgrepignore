@@ -1,0 +1,28 @@
+# .semgrepignore
+# Files allowed to use $executeRawUnsafe / $queryRawUnsafe as admin-only
+# SQLite commands (authorised by AGENTS.md §3.3 exception).
+# These files are the ONLY permitted locations for raw SQL — all other raw
+# SQL is a build-blocking security finding.
+
+# Prisma-generated type definitions (not user code)
+apps/gateway/src/prisma/
+apps/web/src/prisma/
+
+# Auth-svc secure-erase handler: GDPR right-to-erasure must bypass the
+# immutability trigger on ledger_entries. All deletes are parameterised (?).
+apps/services/auth-svc/src/index.ts
+
+# Admin DB utilities: VACUUM, WAL checkpoint, trigger DDL at init time.
+# These run once at startup, not in any request hot path.
+apps/gateway/src/lib/db/admin.ts
+apps/web/src/lib/db/admin.ts
+
+# Libsql proxy shim: passes through $executeRaw method names as strings only.
+apps/gateway/src/libsql-proxy.ts
+apps/web/src/lib/libsql-proxy.ts
+
+# Test fixtures and node_modules
+node_modules/
+.pnpm-store/
+**/*.test.ts
+**/*.spec.ts

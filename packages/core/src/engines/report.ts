@@ -15,28 +15,35 @@ function runCsvWorker(
   type: "attendance" | "fees",
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // We use a small inline worker to avoid compilation/path issues in various environments
+    // We use a small inline worker to avoid compilation/path issues in various environments.
+    // All fields are RFC 4180-escaped: wrap in quotes, double internal quotes.
     const workerCode = `
       const { parentPort, workerData } = require('worker_threads');
       const { data, type } = workerData;
-      
+
+      // RFC 4180 CSV escaping: wraps field in quotes and doubles any internal quotes.
+      function csvField(v) {
+        const s = String(v == null ? '' : v);
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+
       let csv = "";
       if (type === "attendance") {
         csv = "Date,Student,Status\\n";
         for (const r of data) {
           const studentName = \`\${r.student.firstName} \${r.student.lastName || ""}\`.trim();
-          csv += \`\${r.session.sessionDate},"\${studentName}",\${r.status}\\n\`;
+          csv += \`\${csvField(r.session.sessionDate)},\${csvField(studentName)},\${csvField(r.status)}\\n\`;
         }
       } else if (type === "fees") {
-        csv = "Date,Student,Type,Amount\\n";
+        csv = "Date,Student,Type,Amount (INR)\\n";
         for (const r of data) {
           const studentName = \`\${r.student.firstName} \${r.student.lastName || ""}\`.trim();
           const amountPaise = r.debitPaise > 0 ? r.debitPaise : r.creditPaise;
           const amountINR = (amountPaise / 100).toFixed(2);
-          csv += \`\${r.createdAt},"\${studentName}",\${r.type},\${amountINR}\\n\`;
+          csv += \`\${csvField(r.createdAt)},\${csvField(studentName)},\${csvField(r.type)},\${csvField(amountINR)}\\n\`;
         }
       }
-      
+
       parentPort.postMessage(csv);
     `;
 

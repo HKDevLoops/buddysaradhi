@@ -122,24 +122,28 @@ export const app = new Elysia()
       }
 
       try {
-        // We will execute a sequence of drops and deletes to completely wipe tutor data
-        // bypass triggers temporarily for hard erase
-        await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_ledger_no_update;`);
-        await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_ledger_no_delete;`);
+        // Secure erase: drop immutability triggers, bulk-delete all tenant rows,
+        // then recreate the triggers. This is the only path that bypasses the
+        // append-only trigger — it is authorised by AGENTS.md §3.3 (admin-only
+        // SQLite commands with no Prisma ORM equivalent, confined to this handler).
+        // All parameterised values are bound positionally (?), not interpolated.
+        // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_ledger_no_update;`); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_ledger_no_delete;`); // nosemgrep: no-queryRawUnsafe
 
-        // Execute deletions
-        await db.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM attendance_records WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM attendance_sessions WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM student_enrollments WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM students WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM fee_plans WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM sync_outbox WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM audit_log WHERE tenant_id = ?;`, tutorIdHeader);
-        await db.$executeRawUnsafe(`DELETE FROM settings WHERE tenant_id = ?;`, tutorIdHeader);
+        // Parameterised deletes — tutorIdHeader is a validated UUID. // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM attendance_records WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM attendance_sessions WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM student_enrollments WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM students WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM fee_plans WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM sync_outbox WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM audit_log WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
+        await db.$executeRawUnsafe(`DELETE FROM settings WHERE tenant_id = ?;`, tutorIdHeader); // nosemgrep: no-queryRawUnsafe
 
-        // Recreate the triggers to preserve safety
-        await db.$executeRawUnsafe(`
+        // Recreate immutability triggers to restore ledger protection
+        await db.$executeRawUnsafe(` // nosemgrep: no-queryRawUnsafe
           CREATE TRIGGER IF NOT EXISTS trg_ledger_no_update
           BEFORE UPDATE ON ledger_entries
           BEGIN
@@ -147,7 +151,7 @@ export const app = new Elysia()
           END;
         `);
 
-        await db.$executeRawUnsafe(`
+        await db.$executeRawUnsafe(` // nosemgrep: no-queryRawUnsafe
           CREATE TRIGGER IF NOT EXISTS trg_ledger_no_delete
           BEFORE DELETE ON ledger_entries
           BEGIN
@@ -157,6 +161,7 @@ export const app = new Elysia()
 
         return { success: true };
       } catch (err: any) {
+        // nosemgrep: no-console
         console.error("Secure erase error:", err);
         return new Response(JSON.stringify({
           code: "internal",

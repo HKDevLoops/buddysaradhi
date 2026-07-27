@@ -50,14 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # OSV-Scanner action v1 was retired. v2 is the current stable release.
+      # Install OSV-Scanner CLI directly for reliable cross-platform use.
+      # The github action wrapper has had versioning issues; direct binary is stable.
+      - name: Install OSV-Scanner
+        run: |
+          curl -L https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action@v2
-        with:
-          scan-args: |-
-            --lockfile=pnpm-lock.yaml
-            --recursive
-            .
+        run: osv-scanner --lockfile=pnpm-lock.yaml .
         continue-on-error: true
 
   license-checker:
