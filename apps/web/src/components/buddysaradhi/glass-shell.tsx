@@ -20,9 +20,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShellStore, ScreenId } from "@/stores/shell-store";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings } from "@/server/queries/settings";
 import { getPendingSyncCount } from "@/server/queries/sync";
+import { signOutAction } from "@/server/actions/signout";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -35,7 +36,22 @@ const NAV_ITEMS = [
 export function GlassShell({ children }: { children: React.ReactNode }) {
   const { activeScreen, setActiveScreen } = useShellStore();
   const [menuOpen, setMenuOpen] = useState(false);
-  
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const queryClient = useQueryClient();
+
+  const onSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    setMenuOpen(false);
+    queryClient.clear();
+    try {
+      await signOutAction();
+    } catch (err) {
+      setIsSigningOut(false);
+      window.location.assign("/login");
+    }
+  };
+
   const { data: syncData } = useQuery({
     queryKey: ["pendingSyncCount"],
     queryFn: () => getPendingSyncCount(),
@@ -215,7 +231,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               </h2>
             </div>
             <div className="flex items-center gap-4">
-              <div className="w-64 relative hidden md:block">
+              <div className="w-full max-w-xs relative hidden md:block">
                 <Search
                   className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
                   style={{ color: "var(--text-muted)" }}
@@ -225,12 +241,12 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                   type="search"
                   placeholder="Find a student..."
                   aria-label="Search students"
-                  className="w-full py-1.5 pl-9 pr-4 text-sm rounded-full transition-all focus:outline-none"
+                  className="w-full py-2 pl-9 pr-4 text-sm rounded-full transition-all focus:outline-none"
                   style={{
                     background: "var(--bg-surface-inset)",
                     border: "1px solid var(--border-glass)",
                     color: "var(--text-primary)",
-                    minHeight: "36px",
+                    minHeight: "44px",
                   }}
                 />
               </div>
@@ -290,23 +306,13 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={async () => {
-                          try {
-                            const { createSupabaseBrowser } = await import("@/lib/supabase/client");
-                            const sb = createSupabaseBrowser();
-                            await sb.auth.signOut();
-                          } catch {}
-                          document.cookie.split(";").forEach((c) => {
-                            document.cookie = c
-                              .replace(/^ +/, "")
-                              .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-                          });
-                          window.location.href = "/login";
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer"
+                        onClick={onSignOut}
+                        disabled={isSigningOut}
+                        aria-busy={isSigningOut}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <LogOut className="w-4 h-4" />
-                        Log Out
+                        {isSigningOut ? "Signing out…" : "Log Out"}
                       </button>
                     </div>
                   </>
@@ -317,13 +323,13 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
 
           {/* Scrollable Content Area */}
           <div className="flex-1 overflow-auto flex flex-col no-scrollbar" role="main">
-            <main className="flex-1 p-4 sm:p-6 md:p-8 pb-16 md:pb-8 relative">
+            <main className="flex-1 p-4 sm:p-6 md:p-8 pb-16 md:pb-8 relative max-w-7xl mx-auto w-full">
               {children}
             </main>
 
             {/* Sticky Footer — always visible (desktop) */}
             <footer
-              className="h-12 flex items-center justify-between px-4 sm:px-6 md:px-8 text-xs shrink-0 mt-auto"
+              className="h-12 flex items-center justify-between px-4 sm:px-6 md:px-8 text-xs shrink-0 mt-auto max-w-7xl mx-auto w-full"
               style={{
                 background: "var(--surface-glass-faint)",
                 backdropFilter: "blur(8px)",

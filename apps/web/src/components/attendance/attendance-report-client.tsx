@@ -1,39 +1,76 @@
 "use client";
 
+import { useState } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
-import { type StudentAttendanceRow, type AttendanceStatus } from "@buddysaradhi/shared";
-import { X, BarChart3, CalendarDays } from "lucide-react";
-import { format, parseISO, startOfWeek } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { X, BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle } from "lucide-react";
+import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
 
-const CELL_META: Record<AttendanceStatus, { label: string; short: string; accent: string }> = {
-  present: { label: "Present", short: "P", accent: "var(--accent-emerald)" },
-  absent: { label: "Absent", short: "A", accent: "var(--accent-flare)" },
-  late: { label: "Late", short: "L", accent: "var(--accent-amber)" },
-  excused: { label: "Leave", short: "Lv", accent: "var(--accent-cyan)" },
-};
+type Preset = "current_month" | "last_month" | "last_3_months" | "last_6_months" | "full_year";
 
-interface AttendanceReportClientProps {
-  records: StudentAttendanceRow[];
-  selectedDateIso: string;
+const PRESETS: { id: Preset; label: string; icon: React.ReactNode }[] = [
+  { id: "current_month", label: "Current Month", icon: <CalendarDays className="w-4 h-4" /> },
+  { id: "last_month", label: "Last Month", icon: <CalendarDays className="w-4 h-4" /> },
+  { id: "last_3_months", label: "Last 3 Months", icon: <CalendarDays className="w-4 h-4" /> },
+  { id: "last_6_months", label: "Last 6 Months", icon: <CalendarDays className="w-4 h-4" /> },
+  { id: "full_year", label: "Full Year", icon: <CalendarDays className="w-4 h-4" /> },
+];
+
+interface SummaryItem {
+  student_id: string;
+  student_name: string;
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  total_sessions: number;
+  percentage: number;
 }
 
-export function AttendanceReportClient({ records, selectedDateIso }: AttendanceReportClientProps) {
+interface OverallSummary {
+  total_students: number;
+  total_sessions: number;
+  overall_present: number;
+  overall_absent: number;
+  overall_late: number;
+  overall_excused: number;
+  overall_percentage: number;
+}
+
+interface AttendanceSummaryResponse {
+  preset: Preset;
+  period_start: string;
+  period_end: string;
+  summaries: SummaryItem[];
+  overall: OverallSummary;
+}
+
+export function AttendanceReportClient({ 
+  records, 
+  selectedDateIso 
+}: { 
+  records: { student_id: string; name: string; status: string }[];
+  selectedDateIso: string;
+}) {
   const { isReportOpen, setReportOpen } = useAttendanceStore();
+  const [activePreset, setActivePreset] = useState<Preset>("current_month");
+  const [summaryData, setSummaryData] = useState<AttendanceSummaryResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch summary when preset changes
+  React.useEffect(() => {
+    setIsLoading(true);
+    fetchAttendanceSummaryAction(activePreset).then(res => {
+      if (res.ok && res.value) setSummaryData(res.value);
+      setIsLoading(false);
+    });
+  }, [activePreset]);
 
   if (!isReportOpen) return null;
 
-  // Heatmap: students (rows) × the 7 days of the selected week (columns).
-  // Only the selected date carries real data; the rest are shown neutral (no data).
-  const weekStart = startOfWeek(parseISO(selectedDateIso), { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d;
-  });
-  const weekIso = weekDays.map((d) => format(d, "yyyy-MM-dd"));
-  const statusByStudent = new Map(records.map((r) => [r.student_id, r.status]));
-  const selectedIso = selectedDateIso;
+  const overall = summaryData?.overall;
+  const summaries = summaryData?.summaries || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -42,19 +79,21 @@ export function AttendanceReportClient({ records, selectedDateIso }: AttendanceR
         onClick={() => setReportOpen(false)}
       />
 
-      <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-3xl shadow-2xl p-6 overflow-hidden max-h-[85vh] flex flex-col">
+      <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-4xl shadow-2xl p-6 overflow-hidden max-h-[85vh] flex flex-col">
         <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.1)_0%,transparent_70%)] blur-2xl pointer-events-none" />
 
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-[var(--accent-cyan)]" />
-              Attendance Report
+              Attendance Summary
             </h2>
-            <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-              <CalendarDays className="w-4 h-4" />
-              Week of {format(weekStart, "do MMM yyyy")}
-            </p>
+            {summaryData && (
+              <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                <CalendarDays className="w-4 h-4" />
+                {format(parseISO(summaryData.period_start), "do MMM yyyy")} — {format(parseISO(summaryData.period_end), "do MMM yyyy")}
+              </p>
+            )}
           </div>
           <button
             onClick={() => setReportOpen(false)}
@@ -65,88 +104,189 @@ export function AttendanceReportClient({ records, selectedDateIso }: AttendanceR
           </button>
         </div>
 
+        {/* Preset Selector */}
+        <div className="flex flex-wrap gap-2 mb-5 pb-4" style={{ borderBottom: "1px solid var(--border-glass)" }}>
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setActivePreset(p.id)}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-all",
+                activePreset === p.id
+                  ? "bg-[var(--surface-glass-strong)] text-[var(--text-primary)] shadow-sm ring-1 ring-white/10"
+                  : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+              )}
+            >
+              {p.icon}
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Overall Stats */}
+        {overall && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <StatCard
+              title="Total Students"
+              value={overall.total_students}
+              icon={<Users className="w-4 h-4" />}
+              accent="var(--accent-cyan)"
+            />
+            <StatCard
+              title="Present"
+              value={overall.overall_present}
+              icon={<CheckCircle className="w-4 h-4" />}
+              accent="var(--accent-emerald)"
+            />
+            <StatCard
+              title="Absent"
+              value={overall.overall_absent}
+              icon={<XCircle className="w-4 h-4" />}
+              accent="var(--accent-flare)"
+            />
+            <StatCard
+              title="Attendance %"
+              value={`${overall.overall_percentage}%`}
+              icon={<TrendingUp className="w-4 h-4" />}
+              accent={overall.overall_percentage >= 75 ? "var(--accent-emerald)" : overall.overall_percentage >= 50 ? "var(--accent-amber)" : "var(--accent-flare)"}
+            />
+          </div>
+        )}
+
+        {/* Student Breakdown */}
         <div className="overflow-auto no-scrollbar flex-grow">
-          <table className="w-full border-separate" style={{ borderSpacing: "4px" }}>
-            <thead>
-              <tr>
-                <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur">
-                  Student
-                </th>
-                {weekDays.map((d, i) => {
-                  const iso = weekIso[i];
-                  const isSel = iso === selectedIso;
-                  return (
-                    <th
-                      key={iso}
-                      className="text-center text-xs font-medium p-1"
-                      style={{
-                        color: isSel ? "var(--accent-cyan)" : "var(--text-muted)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      <div>{format(d, "EEE")}</div>
-                      <div className="num">{format(d, "d")}</div>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((record) => (
-                <tr key={record.student_id}>
-                  <td className="text-sm font-medium p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
-                    {record.name}
-                  </td>
-                  {weekIso.map((iso) => {
-                    const status = iso === selectedIso ? statusByStudent.get(record.student_id) ?? null : null;
-                    const meta = status ? CELL_META[status] : null;
-                    return (
-                      <td key={iso} className="p-0">
-                        <div
-                          className={cn(
-                            "w-full min-h-[40px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors",
-                            meta ? "neumo-raised" : "border border-dashed"
-                          )}
-                          style={
-                            meta
-                              ? {
-                                  color: meta.accent,
-                                  boxShadow: `0 0 10px color-mix(in srgb, ${meta.accent} 30%, transparent)`,
-                                }
-                              : { borderColor: "var(--border-glass)", color: "var(--text-muted)" }
-                          }
-                          title={meta ? `${record.name}: ${meta.label}` : `${record.name}: no data`}
-                          aria-label={meta ? `${record.name} ${meta.label}` : `${record.name} no data`}
-                        >
-                          {meta ? meta.short : "—"}
-                        </div>
-                      </td>
-                    );
-                  })}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="flex flex-col items-center gap-4 opacity-50">
+                <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border-glass)", borderTopColor: "var(--accent-cyan)" }} />
+                <p className="text-sm text-[var(--text-muted)]">Loading summary...</p>
+              </div>
+            </div>
+          ) : summaries.length === 0 ? (
+            <div className="text-center py-10" style={{ color: "var(--text-muted)" }}>
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No attendance data for selected period</p>
+            </div>
+          ) : (
+            <table className="w-full border-separate" style={{ borderSpacing: "4px" }}>
+              <thead>
+                <tr>
+                  <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur" style={{ fontFamily: "var(--font-mono)" }}>
+                    Student
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    Present
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    Absent
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    Late
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    Leave
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    Total
+                  </th>
+                  <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                    %
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {summaries.map((s) => (
+                  <tr key={s.student_id}>
+                    <td className="text-sm font-medium p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
+                      {s.student_name}
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-emerald)" }}>
+                        {s.present}
+                      </div>
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-flare)" }}>
+                        {s.absent}
+                      </div>
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-amber)" }}>
+                        {s.late}
+                      </div>
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-cyan)" }}>
+                        {s.excused}
+                      </div>
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--text-secondary)" }}>
+                        {s.total_sessions}
+                      </div>
+                    </td>
+                    <td className="p-0">
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ 
+                        color: s.percentage >= 75 ? "var(--accent-emerald)" : s.percentage >= 50 ? "var(--accent-amber)" : "var(--accent-flare)" 
+                      }}>
+                        {s.percentage}%
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
         {/* Legend — color is never the only signal */}
         <div className="flex flex-wrap items-center gap-4 mt-5 pt-4" style={{ borderTop: "1px solid var(--border-glass)" }}>
-          {Object.values(CELL_META).map((m) => (
-            <div key={m.label} className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: m.accent }} aria-hidden="true" />
-              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                {m.label}
-              </span>
-            </div>
-          ))}
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full border border-dashed" style={{ borderColor: "var(--border-glass)" }} aria-hidden="true" />
-            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-              No data
-            </span>
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-emerald)" }} aria-hidden="true" />
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Present</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-flare)" }} aria-hidden="true" />
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Absent</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-amber)" }} aria-hidden="true" />
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Late</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-cyan)" }} aria-hidden="true" />
+            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Leave</span>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+function StatCard({
+  title,
+  value,
+  icon,
+  accent,
+}: {
+  title: string;
+  value: number | string;
+  icon: React.ReactNode;
+  accent: string;
+}) {
+  return (
+    <div className="glass p-4 rounded-xl flex flex-col justify-between" style={{ borderLeft: `3px solid ${accent}` }}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `color-mix(in srgb, ${accent} 15%, transparent)`, color: accent }}>
+          {icon}
+        </div>
+      </div>
+      <p className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">{value}</p>
+    </div>
+  );
+}
+
+import { CheckCircle, XCircle } from "lucide-react";
+import React from "react";

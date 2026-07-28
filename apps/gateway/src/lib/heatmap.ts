@@ -74,12 +74,12 @@ export async function buildHeatmap(
     for (const ws of weeks) {
       const we = weekEnd(ws);
       const weekEntries = entries.filter(
-        (e) =>
+        (e: (typeof entries)[number]) =>
           e.occurredOn.slice(0, 10) >= ws && e.occurredOn.slice(0, 10) <= we
       );
       let balance = s.balancePaise;
       for (const e of weekEntries) balance = e.balanceAfterPaise;
-      const hasPayment = weekEntries.some((e) => e.creditPaise > 0);
+      const hasPayment = weekEntries.some((e: (typeof weekEntries)[number]) => e.creditPaise > 0);
 
       let cell_status: CellStatus;
       if (mode === "financial") {

@@ -18,6 +18,13 @@ const tenantId = process.env.TENANT_ID || "local-dev";
 
 const db = getPrismaClient(dbUrl, dbToken);
 
+async function disconnectIfSupported() {
+  const disconnect = (db as { $disconnect?: () => Promise<void> | void }).$disconnect;
+  if (typeof disconnect === "function") {
+    await disconnect.call(db);
+  }
+}
+
 async function main() {
   const students = await db.student.findMany({
     where: { tenantId },
@@ -52,4 +59,4 @@ main()
     console.error("verify failed:", e instanceof Error ? e.message : e);
     process.exit(1);
   })
-  .finally(() => db.$disconnect());
+  .finally(disconnectIfSupported);

@@ -92,7 +92,7 @@
     },
     "./*": "./*"
   },
-  "version": "5.22.0",
+  "version": "6.2.1",
   "sideEffects": false,
   "imports": {
     "#wasm-engine-loader": {

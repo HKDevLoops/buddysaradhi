@@ -157,7 +157,7 @@ export function registerStudents(app: Hono) {
     if (search && isVectorSearch) {
       // Sort retrieved students according to HNSW hit rank order
       const idOrder = new Map(studentIds.map((id, index) => [id, index]));
-      students = students.sort((a, b) => {
+      students = students.sort((a: any, b: any) => {
         const orderA = idOrder.get(a.id) ?? 999999;
         const orderB = idOrder.get(b.id) ?? 999999;
         return orderA - orderB;

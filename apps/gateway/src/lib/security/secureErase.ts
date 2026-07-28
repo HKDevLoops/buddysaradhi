@@ -1,4 +1,4 @@
-import type { PrismaClient, Prisma } from "../../prisma-client";
+import type { PrismaClient } from "../../prisma-client";
 import { vacuum } from "../db/admin";
 
 /**
@@ -65,7 +65,7 @@ export async function secureErase(
     const delegate = (
       db as unknown as Record<
         string,
-        { deleteMany: (a: object) => Prisma.PrismaPromise<{ count: number }> }
+        { deleteMany: (a: object) => Promise<{ count: number }> }
       >
     )[model];
     return delegate.deleteMany({});

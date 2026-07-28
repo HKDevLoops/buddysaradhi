@@ -324,7 +324,7 @@ async function dispatch(req: NextRequest, slug: string[]) {
   const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
 
   // For all standard routes, try routing to the API gateway first.
-  if (path !== "/releases/latest" && path !== "/auth/signout" && path !== "/provision") {
+  if (path !== "/releases/latest" && path !== "/provision") {
     try {
       const res = await dispatchGateway(req, path, method);
       if (res.status !== 502) {
@@ -373,46 +373,15 @@ async function dispatch(req: NextRequest, slug: string[]) {
   }
 
   // --- Auth Signout ---
-  if (path === "/auth/signout" && method === "POST") {
-    const accept = req.headers.get("accept") ?? "";
-    const wantsJson = accept.includes("application/json");
-    const url = new URL("/login", req.url);
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const APP_COOKIES = new Set(["buddysaradhi_session"]);
-    const isSupabaseAuthCookie = (name: string) => name.startsWith("sb-") || name.includes("auth-token") || name.includes("supabase");
-
-    let accessToken: string | null = null;
-    for (const cookie of req.cookies.getAll()) {
-      if (isSupabaseAuthCookie(cookie.name)) {
-        accessToken = cookie.value;
-        break;
-      }
-    }
-
-    if (SUPABASE_URL && SUPABASE_SERVICE_KEY && accessToken) {
-      try {
-        const { createClient } = await import("@supabase/supabase-js");
-        const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-          auth: { autoRefreshToken: false, persistSession: false },
-        });
-        await admin.auth.admin.signOut(accessToken, "global");
-      } catch (err) {
-        log.error("auth_signout_admin_failed", err instanceof Error ? err.message : String(err));
-      }
-    }
-
-    const noStoreHeaders = { "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0" };
-    const body = wantsJson
-      ? NextResponse.json({ success: true, signedOut: true }, { headers: noStoreHeaders })
-      : NextResponse.redirect(url, { status: 302, headers: noStoreHeaders });
-
-    for (const cookie of req.cookies.getAll()) {
-      if (isSupabaseAuthCookie(cookie.name) || APP_COOKIES.has(cookie.name)) {
-        body.cookies.delete(cookie.name);
-      }
-    }
-    return body;
+  // Legacy path: superseded by the `signOutAction` server action which is the
+  // canonical logout for web and the future mobile/desktop clients. Returning
+  // 410 Gone so any stale client that still calls /api/v1/auth/signout fails
+  // loudly instead of silently logging the user out of only one cookie store.
+  if (path === "/auth/signout") {
+    return NextResponse.json(
+      { success: false, error: "AUTH_SIGNOUT_DEPRECATED", message: "Use the signOut server action instead." },
+      { status: 410 }
+    );
   }
 
   // --- Provision ---

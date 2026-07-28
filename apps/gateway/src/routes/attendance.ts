@@ -38,12 +38,13 @@ export function registerAttendance(app: Hono) {
       enrollmentsByStudent.get(e.studentId)!.push(enrollmentWithBatch);
     }
 
+    type AttendanceRecordRow = { studentId: string; status: string | null };
     let records: any[];
     if (session) {
-      const recs = await db.attendanceRecord.findMany({
+      const recs = (await db.attendanceRecord.findMany({
         where: { sessionId: session.id, tenantId },
-      });
-      const byStudent = new Map(recs.map((r: any) => [r.studentId, r]));
+      })) as AttendanceRecordRow[];
+      const byStudent = new Map<string, AttendanceRecordRow>(recs.map((r) => [r.studentId, r]));
       records = students.map((s: any) => {
         const sEnrollments = enrollmentsByStudent.get(s.id) || [];
         return {
@@ -116,17 +117,17 @@ export function registerAttendance(app: Hono) {
       // SAFETY: providing an explicit `id` forces Prisma's relation-input
       // branch where the scalar FK `batchId` collapses to `undefined` in the
       // type; runtime still accepts a real string (or null) for the column.
-      await db.attendanceSession.create({
-        data: {
-          id: sessionId,
-          tenantId,
-          batchId: body.batch_id ?? undefined,
-          sessionDate: body.session_date,
-          createdAt: now,
-          updatedAt: now,
-        } as unknown as Parameters<typeof db.attendanceSession.create>[0]["data"],
-      });
-    }
+        await db.attendanceSession.create({
+          data: {
+            id: sessionId,
+            tenantId,
+            batchId: body.batch_id ?? undefined,
+            sessionDate: body.session_date,
+            createdAt: now,
+            updatedAt: now,
+          } as any,
+        });
+      }
 
     for (const u of body.updates) {
       await db.attendanceRecord.upsert({

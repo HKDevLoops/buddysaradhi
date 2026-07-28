@@ -115,3 +115,32 @@ export async function checkDuplicateStudentAction(
     return { isDuplicate: false };
   }
 }
+
+export async function deleteStudentAction(studentId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    
+    // Verify student exists and belongs to tenant
+    const student = await db.student.findUnique({
+      where: { id: studentId, tenantId },
+    });
+    
+    if (!student) {
+      return { success: false, error: "Student not found" };
+    }
+    
+    // Delete student and all related data (cascading via foreign keys)
+    // This is a destructive action by user choice
+    await db.student.delete({
+      where: { id: studentId, tenantId },
+    });
+    
+    revalidatePath("/students");
+    revalidatePath("/dashboard");
+    
+    return { success: true };
+  } catch (error) {
+    log.error('student_delete_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: error instanceof Error ? error.message : "Failed to delete student" };
+  }
+}

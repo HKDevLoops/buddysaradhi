@@ -1,52 +1,58 @@
 "use server";
 
-import { getDashboardKPIs } from "../queries/dashboard";
-import { getAttendanceHeatmap, getPaymentHeatmap } from "../queries/dashboard-heatmaps";
-import { getActivityFeed, getDueToday } from "../queries/dashboard-feed";
+import { gatewayGet } from "@/server/get-db";
+import { log } from "@/lib/logger";
 
+export type DashboardKpis = {
+  totalStudents: number;
+  studentsWithDues: number;
+  collectedThisMonthMinor: number;
+  dueTillDateMinor: number;
+  dueForMonthMinor: number;
+  overdueMinor: number;
+  paymentBreakdown: { paid: number; partial: number; unpaid: number; noDues: number };
+};
 
-// Helper for other periods if needed, but KPIs query calculates it via SQL
-function resolvePeriodBounds(period: string) {
-  const end = new Date();
-  const start = new Date();
-  if (period === "this_month") start.setDate(1);
-  else if (period === "last_month") {
-    start.setMonth(start.getMonth() - 1);
-    start.setDate(1);
-    end.setDate(0); // last day of prev month
+export type DashboardActivityItem = {
+  id: string;
+  event_type: "PAYMENT" | "INVOICE" | "ATTENDANCE_LOCKED" | "STUDENT_ENROLLED" | "OTHER";
+  student_name: string;
+  invoice_number?: string | null;
+  minor_amount: number;
+  additional_data?: string | null;
+  timestamp: string;
+};
+
+export type DashboardDueTodayItem = {
+  student_id: string;
+  student_name: string;
+  due_minor: number;
+  invoice_number?: string | null;
+  due_date?: string | null;
+};
+
+export type DashboardSummary = {
+  kpis: DashboardKpis;
+  activity: DashboardActivityItem[];
+  dueToday: DashboardDueTodayItem[];
+  dataOrigin: "live" | "stub";
+};
+
+export async function fetchDashboardSummaryAction(): Promise<
+  { ok: true; value: DashboardSummary } | { ok: false; error: string; code: string }
+> {
+  try {
+    const res = await gatewayGet<DashboardSummary>("/api/v1/analytics/dashboard");
+    if (!res.success) {
+      return { ok: false, error: res.error, code: "GATEWAY_ERROR" };
+    }
+    return { ok: true, value: res.data };
+  } catch (error) {
+    log.error("dashboard_summary_failed", error instanceof Error ? error.message : String(error));
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown dashboard error",
+      code: "DASHBOARD_FETCH_FAILED",
+    };
   }
-  else if (period === "this_quarter") {
-    start.setMonth(Math.floor(start.getMonth() / 3) * 3);
-    start.setDate(1);
-  } else {
-    // all time or default fallback to last 90 days
-    start.setDate(start.getDate() - 90);
-  }
-  return { startIso: start.toISOString(), endIso: end.toISOString() };
-}
-
-export async function fetchDashboardKPIsAction(periodStartIso: string) {
-    const res = await getDashboardKPIs(periodStartIso);
-  if (!res.success) {
-    return { ok: false as const, error: { code: "DB_ERROR", message: res.error } };
-  }
-  return { ok: true as const, value: res.data };
-}
-
-export async function fetchAttendanceHeatmapAction(period: string = "this_month") {
-    const { startIso, endIso } = resolvePeriodBounds(period);
-  return getAttendanceHeatmap(startIso, endIso);
-}
-
-export async function fetchPaymentHeatmapAction(period: string = "this_month") {
-    const { startIso, endIso } = resolvePeriodBounds(period);
-  return getPaymentHeatmap(startIso, endIso);
-}
-
-export async function fetchActivityFeedAction(limit: number = 20) {
-    return getActivityFeed(limit);
-}
-
-export async function fetchDueTodayAction() {
-    return getDueToday();
 }

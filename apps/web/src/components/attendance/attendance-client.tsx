@@ -6,12 +6,12 @@ import { fetchAttendanceAction } from "@/server/actions/attendance";
 import { AttendanceToolbar } from "./attendance-toolbar";
 import { AttendanceGrid } from "./attendance-grid";
 import { LockSessionSheet } from "./lock-session-sheet";
-import { AttendanceReportClient } from "./attendance-report-client";
-import { Loader2, BarChart3 } from "lucide-react";
+import { AttendanceSummary } from "./attendance-summary";
+import { Loader2 } from "lucide-react";
 
 
 export function AttendanceClient() {
-  const { selectedDateIso, selectedBatch, setReportOpen } = useAttendanceStore();
+  const { selectedDateIso, selectedBatch } = useAttendanceStore();
 
   const { data, isLoading } = useQuery({
     queryKey: ['attendance', selectedDateIso, selectedBatch],
@@ -25,22 +25,6 @@ export function AttendanceClient() {
   return (
     <div className="space-y-6 flex flex-col h-full min-h-[calc(100vh-140px)]">
       <AttendanceToolbar session={session} />
-
-      {isLocked && (
-        <button
-          onClick={() => setReportOpen(true)}
-          className="neumo-raised px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors min-h-[44px] self-start"
-          style={{
-            background: "var(--bg-surface-raised)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-cyan)")}
-          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
-        >
-          <BarChart3 className="w-4 h-4" style={{ color: "var(--accent-cyan)" }} /> View Report
-        </button>
-      )}
 
       <div className="flex-grow min-h-0">
         {isLoading ? (
@@ -56,7 +40,7 @@ export function AttendanceClient() {
       </div>
 
       <LockSessionSheet session={session} />
-      <AttendanceReportClient records={records} selectedDateIso={selectedDateIso} />
+      <AttendanceSummary selectedDateIso={selectedDateIso} />
     </div>
   );
 }

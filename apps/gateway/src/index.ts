@@ -9,6 +9,7 @@ import { registerStudents } from "./routes/students";
 import { registerAttendance } from "./routes/attendance";
 import { registerLedger } from "./routes/ledger";
 import { registerReports } from "./routes/reports";
+import { registerAnalytics } from "./routes/analytics";
 import { registerGraphQL } from "./routes/graphql";
 import { provisionTutorDb } from "./provisionTutorDb";
 import { log } from "./lib/logger";
@@ -195,6 +196,7 @@ registerStudents(app);
 registerAttendance(app);
 registerLedger(app);
 registerReports(app);
+registerAnalytics(app);
 registerGraphQL(app);
 
 export default app;

@@ -6,29 +6,35 @@ import {
   IndianRupee,
   FileText,
   CalendarCheck,
-  BarChart3,
-  X,
+  Trash2,
+  AlertTriangle,
   Phone,
   CalendarDays,
+  Calendar,
+  CheckCircle,
+  XCircle,
+  X,
+  TrendingUp,
 } from "lucide-react";
 import { type Student, type StudentListRow, formatINR } from "@buddysaradhi/shared";
 import { AttendanceTab } from "./attendance-tab";
 import { RecordPaymentButton } from "./record-payment-button";
 import { studentAccent } from "./student-master-list";
 import { useStudentsStore } from "@/stores/students-store";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchStudentDetailAction } from "@/server/actions/students";
 import { getStudentInvoices } from "@/server/queries/ledger";
 import { LedgerTable } from "../fees/ledger-table";
+import { deleteStudentAction } from "@/server/actions/students";
+import { cn } from "@/lib/utils";
 
-type TabKey = "overview" | "ledger" | "fees" | "attendance" | "reports";
+type TabKey = "overview" | "ledger" | "fees" | "attendance";
 
 const TABS: { id: TabKey; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Overview", icon: <User className="w-4 h-4" /> },
   { id: "ledger", label: "Ledger", icon: <FileText className="w-4 h-4" /> },
   { id: "fees", label: "Fees", icon: <IndianRupee className="w-4 h-4" /> },
   { id: "attendance", label: "Attendance", icon: <CalendarCheck className="w-4 h-4" /> },
-  { id: "reports", label: "Reports", icon: <BarChart3 className="w-4 h-4" /> },
 ];
 
 function initials(name: string): string {
@@ -45,6 +51,8 @@ interface StudentDetailDrawerProps {
 export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
   const { selectedStudentId, closeDrawer } = useStudentsStore();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["student", selectedStudentId],
@@ -65,6 +73,28 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
     0
   );
   const due = selectedRow?.balance_due ?? 0;
+
+  // Monthly fee statistics
+  const monthlyFee = student?.baseFeePaise || 0;
+  const paidMonths = invoices.filter(inv => (inv.paid_amount_minor || 0) >= inv.total).length;
+  const partialMonths = invoices.filter(inv => (inv.paid_amount_minor || 0) > 0 && (inv.paid_amount_minor || 0) < inv.total).length;
+  const unpaidMonths = invoices.filter(inv => (inv.paid_amount_minor || 0) === 0).length;
+  const totalMonths = invoices.length;
+  const currentDueMonths = invoices.filter(inv => (inv.paid_amount_minor || 0) < inv.total).length;
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteStudentAction(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      closeDrawer();
+      setShowDeleteConfirm(false);
+    },
+    onError: (err) => {
+      alert(err instanceof Error ? err.message : "Failed to delete student");
+    },
+  });
 
   if (!selectedStudentId) {
     return (
@@ -106,6 +136,11 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       .filter(Boolean)
       .join(" · ") || "—";
 
+  const handleDelete = () => {
+    if (deleteMutation.isPending) return;
+    deleteMutation.mutate(student.id);
+  };
+
   return (
     <div
       key={student.id}
@@ -138,20 +173,33 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={closeDrawer}
-            aria-label="Close student detail"
-            className="p-2 -mr-2 rounded-lg transition-colors"
-            style={{ color: "var(--text-muted)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              aria-label="Delete student"
+              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              style={{ color: "var(--accent-flare)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent-flare)/10")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={closeDrawer}
+              aria-label="Close student detail"
+              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              style={{ color: "var(--text-muted)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Due + Collected chips */}
+        {/* Due + Collected + Monthly Fee chips */}
         <div className="flex flex-wrap gap-3 mt-5">
           {due > 0 ? (
             <span
@@ -170,6 +218,10 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
           <span className="chip chip-success num" title="Total collected">
             <IndianRupee className="w-3.5 h-3.5" aria-hidden="true" />
             Collected: {formatINR(collected)}
+          </span>
+          <span className="chip chip-info num" title="Monthly fee">
+            <IndianRupee className="w-3.5 h-3.5" aria-hidden="true" />
+            Monthly: {formatINR(monthlyFee)}
           </span>
         </div>
       </div>
@@ -205,51 +257,37 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       <div className="flex-1 overflow-y-auto p-6">
         {activeTab === "overview" && (
           <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-4">
-              <div
-                className="p-4 rounded-xl border"
-                style={{
-                  background: "var(--bg-surface-inset)",
-                  borderColor: "var(--border-default)",
-                }}
-              >
-                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-                  Due
-                </div>
-                <div className="num text-lg font-semibold" style={{ color: "var(--accent-warning)" }}>
-                  {formatINR(due)}
-                </div>
-              </div>
-              <div
-                className="p-4 rounded-xl border"
-                style={{
-                  background: "var(--bg-surface-inset)",
-                  borderColor: "var(--border-default)",
-                }}
-              >
-                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-                  Collected
-                </div>
-                <div className="num text-lg font-semibold" style={{ color: "var(--accent-success)" }}>
-                  {formatINR(collected)}
-                </div>
-              </div>
-              <div
-                className="p-4 rounded-xl border"
-                style={{
-                  background: "var(--bg-surface-inset)",
-                  borderColor: "var(--border-default)",
-                }}
-              >
-                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>
-                  Monthly Fee
-                </div>
-                <div className="num text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {formatINR(student.baseFeePaise || 0)}
-                </div>
-              </div>
+            {/* Key Metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <MetricCard
+                title="Monthly Fee"
+                value={formatINR(monthlyFee)}
+                icon={<IndianRupee className="w-5 h-5" />}
+                accent="var(--accent-cyan)"
+              />
+              <MetricCard
+                title="Months Paid"
+                value={paidMonths}
+                icon={<CheckCircle className="w-5 h-5" />}
+                accent="var(--accent-emerald)"
+                trend={{ dir: "up", label: `${paidMonths}/${totalMonths} months` }}
+              />
+              <MetricCard
+                title="Months Due"
+                value={currentDueMonths}
+                icon={<XCircle className="w-5 h-5" />}
+                accent="var(--accent-flare)"
+                trend={{ dir: "down", label: `${currentDueMonths} outstanding` }}
+              />
+              <MetricCard
+                title="Total Collected"
+                value={formatINR(collected)}
+                icon={<IndianRupee className="w-5 h-5" />}
+                accent="var(--accent-emerald)"
+              />
             </div>
 
+            {/* Identity */}
             <div
               className="p-5 rounded-xl border space-y-4"
               style={{
@@ -292,6 +330,28 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Fee Period Summary */}
+            <div
+              className="p-5 rounded-xl border space-y-4"
+              style={{
+                background: "var(--surface-glass-faint)",
+                borderColor: "var(--border-default)",
+              }}
+            >
+              <h3
+                className="text-sm font-semibold uppercase tracking-wider"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                Fee Period Summary
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                <StatItem label="Total Periods" value={totalMonths} accent="var(--accent-cyan)" />
+                <StatItem label="Paid" value={paidMonths} accent="var(--accent-emerald)" />
+                <StatItem label="Partial" value={partialMonths} accent="var(--accent-amber)" />
+                <StatItem label="Unpaid" value={unpaidMonths} accent="var(--accent-flare)" />
               </div>
             </div>
           </div>
@@ -391,24 +451,100 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
         {activeTab === "attendance" && student.id && (
           <AttendanceTab studentId={student.id} />
         )}
-
-        {activeTab === "reports" && (
-          <div className="h-full flex flex-col items-center justify-center text-center py-12">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center mb-4"
-              style={{ background: "var(--bg-surface-inset)" }}
-            >
-              <BarChart3 className="w-6 h-6" style={{ color: "var(--text-muted)" }} />
-            </div>
-            <h3 className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>
-              Reports
-            </h3>
-            <p className="text-sm text-[var(--text-muted)] mt-2 max-w-[250px]">
-              Progress and performance reports are coming in a future phase.
-            </p>
-          </div>
-        )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-[#0C081A]/80 backdrop-blur-sm"
+            onClick={() => setShowDeleteConfirm(false)}
+          />
+          <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)" }}>
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+                Delete Student?
+              </h3>
+            </div>
+            <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+              This will permanently delete <strong>{fullName}</strong> and all their
+              attendance records, fee history, ledger entries, and receipts.
+              This action cannot be undone.
+            </p>
+            <p className="text-xs mb-6 p-3 rounded-lg" style={{ background: "var(--accent-flare)/10", color: "var(--accent-flare)" }}>
+              Dashboard totals and fee reports will be recalculated after deletion.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="btn-glass px-4 py-2 rounded-xl text-sm font-semibold flex-1"
+                style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                className="btn-glass px-4 py-2 rounded-xl text-sm font-semibold flex-1 min-h-[44px]"
+                style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)", borderColor: "var(--accent-flare)/30" }}
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({
+  title,
+  value,
+  icon,
+  accent,
+  trend,
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  accent: string;
+  trend?: { dir: "up" | "down" | "flat"; label: string };
+}) {
+  return (
+    <div
+      className="glass p-4 rounded-xl flex flex-col justify-between transition-all hover:bg-[var(--surface-glass)]"
+      style={{ borderLeft: `3px solid ${accent}` }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `color-mix(in srgb, ${accent} 15%, transparent)`, color: accent }}>
+          {icon}
+        </div>
+      </div>
+      <p className="text-xl font-bold text-[var(--text-primary)] tracking-tight num">{value}</p>
+      {trend && (
+        <p className={cn("text-xs mt-1 flex items-center gap-1 num",
+          trend.dir === "up" && "text-[var(--accent-success)]",
+          trend.dir === "down" && "text-[var(--accent-danger)]",
+          trend.dir === "flat" && "text-[var(--text-muted)]")}>
+          {trend.dir === "up" && <TrendingUp className="w-3 h-3" />}
+          {trend.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function StatItem({ label, value, accent = "var(--text-primary)" }: { label: string; value: number; accent?: string }) {
+  return (
+    <div className="p-3 rounded-lg" style={{ background: "var(--bg-surface-inset)" }}>
+      <div className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{label}</div>
+      <div className="num text-2xl font-bold mt-1" style={{ color: accent }}>{value}</div>
     </div>
   );
 }

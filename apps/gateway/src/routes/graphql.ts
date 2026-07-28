@@ -195,7 +195,7 @@ const resolvers = {
       const students = studentIds.length > 0 ? await db.student.findMany({
         where: { tenantId, id: { in: studentIds } },
       }) : [];
-      const studentMap = new Map(students.map((s: any) => [s.id, s]));
+      const studentMap = new Map<string, any>((students as any[]).map((s) => [s.id, s]));
 
       const result = invoices.map((inv: any) => {
         const student = studentMap.get(inv.studentId);

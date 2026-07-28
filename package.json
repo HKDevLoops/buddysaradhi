@@ -18,7 +18,7 @@
   "scripts": {
     "postinstall": "prisma generate && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build",
     "build": "prisma generate && pnpm --filter web build",
-    "lint": "pnpm --filter '*' lint",
+    "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
