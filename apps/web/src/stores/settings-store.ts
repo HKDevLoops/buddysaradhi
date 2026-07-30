@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type SettingsSectionId =
   | 'profile' | 'appearance' | 'attendance-rules' | 'fee-rules'
@@ -20,7 +21,9 @@ interface SettingsState {
   cancelDiscard: () => void;
 }
 
-export const useSettingsStore = create<SettingsState>((set, get) => ({
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    (set, get) => ({
   activeSection: 'profile',
   setActiveSection: (id) => set({ activeSection: id }),
 
@@ -50,4 +53,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return { pendingNav: null, dirtySections: new Set() };
   }),
   cancelDiscard: () => set({ pendingNav: null }),
-}));
+    }),
+    {
+      name: 'buddysaradhi.settings.v1',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({ activeSection: state.activeSection }),
+      version: 1,
+    }
+  )
+);

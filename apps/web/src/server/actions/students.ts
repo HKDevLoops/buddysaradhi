@@ -1,7 +1,7 @@
 "use server";
 
 import { Student } from "@buddysaradhi/shared";
-import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayPost } from "@/server/get-db";
+import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayDelete, gatewayPost } from "@/server/get-db";
 import { StudentFilters, SortCol } from "@/types/students";
 import { revalidatePath } from "next/cache";
 import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "../queries/students";
@@ -13,12 +13,22 @@ export async function fetchStudentsAction(
   page: number,
   pageSize: number,
   sort: { col: SortCol; dir: 'asc' | 'desc' }
-) {
-  return getStudentsQuery(filters, searchQuery, page, pageSize, sort);
+): Promise<{ success: boolean; data?: { students: import("@buddysaradhi/shared").StudentListRow[]; total: number }; error?: string }> {
+  try {
+    return await getStudentsQuery(filters, searchQuery, page, pageSize, sort);
+  } catch (error) {
+    log.error('fetch_students_action_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch students" };
+  }
 }
 
-export async function fetchStudentDetailAction(studentId: string) {
-  return getStudentQuery(studentId);
+export async function fetchStudentDetailAction(studentId: string): Promise<{ success: boolean; data?: Student; error?: string }> {
+  try {
+    return await getStudentQuery(studentId);
+  } catch (error) {
+    log.error('fetch_student_detail_action_failed', error instanceof Error ? error.message : String(error), { studentId });
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch student detail" };
+  }
 }
 
 export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
@@ -31,12 +41,10 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     let validAdmissionDate = new Date().toISOString().slice(0, 10);
     const rawDate = s.admission_date || s.joined_at || s.admissionDate;
     if (rawDate) {
-      try {
-        const d = new Date(rawDate);
-        if (!isNaN(d.getTime())) {
-          validAdmissionDate = d.toISOString().slice(0, 10);
-        }
-      } catch {}
+      const d = new Date(rawDate);
+      if (!isNaN(d.getTime())) {
+        validAdmissionDate = d.toISOString().slice(0, 10);
+      }
     }
 
     const studentData = {
@@ -86,16 +94,18 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     }
 
     revalidatePath("/students");
-    return { success: true, data: studentData as any };
+    // SAFETY: The local proxy returns camelCase fields; the shared Student type
+    // uses snake_case. The shape is compatible at runtime but TS can't verify it.
+    return { success: true, data: studentData as unknown as Student };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create student";
-    return { success: false, error: message };
+    log.error('create_student_action_failed', err instanceof Error ? err.message : String(err));
+    return { success: false, error: err instanceof Error ? err.message : "Failed to create student" };
   }
 }
 
 export async function checkDuplicateStudentAction(
   dupKey: string
-): Promise<{ isDuplicate: boolean; existingStudentId?: string }> {
+): Promise<{ isDuplicate: boolean; existingStudentId?: string; error?: string }> {
   try {
     const { db, tenantId } = await getAuthenticatedPrisma();
     const existing = await db.student.findFirst({
@@ -112,32 +122,19 @@ export async function checkDuplicateStudentAction(
     return { isDuplicate: false };
   } catch (error) {
     log.error('student_duplicate_check_failed', error instanceof Error ? error.message : String(error));
-    return { isDuplicate: false };
+    return { isDuplicate: false, error: error instanceof Error ? error.message : "Failed to check duplicate" };
   }
 }
 
 export async function deleteStudentAction(studentId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const { db, tenantId } = await getAuthenticatedPrisma();
-    
-    // Verify student exists and belongs to tenant
-    const student = await db.student.findUnique({
-      where: { id: studentId, tenantId },
-    });
-    
-    if (!student) {
-      return { success: false, error: "Student not found" };
+    const res = await gatewayDelete<{ ok: boolean }>(`/api/v1/students/${encodeURIComponent(studentId)}`);
+    if (!res.success) {
+      log.error('student_delete_failed', 'Gateway delete returned failure', { studentId });
+      return { success: false, error: res.error };
     }
-    
-    // Delete student and all related data (cascading via foreign keys)
-    // This is a destructive action by user choice
-    await db.student.delete({
-      where: { id: studentId, tenantId },
-    });
-    
     revalidatePath("/students");
     revalidatePath("/dashboard");
-    
     return { success: true };
   } catch (error) {
     log.error('student_delete_failed', error instanceof Error ? error.message : String(error));

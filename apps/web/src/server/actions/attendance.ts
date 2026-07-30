@@ -4,9 +4,15 @@ import { getAttendanceForDate } from "../queries/attendance";
 import { getAuthenticatedDb } from "@/server/get-db";
 import { UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { log } from "@/lib/logger";
+import { verifyPin } from "@/lib/crypto";
 
 export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
-  return await getAttendanceForDate(dateIso, batchId);
+  try {
+    return await getAttendanceForDate(dateIso, batchId);
+  } catch (error) {
+    log.error('fetch_attendance_action_failed', error instanceof Error ? error.message : String(error), { dateIso, batchId });
+    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch attendance" };
+  }
 }
 
 export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
@@ -64,11 +70,19 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
 
 export async function lockSessionAction(sessionId: string, pin: string) {
   try {
-    if (pin !== "1234") {
+    const { client, tenantId } = await getAuthenticatedDb();
+    const settingsRow = await client.execute({
+      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+      args: [tenantId],
+    });
+    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    if (!pinHash) {
+      return { success: false, error: "No PIN configured. Set one in Settings → Security." };
+    }
+    const pinValid = await verifyPin(pin, pinHash);
+    if (!pinValid) {
       return { success: false, error: "Invalid PIN" };
     }
-
-    const { client, tenantId } = await getAuthenticatedDb();
     const now = new Date().toISOString();
 
     await client.execute({
@@ -85,6 +99,7 @@ export async function lockSessionAction(sessionId: string, pin: string) {
 
     return { success: true };
   } catch (error) {
+    log.error('lock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
     return { success: false, error: error instanceof Error ? error.message : "Failed to lock session" };
   }
 }
@@ -151,20 +166,59 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
         periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     }
 
-    // Get all active students
-    const students = await client.execute({
-      sql: `SELECT id, first_name, last_name FROM students WHERE tenant_id = ? AND status = 'active' AND archived_at IS NULL ORDER BY first_name`,
-      args: [tenantId],
-    });
+    const emptyOverall = {
+      total_students: 0,
+      total_sessions: 0,
+      overall_present: 0,
+      overall_absent: 0,
+      overall_late: 0,
+      overall_excused: 0,
+      overall_percentage: 0,
+    };
+
+    let students: Awaited<ReturnType<typeof client.execute>>;
+    try {
+      students = await client.execute({
+        sql: `SELECT id, first_name, last_name FROM students WHERE tenant_id = ? AND status = 'active' AND archived_at IS NULL ORDER BY first_name`,
+        args: [tenantId],
+      });
+    } catch (sqlErr) {
+      log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
+      return {
+        ok: true,
+        value: {
+          preset,
+          period_start: periodStart,
+          period_end: periodEnd,
+          summaries: [],
+          overall: emptyOverall,
+        },
+      };
+    }
 
     // Get attendance records in period
-    const records = await client.execute({
-      sql: `SELECT ar.student_id, ar.status
-            FROM attendance_records ar
-            JOIN attendance_sessions s ON s.id = ar.session_id
-            WHERE ar.tenant_id = ? AND s.session_date >= ? AND s.session_date <= ?`,
-      args: [tenantId, periodStart, periodEnd],
-    });
+    let records: Awaited<ReturnType<typeof client.execute>>;
+    try {
+      records = await client.execute({
+        sql: `SELECT ar.student_id, ar.status
+              FROM attendance_records ar
+              JOIN attendance_sessions s ON s.id = ar.session_id
+              WHERE ar.tenant_id = ? AND s.session_date >= ? AND s.session_date <= ?`,
+        args: [tenantId, periodStart, periodEnd],
+      });
+    } catch (sqlErr) {
+      log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
+      return {
+        ok: true,
+        value: {
+          preset,
+          period_start: periodStart,
+          period_end: periodEnd,
+          summaries: [],
+          overall: { ...emptyOverall, total_students: students.rows.length },
+        },
+      };
+    }
 
     // Aggregate by student
     const summaryMap = new Map<string, { present: number; absent: number; late: number; excused: number }>();

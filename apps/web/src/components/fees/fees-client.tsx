@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getStudentsForFees } from "@/server/queries/fees";
-import { getPaymentHeatmap } from "@/server/queries/dashboard-heatmaps";
+import { gatewayGet } from "@/server/get-db";
 import { useFeesStore } from "@/stores/fees-store";
 import { LedgerTable } from "./ledger-table";
 import { PendingTab } from "./payments-client";
@@ -268,7 +268,14 @@ function CollectionsTab({ students }: { students: StudentRow[] }) {
 
   const { data: heat, isLoading } = useQuery({
     queryKey: ["fees", "heatmap", startIso],
-    queryFn: () => getPaymentHeatmap(startIso, endIso),
+    queryFn: async () => {
+      const res = await gatewayGet<{ financial: unknown[] }>(
+        "/api/v1/analytics/dashboard",
+        { periodStartIso: startIso, periodEndIso: endIso }
+      );
+      if (!res.success) return { success: false, data: [] };
+      return { success: true, data: (res.data as any)?.financial ?? [] };
+    },
   });
 
   const collected = students.reduce((acc, s) => acc + (s.balance_due < 0 ? Math.abs(s.balance_due) : 0), 0);

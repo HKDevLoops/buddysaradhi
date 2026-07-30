@@ -15,6 +15,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             retry: (failCount, err) =>
               err.message === "UNAUTHENTICATED" ? false : failCount < 2,
             refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
           },
         },
       })

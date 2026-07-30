@@ -15,6 +15,12 @@ import {
   XCircle,
   X,
   TrendingUp,
+  Mail,
+  Building2,
+  GraduationCap,
+  Cake,
+  Users,
+  MapPin,
 } from "lucide-react";
 import { type Student, type StudentListRow, formatINR } from "@buddysaradhi/shared";
 import { AttendanceTab } from "./attendance-tab";
@@ -82,17 +88,32 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
   const totalMonths = invoices.length;
   const currentDueMonths = invoices.filter(inv => (inv.paid_amount_minor || 0) < inv.total).length;
 
-  // Delete mutation
+  // Delete mutation — fully optimistic with rollback
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteStudentAction(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["students"] });
+      const prev = queryClient.getQueryData(["students"]);
+      const current = queryClient.getQueryData<{ students: StudentListRow[] }>(["students"]);
+      if (current) {
+        queryClient.setQueryData(["students"], {
+          ...current,
+          students: current.students.filter((s) => s.id !== id),
+        });
+      }
+      queryClient.removeQueries({ queryKey: ["student", id] });
       closeDrawer();
       setShowDeleteConfirm(false);
+      return { prev };
     },
-    onError: (err) => {
+    onError: (err, _id, context) => {
+      if (context?.prev) queryClient.setQueryData(["students"], context.prev);
+      setShowDeleteConfirm(true);
       alert(err instanceof Error ? err.message : "Failed to delete student");
+    },
+    onSettled: (_data, _err, _id) => {
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 
@@ -301,36 +322,30 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               >
                 Identity
               </h3>
-              <div className="grid grid-cols-2 gap-y-4">
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
-                  <div>
-                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      Phone
-                    </div>
-                    <div className="text-sm" style={{ color: "var(--text-primary)" }}>
-                      {student.phone || "—"}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
-                  <div>
-                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      Admission
-                    </div>
-                    <div className="text-sm" style={{ color: "var(--text-primary)" }}>
-                      {student.admission_date
-                        ? new Date(student.admission_date).toLocaleDateString("en-IN", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })
-                        : "—"}
-                    </div>
-                  </div>
-                </div>
+              <div className="grid grid-cols-2 gap-y-4 gap-x-3">
+                <IdentityField icon={<Phone className="w-4 h-4" />} label="Phone" value={student.phone} />
+                <IdentityField icon={<Mail className="w-4 h-4" />} label="Email" value={(student as any).email} />
+                <IdentityField icon={<Building2 className="w-4 h-4" />} label="School" value={(student as any).school} />
+                <IdentityField icon={<GraduationCap className="w-4 h-4" />} label="Board" value={(student as any).board} />
+                <IdentityField icon={<GraduationCap className="w-4 h-4" />} label="Grade" value={(student as any).grade} />
+                <IdentityField
+                  icon={<Cake className="w-4 h-4" />}
+                  label="DOB"
+                  value={(student as any).dob ? new Date((student as any).dob).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" }) : undefined}
+                />
+                <IdentityField icon={<Users className="w-4 h-4" />} label="Gender" value={(student as any).gender} />
+                <IdentityField
+                  icon={<CalendarDays className="w-4 h-4" />}
+                  label="Admission"
+                  value={student.admission_date ? new Date(student.admission_date).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" }) : undefined}
+                />
               </div>
+              <IdentityField
+                icon={<MapPin className="w-4 h-4" />}
+                label="Address"
+                value={(student as any).address}
+                block
+              />
             </div>
 
             {/* Fee Period Summary */}
@@ -536,6 +551,22 @@ function MetricCard({
           {trend.label}
         </p>
       )}
+    </div>
+  );
+}
+
+function IdentityField({ icon, label, value, block = false }: { icon: React.ReactNode; label: string; value: string | null | undefined; block?: boolean }) {
+  return (
+    <div className={`flex items-start gap-2 ${block ? "" : ""}`}>
+      <div className="mt-0.5" style={{ color: "var(--text-muted)" }}>{icon}</div>
+      <div className="min-w-0">
+        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {label}
+        </div>
+        <div className="text-sm break-words" style={{ color: "var(--text-primary)" }}>
+          {value ? value : "—"}
+        </div>
+      </div>
     </div>
   );
 }

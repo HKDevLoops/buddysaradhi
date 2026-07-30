@@ -44,6 +44,7 @@ export async function fetchDashboardSummaryAction(): Promise<
   try {
     const res = await gatewayGet<DashboardSummary>("/api/v1/analytics/dashboard");
     if (!res.success) {
+      log.error("dashboard_summary_gateway_failed", res.error, { path: "/api/v1/analytics/dashboard" });
       return { ok: false, error: res.error, code: "GATEWAY_ERROR" };
     }
     return { ok: true, value: res.data };

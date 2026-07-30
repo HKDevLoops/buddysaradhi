@@ -4,6 +4,7 @@ import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlP
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import { verifyPin } from "@/lib/crypto";
 
 export async function createBackupAction(passphrase: string) {
   try {
@@ -25,17 +26,26 @@ export async function createBackupAction(passphrase: string) {
     };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (error) {
+    log.error('create_backup_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to generate backup" };
   }
 }
 
 export async function deleteTenantDataAction(pin: string) {
   try {
-    if (pin !== "1234") {
+    const { client, tenantId } = await getAuthenticatedDb();
+    const settingsRow = await client.execute({
+      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+      args: [tenantId],
+    });
+    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    if (!pinHash) {
+      return { success: false, error: "No PIN configured. Set one in Settings → Security." };
+    }
+    const pinValid = await verifyPin(pin, pinHash);
+    if (!pinValid) {
       return { success: false, error: "Invalid PIN" };
     }
-
-    const { client, tenantId } = await getAuthenticatedDb();
     const now = new Date().toISOString();
 
     await client.execute({
@@ -52,6 +62,7 @@ export async function deleteTenantDataAction(pin: string) {
     return { success: true };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (error) {
+    log.error('delete_tenant_data_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to delete data" };
   }
 }
@@ -71,7 +82,7 @@ export async function updateSettingAction(field: string, value: unknown) {
       attendanceLockHours: true, defaultAttendanceStatus: true,
       holidayListJson: true, notifyDueFee: true, notifyUpcomingDue: true,
       notifyMissingAttendance: true, notifyInactiveStudent: true,
-      sessionTimeoutMin: true, biometricEnabled: true,
+      sessionTimeoutMin: true,       biometricEnabled: true, pinHash: true,
       autoArchiveInactiveDays: true, theme: true, density: true,
       reducedMotion: true, palette: true, plan: true,
     };
@@ -159,7 +170,6 @@ export async function deleteAccountAction() {
     }
     const userId = user.id;
 
-    // Delete database records matching the tenant ID
     const { client, tenantId } = await getAuthenticatedDb();
     await client.execute({ sql: "DELETE FROM settings WHERE tenant_id = ?", args: [tenantId] });
     await client.execute({ sql: "DELETE FROM students WHERE tenant_id = ?", args: [tenantId] });
@@ -167,7 +177,6 @@ export async function deleteAccountAction() {
     await client.execute({ sql: "DELETE FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] });
     await client.execute({ sql: "DELETE FROM audit_log WHERE tenant_id = ?", args: [tenantId] });
 
-    // Delete Supabase Auth account using the Admin client
     const supabaseAdmin = await createSupabaseAdmin();
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
     if (deleteError) {
@@ -176,6 +185,77 @@ export async function deleteAccountAction() {
 
     return { success: true };
   } catch (error) {
+    log.error('delete_account_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to delete account" };
+  }
+}
+
+export async function setPinAction(newPin: string, currentPin?: string) {
+  try {
+    if (newPin.length < 4 || newPin.length > 8) {
+      return { success: false, error: "PIN must be 4-8 digits" };
+    }
+    if (!/^\d+$/.test(newPin)) {
+      return { success: false, error: "PIN must contain only digits" };
+    }
+
+    const { client, tenantId } = await getAuthenticatedDb();
+
+    if (currentPin) {
+      const settingsRow = await client.execute({
+        sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+        args: [tenantId],
+      });
+      const existingHash = settingsRow.rows[0]?.pin_hash as string | null;
+      if (existingHash) {
+        const { verifyPin: verifyPinFn } = await import("@/lib/crypto");
+        const valid = await verifyPinFn(currentPin, existingHash);
+        if (!valid) {
+          return { success: false, error: "Current PIN is incorrect" };
+        }
+      }
+    }
+
+    const { hashPin } = await import("@/lib/crypto");
+    const newHash = await hashPin(newPin);
+    const now = new Date().toISOString();
+
+    await client.execute({
+      sql: `INSERT INTO settings (tenant_id, institute_name, tenant_secret, pin_hash, created_at, updated_at)
+            VALUES (?, 'My Tuition', ?, ?, ?, ?)
+            ON CONFLICT (tenant_id) DO UPDATE SET pin_hash = excluded.pin_hash, updated_at = excluded.updated_at`,
+      args: [tenantId, crypto.randomUUID(), newHash, now, now],
+    });
+
+    await client.execute({
+      sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+            VALUES (?, ?, ?, 'pin.update', 'settings', ?, ?, ?)`,
+      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ updated_at: now }), now],
+    });
+
+    return { success: true };
+  } catch (error) {
+    log.error('set_pin_action_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: "Failed to set PIN" };
+  }
+}
+
+export async function verifyPinAction(pin: string) {
+  try {
+    const { client, tenantId } = await getAuthenticatedDb();
+    const settingsRow = await client.execute({
+      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+      args: [tenantId],
+    });
+    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    if (!pinHash) {
+      return { success: false, error: "No PIN configured", configured: false };
+    }
+    const { verifyPin: verifyPinFn } = await import("@/lib/crypto");
+    const valid = await verifyPinFn(pin, pinHash);
+    return { success: valid, error: valid ? undefined : "Invalid PIN", configured: true };
+  } catch (error) {
+    log.error('verify_pin_action_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: "Failed to verify PIN" };
   }
 }

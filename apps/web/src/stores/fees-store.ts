@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface FeesState {
   mode: 'overview' | 'ledger';
@@ -13,7 +14,9 @@ interface FeesState {
   setInvoiceSheetOpen: (open: boolean) => void;
 }
 
-export const useFeesStore = create<FeesState>((set) => ({
+export const useFeesStore = create<FeesState>()(
+  persist(
+    (set) => ({
   mode: 'overview',
   searchQuery: '',
   selectedStudentId: null,
@@ -24,4 +27,15 @@ export const useFeesStore = create<FeesState>((set) => ({
   setSelectedStudentId: (id) => set({ selectedStudentId: id }),
   setPaymentSheetOpen: (open) => set({ isPaymentSheetOpen: open }),
   setInvoiceSheetOpen: (open) => set({ isInvoiceSheetOpen: open }),
-}));
+    }),
+    {
+      name: 'buddysaradhi.fees.v1',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({
+        mode: state.mode,
+        searchQuery: state.searchQuery,
+      }),
+      version: 1,
+    }
+  )
+);

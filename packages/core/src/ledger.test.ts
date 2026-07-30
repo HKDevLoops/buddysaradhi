@@ -4,7 +4,6 @@ import { execFileSync } from "child_process";
 import { existsSync, unlinkSync, mkdirSync, mkdtempSync, rmdirSync } from "fs";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
-import { getPrismaClient } from "../../../apps/gateway/src/db";
 import { PrismaClient } from "@prisma/client";
 import {
   postLedgerEntry,

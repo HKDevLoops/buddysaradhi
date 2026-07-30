@@ -54,7 +54,7 @@ export async function getAuthenticatedDb(): Promise<{
 export { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 export async function getAuthenticatedPrisma(): Promise<{
-  db: any;
+  db: ReturnType<typeof createLibsqlProxy>;
   userId: string;
   tenantId: string;
 }> {
@@ -77,7 +77,13 @@ function resolveSharedSecret(): string {
   if (s && s.length >= 32) {
     return s;
   }
-  return "buddysaradhi-production-gateway-shared-secret-32chars";
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'CRITICAL: GATEWAY_SHARED_SECRET must be set in production (≥32 chars). ' +
+      'Without it, HMAC signatures are unsigned and the gateway cannot verify requests.'
+    );
+  }
+  return `dev-only-secret-${crypto.randomUUID()}`;
 }
 const SHARED_SECRET = resolveSharedSecret();
 
@@ -110,6 +116,12 @@ async function signHmacSha256(secret: string, data: string): Promise<string> {
     .join("");
 }
 
+function generateNonce(): string {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function getGatewayHeaders(): Promise<{
   tenantId: string;
   headers: {
@@ -119,12 +131,14 @@ export async function getGatewayHeaders(): Promise<{
     "X-Db-Token": string;
     "X-Timestamp": string;
     "X-Signature": string;
+    "X-Nonce": string;
     "X-Client-IP": string;
     "X-Client-UA": string;
   };
 }> {
   const { user, accessToken } = await getUserAndSession();
   const timestamp = String(Date.now());
+  const nonce = generateNonce();
   const tokenHeader = accessToken ? `Bearer ${accessToken}` : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
   
   let clientIp = "127.0.0.1";
@@ -141,7 +155,7 @@ export async function getGatewayHeaders(): Promise<{
     const { dbUrl, dbToken } = getDbCredentials(
       user.user_metadata as Record<string, unknown>
     );
-    const dataToSign = `${user.id}:${dbUrl}:${dbToken}:${timestamp}`;
+    const dataToSign = `${user.id}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
     const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
 
     return {
@@ -153,6 +167,7 @@ export async function getGatewayHeaders(): Promise<{
         "X-Db-Token": dbToken,
         "X-Timestamp": timestamp,
         "X-Signature": signature,
+        "X-Nonce": nonce,
         "X-Client-IP": clientIp,
         "X-Client-UA": userAgent,
       },
@@ -161,7 +176,7 @@ export async function getGatewayHeaders(): Promise<{
   
   const dbUrl = process.env.TURSO_DATABASE_URL || "";
   const dbToken = process.env.TURSO_AUTH_TOKEN || "";
-  const dataToSign = `${LOCAL_TENANT}:${dbUrl}:${dbToken}:${timestamp}`;
+  const dataToSign = `${LOCAL_TENANT}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
   const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
 
   return {
@@ -173,6 +188,7 @@ export async function getGatewayHeaders(): Promise<{
       "X-Db-Token": dbToken,
       "X-Timestamp": timestamp,
       "X-Signature": signature,
+      "X-Nonce": nonce,
       "X-Client-IP": clientIp,
       "X-Client-UA": userAgent,
     },

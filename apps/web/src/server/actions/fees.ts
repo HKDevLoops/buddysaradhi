@@ -200,10 +200,10 @@ export async function recordPaymentAction(
 
     revalidatePath("/fees");
     return { success: true, data: entryId };
-  } catch (error: unknown) {
-    const err = error as Error;
-    log.error('fee_record_payment_failed', err.message || 'Failed to record payment', { studentId, amountMinor });
-    return { success: false, error: err.message || "Failed to record payment" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to record payment";
+    log.error('fee_record_payment_failed', message, { studentId, amountMinor });
+    return { success: false, error: message };
   }
 }
 
@@ -215,72 +215,10 @@ export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
     }
     log.error('fee_void_receipt_blocked', 'PIN verification disabled; awaiting Argon2', { entryIdToVoid });
     return { success: false, error: "PIN verification disabled — contact support" };
-
-    const { client, tenantId } = await getAuthenticatedDb();
-
-    // Get the entry to void
-    const entryRes = await client.execute({
-      sql: `SELECT * FROM ledger_entries WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      args: [entryIdToVoid, tenantId],
-    });
-    if (entryRes.rows.length === 0) return { success: false, error: "Entry not found" };
-    const entry = entryRes.rows[0];
-
-    // Insert reversing entry (BR-LED-01: append-only, voids are new rows)
-    const now = new Date().toISOString();
-    const voidId = crypto.randomUUID();
-    const voidedAmount = entry.credit_paise as number;
-
-    const lastRes = await client.execute({
-      sql: `SELECT balance_after_paise, this_hash FROM ledger_entries WHERE tenant_id = ? AND student_id = ? ORDER BY created_at DESC LIMIT 1`,
-      args: [tenantId, entry.student_id],
-    });
-    const lastEntry = lastRes.rows[0];
-    const prevBalance = lastEntry ? (lastEntry.balance_after_paise as number) : 0;
-    const prevHash = lastEntry ? (lastEntry.this_hash as string) : null;
-    const newBalance = prevBalance + voidedAmount; // void of payment = add back debit
-
-    const settingRes = await client.execute({ sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`, args: [tenantId] });
-    const secret = settingRes.rows[0]?.tenant_secret as string ?? "default-secret";
-    const payload = JSON.stringify({ id: voidId, type: "VOID", entryIdToVoid, newBalance });
-    const thisHash = await computeSimpleHash(prevHash, payload, now, secret);
-
-    await client.execute({
-      sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, type, debit_paise, credit_paise, balance_after_paise, description, occurred_on, this_hash, prev_hash, void_of_id, source, created_at, updated_at)
-            VALUES (?, ?, ?, 'VOID', ?, 0, ?, 'Voided via Web UI', ?, ?, ?, ?, 'web', ?, ?)`,
-      args: [voidId, tenantId, entry.student_id, voidedAmount, newBalance, entry.occurred_on, thisHash, prevHash, entryIdToVoid, now, now],
-    });
-
-    // Rule 7 (BR-SYN-01): every ledger mutation appends sync_outbox in the same TX.
-    await client.execute({
-      sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-            VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, voidId, payload, now],
-    });
-
-    // Adjust student profile balance
-    const studRes = await client.execute({
-      sql: `SELECT balance_paise FROM students WHERE id = ? LIMIT 1`,
-      args: [entry.student_id],
-    });
-    if (studRes.rows.length > 0) {
-      const curBalance = studRes.rows[0].balance_paise as number;
-      const newBal = curBalance + voidedAmount;
-      await client.execute({
-        sql: `UPDATE students SET balance_paise = ?, updated_at = ? WHERE id = ?`,
-        args: [newBal, now, entry.student_id],
-      });
-    }
-
-    log.audit('ledger_void', 'Reversing ledger entry recorded', { originalEntryId: entryIdToVoid, voidId, tenantId });
-
-    revalidatePath("/fees");
-    return { success: true };
-  } catch (error: unknown) {
-    const err = error as Error;
-    log.error('fee_void_receipt_failed', err.message || 'Failed to void receipt', { entryIdToVoid });
-    log.audit('ledger_void', `Void receipt ${entryIdToVoid}`, { entryId: entryIdToVoid, error: err.message });
-    return { success: false, error: err.message || "Failed to void receipt" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to void receipt";
+    log.error('fee_void_receipt_failed', message, { entryIdToVoid });
+    return { success: false, error: message };
   }
 }
 
@@ -328,9 +266,9 @@ export async function createInvoiceAction(
 
     revalidatePath("/fees");
     return { success: true, data: entryId };
-  } catch (error: unknown) {
-    const err = error as Error;
-    log.error('fee_create_invoice_failed', err.message || 'Failed to create invoice', { studentId, amountMinor });
-    return { success: false, error: err.message || "Failed to create invoice" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create invoice";
+    log.error('fee_create_invoice_failed', message, { studentId, amountMinor });
+    return { success: false, error: message };
   }
 }
