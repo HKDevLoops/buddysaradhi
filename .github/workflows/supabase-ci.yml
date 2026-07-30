@@ -40,8 +40,8 @@ jobs:
 
       - name: Verify Functions syntax
         run: |
-          supabase functions download gateway --project-ref gmqwdnvbfnwpzpctwvho || true
-          supabase functions download provision-db --project-ref gmqwdnvbfnwpzpctwvho || true
+          supabase functions download gateway --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || true
+          supabase functions download provision-db --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} || true
 
   deploy:
     name: Deploy to Production
@@ -59,16 +59,16 @@ jobs:
           version: latest
 
       - name: Deploy Gateway
-        run: supabase functions deploy gateway --project-ref gmqwdnvbfnwpzpctwvho --no-verify-jwt
+        run: supabase functions deploy gateway --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy Provision DB
-        run: supabase functions deploy provision-db --project-ref gmqwdnvbfnwpzpctwvho --no-verify-jwt
+        run: supabase functions deploy provision-db --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
       - name: Deploy Gateway GraphQL
-        run: supabase functions deploy gateway-graphql --project-ref gmqwdnvbfnwpzpctwvho --no-verify-jwt
+        run: supabase functions deploy gateway-graphql --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

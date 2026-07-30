@@ -205,7 +205,7 @@ async function gatewayBase(): Promise<string> {
   if (process.env.NODE_ENV !== "production") {
     return "http://127.0.0.1:3001";
   }
-  return "https://gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway";
+  return process.env.GATEWAY_PRODUCTION_URL || "https://gateway.buddysaradhi.app";
 }
 
 export async function gatewayGet<T = unknown>(

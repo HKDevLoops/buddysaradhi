@@ -1,8 +1,38 @@
-.vercel
-.env*
+# Environment files — never commit secrets
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+.env.vercel.local
+.env.vercel.production
+.env.vercel.production2
+supabase/functions/.env
+apps/web/.env.local
+apps/gateway/.env
+apps/mobile/.env.local
+apps/desktop/.env.local
+apps/product-page/.env.local
 
-# local settings store (embedded BFF)
-.data/
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Vercel
+.vercel/
 
 # SQLite local dev databases
 *.db
@@ -10,38 +40,32 @@
 *.db-wal
 *.db-shm
 
-node_modules/
-.next/
-dist/
-out/
-build/
+# Logs
 *.log
+npm-debug.log*
+pnpm-debug.log*
 
-# Ignore all planning/spec files and session logs
-*.md
+# Supabase temp
+supabase/.temp/
 
-# Ignore all temporary scripting files
-*.py
-*.js
-!scripts/**/*.js
-!scripts/**/*.ts
-*.ps1
-*.sh
+# Playwright
+playwright-report/
+test-results/
+blob-report/
 
-# Ignore internal workspace directories
-.gemini/
-.opencode/
-.playwright-mcp/
-.swarm/
-.agents/
-.claude/
-.claude-flow/
-.superpowers/
-.temp/
-.ruff_cache/
+# Coverage
 coverage/
-reviews/
-packages/graphify-out/
 
-.vercel
-.env*
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scratch/temp files
+scratch_*.ts
+scratch_*.js

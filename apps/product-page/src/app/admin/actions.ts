@@ -7,7 +7,10 @@ import { verifyPassword } from "../../lib/adminAuth";
 import { createHmac } from "crypto";
 
 const COOKIE_NAME = "bs_admin_session";
-const SESSION_SECRET = process.env.GATEWAY_SHARED_SECRET || "buddysaradhi-dev-secret-key-128bits";
+const SESSION_SECRET = process.env.GATEWAY_SHARED_SECRET || (process.env.NODE_ENV !== "production" ? "dev-only-product-page-session-secret-32c" : undefined);
+if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
+  throw new Error("GATEWAY_SHARED_SECRET must be set and ≥32 chars");
+}
 
 function signSessionPayload(username: string): string {
   const payload = JSON.stringify({ username, exp: Date.now() + 24 * 60 * 60 * 1000 });

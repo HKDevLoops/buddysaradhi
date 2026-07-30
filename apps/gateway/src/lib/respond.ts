@@ -10,7 +10,7 @@ export interface ReqContext {
 }
 
 function resolveSharedSecret(): string {
-  const s = process.env.GATEWAY_SHARED_SECRET || (process.env.NODE_ENV !== "production" ? "mock-secret-key-32-chars-long-or-more" : undefined);
+  const s = process.env.GATEWAY_SHARED_SECRET || (process.env.NODE_ENV !== "production" ? "dev-only-gateway-shared-secret-32c" : undefined);
   if (!s || s.length < 32) {
     throw new Error(
       "GATEWAY_SHARED_SECRET is missing or shorter than 32 chars; refusing to start the gateway (set it in the runtime env)."
