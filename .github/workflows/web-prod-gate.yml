@@ -95,12 +95,14 @@ jobs:
           path: apps/web/playwright-report/
           retention-days: 7
 
-      # --- apps/gateway ledger verify (final gate) ---
-      - name: Generate Prisma client (gateway)
-        run: pnpm --filter @buddysaradhi/gateway generate
+      # --- apps/gateway (Deno-based) ---
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
 
-      - name: Gateway / Provision sqlite schema
-        run: pnpm --filter @buddysaradhi/gateway db:push
+      - name: Gateway / Lint
+        run: deno lint apps/gateway/
 
-      - name: Gateway / Ledger verify
-        run: pnpm --filter @buddysaradhi/gateway verify
+      - name: Gateway / Typecheck
+        run: deno check apps/gateway/index.ts

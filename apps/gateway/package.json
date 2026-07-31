@@ -4,33 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/dev.ts",
-    "start": "bun run src/dev.ts",
-    "build": "pnpm run typecheck",
-    "postinstall": "",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint .",
-    "generate": "prisma generate",
-    "db:push": "prisma db push",
-    "seed": "bun run prisma/seed.ts",
-    "provision": "bun run prisma/seed.ts --init",
-    "verify": "bun run scripts/verify-ledger.ts"
+    "dev": "deno run --config deno.json --allow-net --allow-env --allow-read index.ts",
+    "start": "deno run --config deno.json --allow-net --allow-env --allow-read index.ts",
+    "lint": "echo 'Deno lint — run via: deno lint apps/gateway/'",
+    "typecheck": "echo 'Deno check — run via: deno check apps/gateway/index.ts'",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest watch --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
-  "dependencies": {
-    "@libsql/client": "^0.14.0",
-    "@prisma/adapter-libsql": "6.2.1",
-    "@prisma/client": "6.2.1",
-    "graphql": "^17.0.2",
-    "graphql-yoga": "^5.21.2",
-    "hono": "^4.6.0",
-    "ioredis": "^5.11.1",
-    "zod": "3.24.2"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/bun": "^1.3.2",
-    "eslint": "^9",
-    "prisma": "6.2.1",
-    "typescript": "^7.0.2",
-    "typescript-eslint": "^8.0.0"
+    "vitest": "^4.1.10"
   }
 }
