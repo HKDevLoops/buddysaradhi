@@ -147,7 +147,7 @@ describe("Security function latency", () => {
 
   it("header validation is <500µs (p95)", () => {
     const headers = {
-      authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+      authorization: "Bearer TEST.FAKE.JWT",
       "content-type": "application/json",
       "x-tutor-id": "tenant-123",
       "x-signature": "a".repeat(64),

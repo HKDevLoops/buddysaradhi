@@ -53,7 +53,7 @@ describe("authenticateRequest input validation (unit-level)", () => {
   });
 
   it("JWT format validation: must have 3 dot-separated parts", () => {
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature";
+    const jwt = "TEST.JWT.FAKE";
     const parts = jwt.split(".");
     expect(parts.length).toBe(3);
   });
@@ -89,15 +89,15 @@ describe("authenticateRequest input validation (unit-level)", () => {
   });
 
   it("extracts JWT from Bearer token", () => {
-    const authHeader = "Bearer eyJhbGciOiJIUzI1NiJ9.test.signature";
+    const authHeader = "Bearer fake.jwt.token";
     const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-    expect(jwt).toBe("eyJhbGciOiJIUzI1NiJ9.test.signature");
+    expect(jwt).toBe("fake.jwt.token");
   });
 
   it("handles lowercase 'bearer' prefix", () => {
-    const authHeader = "bearer eyJhbGciOiJIUzI1NiJ9.test.signature";
+    const authHeader = "bearer fake.jwt.token";
     const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-    expect(jwt).toBe("eyJhbGciOiJIUzI1NiJ9.test.signature");
+    expect(jwt).toBe("fake.jwt.token");
   });
 
   it("validates x-signature hex format", () => {
