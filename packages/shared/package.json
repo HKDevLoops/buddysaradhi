@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc -w",
+    "lint": "eslint .",
     "generate:sdk": "openapi -i ../../contracts/openapi.yaml -o ./sdk -c fetch --name BuddysaradhiSDK",
     "generate:zod": "openapi-zod-client ../../contracts/openapi.yaml -o ./zod/index.ts",
     "generate": "bun run generate:sdk && bun run generate:zod"
@@ -15,9 +16,11 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "eslint": "^9",
     "openapi-typescript-codegen": "^0.31.0",
     "openapi-zod-client": "^1.18.3",
     "swagger-parser": "^10.0.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.0.0"
   }
 }

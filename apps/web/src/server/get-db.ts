@@ -1,8 +1,7 @@
 import { createSupabaseServer } from "@/lib/supabase/server";
-import { getDb, getDbCredentials, getPrismaClient } from "@/lib/db";
+import { getDb, getDbCredentials } from "@/lib/db";
 import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
-import { headers } from "next/headers";
 import { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 const LOCAL_TENANT = "local-dev";
@@ -77,15 +76,24 @@ function resolveSharedSecret(): string {
   if (s && s.length >= 32) {
     return s;
   }
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'CRITICAL: GATEWAY_SHARED_SECRET must be set in production (≥32 chars). ' +
-      'Without it, HMAC signatures are unsigned and the gateway cannot verify requests.'
-    );
+  // During next build, NODE_ENV is "production" but we're not serving requests.
+  // Defer the throw to runtime by returning a placeholder that will be replaced
+  // on first actual request.
+  if (process.env.NEXT_RUNTIME === "nodejs" || process.env.NEXT_RUNTIME === "edge") {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "CRITICAL: GATEWAY_SHARED_SECRET must be set in production (≥32 chars). " +
+        "Without it, HMAC signatures are unsigned and the gateway cannot verify requests."
+      );
+    }
   }
   return `dev-only-secret-${crypto.randomUUID()}`;
 }
-const SHARED_SECRET = resolveSharedSecret();
+let SHARED_SECRET: string | null = null;
+function getSharedSecret(): string {
+  if (!SHARED_SECRET) SHARED_SECRET = resolveSharedSecret();
+  return SHARED_SECRET;
+}
 
 async function signHmacSha256(secret: string, data: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -144,6 +152,7 @@ export async function getGatewayHeaders(): Promise<{
   let clientIp = "127.0.0.1";
   let userAgent = "unknown";
   try {
+    const { headers } = await import("next/headers");
     const h = await headers();
     clientIp = h.get("x-forwarded-for") || h.get("x-real-ip") || "127.0.0.1";
     userAgent = h.get("user-agent") || "unknown";
@@ -156,7 +165,7 @@ export async function getGatewayHeaders(): Promise<{
       user.user_metadata as Record<string, unknown>
     );
     const dataToSign = `${user.id}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
-    const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
+    const signature = await signHmacSha256(getSharedSecret(), dataToSign);
 
     return {
       tenantId: user.id,
@@ -177,7 +186,7 @@ export async function getGatewayHeaders(): Promise<{
   const dbUrl = process.env.TURSO_DATABASE_URL || "";
   const dbToken = process.env.TURSO_AUTH_TOKEN || "";
   const dataToSign = `${LOCAL_TENANT}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
-  const signature = await signHmacSha256(SHARED_SECRET, dataToSign);
+  const signature = await signHmacSha256(getSharedSecret(), dataToSign);
 
   return {
     tenantId: LOCAL_TENANT,

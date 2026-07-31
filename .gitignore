@@ -57,7 +57,6 @@ blob-report/
 coverage/
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -69,3 +68,12 @@ Thumbs.db
 # Scratch/temp files
 scratch_*.ts
 scratch_*.js
+
+# Agents 
+./.agent/
+./.agents/
+./.kilo/ 
+./.claude/ 
+./.gemini/
+./.*
+

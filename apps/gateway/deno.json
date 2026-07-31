@@ -1,0 +1,14 @@
+{
+  "name": "gateway",
+  "runtime": "deno2",
+  "entrypoint": "index.ts",
+  "import_map": "https://esm.sh/import_map.json",
+  "dependencies": ["https://esm.sh/@supabase/supabase-js@2"],
+  "lint": {
+    "include": ["**/*.ts"],
+    "exclude": ["node_modules/", "dist/", "**/__tests__/**"],
+    "rules": {
+      "exclude": ["no-explicit-any"]
+    }
+  }
+}

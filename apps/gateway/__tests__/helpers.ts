@@ -17,18 +17,22 @@ export function createMockDb(): MockDb {
     tables: new Map<string, MockRow[]>(),
     executed: [],
     executedArgs: [],
+    // deno-lint-ignore require-await
     execute: async (sql: string, _args: unknown[] = []) => {
       db.executed.push(sql);
       return { rows: [] };
     },
+    // deno-lint-ignore require-await
     allRows: async (sql: string, _args: unknown[] = []) => {
       db.executed.push(sql);
       return [];
     },
+    // deno-lint-ignore require-await
     oneRow: async (sql: string, _args: unknown[] = []) => {
       db.executed.push(sql);
       return null;
     },
+    // deno-lint-ignore require-await
     run: async (sql: string, _args: unknown[] = []) => {
       db.executed.push(sql);
     },

@@ -10,7 +10,7 @@
     "build": "next build",
     "postinstall": "",
     "start": "next start",
-    "lint": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",

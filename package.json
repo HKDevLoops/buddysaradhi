@@ -11,7 +11,6 @@
     "node": "22.x"
   },
   "packageManager": "pnpm@11.15.0",
-
   "prisma": {
     "seed": "bun run prisma/seed.ts"
   },
@@ -19,18 +18,44 @@
     "postinstall": "prisma generate && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build",
     "build": "prisma generate && pnpm --filter web build",
     "lint": "pnpm -r --if-present lint",
+    "lint:fix": "pnpm -r --if-present lint -- --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "test:a11y": "pnpm --filter web test:a11y",
-    "version:check": "node scripts/version-check.js"
+    "version:check": "node scripts/version-check.js",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.2.0",
+    "prettier": "^3.9.6",
+    "prettier-plugin-tailwindcss": "^0.8.0",
     "prisma": "6.2.1",
     "typescript": "^7.0.2",
+    "typescript-eslint": "^8.65.0",
     "vercel": "^56.5.0",
     "vitest": "^4.1.10",
     "zod-prisma-types": "^3.3.11"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "prettier --write",
+      "eslint --fix --no-warn-ignored"
+    ],
+    "*.{json,jsonc,md,yml,yaml,css,scss,html}": [
+      "prettier --write"
+    ],
+    "*.prisma": [
+      "prettier --write"
+    ],
+    "Cargo.toml": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@prisma/adapter-libsql": "6.2.1",

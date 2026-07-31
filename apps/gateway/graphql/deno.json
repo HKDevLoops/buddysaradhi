@@ -5,5 +5,12 @@
   "dependencies": [
     "https://esm.sh/@supabase/supabase-js@2",
     "https://esm.sh/@libsql/client@0.14.0"
-  ]
+  ],
+  "lint": {
+    "include": ["**/*.ts"],
+    "exclude": ["node_modules/", "dist/"],
+    "rules": {
+      "exclude": ["no-explicit-any"]
+    }
+  }
 }
