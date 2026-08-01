@@ -20,7 +20,6 @@
     "openapi-typescript-codegen": "^0.31.0",
     "openapi-zod-client": "^1.18.3",
     "swagger-parser": "^10.0.3",
-    "typescript": "^7.0.2",
-    "typescript-eslint": "^8.0.0"
+    "typescript": "^7.0.2"
   }
 }

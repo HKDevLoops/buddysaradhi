@@ -2,18 +2,18 @@ name: Production Gate (P1)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - 'apps/web/**'
-      - 'apps/gateway/**'
-      - 'packages/**'
-      - '.github/workflows/web-prod-gate.yml'
+      - "apps/web/**"
+      - "apps/gateway/**"
+      - "packages/**"
+      - ".github/workflows/web-prod-gate.yml"
   pull_request:
-    branches: [ main ]
+    branches: [main]
     paths:
-      - 'apps/web/**'
-      - 'apps/gateway/**'
-      - 'packages/**'
+      - "apps/web/**"
+      - "apps/gateway/**"
+      - "packages/**"
 
 jobs:
   build-and-test:
@@ -62,14 +62,14 @@ jobs:
         run: pnpm --filter @buddysaradhi/core typecheck
 
       - name: Core / Lint
-        run: pnpm --filter @buddysaradhi/core lint
+        run: pnpm --filter @buddysaradhi/core lint -- --max-warnings 0
 
       - name: Core / Unit Tests (Vitest)
         run: pnpm --filter @buddysaradhi/core test
 
       # --- apps/web ---
       - name: Web / Lint
-        run: pnpm --filter web lint
+        run: pnpm --filter web lint -- --max-warnings 0
 
       - name: Web / Typecheck
         run: pnpm --filter web typecheck

@@ -47,7 +47,7 @@ jobs:
         run: pnpm --filter web typecheck
 
       - name: Lint
-        run: pnpm --filter web lint
+        run: pnpm --filter web lint -- --max-warnings 0
 
       - name: Unit & Component Tests (Vitest)
         run: pnpm --filter web test -- run
