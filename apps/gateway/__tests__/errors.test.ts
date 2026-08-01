@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, content-type, x-db-url, x-db-token, x-tutor-id",
+  "Access-Control-Allow-Headers": "authorization, content-type, x-db-url, x-db-token, x-tutor-id",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
 };
 
@@ -69,9 +68,7 @@ describe("ok()", () => {
   it("sets CORS headers", () => {
     const res = ok({});
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
-      "authorization",
-    );
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("authorization");
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("DELETE");
   });
 });
@@ -106,7 +103,7 @@ describe("fail()", () => {
     expect(body.error).toBe("unauthenticated");
   });
 
-  it("supports 403 status", async () => {
+  it("supports 403 status", () => {
     const res = fail("forbidden", 403);
     expect(res.status).toBe(403);
   });
@@ -164,9 +161,7 @@ describe("json()", () => {
   it("sets CORS headers", () => {
     const res = json({});
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
-    expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
-      "content-type",
-    );
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("content-type");
   });
 
   it("handles complex nested objects", async () => {

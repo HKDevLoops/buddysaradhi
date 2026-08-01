@@ -396,9 +396,9 @@ function createMockDb() {
   const executed: string[] = [];
   return {
     executed,
-    execute: async (stmt: string) => {
+    execute: (stmt: string) => {
       executed.push(stmt);
-      return { rows: [] };
+      return Promise.resolve({ rows: [] });
     },
   };
 }
@@ -524,27 +524,21 @@ describe("applySchema", () => {
   it("DDL creates exactly 23 tables", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const tableStatements = db.executed.filter((s) =>
-      s.startsWith("CREATE TABLE"),
-    );
+    const tableStatements = db.executed.filter((s) => s.startsWith("CREATE TABLE"));
     expect(tableStatements.length).toBe(23);
   });
 
   it("DDL creates exactly 16 indexes", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const indexStatements = db.executed.filter((s) =>
-      s.startsWith("CREATE INDEX"),
-    );
+    const indexStatements = db.executed.filter((s) => s.startsWith("CREATE INDEX"));
     expect(indexStatements.length).toBe(16);
   });
 
   it("DDL creates exactly 2 triggers", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const triggerStatements = db.executed.filter((s) =>
-      s.startsWith("CREATE TRIGGER"),
-    );
+    const triggerStatements = db.executed.filter((s) => s.startsWith("CREATE TRIGGER"));
     expect(triggerStatements.length).toBe(2);
   });
 
@@ -557,9 +551,7 @@ describe("applySchema", () => {
   it("student table has all expected columns", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const studentDdl = db.executed.find((s) =>
-      s.includes("CREATE TABLE IF NOT EXISTS students"),
-    );
+    const studentDdl = db.executed.find((s) => s.includes("CREATE TABLE IF NOT EXISTS students"));
     expect(studentDdl).toBeDefined();
     for (const col of [
       "id",
@@ -610,9 +602,7 @@ describe("applySchema", () => {
   it("receipts table preserves financial history columns", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const receiptsDdl = db.executed.find((s) =>
-      s.includes("CREATE TABLE IF NOT EXISTS receipts"),
-    );
+    const receiptsDdl = db.executed.find((s) => s.includes("CREATE TABLE IF NOT EXISTS receipts"));
     expect(receiptsDdl).toBeDefined();
     expect(receiptsDdl).toContain("ledger_entry_id");
     expect(receiptsDdl).toContain("tamper_hash");
@@ -621,9 +611,7 @@ describe("applySchema", () => {
   it("sync_outbox has status and attempts columns", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const outboxDdl = db.executed.find((s) =>
-      s.includes("CREATE TABLE IF NOT EXISTS sync_outbox"),
-    );
+    const outboxDdl = db.executed.find((s) => s.includes("CREATE TABLE IF NOT EXISTS sync_outbox"));
     expect(outboxDdl).toBeDefined();
     expect(outboxDdl).toContain("status");
     expect(outboxDdl).toContain("attempts");
@@ -633,9 +621,7 @@ describe("applySchema", () => {
   it("audit_log has actor and action columns", async () => {
     const db = createMockDb();
     await applySchema(db, "test-tenant");
-    const auditDdl = db.executed.find((s) =>
-      s.includes("CREATE TABLE IF NOT EXISTS audit_log"),
-    );
+    const auditDdl = db.executed.find((s) => s.includes("CREATE TABLE IF NOT EXISTS audit_log"));
     expect(auditDdl).toBeDefined();
     expect(auditDdl).toContain("actor");
     expect(auditDdl).toContain("action");

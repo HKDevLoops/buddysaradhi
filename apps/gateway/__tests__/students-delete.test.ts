@@ -22,19 +22,20 @@ function createMockDb(): MockDb {
     tables: {},
     executed: [],
     executedArgs: [],
-    run: async (sql: string, args: unknown[] = []) => {
+    run: (sql: string, args: unknown[] = []) => {
       db.executed.push(sql);
       db.executedArgs.push(args);
+      return Promise.resolve();
     },
-    allRows: async (sql: string, args: unknown[] = []) => {
+    allRows: (sql: string, args: unknown[] = []) => {
       db.executed.push(sql);
       db.executedArgs.push(args);
-      return [];
+      return Promise.resolve([]);
     },
-    oneRow: async (sql: string, args: unknown[] = []) => {
+    oneRow: (sql: string, args: unknown[] = []) => {
       db.executed.push(sql);
       db.executedArgs.push(args);
-      return null;
+      return Promise.resolve(null);
     },
   };
   return db;
@@ -45,7 +46,7 @@ function addRows(db: MockDb, table: string, rows: Row[]): void {
   db.tables[table].rows.push(...rows);
 }
 
-async function recordAudit(
+function recordAudit(
   db: MockDb,
   tenantId: string,
   actor: string,
@@ -68,9 +69,10 @@ async function recordAudit(
     metadata: JSON.stringify(metadata ?? {}),
     created_at: new Date().toISOString(),
   });
+  return Promise.resolve();
 }
 
-async function recordOutbox(
+function recordOutbox(
   db: MockDb,
   tenantId: string,
   table: string,
@@ -93,6 +95,7 @@ async function recordOutbox(
     attempts: 0,
     created_at: new Date().toISOString(),
   });
+  return Promise.resolve();
 }
 
 function ok(data: unknown, status = 200): { status: number; body: unknown } {
@@ -112,30 +115,28 @@ async function deleteStudent(
   tenantId: string,
   studentId: string,
 ): Promise<{ status: number; body: unknown }> {
-  const now = new Date().toISOString();
-
-  const student = await db.oneRow(
-    "SELECT id FROM students WHERE tenant_id = ? AND id = ?",
-    [tenantId, studentId],
-  );
+  const student = await db.oneRow("SELECT id FROM students WHERE tenant_id = ? AND id = ?", [
+    tenantId,
+    studentId,
+  ]);
   if (!student) return fail("not_found", 404);
 
-  await db.run(
-    "DELETE FROM student_enrollments WHERE tenant_id = ? AND student_id = ?",
-    [tenantId, studentId],
-  );
-  await db.run(
-    "DELETE FROM attendance_records WHERE tenant_id = ? AND student_id = ?",
-    [tenantId, studentId],
-  );
-  await db.run(
-    "DELETE FROM student_notes WHERE tenant_id = ? AND student_id = ?",
-    [tenantId, studentId],
-  );
-  await db.run(
-    "DELETE FROM student_documents WHERE tenant_id = ? AND student_id = ?",
-    [tenantId, studentId],
-  );
+  await db.run("DELETE FROM student_enrollments WHERE tenant_id = ? AND student_id = ?", [
+    tenantId,
+    studentId,
+  ]);
+  await db.run("DELETE FROM attendance_records WHERE tenant_id = ? AND student_id = ?", [
+    tenantId,
+    studentId,
+  ]);
+  await db.run("DELETE FROM student_notes WHERE tenant_id = ? AND student_id = ?", [
+    tenantId,
+    studentId,
+  ]);
+  await db.run("DELETE FROM student_documents WHERE tenant_id = ? AND student_id = ?", [
+    tenantId,
+    studentId,
+  ]);
   await db.run("DELETE FROM student_tags WHERE student_id = ?", [studentId]);
 
   const orphanSessions = await db.allRows(
@@ -148,26 +149,15 @@ async function deleteStudent(
     [tenantId, tenantId],
   );
   for (const s of orphanSessions) {
-    await db.run(
-      "DELETE FROM attendance_sessions WHERE tenant_id = ? AND id = ?",
-      [tenantId, s.id],
-    );
+    await db.run("DELETE FROM attendance_sessions WHERE tenant_id = ? AND id = ?", [
+      tenantId,
+      s.id,
+    ]);
   }
 
-  await db.run(
-    "DELETE FROM students WHERE tenant_id = ? AND id = ?",
-    [tenantId, studentId],
-  );
+  await db.run("DELETE FROM students WHERE tenant_id = ? AND id = ?", [tenantId, studentId]);
 
-  await recordAudit(
-    db,
-    tenantId,
-    tenantId,
-    "student.delete",
-    "student",
-    studentId,
-    {},
-  );
+  await recordAudit(db, tenantId, tenantId, "student.delete", "student", studentId, {});
   await recordOutbox(db, tenantId, "students", studentId, "delete", {
     id: studentId,
   });
@@ -408,7 +398,7 @@ describe("students DELETE cascade", () => {
   });
 
   it("returns 404 if student not found", async () => {
-    db.oneRow = async () => null;
+    db.oneRow = () => Promise.resolve(null);
     const res = await deleteStudent(db, TENANT, "nonexistent");
     expect(res.status).toBe(404);
     expect(res.body).toEqual({
@@ -418,16 +408,17 @@ describe("students DELETE cascade", () => {
   });
 
   it("returns 200 with { ok: true } on success", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
-    db.run = async (sql, _args) => {
+    db.run = (sql, _args) => {
       db.executed.push(sql);
+      return Promise.resolve();
     };
 
     const res = await deleteStudent(db, TENANT, STUDENT_ID);
@@ -439,169 +430,154 @@ describe("students DELETE cascade", () => {
   });
 
   it("deletes student_enrollments for the student", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteEnrollSql = db.executed.find((s) =>
-      s.includes("DELETE FROM student_enrollments"),
-    );
+    const deleteEnrollSql = db.executed.find((s) => s.includes("DELETE FROM student_enrollments"));
     expect(deleteEnrollSql).toBeDefined();
     expect(deleteEnrollSql).toContain("tenant_id = ?");
     expect(deleteEnrollSql).toContain("student_id = ?");
   });
 
   it("deletes attendance_records for the student", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteAttSql = db.executed.find((s) =>
-      s.includes("DELETE FROM attendance_records"),
-    );
+    const deleteAttSql = db.executed.find((s) => s.includes("DELETE FROM attendance_records"));
     expect(deleteAttSql).toBeDefined();
     expect(deleteAttSql).toContain("tenant_id = ?");
     expect(deleteAttSql).toContain("student_id = ?");
   });
 
   it("deletes student_notes for the student", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteNotesSql = db.executed.find((s) =>
-      s.includes("DELETE FROM student_notes"),
-    );
+    const deleteNotesSql = db.executed.find((s) => s.includes("DELETE FROM student_notes"));
     expect(deleteNotesSql).toBeDefined();
     expect(deleteNotesSql).toContain("tenant_id = ?");
     expect(deleteNotesSql).toContain("student_id = ?");
   });
 
   it("deletes student_documents for the student", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteDocsSql = db.executed.find((s) =>
-      s.includes("DELETE FROM student_documents"),
-    );
+    const deleteDocsSql = db.executed.find((s) => s.includes("DELETE FROM student_documents"));
     expect(deleteDocsSql).toBeDefined();
     expect(deleteDocsSql).toContain("tenant_id = ?");
     expect(deleteDocsSql).toContain("student_id = ?");
   });
 
   it("deletes student_tags for the student", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteTagsSql = db.executed.find((s) =>
-      s.includes("DELETE FROM student_tags"),
-    );
+    const deleteTagsSql = db.executed.find((s) => s.includes("DELETE FROM student_tags"));
     expect(deleteTagsSql).toBeDefined();
     expect(deleteTagsSql).toContain("student_id = ?");
   });
 
   it("does NOT delete ledger_entries (financial history preserved)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteLedgerSql = db.executed.find((s) =>
-      s.includes("DELETE FROM ledger_entries"),
-    );
+    const deleteLedgerSql = db.executed.find((s) => s.includes("DELETE FROM ledger_entries"));
     expect(deleteLedgerSql).toBeUndefined();
   });
 
   it("does NOT delete receipts (financial history preserved)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteReceiptsSql = db.executed.find((s) =>
-      s.includes("DELETE FROM receipts"),
-    );
+    const deleteReceiptsSql = db.executed.find((s) => s.includes("DELETE FROM receipts"));
     expect(deleteReceiptsSql).toBeUndefined();
   });
 
   it("does NOT delete invoices (financial history preserved)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteInvSql = db.executed.find((s) =>
-      s.includes("DELETE FROM invoices"),
-    );
+    const deleteInvSql = db.executed.find((s) => s.includes("DELETE FROM invoices"));
     expect(deleteInvSql).toBeUndefined();
   });
 
   it("creates audit_log entry with action='student.delete'", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
-    db.run = async (sql, _args) => {
+    db.run = (sql, _args) => {
       db.executed.push(sql);
+      return Promise.resolve();
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
@@ -617,16 +593,17 @@ describe("students DELETE cascade", () => {
   });
 
   it("creates sync_outbox entry with op='delete' for students table", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
-    db.run = async (sql, _args) => {
+    db.run = (sql, _args) => {
       db.executed.push(sql);
+      return Promise.resolve();
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
@@ -645,13 +622,13 @@ describe("students DELETE cascade", () => {
   });
 
   it("deletes the student row itself", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
@@ -665,19 +642,19 @@ describe("students DELETE cascade", () => {
   });
 
   it("queries for orphaned attendance sessions", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [{ id: "sess-003" }];
+      return Promise.resolve([{ id: "sess-003" }]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const orphanQuery = db.executed.find((s) =>
-      s.includes("NOT EXISTS") && s.includes("attendance_sessions"),
+    const orphanQuery = db.executed.find(
+      (s) => s.includes("NOT EXISTS") && s.includes("attendance_sessions"),
     );
     expect(orphanQuery).toBeDefined();
     expect(orphanQuery).toContain("attendance_sessions s");
@@ -685,40 +662,37 @@ describe("students DELETE cascade", () => {
   });
 
   it("deletes orphaned attendance sessions", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [{ id: "sess-003" }];
+      return Promise.resolve([{ id: "sess-003" }]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteSessSql = db.executed.find((s) =>
-      s.includes("DELETE FROM attendance_sessions"),
-    );
+    const deleteSessSql = db.executed.find((s) => s.includes("DELETE FROM attendance_sessions"));
     expect(deleteSessSql).toBeDefined();
     expect(deleteSessSql).toContain("tenant_id = ?");
     expect(deleteSessSql).toContain("id = ?");
   });
 
   it("cascade deletes happen before student row deletion", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
     const deleteStudentIdx = db.executed.findIndex(
-      (s) =>
-        s.includes("DELETE FROM students") && !s.includes("student_enrollments"),
+      (s) => s.includes("DELETE FROM students") && !s.includes("student_enrollments"),
     );
     const cascadeDeletes = db.executed.filter(
       (s) =>
@@ -736,29 +710,27 @@ describe("students DELETE cascade", () => {
   });
 
   it("audit and outbox writes happen after student row deletion", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
-    db.run = async (sql, _args) => {
+    db.run = (sql, _args) => {
       db.executed.push(sql);
+      return Promise.resolve();
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
     const deleteStudentIdx = db.executed.findIndex(
-      (s) =>
-        s.includes("DELETE FROM students") && !s.includes("student_enrollments"),
+      (s) => s.includes("DELETE FROM students") && !s.includes("student_enrollments"),
     );
 
     const auditOutboxInserts = db.executed.filter(
-      (s) =>
-        s.includes("INSERT INTO audit_log") ||
-        s.includes("INSERT INTO sync_outbox"),
+      (s) => s.includes("INSERT INTO audit_log") || s.includes("INSERT INTO sync_outbox"),
     );
     expect(auditOutboxInserts.length).toBe(2);
     for (const sql of auditOutboxInserts) {
@@ -768,20 +740,18 @@ describe("students DELETE cascade", () => {
   });
 
   it("all DELETE statements are tenant-scoped (except student_tags which has no tenant_id)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteStatements = db.executed.filter((s) =>
-      s.startsWith("DELETE FROM"),
-    );
+    const deleteStatements = db.executed.filter((s) => s.startsWith("DELETE FROM"));
     for (const sql of deleteStatements) {
       if (sql.includes("student_tags")) {
         expect(sql).toContain("student_id = ?");
@@ -792,67 +762,61 @@ describe("students DELETE cascade", () => {
   });
 
   it("preserves guardians (not deleted in cascade)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteGuardiansSql = db.executed.find((s) =>
-      s.includes("DELETE FROM guardians"),
-    );
+    const deleteGuardiansSql = db.executed.find((s) => s.includes("DELETE FROM guardians"));
     expect(deleteGuardiansSql).toBeUndefined();
   });
 
   it("preserves fee_plans (not deleted in cascade)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteFeePlansSql = db.executed.find((s) =>
-      s.includes("DELETE FROM fee_plans"),
-    );
+    const deleteFeePlansSql = db.executed.find((s) => s.includes("DELETE FROM fee_plans"));
     expect(deleteFeePlansSql).toBeUndefined();
   });
 
   it("preserves reminders (not deleted in cascade)", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
 
-    const deleteRemindersSql = db.executed.find((s) =>
-      s.includes("DELETE FROM reminders"),
-    );
+    const deleteRemindersSql = db.executed.find((s) => s.includes("DELETE FROM reminders"));
     expect(deleteRemindersSql).toBeUndefined();
   });
 
   it("only the first oneRow call checks student existence", async () => {
-    db.oneRow = async (sql, _args) => {
+    db.oneRow = (sql, _args) => {
       db.executed.push(sql);
-      return { id: STUDENT_ID };
+      return Promise.resolve({ id: STUDENT_ID });
     };
-    db.allRows = async (sql, _args) => {
+    db.allRows = (sql, _args) => {
       db.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
 
     await deleteStudent(db, TENANT, STUDENT_ID);
@@ -876,19 +840,20 @@ describe("students DELETE cascade", () => {
       },
     ]);
 
-    emptyDb.oneRow = async (sql, _args) => {
+    emptyDb.oneRow = (sql, _args) => {
       emptyDb.executed.push(sql);
       if (sql.includes("SELECT id FROM students")) {
-        return { id: "stu-orphan" };
+        return Promise.resolve({ id: "stu-orphan" });
       }
-      return null;
+      return Promise.resolve(null);
     };
-    emptyDb.allRows = async (sql, _args) => {
+    emptyDb.allRows = (sql, _args) => {
       emptyDb.executed.push(sql);
-      return [];
+      return Promise.resolve([]);
     };
-    emptyDb.run = async (sql, _args) => {
+    emptyDb.run = (sql, _args) => {
       emptyDb.executed.push(sql);
+      return Promise.resolve();
     };
 
     const res = await deleteStudent(emptyDb, TENANT, "stu-orphan");

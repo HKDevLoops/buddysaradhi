@@ -49,14 +49,7 @@ const PATH_TRAVERSAL_PATTERNS = [
   /%2e%2e%5c/i,
 ];
 
-const COMMAND_INJECTION_PATTERNS = [
-  /[;&|`$]/,
-  /\$\(/,
-  /\$\{/,
-  /\|\|/,
-  /&&/,
-  /\n|\r/,
-];
+const COMMAND_INJECTION_PATTERNS = [/[;&|`$]/, /\$\(/, /\$\{/, /\|\|/, /&&/, /\n|\r/];
 
 const ipRateLimitMap = new Map<string, { count: number; resetAt: number; penaltyUntil: number }>();
 const nonceCache = new Map<string, number>();
@@ -74,7 +67,8 @@ function getClientIp(req: Request): string {
 function sanitizeString(input: string): string {
   let result = input;
   result = result.replace(/\0/g, "");
-  result = result.replace(/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  // deno-lint-ignore no-control-regex
+  result = result.replace(/[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
   result = result.replace(/\u200b|\u200c|\u200d|\ufeff/g, "");
   return result;
 }
@@ -118,7 +112,10 @@ export function validateUrl(req: Request): SecurityCheckResult {
     if (key.length > MAX_HEADER_VALUE_LENGTH || value.length > MAX_QUERY_VALUE_LENGTH) {
       return { allowed: false, status: 400, error: "parameter too long" };
     }
-    if (detectPatterns(key, SQL_INJECTION_PATTERNS) || detectPatterns(value, SQL_INJECTION_PATTERNS)) {
+    if (
+      detectPatterns(key, SQL_INJECTION_PATTERNS) ||
+      detectPatterns(value, SQL_INJECTION_PATTERNS)
+    ) {
       logWarn("security.sql_injection_attempt", { path: url.pathname, param: key });
       return { allowed: false, status: 400, error: "invalid request" };
     }
@@ -167,7 +164,7 @@ export function validateHeaders(req: Request): SecurityCheckResult {
       return { allowed: false, status: 415, error: "unsupported content type" };
     }
   }
-  for (const [key, value] of req.headers) {
+  for (const [_key, value] of req.headers) {
     if (value && value.length > MAX_HEADER_VALUE_LENGTH) {
       return { allowed: false, status: 400, error: "header too long" };
     }
@@ -209,7 +206,11 @@ export function checkIpRateLimit(clientIp: string): SecurityCheckResult {
   const now = Date.now();
   const entry = ipRateLimitMap.get(clientIp);
   if (!entry || now > entry.resetAt) {
-    ipRateLimitMap.set(clientIp, { count: 1, resetAt: now + IP_RATE_LIMIT_WINDOW_MS, penaltyUntil: 0 });
+    ipRateLimitMap.set(clientIp, {
+      count: 1,
+      resetAt: now + IP_RATE_LIMIT_WINDOW_MS,
+      penaltyUntil: 0,
+    });
     return { allowed: true };
   }
   if (entry.penaltyUntil > 0 && now < entry.penaltyUntil) {
@@ -219,7 +220,8 @@ export function checkIpRateLimit(clientIp: string): SecurityCheckResult {
   }
   entry.count++;
   if (entry.count > IP_RATE_LIMIT_MAX) {
-    const penaltyMs = PROGRESSIVE_PENALTY_BASE_MS * Math.pow(2, Math.min(entry.count - IP_RATE_LIMIT_MAX, 10));
+    const penaltyMs =
+      PROGRESSIVE_PENALTY_BASE_MS * Math.pow(2, Math.min(entry.count - IP_RATE_LIMIT_MAX, 10));
     entry.penaltyUntil = now + penaltyMs;
     logWarn("security.ip_rate_exceeded", { clientIp, count: entry.count, penaltyMs });
     return { allowed: false, status: 429, error: "too many requests" };
@@ -293,14 +295,15 @@ export function getSecurityHeaders(): Record<string, string> {
     "X-XSS-Protection": "0",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+    "Permissions-Policy":
+      "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
     "X-Permitted-Cross-Domain-Policies": "none",
     "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0",
+    Pragma: "no-cache",
+    Expires: "0",
     "Surrogate-Control": "no-store",
   };
 }

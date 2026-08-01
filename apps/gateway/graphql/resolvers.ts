@@ -15,7 +15,7 @@ function clampPage(page: unknown, pageSize: unknown) {
 }
 
 export const resolvers: Record<string, ResolverFn> = {
-  health: async () => "ok",
+  health: () => Promise.resolve("ok"),
 
   settings: async (args, ctx) => {
     if (args.tenantId !== ctx.tenantId) throw new Error("forbidden: tenant mismatch");
@@ -63,14 +63,22 @@ export const resolvers: Record<string, ResolverFn> = {
     const a: unknown[] = [ctx.tenantId];
     if (args.search) {
       where.push("(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR code LIKE ?)");
-      a.push(`%${args.search.toLowerCase()}%`, `%${args.search.toLowerCase()}%`, `%${args.search.toLowerCase()}%`);
+      a.push(
+        `%${args.search.toLowerCase()}%`,
+        `%${args.search.toLowerCase()}%`,
+        `%${args.search.toLowerCase()}%`,
+      );
     }
     const rows = await allRows(
       ctx.db,
       `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name LIMIT ? OFFSET ?`,
       [...a, ps, from],
     );
-    const cnt = await oneRow(ctx.db, `SELECT COUNT(*) AS c FROM students WHERE ${where.join(" AND ")}`, a);
+    const cnt = await oneRow(
+      ctx.db,
+      `SELECT COUNT(*) AS c FROM students WHERE ${where.join(" AND ")}`,
+      a,
+    );
     return {
       items: rows.map((s) => ({
         id: s.id,
@@ -104,7 +112,11 @@ export const resolvers: Record<string, ResolverFn> = {
       "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC LIMIT ? OFFSET ?",
       [ctx.tenantId, ps, from],
     );
-    const cnt = await oneRow(ctx.db, "SELECT COUNT(*) AS c FROM ledger_entries WHERE tenant_id = ?", [ctx.tenantId]);
+    const cnt = await oneRow(
+      ctx.db,
+      "SELECT COUNT(*) AS c FROM ledger_entries WHERE tenant_id = ?",
+      [ctx.tenantId],
+    );
     return {
       items: rows.map((e) => ({
         id: e.id,

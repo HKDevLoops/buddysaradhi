@@ -1,7 +1,7 @@
 import { getTurso, type DB } from "./lib/db.ts";
 import { applySchema } from "./lib/schema.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
-import { ok, fail, json, securityFail } from "./lib/errors.ts";
+import { ok, json, securityFail } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
 import { execLocal } from "./graphql/executor.ts";
 import { getCachedResponse, setCacheResponse } from "./lib/cache.ts";
@@ -27,7 +27,8 @@ import { handleSync } from "./routes/sync.ts";
 import { handleSecurity } from "./routes/security.ts";
 
 const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || Deno.env.get("ALLOWED_ORIGINS") || "https://buddysaradhi.app",
+  "Access-Control-Allow-Origin":
+    Deno.env.get("ALLOWED_ORIGIN") || Deno.env.get("ALLOWED_ORIGINS") || "https://buddysaradhi.app",
   "Access-Control-Allow-Headers":
     "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
@@ -229,7 +230,12 @@ Deno.serve(async (req: Request) => {
           const cKey = cacheKey(req, path, tenantId);
           if (cKey) {
             const body = await res.text();
-            setCacheResponse(cKey, body, res.status, res.headers.get("Content-Type") || "application/json");
+            setCacheResponse(
+              cKey,
+              body,
+              res.status,
+              res.headers.get("Content-Type") || "application/json",
+            );
             const cachedResp = new Response(body, {
               status: res.status,
               headers: {

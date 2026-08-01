@@ -1,4 +1,4 @@
-import type { Client } from "https://esm.sh/@libsql/client@0.14.0";
+import type { Client } from "@libsql/client";
 
 const provisioned = new Set<string>();
 

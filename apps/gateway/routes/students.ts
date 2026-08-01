@@ -78,7 +78,15 @@ function studentName(r: Record<string, unknown>): string {
 
 // ======================== STUDENTS ========================
 
-export const handleStudents: RouteHandler = async (req, db, tenantId, path, method, url, logCtx) => {
+export const handleStudents: RouteHandler = async (
+  req,
+  db,
+  tenantId,
+  path,
+  method,
+  url,
+  logCtx,
+) => {
   const sp = url.searchParams;
 
   // GET /api/v1/students
@@ -94,9 +102,7 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
     const where: string[] = ["s.tenant_id = ?"];
     const args: unknown[] = [tenantId];
     if (search) {
-      where.push(
-        "(LOWER(s.first_name) LIKE ? OR LOWER(s.last_name) LIKE ? OR s.code LIKE ?)",
-      );
+      where.push("(LOWER(s.first_name) LIKE ? OR LOWER(s.last_name) LIKE ? OR s.code LIKE ?)");
       args.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     if (statusFilter.length) {
@@ -115,11 +121,7 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
        LIMIT ? OFFSET ?`,
       [...args, pageSize, from],
     );
-    const cnt = await oneRow(
-      db,
-      `SELECT COUNT(*) AS c FROM students s WHERE ${w}`,
-      args,
-    );
+    const cnt = await oneRow(db, `SELECT COUNT(*) AS c FROM students s WHERE ${w}`, args);
     const students = data.map((s) => ({
       id: s.id,
       code: s.code,
@@ -138,11 +140,10 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
   // GET /api/v1/students/:id
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "GET") {
     const id = path.split("/").pop()!;
-    const row = await oneRow(
-      db,
-      "SELECT * FROM students WHERE tenant_id = ? AND id = ?",
-      [tenantId, id],
-    );
+    const row = await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [
+      tenantId,
+      id,
+    ]);
     if (!row) return fail("not_found", 404);
     return ok(row);
   }
@@ -186,17 +187,12 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
         now,
       ],
     );
-    const batchName =
-      req.headers.get("X-Batch-Name") ||
-      body.batchName ||
-      body.batch_name ||
-      null;
+    const batchName = req.headers.get("X-Batch-Name") || body.batchName || body.batch_name || null;
     if (batchName) {
-      let batch = await oneRow(
-        db,
-        "SELECT id FROM batches WHERE tenant_id = ? AND name = ?",
-        [tenantId, batchName],
-      );
+      let batch = await oneRow(db, "SELECT id FROM batches WHERE tenant_id = ? AND name = ?", [
+        tenantId,
+        batchName,
+      ]);
       if (!batch) {
         const bid = crypto.randomUUID();
         await run(
@@ -216,7 +212,10 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
     await recordOutbox(db, tenantId, "students", id, "create", body);
     await recordAudit(db, tenantId, tenantId, "student.create", "student", id, body);
     invalidateTenant(tenantId);
-    const row = await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, id]);
+    const row = await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [
+      tenantId,
+      id,
+    ]);
     return ok(row, 201);
   }
 
@@ -251,34 +250,43 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
     if (!sets.length) return fail("no_valid_fields", 400);
     sets.push("updated_at = ?");
     args.push(new Date().toISOString(), tenantId, id);
-    await run(
-      db,
-      `UPDATE students SET ${sets.join(", ")} WHERE tenant_id = ? AND id = ?`,
-      args,
-    );
+    await run(db, `UPDATE students SET ${sets.join(", ")} WHERE tenant_id = ? AND id = ?`, args);
     await recordOutbox(db, tenantId, "students", id, "update", body);
     invalidateTenant(tenantId);
-    const row = await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, id]);
+    const row = await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [
+      tenantId,
+      id,
+    ]);
     return ok(row);
   }
 
   // DELETE /api/v1/students/:id
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "DELETE") {
     const id = path.split("/").pop()!;
-    const now = new Date().toISOString();
 
-    const student = await oneRow(
-      db,
-      "SELECT id FROM students WHERE tenant_id = ? AND id = ?",
-      [tenantId, id],
-    );
+    const student = await oneRow(db, "SELECT id FROM students WHERE tenant_id = ? AND id = ?", [
+      tenantId,
+      id,
+    ]);
     if (!student) return fail("not_found", 404);
 
     // Cascade: delete non-financial rows by student_id + tenant_id
-    await run(db, "DELETE FROM student_enrollments WHERE tenant_id = ? AND student_id = ?", [tenantId, id]);
-    await run(db, "DELETE FROM attendance_records WHERE tenant_id = ? AND student_id = ?", [tenantId, id]);
-    await run(db, "DELETE FROM student_notes WHERE tenant_id = ? AND student_id = ?", [tenantId, id]);
-    await run(db, "DELETE FROM student_documents WHERE tenant_id = ? AND student_id = ?", [tenantId, id]);
+    await run(db, "DELETE FROM student_enrollments WHERE tenant_id = ? AND student_id = ?", [
+      tenantId,
+      id,
+    ]);
+    await run(db, "DELETE FROM attendance_records WHERE tenant_id = ? AND student_id = ?", [
+      tenantId,
+      id,
+    ]);
+    await run(db, "DELETE FROM student_notes WHERE tenant_id = ? AND student_id = ?", [
+      tenantId,
+      id,
+    ]);
+    await run(db, "DELETE FROM student_documents WHERE tenant_id = ? AND student_id = ?", [
+      tenantId,
+      id,
+    ]);
     await run(db, "DELETE FROM student_tags WHERE student_id = ?", [id]);
 
     // Delete attendance sessions that have NO remaining records for this tenant
@@ -294,7 +302,10 @@ export const handleStudents: RouteHandler = async (req, db, tenantId, path, meth
       [tenantId, tenantId],
     );
     for (const s of orphanSessions) {
-      await run(db, "DELETE FROM attendance_sessions WHERE tenant_id = ? AND id = ?", [tenantId, s.id]);
+      await run(db, "DELETE FROM attendance_sessions WHERE tenant_id = ? AND id = ?", [
+        tenantId,
+        s.id,
+      ]);
     }
 
     // Delete the student row

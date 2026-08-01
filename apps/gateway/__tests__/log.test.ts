@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 
 interface LogEntry {
   ts: string;
@@ -18,11 +18,7 @@ interface LogEntry {
 
 let capturedOutput: string[] = [];
 
-function emit(
-  level: LogEntry["level"],
-  event: string,
-  data: Record<string, unknown> = {},
-): void {
+function emit(level: LogEntry["level"], event: string, data: Record<string, unknown> = {}): void {
   const entry: LogEntry = {
     ts: new Date().toISOString(),
     level,

@@ -1,4 +1,4 @@
-import { createClient as createSb } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient as createSb } from "@supabase/supabase-js";
 import { hmacVerify, checkRateLimit } from "./crypto.ts";
 import { logWarn, logError } from "./log.ts";
 
@@ -16,10 +16,14 @@ export interface AuthResult {
 }
 
 export async function authenticateRequest(req: Request): Promise<AuthResult> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") || Deno.env.get("NEXT_PUBLIC_SUPABASE_URL") || "";
+  const supabaseUrl =
+    Deno.env.get("SUPABASE_URL") || Deno.env.get("NEXT_PUBLIC_SUPABASE_URL") || "";
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!supabaseUrl || !supabaseKey) {
-    throw new AuthError("server misconfiguration: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY", 500);
+    throw new AuthError(
+      "server misconfiguration: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
+      500,
+    );
   }
   const sb = createSb(supabaseUrl, supabaseKey);
 
@@ -73,11 +77,15 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
   const nonce = req.headers.get("x-nonce") || req.headers.get("X-Nonce");
 
   const method = req.method;
-  const isMutation = method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";
+  const isMutation =
+    method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";
 
   if (isMutation) {
     if (!signature || !timestamp || !nonce) {
-      throw new AuthError("unauthorized: signature, timestamp, and nonce required for mutations", 401);
+      throw new AuthError(
+        "unauthorized: signature, timestamp, and nonce required for mutations",
+        401,
+      );
     }
   }
 
@@ -112,7 +120,13 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
   }
 
   if (isMutation) {
-    if (!checkRateLimit(`tenant:${tenantId}:mutation`, MUTATION_RATE_LIMIT_MAX, MUTATION_RATE_LIMIT_WINDOW_MS)) {
+    if (
+      !checkRateLimit(
+        `tenant:${tenantId}:mutation`,
+        MUTATION_RATE_LIMIT_MAX,
+        MUTATION_RATE_LIMIT_WINDOW_MS,
+      )
+    ) {
       logWarn("auth.mutation_rate_limited", { tenantId });
       throw new AuthError("rate limited: too many mutations", 429);
     }

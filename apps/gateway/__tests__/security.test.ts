@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   validateRequestSize,
   validateUrl,
@@ -15,10 +15,7 @@ import {
   generateRequestId,
 } from "../lib/security.ts";
 
-function makeRequest(
-  url: string,
-  opts: RequestInit & { method?: string } = {},
-): Request {
+function makeRequest(url: string, opts: RequestInit & { method?: string } = {}): Request {
   return new Request(url, {
     method: opts.method ?? "GET",
     headers: opts.headers ?? {},
@@ -93,7 +90,9 @@ describe("validateUrl", () => {
   });
 
   it("rejects XSS in query params", () => {
-    const req = makeRequest("https://example.com/api/v1/students?name=%3Cscript%3Ealert(1)%3C/script%3E");
+    const req = makeRequest(
+      "https://example.com/api/v1/students?name=%3Cscript%3Ealert(1)%3C/script%3E",
+    );
     const result = validateUrl(req);
     expect(result.allowed).toBe(false);
     expect(result.status).toBe(400);
@@ -220,8 +219,8 @@ describe("validateRequestBody", () => {
   });
 
   it("rejects XSS in body", () => {
-    expect(validateRequestBody('<script>alert(1)</script>').allowed).toBe(false);
-    expect(validateRequestBody('<img src=x onerror=alert(1)>').allowed).toBe(false);
+    expect(validateRequestBody("<script>alert(1)</script>").allowed).toBe(false);
+    expect(validateRequestBody("<img src=x onerror=alert(1)>").allowed).toBe(false);
   });
 
   it("sanitizes null bytes", () => {

@@ -40,7 +40,7 @@ export function createMockDb(): MockDb {
   return db;
 }
 
-export async function recordAudit(
+export function recordAudit(
   db: MockDb,
   tenantId: string,
   actor: string,
@@ -61,9 +61,10 @@ export async function recordAudit(
     created_at: new Date().toISOString(),
   });
   db.tables.set("audit_log", auditRows);
+  return Promise.resolve();
 }
 
-export async function recordOutbox(
+export function recordOutbox(
   db: MockDb,
   tenantId: string,
   table: string,
@@ -84,4 +85,5 @@ export async function recordOutbox(
     created_at: new Date().toISOString(),
   });
   db.tables.set("sync_outbox", outboxRows);
+  return Promise.resolve();
 }

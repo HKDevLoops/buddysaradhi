@@ -11,8 +11,8 @@
 //
 // Invoked at: https://<project>.supabase.co/functions/v1/gateway-graphql
 
-import { createClient as createLibsql } from "https://esm.sh/@libsql/client@0.14.0";
-import { createClient as createSb } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient as createLibsql } from "@libsql/client";
+import { createClient as createSb } from "@supabase/supabase-js";
 
 type DB = ReturnType<typeof createLibsql>;
 
@@ -27,11 +27,19 @@ function getTurso(dbUrl: string, dbToken: string): DB {
   return c;
 }
 
-async function allRows(db: DB, sql: string, args: unknown[] = []): Promise<Record<string, unknown>[]> {
+async function allRows(
+  db: DB,
+  sql: string,
+  args: unknown[] = [],
+): Promise<Record<string, unknown>[]> {
   const res = await db.execute({ sql, args: args as never });
   return (res.rows as Record<string, unknown>[]) ?? [];
 }
-async function oneRow(db: DB, sql: string, args: unknown[] = []): Promise<Record<string, unknown> | null> {
+async function oneRow(
+  db: DB,
+  sql: string,
+  args: unknown[] = [],
+): Promise<Record<string, unknown> | null> {
   const rows = await allRows(db, sql, args);
   return rows[0] ?? null;
 }
@@ -152,7 +160,7 @@ function project(field: Field, value: unknown): unknown {
 
 // ---- resolvers ----------------------------------------------------------------
 const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
-  health: async () => "ok",
+  health: () => Promise.resolve("ok"),
   settings: async (args: any, ctx: any) => {
     if (args.tenantId !== ctx.tenantId) throw new Error("forbidden: tenant mismatch");
     const row = await oneRow(ctx.db, "SELECT * FROM settings WHERE tenant_id = ?", [ctx.tenantId]);
@@ -198,14 +206,22 @@ const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
     const a: unknown[] = [ctx.tenantId];
     if (args.search) {
       where.push("(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR code LIKE ?)");
-      a.push(`%${args.search.toLowerCase()}%`, `%${args.search.toLowerCase()}%`, `%${args.search.toLowerCase()}%`);
+      a.push(
+        `%${args.search.toLowerCase()}%`,
+        `%${args.search.toLowerCase()}%`,
+        `%${args.search.toLowerCase()}%`,
+      );
     }
     const rows = await allRows(
       ctx.db,
       `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name LIMIT ? OFFSET ?`,
       [...a, ps, from],
     );
-    const cnt = await oneRow(ctx.db, `SELECT COUNT(*) AS c FROM students WHERE ${where.join(" AND ")}`, a);
+    const cnt = await oneRow(
+      ctx.db,
+      `SELECT COUNT(*) AS c FROM students WHERE ${where.join(" AND ")}`,
+      a,
+    );
     return {
       items: rows.map((s) => ({
         id: s.id,
@@ -238,7 +254,11 @@ const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
       "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC LIMIT ? OFFSET ?",
       [ctx.tenantId, ps, from],
     );
-    const cnt = await oneRow(ctx.db, "SELECT COUNT(*) AS c FROM ledger_entries WHERE tenant_id = ?", [ctx.tenantId]);
+    const cnt = await oneRow(
+      ctx.db,
+      "SELECT COUNT(*) AS c FROM ledger_entries WHERE tenant_id = ?",
+      [ctx.tenantId],
+    );
     return {
       items: rows.map((e) => ({
         id: e.id,
@@ -287,7 +307,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       status: 204,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, content-type, x-db-url, x-db-token, x-tutor-id",
+        "Access-Control-Allow-Headers":
+          "authorization, content-type, x-db-url, x-db-token, x-tutor-id",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       },
     });
@@ -300,7 +321,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let user: { id: string } | null = null;
     const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
     if (token) {
-      const sb = createSb(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      const sb = createSb(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
       const { data, error } = await sb.auth.getUser(token);
       if (!error && data.user) user = data.user;
     }
@@ -311,8 +335,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       });
     }
     tenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id") || user?.id || null;
-    const dbUrl = req.headers.get("x-db-url") || req.headers.get("X-Db-Url") || Deno.env.get("DATABASE_URL") || "";
-    const dbToken = req.headers.get("x-db-token") || req.headers.get("X-Db-Token") || Deno.env.get("TURSO_TOKEN") || "";
+    const dbUrl =
+      req.headers.get("x-db-url") ||
+      req.headers.get("X-Db-Url") ||
+      Deno.env.get("DATABASE_URL") ||
+      "";
+    const dbToken =
+      req.headers.get("x-db-token") ||
+      req.headers.get("X-Db-Token") ||
+      Deno.env.get("TURSO_TOKEN") ||
+      "";
     if (!dbUrl && !isHealthOnly) {
       return new Response(JSON.stringify({ errors: [{ message: "no_database" }] }), {
         status: 400,
@@ -330,7 +362,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
   } catch (err) {
     return new Response(
-      JSON.stringify({ errors: [{ message: err instanceof Error ? err.message : "internal_error" }] }),
+      JSON.stringify({
+        errors: [{ message: err instanceof Error ? err.message : "internal_error" }],
+      }),
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }

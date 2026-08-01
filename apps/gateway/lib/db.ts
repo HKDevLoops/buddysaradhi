@@ -1,4 +1,4 @@
-import { createClient as createLibsql } from "https://esm.sh/@libsql/client@0.14.0";
+import { createClient as createLibsql } from "@libsql/client";
 
 export type DB = ReturnType<typeof createLibsql>;
 
@@ -14,11 +14,7 @@ export function getTurso(dbUrl: string, dbToken: string): DB {
   return c;
 }
 
-export async function run(
-  db: DB,
-  sql: string,
-  args: unknown[] = [],
-) {
+export function run(db: DB, sql: string, args: unknown[] = []) {
   return db.execute({ sql, args: args as never });
 }
 
