@@ -83,12 +83,12 @@ export function okCached(body: string, cacheControl: string): Response {
   });
 }
 
-export function fail(error: string, status = 400): Response | Promise<Response> {
+export function fail(error: string, status = 400): Response {
   const sanitized = sanitizeError(error, status);
-  return json({ success: false, error: sanitized }, status);
+  return json({ success: false, error: sanitized }, status) as Response;
 }
 
-export function securityFail(status: number, requestId?: string): Response | Promise<Response> {
+export function securityFail(status: number, requestId?: string): Response {
   const message = ERROR_MESSAGES[status] || "bad request";
-  return json({ success: false, error: message, ...(requestId ? { requestId } : {}) }, status);
+  return json({ success: false, error: message, ...(requestId ? { requestId } : {}) }, status) as Response;
 }

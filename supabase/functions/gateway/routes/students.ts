@@ -1,5 +1,4 @@
 import type { DB } from "../lib/db.ts";
-import { run, oneRow, allRows } from "../lib/db.ts";
 import { ok, fail } from "../lib/errors.ts";
 import { logInfo } from "../lib/log.ts";
 import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
@@ -64,9 +63,7 @@ export async function recordAudit(
   }
 }
 
-function studentName(r: Record<string, unknown>): string {
-  return [r.first_name, r.last_name].filter(Boolean).join(" ");
-}
+
 
 // ======================== STUDENTS ========================
 
