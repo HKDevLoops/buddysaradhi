@@ -1,5 +1,5 @@
 import { getTurso, type DB } from "./lib/db.ts";
-import { applySchema } from "./lib/schema.ts";
+import { ensureSelfRepairingSchema } from "./lib/schema.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
 import { ok, json, securityFail } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
@@ -183,7 +183,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const db: DB = getTurso(dbUrl, dbToken);
-    await applySchema(db, `${dbUrl}::${dbToken}`);
+    await ensureSelfRepairingSchema(db, tenantId);
 
     if (path === "/graphql" && method === "POST") {
       const body = await req.json().catch(() => ({}));
