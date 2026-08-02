@@ -60,34 +60,26 @@ beforeAll(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ledger-test-"));
   TEST_DB = join(tmpDir, "ledger-test.db").replace(/\\/g, "/");
   DATABASE_URL = `file:${TEST_DB}`;
+  const runner = process.platform === "win32" ? "npx.cmd" : "bun";
+  const runnerArgs = process.platform === "win32"
+    ? ["prisma", "db", "push", "--schema", SCHEMA, "--url", DATABASE_URL, "--skip-generate", "--accept-data-loss"]
+    : ["x", "prisma", "db", "push", "--schema", SCHEMA, "--url", DATABASE_URL, "--skip-generate", "--accept-data-loss"];
   execFileSync(
-    "bun",
-    [
-      "x",
-      "prisma",
-      "db",
-      "push",
-      "--schema",
-      SCHEMA,
-      "--skip-generate",
-      "--accept-data-loss",
-    ],
+    runner,
+    runnerArgs,
     {
       stdio: "ignore",
       env: { ...process.env, DATABASE_URL },
+      shell: true,
     }
   );
   prisma = new PrismaClient({
-    datasources: {
-      db: {
-        url: DATABASE_URL,
-      },
-    },
+    datasourceUrl: DATABASE_URL,
   });
 });
 
 afterAll(async () => {
-  await prisma.$disconnect();
+  if (prisma) await prisma.$disconnect().catch(() => {});
   await new Promise((r) => setTimeout(r, 100));
   for (const ext of ["", "-wal", "-shm", "-journal"]) {
     const p = TEST_DB + ext;

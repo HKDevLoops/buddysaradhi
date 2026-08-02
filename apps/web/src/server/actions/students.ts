@@ -34,9 +34,7 @@ export async function fetchStudentDetailAction(studentId: string): Promise<{ suc
 export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
   try {
     const s = data as any;
-    const { client, tenantId } = await getAuthenticatedDb();
-    const proxy = createLibsqlProxy(client);
-    const id = crypto.randomUUID();
+    const id = s.id || crypto.randomUUID();
     const code = s.code || `S-${Math.floor(100 + Math.random() * 900)}`;
     let validAdmissionDate = new Date().toISOString().slice(0, 10);
     const rawDate = s.admission_date || s.joined_at || s.admissionDate;
@@ -47,37 +45,95 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       }
     }
 
+    const baseFeePaise = s.baseFeePaise !== undefined 
+      ? Number(s.baseFeePaise) 
+      : (s.base_fee_paise !== undefined 
+          ? Number(s.base_fee_paise) 
+          : Number(s.baseFee || 0) * 100);
+
+    const payload = {
+      id,
+      code,
+      first_name: s.first_name || s.firstName || s.name?.split(" ")[0] || "Student",
+      last_name: s.last_name || s.lastName || (s.name ? s.name.split(" ").slice(1).join(" ") : "") || null,
+      dob: s.dob || null,
+      gender: s.gender || null,
+      phone: s.phone || null,
+      email: s.email || null,
+      address: s.address || null,
+      school: s.school || null,
+      grade: s.grade || null,
+      board: s.board || null,
+      admission_date: validAdmissionDate,
+      status: s.status || "active",
+      fee_model: s.fee_model || s.feeModel || "postpaid",
+      base_fee_paise: baseFeePaise,
+      dup_key: s.dup_key || s.dupKey || code,
+      batchName: batchName || s.batchName || s.batch || null,
+    };
+
+    // 1. Try canonical Gateway first
+    const gatewayRes = await gatewayPost<Student>(
+      "/api/v1/students",
+      payload,
+      batchName ? { "X-Batch-Name": batchName } : undefined
+    );
+
+    if (gatewayRes.success) {
+      revalidatePath("/students");
+      revalidatePath("/dashboard");
+      return { success: true, data: gatewayRes.data };
+    }
+
+    // 2. Local fallback if Gateway is unreachable (Offline-first per Rule 7)
+    const { client, tenantId } = await getAuthenticatedDb();
+    const proxy = createLibsqlProxy(client);
+
     const studentData = {
       id,
       tenantId,
       code,
-      firstName: s.first_name || s.firstName || s.name?.split(" ")[0] || "Student",
-      lastName: s.last_name || s.lastName || s.name?.split(" ").slice(1).join(" ") || "",
-      status: s.status || "active",
-      feeModel: s.fee_model || s.feeModel || "postpaid",
-      baseFeePaise: s.baseFeePaise !== undefined ? Number(s.baseFeePaise) : (s.base_fee_paise !== undefined ? Number(s.base_fee_paise) : Number(s.baseFee || 2000) * 100),
-      balancePaise: Number(s.balancePaise || 0),
-      dupKey: s.dup_key || s.dupKey || code,
+      firstName: payload.first_name,
+      lastName: payload.last_name || "",
+      status: payload.status,
+      feeModel: payload.fee_model,
+      baseFeePaise: payload.base_fee_paise,
+      balancePaise: 0,
+      dupKey: payload.dup_key,
       admissionDate: validAdmissionDate,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+
     await proxy.student.create({ data: studentData });
+
+    // Append to sync_outbox in local DB per Rule 7
+    await proxy.syncOutbox.create({
+      data: {
+        id: crypto.randomUUID(),
+        tenantId,
+        tableName: "students",
+        rowId: id,
+        op: "create",
+        payload: JSON.stringify(payload),
+        status: "pending",
+        createdAt: new Date(),
+      },
+    });
 
     if (batchName) {
       let batch = await proxy.batch.findFirst({ where: { tenantId, name: batchName } });
       if (!batch) {
-        const batchId = crypto.randomUUID();
         batch = await proxy.batch.create({
           data: {
-            id: batchId,
+            id: crypto.randomUUID(),
             tenantId,
             tutorId: tenantId,
             name: batchName,
             subject: "General",
             createdAt: new Date(),
             updatedAt: new Date(),
-          }
+          },
         });
       }
       await proxy.studentEnrollment.create({
@@ -86,19 +142,18 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           tenantId,
           studentId: id,
           batchId: batch.id,
-          joinedOn: new Date().toISOString(),
+          joinedOn: validAdmissionDate,
           createdAt: new Date(),
           updatedAt: new Date(),
-        }
+        },
       });
     }
 
     revalidatePath("/students");
-    // SAFETY: The local proxy returns camelCase fields; the shared Student type
-    // uses snake_case. The shape is compatible at runtime but TS can't verify it.
+    revalidatePath("/dashboard");
     return { success: true, data: studentData as unknown as Student };
   } catch (err) {
-    log.error('create_student_action_failed', err instanceof Error ? err.message : String(err));
+    log.error("create_student_action_failed", err instanceof Error ? err.message : String(err));
     return { success: false, error: err instanceof Error ? err.message : "Failed to create student" };
   }
 }
