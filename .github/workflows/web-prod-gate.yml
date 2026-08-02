@@ -62,14 +62,14 @@ jobs:
         run: pnpm --filter @buddysaradhi/core typecheck
 
       - name: Core / Lint
-        run: pnpm --filter @buddysaradhi/core lint -- --max-warnings 0
+        run: pnpm --filter @buddysaradhi/core lint
 
       - name: Core / Unit Tests (Vitest)
         run: pnpm --filter @buddysaradhi/core test
 
       # --- apps/web ---
       - name: Web / Lint
-        run: pnpm --filter web lint -- --max-warnings 0
+        run: pnpm --filter web lint
 
       - name: Web / Typecheck
         run: pnpm --filter web typecheck

@@ -12,7 +12,7 @@ export type RouteHandler = (
   method: string,
   url: URL,
   logCtx: Record<string, unknown>,
-) => Promise<Response | null> | Response | null;
+) => Response | null;
 
 export async function recordOutbox(
   db: DB,

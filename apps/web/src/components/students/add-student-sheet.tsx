@@ -9,6 +9,7 @@ import { X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { z } from "zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { useStudentsStore } from "@/stores/students-store";
 
 const FormSchema = z.object({
@@ -37,6 +38,7 @@ export function AddStudentSheet() {
   const [error, setError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<{ dupKey: string; data: FormValues } | null>(null);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { register, control, handleSubmit, formState: { errors }, reset } = useForm<FormValues>({
     resolver: zodResolver(FormSchema as any),
@@ -107,6 +109,7 @@ export function AddStudentSheet() {
       reset();
       setOpen(false);
       setDuplicateWarning(null);
+      await queryClient.invalidateQueries({ queryKey: ["students"] });
       router.refresh();
     } else {
       setError(res.error || "Failed to create student");

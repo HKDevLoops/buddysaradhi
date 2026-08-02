@@ -11,10 +11,14 @@ const LOCAL_TENANT = "local-dev";
 async function getUserAndSession() {
   try {
     const supabase = await createSupabaseServer();
-    const [userRes, sessionRes] = await Promise.all([
+    const fetchUser = Promise.all([
       supabase.auth.getUser(),
       supabase.auth.getSession(),
     ]);
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+    const result = await Promise.race([fetchUser, timeout]);
+    if (!result) return { user: null, accessToken: null };
+    const [userRes, sessionRes] = result;
     return {
       user: userRes.data.user ?? null,
       accessToken: sessionRes.data.session?.access_token ?? null,
