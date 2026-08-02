@@ -276,8 +276,8 @@ export function AddStudentSheet() {
             </div>
             {duplicateWarning ? (
               <div className="absolute inset-0 z-10 glass-strong flex flex-col p-8 items-center justify-center animate-in fade-in duration-200">
-                <div className="w-full max-w-sm glass-panel p-6 rounded-xl border-l-4 border-l-[var(--accent-flare)] shadow-2xl flex flex-col items-center text-center">
-                  <div className="w-12 h-12 rounded-full bg-[var(--accent-flare)]/20 text-[var(--accent-flare)] flex items-center justify-center mb-4">
+                <div className="w-full max-w-sm p-6 rounded-2xl border border-[var(--accent-flare)]/40 bg-[var(--bg-surface-raised)]/95 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
+                  <div className="w-12 h-12 rounded-full bg-[var(--accent-flare)]/15 text-[var(--accent-flare)] flex items-center justify-center mb-4 ring-1 ring-[var(--accent-flare)]/30">
                     <X className="w-6 h-6" />
                   </div>
                   <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Duplicate Detected</h3>
