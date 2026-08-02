@@ -62,11 +62,12 @@ export const resolvers: Record<string, ResolverFn> = {
     const where = ["tenant_id = ?", "archived_at IS NULL"];
     const a: unknown[] = [ctx.tenantId];
     if (args.search) {
+      const searchTerm = String(args.search).toLowerCase();
       where.push("(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR code LIKE ?)");
       a.push(
-        `%${args.search.toLowerCase()}%`,
-        `%${args.search.toLowerCase()}%`,
-        `%${args.search.toLowerCase()}%`,
+        `%${searchTerm}%`,
+        `%${searchTerm}%`,
+        `%${searchTerm}%`,
       );
     }
     const rows = await allRows(

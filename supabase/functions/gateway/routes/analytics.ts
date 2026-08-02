@@ -100,7 +100,7 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
         timestamp: e.occurred_on,
       })),
     ]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .sort((a, b) => new Date(String(b.timestamp)).getTime() - new Date(String(a.timestamp)).getTime())
       .slice(0, limit);
 
     const today = new Date().toISOString().slice(0, 10);

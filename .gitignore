@@ -77,3 +77,5 @@ scratch_*.js
 ./.gemini/
 ./.*
 
+.vercel
+.env*

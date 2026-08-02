@@ -118,8 +118,8 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         args,
       );
     }
-    await recordOutbox(db, tenantId, "attendance_sessions", sessionId, "update", body);
-    await recordAudit(db, tenantId, tenantId, "attendance.mark", "session", sessionId, { count: body.updates.length });
+    await recordOutbox(db, tenantId, "attendance_sessions", String(sessionId), "update", body);
+    await recordAudit(db, tenantId, tenantId, "attendance.mark", "session", String(sessionId), { count: (body as any)?.updates?.length || 0 });
     invalidateTenant(tenantId);
     return ok({ sessionId });
   }

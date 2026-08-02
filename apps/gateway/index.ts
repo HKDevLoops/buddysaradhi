@@ -114,12 +114,9 @@ Deno.serve(async (req: Request) => {
   try {
     if (path === "/health") {
       const dt = performance.now() - t0;
-      const resp = ok({ ok: true });
-      if (resp instanceof Response) {
-        resp.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
-        return addSecurityHeaders(resp, requestId);
-      }
-      return addSecurityHeaders(resp as Response, requestId);
+      const resp = await ok({ ok: true });
+      resp.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
+      return addSecurityHeaders(resp, requestId);
     }
 
     if (path === "/robots.txt") {
