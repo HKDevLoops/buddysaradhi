@@ -53,7 +53,7 @@ export function invalidatePattern(pattern: string): void {
 }
 
 export function invalidateTenant(tenantId: string): void {
-  invalidatePattern(`(?:^|:)${tenantId}:`);
+  invalidatePattern(tenantId);
 }
 
 export function getCachedResponse(key: string): Response | null {

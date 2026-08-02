@@ -136,11 +136,13 @@ Deno.serve(async (req: Request) => {
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
       Deno.env.get("DATABASE_URL") ||
-      "";
+      Deno.env.get("TURSO_DATABASE_URL") ||
+      "file:./dev.db";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||
       Deno.env.get("TURSO_TOKEN") ||
+      Deno.env.get("TURSO_AUTH_TOKEN") ||
       "";
     if (!dbUrl) return addSecurityHeaders(securityFail(400, requestId), requestId);
 
@@ -264,7 +266,9 @@ Deno.serve(async (req: Request) => {
       errorCode: err instanceof AuthError ? "auth_fail" : "internal_error",
       message: err instanceof Error ? err.message : String(err),
     });
-    return addSecurityHeaders(securityFail(status, requestId), requestId);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const body = JSON.stringify({ success: false, error: errMsg, requestId });
+    return addSecurityHeaders(new Response(body, { status, headers: { "Content-Type": "application/json" } }), requestId);
   }
 });
 

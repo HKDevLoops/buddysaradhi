@@ -136,9 +136,11 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
       create: async (args) => {
         const d = args.data;
         const now = new Date().toISOString();
+        const studentId = d.id ?? crypto.randomUUID();
+        const dupKeyVal = d.dupKey ?? d.dup_key ?? d.code ?? studentId;
         const cols = ["id", "tenant_id", "code", "first_name", "last_name", "dob", "gender", "phone", "email", "address", "school", "grade", "board", "admission_date", "status", "fee_model", "base_fee_paise", "balance_paise", "dup_key", "notes", "created_at", "updated_at"];
         const vals = [
-          d.id ?? crypto.randomUUID(),
+          studentId,
           tenantId,
           d.code ?? null,
           d.firstName ?? d.first_name ?? "Unknown",
@@ -156,13 +158,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
           d.feeModel ?? d.fee_model ?? "postpaid",
           d.baseFeePaise ?? d.base_fee_paise ?? 0,
           d.balancePaise ?? d.balance_paise ?? 0,
-          d.dupKey ?? d.dup_key ?? d.code ?? d.id,
+          dupKeyVal,
           d.notes ?? null,
           now,
           now,
         ];
         await run(db, `INSERT INTO students (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`, vals);
-        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, vals[0]]))!;
+        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, studentId]))!;
       },
       update: async (args) => {
         const { clause, params } = buildWhere(args.where);

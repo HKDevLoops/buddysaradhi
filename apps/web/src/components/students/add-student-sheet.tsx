@@ -110,6 +110,7 @@ export function AddStudentSheet() {
       setOpen(false);
       setDuplicateWarning(null);
       await queryClient.invalidateQueries({ queryKey: ["students"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       router.refresh();
     } else {
       setError(res.error || "Failed to create student");
@@ -262,18 +263,16 @@ export function AddStudentSheet() {
                   />
                   {errors.joined_at && <p className="mt-1 text-xs text-[var(--accent-flare)]">{errors.joined_at.message}</p>}
                 </div>
+                <div className="pt-4 border-t border-[var(--border-default)]">
+                  <Button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-6 bg-[var(--accent-emerald)] hover:bg-[var(--accent-emerald)]/90 text-[var(--text-on-accent)] font-semibold rounded-xl transition-all cursor-pointer"
+                  >
+                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Student"}
+                  </Button>
+                </div>
               </form>
-            </div>
-
-            <div className="p-6 border-t border-[var(--border-default)] bg-[var(--bg-surface-raised)]/50 mt-auto">
-              <Button
-                form="add-student-form"
-                type="submit"
-                disabled={submitting}
-                className="w-full py-6 bg-[var(--accent-emerald)] hover:bg-[var(--accent-emerald)]/90 text-[var(--text-on-accent)] font-semibold rounded-xl transition-all"
-              >
-                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Student"}
-              </Button>
             </div>
             {duplicateWarning ? (
               <div className="absolute inset-0 z-10 glass-strong flex flex-col p-8 items-center justify-center animate-in fade-in duration-200">

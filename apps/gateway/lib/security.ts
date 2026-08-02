@@ -12,15 +12,13 @@ const IP_RATE_LIMIT_WINDOW_MS = 60_000;
 const PROGRESSIVE_PENALTY_BASE_MS = 30_000;
 
 const SQL_INJECTION_PATTERNS = [
-  /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|UNION|FETCH|DECLARE|TRUNCATE|GRANT|REVOKE)\b)/i,
-  /(--|\/\*|\*\/|;)/,
-  /(\b(OR|AND)\b\s+\d+\s*=\s*\d+)/i,
+  /(\bUNION\s+(ALL\s+)?SELECT\b)/i,
+  /(--|\/\*|\*\/|;\s*(DROP|DELETE|UPDATE|ALTER|TRUNCATE))/i,
+  /(\b(OR|AND)\b\s+['"]?\d+['"]?\s*=\s*['"]?\d+['"]?)/i,
   /('|")\s*(OR|AND)\s*('|")/i,
   /CHAR\s*\(/i,
-  /CONCAT\s*\(/i,
   /0x[0-9a-f]+/i,
-  /\bxp_/i,
-  /\bsp_/i,
+  /\bxp_cmdshell\b/i,
 ];
 
 const XSS_PATTERNS = [
