@@ -39,7 +39,7 @@ jobs:
   deploy:
     name: Deploy to Production
     needs: lint
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.SUPABASE_ACCESS_TOKEN != ''
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
