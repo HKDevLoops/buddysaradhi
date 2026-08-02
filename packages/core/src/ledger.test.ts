@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "crypto";
-import { execFileSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import { existsSync, unlinkSync, mkdirSync, mkdtempSync, rmdirSync } from "fs";
 import { resolve, join } from "path";
 import { tmpdir } from "os";
@@ -60,21 +60,20 @@ beforeAll(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "ledger-test-"));
   TEST_DB = join(tmpDir, "ledger-test.db").replace(/\\/g, "/");
   DATABASE_URL = `file:${TEST_DB}`;
-  const runner = process.platform === "win32" ? "npx.cmd" : "bun";
-  const runnerArgs = process.platform === "win32"
-    ? ["prisma", "db", "push", "--schema", SCHEMA, "--url", DATABASE_URL, "--skip-generate", "--accept-data-loss"]
-    : ["x", "prisma", "db", "push", "--schema", SCHEMA, "--url", DATABASE_URL, "--skip-generate", "--accept-data-loss"];
-  execFileSync(
-    runner,
-    runnerArgs,
-    {
-      stdio: "ignore",
-      env: { ...process.env, DATABASE_URL },
-      shell: true,
-    }
-  );
+  
+  const runner = process.platform === "win32" ? "npx.cmd" : "npx";
+  execSync(`${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss`, {
+    cwd: REPO,
+    stdio: "ignore",
+    env: { ...process.env, DATABASE_URL },
+  });
+
   prisma = new PrismaClient({
-    datasourceUrl: DATABASE_URL,
+    datasources: {
+      db: {
+        url: DATABASE_URL,
+      },
+    },
   });
 });
 
