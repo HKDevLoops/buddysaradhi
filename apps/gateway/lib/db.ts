@@ -4,14 +4,19 @@ export type DB = ReturnType<typeof createLibsql>;
 
 const tursoCache = new Map<string, DB>();
 
-export function getTurso(dbUrl: string, dbToken: string): DB {
-  let targetUrl = dbUrl;
-  const envUrl = typeof Deno !== "undefined" ? (Deno.env.get("TURSO_DATABASE_URL") || Deno.env.get("DATABASE_URL")) : undefined;
-  if (envUrl && (envUrl.startsWith("libsql:") || envUrl.startsWith("https:") || envUrl.startsWith("http:"))) {
-    targetUrl = envUrl;
-  } else if (!targetUrl || targetUrl.startsWith("file:") || targetUrl === ":memory:" || targetUrl.includes("gmqwdnvbfnwpzpctwvho")) {
-    targetUrl = "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+function resolveTursoUrl(url?: string): string {
+  if (url && (url.startsWith("libsql://") || url.startsWith("https://") || url.startsWith("http://")) && !url.includes("supabase.co") && !url.includes("gmqwdnvbfnwpzpctwvho")) {
+    return url;
   }
+  const envUrl = typeof Deno !== "undefined" ? Deno.env.get("TURSO_DATABASE_URL") : undefined;
+  if (envUrl && (envUrl.startsWith("libsql://") || envUrl.startsWith("https://") || envUrl.startsWith("http://"))) {
+    return envUrl;
+  }
+  return "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+}
+
+export function getTurso(dbUrl: string, dbToken: string): DB {
+  const targetUrl = resolveTursoUrl(dbUrl);
   let token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "");
   if (!token) {
     console.warn("Using fallback Turso token - this should only happen during initial deployment");
@@ -33,7 +38,7 @@ async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: 
     return { type: "text", value: String(a) };
   });
 
-  let host = dbUrl || Deno.env.get("TURSO_DATABASE_URL") || "https://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+  let host = resolveTursoUrl(dbUrl);
   let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
   if (!token) {
     console.warn("Using fallback Turso token - this should only happen during initial deployment");
@@ -124,7 +129,7 @@ export async function batchExecute(
   dbUrl?: string,
   dbToken?: string
 ): Promise<void> {
-  let host = dbUrl || Deno.env.get("TURSO_DATABASE_URL") || "https://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+  let host = resolveTursoUrl(dbUrl);
   let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
   if (!token) {
     console.warn("Using fallback Turso token - this should only happen during initial deployment");

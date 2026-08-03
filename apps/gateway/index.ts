@@ -155,14 +155,13 @@ Deno.serve(async (req: Request) => {
     const dbUrl =
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
-      Deno.env.get("DATABASE_URL") ||
       Deno.env.get("TURSO_DATABASE_URL") ||
-      "file:./dev.db";
+      "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||
-      Deno.env.get("TURSO_TOKEN") ||
       Deno.env.get("TURSO_AUTH_TOKEN") ||
+      Deno.env.get("TURSO_TOKEN") ||
       "";
     if (!dbUrl) return addSecurityHeaders(req, securityFail(400, requestId), requestId);
 

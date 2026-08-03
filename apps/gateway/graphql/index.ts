@@ -338,8 +338,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const dbUrl =
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
-      Deno.env.get("DATABASE_URL") ||
-      "";
+      Deno.env.get("TURSO_DATABASE_URL") ||
+      "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||
