@@ -102,7 +102,7 @@ export interface GraphQLResult {
   errors?: { message: string }[];
 }
 
-export function execLocal(
+export async function execLocal(
   query: string,
   variables: Record<string, unknown>,
   ctx: { db: DB; tenantId: string | null },
@@ -112,8 +112,9 @@ export function execLocal(
   for (const f of top) {
     const resolver = resolvers[f.name];
     if (!resolver) { data[f.name] = null; continue; }
-    const value = resolver({ ...f.args, ...variables }, ctx);
+    const value = await resolver({ ...f.args, ...variables }, ctx);
     data[f.name] = project(f, value);
   }
-  return Promise.resolve({ data });
+  return { data };
 }
+

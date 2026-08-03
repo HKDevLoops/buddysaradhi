@@ -78,7 +78,7 @@ export function NotificationsSection({ settings }: NotificationsSectionProps) {
             const Icon = row.icon;
             const on = values[row.field];
             return (
-              <div key={row.field} className="flex items-center justify-between glass-card p-5 rounded-xl">
+              <div key={row.field} className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: `color-mix(in srgb, ${row.accent} 12%, transparent)` }}>
                     <Icon className="w-5 h-5" style={{ color: row.accent }} />

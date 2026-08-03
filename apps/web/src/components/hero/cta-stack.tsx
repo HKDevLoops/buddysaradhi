@@ -1,7 +1,11 @@
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { log } from '@/lib/logger';
+import { VideoTourModal } from '@/components/hero/video-tour-modal';
 
 export function CtaStack() {
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+
   return (
     <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto items-center">
       {/* Primary CTA - Emerald Glow */}
@@ -23,8 +27,8 @@ export function CtaStack() {
       <button
         type="button"
         onClick={() => {
-          // TODO: Wire up video modal (web/AGENTS §3.6 — typed logger only; no console.* in prod)
           log.info('video_modal_opened', 'CTA stack invoked Open video modal');
+          setIsVideoModalOpen(true);
         }}
         className="w-full md:w-[200px] h-[56px] px-4 rounded-xl flex items-center justify-center
                    bg-[#1a1a3a] text-[#00F0FF] font-semibold text-base
@@ -37,6 +41,11 @@ export function CtaStack() {
       >
         Watch the 90s tour ▶
       </button>
+
+      <VideoTourModal
+        isOpen={isVideoModalOpen}
+        onClose={() => setIsVideoModalOpen(false)}
+      />
     </div>
   );
 }

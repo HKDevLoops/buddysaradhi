@@ -102,7 +102,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
         </h3>
 
         <div className="space-y-4 max-w-2xl">
-          <div className="flex items-center justify-between glass-card p-5 rounded-xl">
+          <div className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-[var(--accent-primary)]/10 flex items-center justify-center shrink-0">
                 <Lock className="w-6 h-6 text-[var(--accent-primary)]" />
@@ -120,7 +120,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
             </button>
           </div>
 
-          <div className="flex items-center justify-between glass-card p-5 rounded-xl">
+          <div className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-[var(--accent-violet)]/10 flex items-center justify-center shrink-0">
                 <Fingerprint className="w-6 h-6 text-[var(--accent-violet)]" />
@@ -137,7 +137,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
             />
           </div>
 
-          <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4 glass-card p-5 rounded-xl">
+          <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-[var(--accent-amber)]/10 flex items-center justify-center shrink-0">
                 <Timer className="w-6 h-6 text-[var(--accent-amber)]" />

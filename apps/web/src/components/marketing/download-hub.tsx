@@ -96,8 +96,8 @@ export function DownloadHub() {
 
       {/* Recommended Platform Banner */}
       {detected !== "web" && detected !== "linux" && (
-        <div className="mb-8 flex items-center justify-center animate-pulse">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[var(--accent-emerald)]/10 border border-[var(--accent-emerald)]/20 text-xs text-[var(--accent-emerald)] font-semibold">
+        <div className="mb-8 flex items-center justify-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[var(--accent-emerald)]/10 border border-[var(--accent-emerald)]/20 text-xs text-[var(--accent-emerald)] font-semibold shadow-[0_0_15px_rgba(0,255,157,0.15)]">
             <Sparkles className="w-3.5 h-3.5" />
             Detected {detected.toUpperCase()} — Recommended for your current device
           </div>

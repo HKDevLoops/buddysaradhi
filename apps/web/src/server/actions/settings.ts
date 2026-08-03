@@ -4,7 +4,7 @@ import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlP
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { verifyPin } from "@/lib/crypto";
+import { verifyPin, encrypt } from "@/lib/crypto";
 
 export async function createBackupAction(passphrase: string) {
   try {
@@ -12,19 +12,34 @@ export async function createBackupAction(passphrase: string) {
       return { success: false, error: "Passphrase must be at least 8 characters" };
     }
 
-    await new Promise(r => setTimeout(r, 1500));
+    const { client, tenantId } = await getAuthenticatedDb();
+    const [settingsRes, studentsRes, ledgerRes] = await Promise.all([
+      client.execute({ sql: "SELECT * FROM settings WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: "SELECT * FROM students WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: "SELECT * FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
+    ]);
 
-    const mockEnvelope = `[AES-256-GCM-BACKUP-BLOB-${Date.now()}]`;
+    const backupPayload = JSON.stringify({
+      version: 1,
+      tenantId,
+      exportedAt: new Date().toISOString(),
+      settings: settingsRes.rows,
+      students: studentsRes.rows,
+      ledger: ledgerRes.rows,
+    });
+
+    const encryptedB64 = await encrypt(backupPayload);
+    const sizeBytes = Buffer.byteLength(encryptedB64, 'base64');
+    const sizeKB = (sizeBytes / 1024).toFixed(1);
 
     return {
       success: true,
       data: {
         filename: `buddysaradhi_backup_${new Date().toISOString().split('T')[0]}.bsb`,
-        size: "2.1 MB",
-        mockBlobUrl: `data:application/octet-stream;base64,${Buffer.from(mockEnvelope).toString('base64')}`,
+        size: `${sizeKB} KB`,
+        mockBlobUrl: `data:application/octet-stream;base64,${encryptedB64}`,
       },
     };
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (error) {
     log.error('create_backup_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to generate backup" };

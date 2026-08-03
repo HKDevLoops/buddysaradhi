@@ -121,7 +121,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         let sql = `SELECT * FROM students WHERE ${clause}`;
         if (args.orderBy) {
           const [col, dir] = Object.entries(args.orderBy)[0] || ["firstName", "asc"];
-          sql += ` ORDER BY ${camelToSnake(col)} ${dir.toUpperCase()}`;
+          const ALLOWED_SORT_COLUMNS = new Set(['first_name', 'last_name', 'created_at', 'updated_at', 'admission_date', 'code', 'status', 'grade', 'balance_paise']);
+          const ALLOWED_DIRECTIONS = new Set(['ASC', 'DESC']);
+          const snakeCol = camelToSnake(col);
+          const upperDir = dir.toUpperCase();
+          if (ALLOWED_SORT_COLUMNS.has(snakeCol) && ALLOWED_DIRECTIONS.has(upperDir)) {
+            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
+          }
         }
         if (args.take) sql += ` LIMIT ${args.take}`;
         if (args.skip) sql += ` OFFSET ${args.skip}`;
@@ -136,9 +142,11 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
       create: async (args) => {
         const d = args.data;
         const now = new Date().toISOString();
+        const studentId = d.id ?? crypto.randomUUID();
+        const dupKeyVal = d.dupKey ?? d.dup_key ?? d.code ?? studentId;
         const cols = ["id", "tenant_id", "code", "first_name", "last_name", "dob", "gender", "phone", "email", "address", "school", "grade", "board", "admission_date", "status", "fee_model", "base_fee_paise", "balance_paise", "dup_key", "notes", "created_at", "updated_at"];
         const vals = [
-          d.id ?? crypto.randomUUID(),
+          studentId,
           tenantId,
           d.code ?? null,
           d.firstName ?? d.first_name ?? "Unknown",
@@ -156,13 +164,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
           d.feeModel ?? d.fee_model ?? "postpaid",
           d.baseFeePaise ?? d.base_fee_paise ?? 0,
           d.balancePaise ?? d.balance_paise ?? 0,
-          d.dupKey ?? d.dup_key ?? d.code ?? d.id,
+          dupKeyVal,
           d.notes ?? null,
           now,
           now,
         ];
         await run(db, `INSERT INTO students (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`, vals);
-        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, vals[0]]))!;
+        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, studentId]))!;
       },
       update: async (args) => {
         const { clause, params } = buildWhere(args.where);
@@ -175,8 +183,10 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         updates.push("updated_at = ?");
         uParams.push(new Date().toISOString());
         await run(db, `UPDATE students SET ${updates.join(",")} WHERE ${clause}`, [...uParams, ...params]);
-        const id = args.where.id;
-        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
+        if (args.where.id) {
+          return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, args.where.id]))!;
+        }
+        return mapRowToCamel(await oneRow(db, `SELECT * FROM students WHERE ${clause}`, params))!;
       },
       delete: async (args) => {
         const { clause, params } = buildWhere(args.where);
@@ -322,9 +332,9 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const d = args.data;
         const now = new Date().toISOString();
         const id = d.id ?? crypto.randomUUID();
-        await run(db, `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-          id, tenantId, d.number, d.studentId, d.issueDate ?? now.slice(0, 10), d.dueDate ?? null, d.subtotal ?? 0, d.discount ?? 0, d.extraCharges ?? 0, d.total ?? 0, d.status ?? "unpaid", d.tamperHash ?? "hash", now, now
+        await run(db, `INSERT INTO invoices (id, tenant_id, invoice_number, student_id, period_start, period_end, due_date, subtotal_paise, discount_paise, tax_paise, total_paise, paid_paise, status, notes, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+          id, tenantId, d.invoiceNumber ?? d.number, d.studentId, d.periodStart ?? now.slice(0, 10), d.periodEnd ?? now.slice(0, 10), d.dueDate ?? null, d.subtotalPaise ?? d.subtotal ?? 0, d.discountPaise ?? d.discount ?? 0, d.taxPaise ?? d.extraCharges ?? 0, d.totalPaise ?? d.total ?? 0, d.paidPaise ?? 0, d.status ?? "issued", d.notes ?? null, now, now
         ]);
         return mapRowToCamel(await oneRow(db, "SELECT * FROM invoices WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
       },
@@ -381,9 +391,9 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const d = args.data;
         const now = new Date().toISOString();
         const id = d.id ?? crypto.randomUUID();
-        await run(db, `INSERT INTO receipts (id, tenant_id, number, ledger_entry_id, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-          id, tenantId, d.number, d.ledgerEntryId, d.studentId, d.invoiceId ?? null, d.amount, d.paymentMethod ?? "cash", d.paymentRef ?? null, d.receivedOn ?? now.slice(0, 10), d.tamperHash ?? "hash", now, now
+        await run(db, `INSERT INTO receipts (id, tenant_id, receipt_no, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+          id, tenantId, d.receiptNo ?? d.number, d.studentId, d.invoiceId ?? null, d.amount, d.paymentMethod ?? "cash", d.paymentRef ?? null, d.receivedOn ?? now.slice(0, 10), d.tamperHash ?? "hash", now, now
         ]);
         return mapRowToCamel(await oneRow(db, "SELECT * FROM receipts WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
       },
@@ -400,9 +410,39 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const now = new Date().toISOString();
         if (!existing) {
           const d = args.create;
-          await run(db, `INSERT INTO settings (tenant_id, institute_name, currency_code, default_fee_model, tenant_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
-            tenantId, d.instituteName ?? "My Tuition", d.currencyCode ?? "INR", d.defaultFeeModel ?? "postpaid", d.tenantSecret ?? crypto.randomUUID(), now, now
-          ]);
+          const cols: string[] = [
+            "tenant_id",
+            "institute_name",
+            "currency_code",
+            "default_fee_model",
+            "palette",
+            "theme",
+            "density",
+            "tenant_secret",
+            "created_at",
+            "updated_at",
+          ];
+          const vals: any[] = [
+            tenantId,
+            d.instituteName ?? d.institute_name ?? "My Tuition",
+            d.currencyCode ?? d.currency_code ?? "INR",
+            d.defaultFeeModel ?? d.default_fee_model ?? "postpaid",
+            d.palette ?? "aurora-cosmic",
+            d.theme ?? "system",
+            d.density ?? "comfortable",
+            d.tenantSecret ?? d.tenant_secret ?? crypto.randomUUID(),
+            now,
+            now,
+          ];
+          for (const [k, v] of Object.entries(d)) {
+            const col = camelToSnake(k);
+            if (!cols.includes(col)) {
+              cols.push(col);
+              vals.push(v);
+            }
+          }
+          const placeholders = cols.map(() => "?").join(", ");
+          await run(db, `INSERT INTO settings (${cols.join(", ")}) VALUES (${placeholders})`, vals);
         } else {
           const u = args.update;
           const sets: string[] = [];

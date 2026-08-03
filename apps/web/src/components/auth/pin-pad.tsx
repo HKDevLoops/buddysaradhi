@@ -86,8 +86,8 @@ export function PinPad({ onSuccess, isLoading, expectedPin = "1234" }: PinPadPro
       </div>
 
       {isLoading && (
-        <div className="mt-8 flex items-center gap-2 text-[var(--text-muted)] text-sm animate-pulse">
-          <Loader2 className="w-4 h-4 animate-spin" /> Verifying...
+        <div className="mt-8 flex items-center gap-2 text-[var(--text-muted)] text-sm">
+          <Loader2 className="w-4 h-4 animate-spin text-[var(--accent-cyan)]" /> Verifying...
         </div>
       )}
     </div>

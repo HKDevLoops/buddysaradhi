@@ -262,7 +262,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
           <EyeOff className="w-5 h-5 text-[var(--accent-amber)]" />
           Accessibility
         </h3>
-        <div className="flex items-center justify-between glass-card p-5 rounded-xl">
+        <div className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">Reduced Motion</p>
             <p className="text-xs text-[var(--text-muted)] mt-1">Disables non-essential animations and transitions.</p>

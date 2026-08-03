@@ -410,9 +410,39 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const now = new Date().toISOString();
         if (!existing) {
           const d = args.create;
-          await run(db, `INSERT INTO settings (tenant_id, institute_name, currency_code, default_fee_model, tenant_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
-            tenantId, d.instituteName ?? "My Tuition", d.currencyCode ?? "INR", d.defaultFeeModel ?? "postpaid", d.tenantSecret ?? crypto.randomUUID(), now, now
-          ]);
+          const cols: string[] = [
+            "tenant_id",
+            "institute_name",
+            "currency_code",
+            "default_fee_model",
+            "palette",
+            "theme",
+            "density",
+            "tenant_secret",
+            "created_at",
+            "updated_at",
+          ];
+          const vals: any[] = [
+            tenantId,
+            d.instituteName ?? d.institute_name ?? "My Tuition",
+            d.currencyCode ?? d.currency_code ?? "INR",
+            d.defaultFeeModel ?? d.default_fee_model ?? "postpaid",
+            d.palette ?? "aurora-cosmic",
+            d.theme ?? "system",
+            d.density ?? "comfortable",
+            d.tenantSecret ?? d.tenant_secret ?? crypto.randomUUID(),
+            now,
+            now,
+          ];
+          for (const [k, v] of Object.entries(d)) {
+            const col = camelToSnake(k);
+            if (!cols.includes(col)) {
+              cols.push(col);
+              vals.push(v);
+            }
+          }
+          const placeholders = cols.map(() => "?").join(", ");
+          await run(db, `INSERT INTO settings (${cols.join(", ")}) VALUES (${placeholders})`, vals);
         } else {
           const u = args.update;
           const sets: string[] = [];
