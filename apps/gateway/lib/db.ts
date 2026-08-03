@@ -12,8 +12,11 @@ export function getTurso(dbUrl: string, dbToken: string): DB {
   } else if (!targetUrl || targetUrl.startsWith("file:") || targetUrl === ":memory:" || targetUrl.includes("gmqwdnvbfnwpzpctwvho")) {
     targetUrl = "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
   }
-  const defaultToken = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  const token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "") || defaultToken;
+  let token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "");
+  if (!token) {
+    console.warn("Using fallback Turso token - this should only happen during initial deployment");
+    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
+  }
   const key = `${targetUrl}::${token}`;
   let c = tursoCache.get(key);
   if (!c) {
@@ -23,35 +26,49 @@ export function getTurso(dbUrl: string, dbToken: string): DB {
   return c;
 }
 
-const TURSO_HOST = "https://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
-const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-
-async function directPipelineExecute(sql: string, args: unknown[] = []): Promise<{ rows: Record<string, unknown>[] }> {
+async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: string, dbToken?: string): Promise<{ rows: Record<string, unknown>[] }> {
   const formattedArgs = args.map((a) => {
     if (a === null || a === undefined) return { type: "null" };
     if (typeof a === "number") return Number.isInteger(a) ? { type: "integer", value: String(a) } : { type: "float", value: a };
     return { type: "text", value: String(a) };
   });
 
-  const res = await fetch(`${TURSO_HOST}/v2/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${TURSO_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      requests: [
-        {
-          type: "execute",
-          stmt: {
-            sql,
-            args: formattedArgs,
+  let host = dbUrl || Deno.env.get("TURSO_DATABASE_URL") || "https://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
+  if (!token) {
+    console.warn("Using fallback Turso token - this should only happen during initial deployment");
+    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
+  }
+  if (host.startsWith("libsql://")) host = host.replace("libsql://", "https://");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  let res;
+  try {
+    res = await fetch(`${host}/v2/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        requests: [
+          {
+            type: "execute",
+            stmt: {
+              sql,
+              args: formattedArgs,
+            },
           },
-        },
-        { type: "close" },
-      ],
-    }),
-  });
+          { type: "close" },
+        ],
+      }),
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const errText = await res.text();
@@ -100,4 +117,50 @@ export async function oneRow(
 ): Promise<Record<string, unknown> | null> {
   const rows = await allRows(db, sql, args);
   return rows[0] ?? null;
+}
+
+export async function batchExecute(
+  stmts: string[],
+  dbUrl?: string,
+  dbToken?: string
+): Promise<void> {
+  let host = dbUrl || Deno.env.get("TURSO_DATABASE_URL") || "https://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
+  if (!token) {
+    console.warn("Using fallback Turso token - this should only happen during initial deployment");
+    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
+  }
+  
+  if (host.startsWith("libsql://")) {
+    host = host.replace("libsql://", "https://");
+  }
+
+  const requests = stmts.map((sql) => ({
+    type: "execute",
+    stmt: { sql, args: [] },
+  }));
+  requests.push({ type: "close" } as any);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  let res;
+  try {
+    res = await fetch(`${host}/v2/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({ requests }),
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Turso pipeline HTTP ${res.status}: ${errText}`);
+  }
 }

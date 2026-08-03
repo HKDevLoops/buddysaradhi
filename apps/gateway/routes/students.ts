@@ -36,6 +36,7 @@ export async function recordOutbox(
     });
   } catch (_e) {
     // sync failure is non-fatal
+    console.error('sync_outbox write failed:', _e);
   }
 }
 
@@ -61,6 +62,7 @@ export async function recordAudit(
     });
   } catch (_e) {
     // audit failure is non-fatal
+    console.error('audit_log write failed:', _e);
   }
 }
 
@@ -95,14 +97,7 @@ export const handleStudents: RouteHandler = async (
       where: {
         ...(statusFilter.length ? { status: { in: statusFilter } } : {}),
       },
-      take: pageSize,
-      skip: from,
-    });
-
-    const total = await orm.student.count({
-      where: {
-        ...(statusFilter.length ? { status: { in: statusFilter } } : {}),
-      },
+      ...(search ? {} : { take: pageSize, skip: from }),
     });
 
     const filtered = search
@@ -114,7 +109,15 @@ export const handleStudents: RouteHandler = async (
         )
       : rawStudents;
 
-    const students = filtered.map((s) => ({
+    const paginated = search ? filtered.slice(from, from + pageSize) : filtered;
+
+    const total = search ? filtered.length : await orm.student.count({
+      where: {
+        ...(statusFilter.length ? { status: { in: statusFilter } } : {}),
+      },
+    });
+
+    const students = paginated.map((s) => ({
       id: s.id,
       code: s.code,
       name: `${s.firstName || ""} ${s.lastName || ""}`.trim(),
@@ -125,7 +128,7 @@ export const handleStudents: RouteHandler = async (
       status: s.status || "active",
     }));
 
-    const result = { students, total: search ? filtered.length : total };
+    const result = { students, total };
     setCache(cacheKey, result);
     return ok(result);
   }

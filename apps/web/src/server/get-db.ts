@@ -211,6 +211,8 @@ export async function getGatewayHeaders(): Promise<{
 // Build the gateway base URL. Prefer an explicit env override, else derive the
 // same-origin host from the incoming request so server-side calls work on any
 // port without hardcoding localhost:3000.
+const SUPABASE_GATEWAY_URL = "https://gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway";
+
 async function gatewayBase(): Promise<string> {
   const env = process.env.GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL;
   if (env && !env.includes("api.buddysaradhi.app")) return env.replace(/\/$/, "");
@@ -218,7 +220,14 @@ async function gatewayBase(): Promise<string> {
   if (process.env.NODE_ENV !== "production") {
     return "http://127.0.0.1:3001";
   }
-  return process.env.GATEWAY_PRODUCTION_URL || "https://gateway.buddysaradhi.app";
+  return process.env.GATEWAY_PRODUCTION_URL || SUPABASE_GATEWAY_URL;
+}
+
+// Create an AbortController with a timeout to prevent infinite hangs
+function createTimeoutSignal(timeoutMs = 12000): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
 }
 
 export async function gatewayGet<T = unknown>(
@@ -233,6 +242,7 @@ export async function gatewayGet<T = unknown>(
       method: "GET",
       headers: { ...h },
       cache: "no-store",
+      signal: createTimeoutSignal(),
     });
 
     if (!res.ok) {
@@ -258,6 +268,7 @@ export async function gatewayPatch<T = unknown>(
       method: "PATCH",
       headers: { ...h, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: createTimeoutSignal(),
     });
 
     if (!res.ok) {
@@ -284,6 +295,7 @@ export async function gatewayPost<T = unknown>(
       method: "POST",
       headers: { ...h, "Content-Type": "application/json", ...extraHeaders },
       body: JSON.stringify(body),
+      signal: createTimeoutSignal(),
     });
 
     if (!res.ok) {
@@ -307,6 +319,7 @@ export async function gatewayDelete<T = unknown>(
     const res = await fetch(`${base}${path}`, {
       method: "DELETE",
       headers: { ...h },
+      signal: createTimeoutSignal(),
     });
 
     if (!res.ok) {

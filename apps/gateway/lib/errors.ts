@@ -2,9 +2,9 @@ import { encryptResponse } from "./crypto.ts";
 import { getSecurityHeaders } from "./security.ts";
 
 const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "https://buddysaradhi.app",
+  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "*",
   "Access-Control-Allow-Headers":
-    "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce",
+    "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-tenant-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce, x-batch-name",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
   "Access-Control-Max-Age": "86400",
   "Access-Control-Allow-Credentials": "true",

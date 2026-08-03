@@ -275,13 +275,23 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
   return dispatch(req, slug);
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(req: NextRequest) {
+  const origin = req.headers.get("Origin") || "";
+  const allowedOrigins = new Set([
+    "https://buddysaradhi.app",
+    "https://buddysaradhi.vercel.app",
+    "http://localhost:3000",
+  ]);
+  const envOrigin = process.env.ALLOWED_ORIGIN || "";
+  if (envOrigin) allowedOrigins.add(envOrigin);
+  const matchedOrigin = allowedOrigins.has(origin) ? origin : "https://buddysaradhi.app";
+
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "https://buddysaradhi.app",
+      "Access-Control-Allow-Origin": matchedOrigin,
       "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-      "Access-Control-Allow-Headers": "authorization,content-type,x-db-url,x-db-token,x-tutor-id,x-signature,x-timestamp,x-nonce,x-encrypt-response,x-request-id",
+      "Access-Control-Allow-Headers": "authorization,content-type,x-db-url,x-db-token,x-tutor-id,x-tenant-id,x-signature,x-timestamp,x-nonce,x-encrypt-response,x-request-id,x-batch-name",
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Max-Age": "86400",
       "X-Content-Type-Options": "nosniff",

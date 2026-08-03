@@ -121,7 +121,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         let sql = `SELECT * FROM students WHERE ${clause}`;
         if (args.orderBy) {
           const [col, dir] = Object.entries(args.orderBy)[0] || ["firstName", "asc"];
-          sql += ` ORDER BY ${camelToSnake(col)} ${dir.toUpperCase()}`;
+          const ALLOWED_SORT_COLUMNS = new Set(['first_name', 'last_name', 'created_at', 'updated_at', 'admission_date', 'code', 'status', 'grade', 'balance_paise']);
+          const ALLOWED_DIRECTIONS = new Set(['ASC', 'DESC']);
+          const snakeCol = camelToSnake(col);
+          const upperDir = dir.toUpperCase();
+          if (ALLOWED_SORT_COLUMNS.has(snakeCol) && ALLOWED_DIRECTIONS.has(upperDir)) {
+            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
+          }
         }
         if (args.take) sql += ` LIMIT ${args.take}`;
         if (args.skip) sql += ` OFFSET ${args.skip}`;
@@ -177,8 +183,10 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         updates.push("updated_at = ?");
         uParams.push(new Date().toISOString());
         await run(db, `UPDATE students SET ${updates.join(",")} WHERE ${clause}`, [...uParams, ...params]);
-        const id = args.where.id;
-        return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
+        if (args.where.id) {
+          return mapRowToCamel(await oneRow(db, "SELECT * FROM students WHERE tenant_id = ? AND id = ?", [tenantId, args.where.id]))!;
+        }
+        return mapRowToCamel(await oneRow(db, `SELECT * FROM students WHERE ${clause}`, params))!;
       },
       delete: async (args) => {
         const { clause, params } = buildWhere(args.where);
@@ -324,9 +332,9 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const d = args.data;
         const now = new Date().toISOString();
         const id = d.id ?? crypto.randomUUID();
-        await run(db, `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-          id, tenantId, d.number, d.studentId, d.issueDate ?? now.slice(0, 10), d.dueDate ?? null, d.subtotal ?? 0, d.discount ?? 0, d.extraCharges ?? 0, d.total ?? 0, d.status ?? "unpaid", d.tamperHash ?? "hash", now, now
+        await run(db, `INSERT INTO invoices (id, tenant_id, invoice_number, student_id, period_start, period_end, due_date, subtotal_paise, discount_paise, tax_paise, total_paise, paid_paise, status, notes, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+          id, tenantId, d.invoiceNumber ?? d.number, d.studentId, d.periodStart ?? now.slice(0, 10), d.periodEnd ?? now.slice(0, 10), d.dueDate ?? null, d.subtotalPaise ?? d.subtotal ?? 0, d.discountPaise ?? d.discount ?? 0, d.taxPaise ?? d.extraCharges ?? 0, d.totalPaise ?? d.total ?? 0, d.paidPaise ?? 0, d.status ?? "issued", d.notes ?? null, now, now
         ]);
         return mapRowToCamel(await oneRow(db, "SELECT * FROM invoices WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
       },
@@ -383,9 +391,9 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         const d = args.data;
         const now = new Date().toISOString();
         const id = d.id ?? crypto.randomUUID();
-        await run(db, `INSERT INTO receipts (id, tenant_id, number, ledger_entry_id, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-          id, tenantId, d.number, d.ledgerEntryId, d.studentId, d.invoiceId ?? null, d.amount, d.paymentMethod ?? "cash", d.paymentRef ?? null, d.receivedOn ?? now.slice(0, 10), d.tamperHash ?? "hash", now, now
+        await run(db, `INSERT INTO receipts (id, tenant_id, receipt_no, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+          id, tenantId, d.receiptNo ?? d.number, d.studentId, d.invoiceId ?? null, d.amount, d.paymentMethod ?? "cash", d.paymentRef ?? null, d.receivedOn ?? now.slice(0, 10), d.tamperHash ?? "hash", now, now
         ]);
         return mapRowToCamel(await oneRow(db, "SELECT * FROM receipts WHERE tenant_id = ? AND id = ?", [tenantId, id]))!;
       },

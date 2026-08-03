@@ -1,6 +1,6 @@
 // Implements: 11_Data_Model.md & AGENTS.md §3.4
 // Self-Repairable Database Schema & Auto-Healing Manager
-import { DB, run } from "./db.ts";
+import { DB, run, batchExecute } from "./db.ts";
 
 const healedTenants = new Set<string>();
 
@@ -211,6 +211,29 @@ const CORE_DDL_STATEMENTS = [
     created_at TEXT NOT NULL
   )`,
 
+  `CREATE TABLE IF NOT EXISTS attendance_sessions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    session_date TEXT NOT NULL,
+    topic TEXT,
+    notes TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS attendance_records (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    student_id TEXT NOT NULL,
+    status TEXT DEFAULT 'present',
+    remarks TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
   `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_update
    BEFORE UPDATE ON ledger_entries
    BEGIN
@@ -224,16 +247,11 @@ const CORE_DDL_STATEMENTS = [
    END`,
 ];
 
-export async function ensureSelfRepairingSchema(db: DB, tenantId: string): Promise<void> {
+export async function ensureSelfRepairingSchema(db: DB, tenantId: string, dbUrl?: string, dbToken?: string): Promise<void> {
   if (healedTenants.has(tenantId)) return;
 
   try {
-    for (const ddl of CORE_DDL_STATEMENTS) {
-      await run(db, ddl).catch((err) => {
-        console.warn("DDL statement warning:", err);
-      });
-    }
-
+    await batchExecute(CORE_DDL_STATEMENTS, dbUrl, dbToken);
     healedTenants.add(tenantId);
   } catch (err) {
     console.error("Self-repairing schema initialization completed with warning:", err);
