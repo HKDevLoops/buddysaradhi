@@ -1,0 +1,419 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@libsql/core@^0.14.0/api?target=denonext": "https://esm.sh/@libsql/core@0.14.0/api?target=denonext",
+    "https://esm.sh/@libsql/core@^0.14.0/config?target=denonext": "https://esm.sh/@libsql/core@0.14.0/config?target=denonext",
+    "https://esm.sh/@libsql/core@^0.14.0/uri?target=denonext": "https://esm.sh/@libsql/core@0.14.0/uri?target=denonext",
+    "https://esm.sh/@libsql/core@^0.14.0/util?target=denonext": "https://esm.sh/@libsql/core@0.14.0/util?target=denonext",
+    "https://esm.sh/@libsql/hrana-client@^0.7.0?target=denonext": "https://esm.sh/@libsql/hrana-client@0.7.0?target=denonext",
+    "https://esm.sh/@libsql/isomorphic-fetch@^0.3.1?target=denonext": "https://esm.sh/@libsql/isomorphic-fetch@0.3.1?target=denonext",
+    "https://esm.sh/@libsql/isomorphic-ws@^0.1.5?target=denonext": "https://esm.sh/@libsql/isomorphic-ws@0.1.5?target=denonext",
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.111.0",
+    "https://esm.sh/js-base64@^3.7.5?target=denonext": "https://esm.sh/js-base64@3.9.2?target=denonext",
+    "https://esm.sh/promise-limit@^2.7.0?target=denonext": "https://esm.sh/promise-limit@2.7.0?target=denonext"
+  },
+  "remote": {
+    "https://deno.land/std@0.224.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
+    "https://deno.land/std@0.224.0/assert/assert.ts": "09d30564c09de846855b7b071e62b5974b001bb72a4b797958fe0660e7849834",
+    "https://deno.land/std@0.224.0/assert/assert_almost_equals.ts": "9e416114322012c9a21fa68e187637ce2d7df25bcbdbfd957cd639e65d3cf293",
+    "https://deno.land/std@0.224.0/assert/assert_array_includes.ts": "14c5094471bc8e4a7895fc6aa5a184300d8a1879606574cb1cd715ef36a4a3c7",
+    "https://deno.land/std@0.224.0/assert/assert_equals.ts": "3bbca947d85b9d374a108687b1a8ba3785a7850436b5a8930d81f34a32cb8c74",
+    "https://deno.land/std@0.224.0/assert/assert_exists.ts": "43420cf7f956748ae6ed1230646567b3593cb7a36c5a5327269279c870c5ddfd",
+    "https://deno.land/std@0.224.0/assert/assert_false.ts": "3e9be8e33275db00d952e9acb0cd29481a44fa0a4af6d37239ff58d79e8edeff",
+    "https://deno.land/std@0.224.0/assert/assert_greater.ts": "5e57b201fd51b64ced36c828e3dfd773412c1a6120c1a5a99066c9b261974e46",
+    "https://deno.land/std@0.224.0/assert/assert_greater_or_equal.ts": "9870030f997a08361b6f63400273c2fb1856f5db86c0c3852aab2a002e425c5b",
+    "https://deno.land/std@0.224.0/assert/assert_instance_of.ts": "e22343c1fdcacfaea8f37784ad782683ec1cf599ae9b1b618954e9c22f376f2c",
+    "https://deno.land/std@0.224.0/assert/assert_is_error.ts": "f856b3bc978a7aa6a601f3fec6603491ab6255118afa6baa84b04426dd3cc491",
+    "https://deno.land/std@0.224.0/assert/assert_less.ts": "60b61e13a1982865a72726a5fa86c24fad7eb27c3c08b13883fb68882b307f68",
+    "https://deno.land/std@0.224.0/assert/assert_less_or_equal.ts": "d2c84e17faba4afe085e6c9123a63395accf4f9e00150db899c46e67420e0ec3",
+    "https://deno.land/std@0.224.0/assert/assert_match.ts": "ace1710dd3b2811c391946954234b5da910c5665aed817943d086d4d4871a8b7",
+    "https://deno.land/std@0.224.0/assert/assert_not_equals.ts": "78d45dd46133d76ce624b2c6c09392f6110f0df9b73f911d20208a68dee2ef29",
+    "https://deno.land/std@0.224.0/assert/assert_not_instance_of.ts": "3434a669b4d20cdcc5359779301a0588f941ffdc2ad68803c31eabdb4890cf7a",
+    "https://deno.land/std@0.224.0/assert/assert_not_match.ts": "df30417240aa2d35b1ea44df7e541991348a063d9ee823430e0b58079a72242a",
+    "https://deno.land/std@0.224.0/assert/assert_not_strict_equals.ts": "37f73880bd672709373d6dc2c5f148691119bed161f3020fff3548a0496f71b8",
+    "https://deno.land/std@0.224.0/assert/assert_object_match.ts": "411450fd194fdaabc0089ae68f916b545a49d7b7e6d0026e84a54c9e7eed2693",
+    "https://deno.land/std@0.224.0/assert/assert_rejects.ts": "4bee1d6d565a5b623146a14668da8f9eb1f026a4f338bbf92b37e43e0aa53c31",
+    "https://deno.land/std@0.224.0/assert/assert_strict_equals.ts": "b4f45f0fd2e54d9029171876bd0b42dd9ed0efd8f853ab92a3f50127acfa54f5",
+    "https://deno.land/std@0.224.0/assert/assert_string_includes.ts": "496b9ecad84deab72c8718735373feb6cdaa071eb91a98206f6f3cb4285e71b8",
+    "https://deno.land/std@0.224.0/assert/assert_throws.ts": "c6508b2879d465898dab2798009299867e67c570d7d34c90a2d235e4553906eb",
+    "https://deno.land/std@0.224.0/assert/assertion_error.ts": "ba8752bd27ebc51f723702fac2f54d3e94447598f54264a6653d6413738a8917",
+    "https://deno.land/std@0.224.0/assert/equal.ts": "bddf07bb5fc718e10bb72d5dc2c36c1ce5a8bdd3b647069b6319e07af181ac47",
+    "https://deno.land/std@0.224.0/assert/fail.ts": "0eba674ffb47dff083f02ced76d5130460bff1a9a68c6514ebe0cdea4abadb68",
+    "https://deno.land/std@0.224.0/assert/mod.ts": "48b8cb8a619ea0b7958ad7ee9376500fe902284bb36f0e32c598c3dc34cbd6f3",
+    "https://deno.land/std@0.224.0/assert/unimplemented.ts": "8c55a5793e9147b4f1ef68cd66496b7d5ba7a9e7ca30c6da070c1a58da723d73",
+    "https://deno.land/std@0.224.0/assert/unreachable.ts": "5ae3dbf63ef988615b93eb08d395dda771c96546565f9e521ed86f6510c29e19",
+    "https://deno.land/std@0.224.0/fmt/colors.ts": "508563c0659dd7198ba4bbf87e97f654af3c34eb56ba790260f252ad8012e1c5",
+    "https://deno.land/std@0.224.0/internal/diff.ts": "6234a4b493ebe65dc67a18a0eb97ef683626a1166a1906232ce186ae9f65f4e6",
+    "https://deno.land/std@0.224.0/internal/format.ts": "0a98ee226fd3d43450245b1844b47003419d34d210fa989900861c79820d21c2",
+    "https://deno.land/std@0.224.0/internal/mod.ts": "534125398c8e7426183e12dc255bb635d94e06d0f93c60a297723abe69d3b22e",
+    "https://esm.sh/@libsql/client@0.14.0": "7da8d08cce81e3c8b12c497b8fb0c1f7eaa042a7704a2b930827d0985c124e6e",
+    "https://esm.sh/@libsql/client@0.14.0/denonext/client.mjs": "76837dd9da251eeae571ead17a256ec4968c75c586545e9ada1cc6ba551762a3",
+    "https://esm.sh/@libsql/client@0.14.0/denonext/http.mjs": "264acc9f0c45587871ac34a960886eb400126d71aed2dfbbb0290c8bf134565b",
+    "https://esm.sh/@libsql/client@0.14.0/denonext/lib-esm/hrana.mjs": "7c2e7885ef1e6773b68943807a7e56aea4255e070d0dbe858ba1a68affbefb84",
+    "https://esm.sh/@libsql/client@0.14.0/denonext/lib-esm/sql_cache.mjs": "ada6bae632e9ae48cde7c91b2dba4aefc1413f4299cc9b0fd4a3f1f608e85303",
+    "https://esm.sh/@libsql/client@0.14.0/denonext/ws.mjs": "7dccf3eb6acc84962cb695eecf745cf8fdc2408eaa1f35ee7ef2fea57be1a647",
+    "https://esm.sh/@libsql/core@0.14.0/api?target=denonext": "f82f1168c4f4dd72a71e628068c62f3daccfd0ec9ea1f4563bf802963b4356ed",
+    "https://esm.sh/@libsql/core@0.14.0/config?target=denonext": "50f8ef47188913bfdc067d08cffb44eefc8ec2506eb7060e64cb8b829a7a2324",
+    "https://esm.sh/@libsql/core@0.14.0/denonext/api.mjs": "4e7f6b44541249901247e98462a27172f878da141b8c66258be082cdc2faf88b",
+    "https://esm.sh/@libsql/core@0.14.0/denonext/config.mjs": "f8e1a0b8addc5010c6e13c88a8b2ff80c23e6933c10e552455fd24507407b747",
+    "https://esm.sh/@libsql/core@0.14.0/denonext/uri.mjs": "b8ad2560cc8a376956243d35d63ce6985b5d3e0cad9b5b8ddefa1eadb3381de4",
+    "https://esm.sh/@libsql/core@0.14.0/denonext/util.mjs": "81dd8941a81bf3cd7e66dc686b475577ced2ed3d658e96041615196eed435374",
+    "https://esm.sh/@libsql/core@0.14.0/uri?target=denonext": "12a790c35783f05f3ff9e26e7c3160a092a536f9b30ad2026df73b37032d6691",
+    "https://esm.sh/@libsql/core@0.14.0/util?target=denonext": "698006b9e9c318a4801ec2f939f33a692285b8e98f833e20e9cea574a9274613",
+    "https://esm.sh/@libsql/hrana-client@0.7.0/denonext/hrana-client.mjs": "77ba99f22bc35e2543447d0a1b5fe559d06fd289e4c022653e92675d7ad50b62",
+    "https://esm.sh/@libsql/hrana-client@0.7.0?target=denonext": "d9e0ff37aee83f97f1cfd81da84f589af2e8aa250d023ad2bf4883f1c61ba2e2",
+    "https://esm.sh/@libsql/isomorphic-fetch@0.3.1/denonext/isomorphic-fetch.mjs": "f61b6d0c33bb021ad2a11cfd55df0e1a207fd23dfc37e622acffdaed781dd9bc",
+    "https://esm.sh/@libsql/isomorphic-fetch@0.3.1?target=denonext": "3d249bc6569858de0130f2e6d07b39954d45f09962f59b2c35eaac48ce5c8d2d",
+    "https://esm.sh/@libsql/isomorphic-ws@0.1.5/denonext/isomorphic-ws.mjs": "9d104b6fe80cb913bd8b09e76a6e7e83e5d7537bd7dbf1d593da5842888cd2b2",
+    "https://esm.sh/@libsql/isomorphic-ws@0.1.5?target=denonext": "0d1a1aa981e92234677ee9b98e72d31125bde45d08cb653917dd2c5144001c9a",
+    "https://esm.sh/@supabase/supabase-js@2.111.0": "276104e20b7318fac2be1c67eb9be93f4280f5ec9f2fc5ac7b32e1f0ed6f31ba",
+    "https://esm.sh/js-base64@3.9.2/denonext/js-base64.mjs": "48c5f9cdba86c1949df8bfb20d770016b8ea08b7a09c8a8a798bdcf1d6690afd",
+    "https://esm.sh/js-base64@3.9.2?target=denonext": "21278e34ac6dd16a5241f2768bb5bf54bf25da9864df53eb47e3c484719a53cd",
+    "https://esm.sh/promise-limit@2.7.0/denonext/promise-limit.mjs": "31155ca06e5efeac06f2c83fd35cf40bd836ebdbb56d3002004f619dfef9d886",
+    "https://esm.sh/promise-limit@2.7.0?target=denonext": "4939fc289aa872c6232bf9a5596d7d889f342abd4efda65a9c29b77c5e4f3191"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@eslint/js@^10.0.1",
+        "npm:@prisma/adapter-libsql@6.2.1",
+        "npm:@prisma/client@6.2.1",
+        "npm:@supabase/supabase-js@^2.110.8",
+        "npm:argon2@~0.45.1",
+        "npm:dotenv@^16.6.1",
+        "npm:eslint@^10.8.0",
+        "npm:husky@^9.1.7",
+        "npm:lint-staged@^17.2.0",
+        "npm:next@16.2.12",
+        "npm:prettier-plugin-tailwindcss@0.8",
+        "npm:prettier@^3.9.6",
+        "npm:prisma@6.2.1",
+        "npm:react-dom@19.2.7",
+        "npm:react@19.2.7",
+        "npm:typescript@^7.0.2",
+        "npm:vercel@^56.5.0",
+        "npm:vitest@^4.1.10",
+        "npm:zod-prisma-types@^3.3.11",
+        "npm:zod@^3.24.2"
+      ]
+    },
+    "members": {
+      "apps/desktop": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@tailwindcss/postcss@4",
+            "npm:@tauri-apps/api@2",
+            "npm:@tauri-apps/cli@2",
+            "npm:@tauri-apps/plugin-store@2",
+            "npm:@types/node@^24.13.2",
+            "npm:@types/react-dom@^19.2.3",
+            "npm:@types/react@^19.2.17",
+            "npm:@vitejs/plugin-react@^6.0.2",
+            "npm:clsx@2",
+            "npm:eslint-plugin-react-hooks@^7.1.1",
+            "npm:eslint-plugin-react-refresh@~0.5.3",
+            "npm:oxlint@^1.69.0",
+            "npm:react-dom@^19.2.7",
+            "npm:react-hook-form@^7.50.0",
+            "npm:react-router-dom@^6.30.4",
+            "npm:react@^19.2.7",
+            "npm:tailwind-merge@2",
+            "npm:tailwindcss@4",
+            "npm:typescript@~7.0.2",
+            "npm:vite@^8.1.0",
+            "npm:zod@^3.24.2",
+            "npm:zustand@^4.5.0"
+          ]
+        }
+      },
+      "apps/gateway": {
+        "packageJson": {
+          "dependencies": [
+            "npm:vitest@^4.1.10"
+          ]
+        }
+      },
+      "apps/mobile": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@expo/ui@~56.0.18",
+            "npm:@hookform/resolvers@^5.4.0",
+            "npm:@libsql/client@~0.17.4",
+            "npm:@react-navigation/native@^7.3.4",
+            "npm:@shopify/flash-list@^2.3.2",
+            "npm:@tanstack/react-query@^5.101.1",
+            "npm:@types/react@~19.2.2",
+            "npm:eslint-config-expo@~56.0.4",
+            "npm:expo-application@~56.0.3",
+            "npm:expo-background-fetch@~56.0.19",
+            "npm:expo-blur@~56.0.3",
+            "npm:expo-constants@~56.0.18",
+            "npm:expo-device@~56.0.4",
+            "npm:expo-document-picker@~56.0.4",
+            "npm:expo-file-system@~56.0.8",
+            "npm:expo-font@~56.0.7",
+            "npm:expo-glass-effect@~56.0.4",
+            "npm:expo-haptics@~56.0.3",
+            "npm:expo-image@~56.0.11",
+            "npm:expo-keep-awake@~56.0.3",
+            "npm:expo-linking@~56.0.14",
+            "npm:expo-local-authentication@~56.0.4",
+            "npm:expo-notifications@~56.0.18",
+            "npm:expo-router@~56.2.11",
+            "npm:expo-secure-store@~56.0.4",
+            "npm:expo-sharing@~56.0.18",
+            "npm:expo-splash-screen@~56.0.10",
+            "npm:expo-sqlite@~56.0.5",
+            "npm:expo-status-bar@~56.0.4",
+            "npm:expo-symbols@~56.0.6",
+            "npm:expo-system-ui@~56.0.5",
+            "npm:expo-task-manager@~56.0.19",
+            "npm:expo-updates@~56.0.19",
+            "npm:expo-web-browser@~56.0.5",
+            "npm:expo@~56.0.12",
+            "npm:nativewind@^4.2.6",
+            "npm:prettier-plugin-tailwindcss@0.8",
+            "npm:react-dom@19.2.3",
+            "npm:react-hook-form@^7.80.0",
+            "npm:react-native-argon2@4",
+            "npm:react-native-gesture-handler@~2.31.1",
+            "npm:react-native-mmkv-storage@^12.0.1",
+            "npm:react-native-mmkv@^4.3.2",
+            "npm:react-native-reanimated@^4.3.1",
+            "npm:react-native-safe-area-context@5.7",
+            "npm:react-native-screens@^4.25.2",
+            "npm:react-native-web@0.21",
+            "npm:react-native-worklets@0.8.3",
+            "npm:react-native@0.85.3",
+            "npm:react@19.2.3",
+            "npm:tailwindcss@^3.4.19",
+            "npm:typescript@~7.0.2",
+            "npm:zod@^3.24.2",
+            "npm:zustand@^5.0.14"
+          ]
+        }
+      },
+      "apps/product-page": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@libsql/client@0.15",
+            "npm:@tailwindcss/postcss@4",
+            "npm:@types/node@20",
+            "npm:@types/react-dom@19",
+            "npm:@types/react@19",
+            "npm:class-variance-authority@~0.7.1",
+            "npm:clsx@^2.1.1",
+            "npm:eslint-config-next@16.2.12",
+            "npm:eslint@9",
+            "npm:framer-motion@^12.42.0",
+            "npm:fuse.js@^7.4.2",
+            "npm:lucide-react@0.469",
+            "npm:next@16.2.12",
+            "npm:postcss@8",
+            "npm:prisma@5.22.0",
+            "npm:react-dom@19.2.4",
+            "npm:react@19.2.4",
+            "npm:tailwind-merge@3",
+            "npm:tailwindcss-animate@^1.0.7",
+            "npm:tailwindcss@4",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/attendance-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@libsql/client@~0.17.4",
+            "npm:@prisma/adapter-libsql@5.22.0",
+            "npm:@prisma/client@5.22.0",
+            "npm:@sinclair/typebox@~0.34.52",
+            "npm:@types/bun@latest",
+            "npm:elysia@^1.4.29",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/auth-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@libsql/client@~0.17.4",
+            "npm:@prisma/adapter-libsql@5.22.0",
+            "npm:@prisma/client@5.22.0",
+            "npm:@types/bun@latest",
+            "npm:elysia@1",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/ledger-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@libsql/client@~0.17.4",
+            "npm:@prisma/adapter-libsql@5.22.0",
+            "npm:@prisma/client@5.22.0",
+            "npm:@types/bun@latest",
+            "npm:elysia@1",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/notification-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/bun@latest",
+            "npm:elysia@1",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/report-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@prisma/client@5.22.0",
+            "npm:@sinclair/typebox@~0.34.52",
+            "npm:@types/bun@latest",
+            "npm:elysia@^1.4.29",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/student-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@prisma/client@5.22.0",
+            "npm:@sinclair/typebox@~0.34.52",
+            "npm:@types/bun@latest",
+            "npm:elysia@^1.4.29",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/services/sync-svc": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/bun@latest",
+            "npm:elysia@1",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      },
+      "apps/web": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@axe-core/playwright@^4.12.1",
+            "npm:@base-ui/react@^1.6.0",
+            "npm:@hookform/resolvers@^3.9.1",
+            "npm:@lhci/cli@~0.15.1",
+            "npm:@libsql/client@~0.17.4",
+            "npm:@playwright/test@^1.61.1",
+            "npm:@prisma/adapter-libsql@6.2.1",
+            "npm:@prisma/client@6.2.1",
+            "npm:@radix-ui/react-accordion@^1.2.14",
+            "npm:@radix-ui/react-dialog@^1.1.17",
+            "npm:@radix-ui/react-popover@^1.1.19",
+            "npm:@react-three/drei@^10.7.7",
+            "npm:@react-three/fiber@^9.6.1",
+            "npm:@supabase/ssr@0.12",
+            "npm:@supabase/supabase-js@^2.110.0",
+            "npm:@tailwindcss/postcss@4",
+            "npm:@tanstack/react-query@^5.101.1",
+            "npm:@testing-library/dom@^10.4.1",
+            "npm:@testing-library/jest-dom@^6.9.1",
+            "npm:@testing-library/react@^16.3.2",
+            "npm:@testing-library/user-event@^14.6.1",
+            "npm:@types/lodash.debounce@^4.0.9",
+            "npm:@types/node@20",
+            "npm:@types/react-dom@19",
+            "npm:@types/react@19",
+            "npm:@vercel/analytics@^2.0.1",
+            "npm:@vitejs/plugin-react@^6.0.3",
+            "npm:boneyard-js@^1.8.2",
+            "npm:class-variance-authority@~0.7.1",
+            "npm:clsx@^2.1.1",
+            "npm:date-fns@^4.4.0",
+            "npm:dotenv@^16.4.5",
+            "npm:eslint-config-next@16.2.10",
+            "npm:eslint@9",
+            "npm:framer-motion@^12.42.0",
+            "npm:fuse.js@^7.4.2",
+            "npm:idb-keyval@^6.2.5",
+            "npm:jsdom@^29.1.1",
+            "npm:lodash.debounce@^4.0.8",
+            "npm:lucide-react@^1.21.0",
+            "npm:maath@~0.10.8",
+            "npm:next@16.2.12",
+            "npm:playwright@^1.61.1",
+            "npm:qrcode.react@^4.2.0",
+            "npm:react-day-picker@8.10.1",
+            "npm:react-dom@19.2.4",
+            "npm:react-hook-form@^7.80.0",
+            "npm:react-icons@^5.7.0",
+            "npm:react@19.2.4",
+            "npm:shadcn@^4.12.0",
+            "npm:tailwind-merge@^3.6.0",
+            "npm:tailwindcss-animate@^1.0.7",
+            "npm:tailwindcss@4",
+            "npm:three@0.185",
+            "npm:tw-animate-css@^1.4.0",
+            "npm:typescript@^7.0.2",
+            "npm:vitest@^4.1.10",
+            "npm:zod@3.24.2",
+            "npm:zustand@^5.0.14"
+          ]
+        }
+      },
+      "packages/core": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@libsql/client@0.14",
+            "npm:@types/node@^26.0.1",
+            "npm:@vitest/coverage-v8@^4.1.9",
+            "npm:eslint@9",
+            "npm:fast-check@^4.8.0",
+            "npm:typescript@^7.0.2",
+            "npm:vitest@4.1.9",
+            "npm:zod@^3.24.2"
+          ]
+        }
+      },
+      "packages/security": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/node@^26.1.1",
+            "npm:argon2@0.45",
+            "npm:eslint@9",
+            "npm:typescript@^7.0.2",
+            "npm:vitest@^4.1.10",
+            "npm:zod@^3.24.2"
+          ]
+        }
+      },
+      "packages/shared": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@zodios/core@^10.9.6",
+            "npm:eslint@9",
+            "npm:openapi-typescript-codegen@0.31",
+            "npm:openapi-zod-client@^1.18.3",
+            "npm:swagger-parser@^10.0.3",
+            "npm:typescript@^7.0.2",
+            "npm:zod@^3.24.2"
+          ]
+        }
+      },
+      "packages/ui": {
+        "packageJson": {
+          "dependencies": [
+            "npm:@types/react-dom@^18.3.0",
+            "npm:@types/react@^18.3.10",
+            "npm:clsx@^2.1.1",
+            "npm:react-dom@^18.3.1",
+            "npm:react@^18.3.1",
+            "npm:tailwind-merge@^2.5.2",
+            "npm:typescript@^7.0.2"
+          ]
+        }
+      }
+    }
+  }
+}

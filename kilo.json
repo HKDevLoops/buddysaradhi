@@ -1,0 +1,45 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "default_agent": "code",
+  "instructions": ["AGENTS.md", "CLAUDE.md", ".kilo/**/*.md"],
+  "permission": {
+    "bash": "allow",
+    "edit": {
+      "src/**": "allow",
+      "packages/**": "allow",
+      "apps/**": "allow",
+      "supabase/**": "allow",
+      "prisma/**": "allow",
+      "*.json": "allow",
+      "*.ts": "allow",
+      "*.tsx": "allow",
+      "*.js": "allow",
+      "*.mjs": "allow",
+      "*.css": "allow",
+      "*.md": "allow",
+      "*.toml": "allow",
+      "*.yaml": "allow",
+      "*.yml": "allow",
+      "*.lock": "deny",
+      ".env*": "deny",
+      "*.db": "deny"
+    },
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "semantic_search": "allow",
+    "kilo_memory_save": "allow",
+    "kilo_memory_recall": "allow",
+    "task": "allow",
+    "todowrite": "allow",
+    "todoread": "allow",
+    "skill": "allow"
+  },
+  "compaction": {
+    "auto": true,
+    "prune": true
+  },
+  "snapshot": true
+}
