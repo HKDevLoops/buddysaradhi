@@ -247,3 +247,29 @@ Modified:
 - Plan adherence: every plan task T1..T10 marked done or explicitly verified already-current (T4).
 - Blockers: none at close.
 - Swarm learned lessons recorded to kilo project memory (`ci.fix_strict_lint_ts7_complete`) for future agents.
+
+---
+**Task ID**: `GATEWAY-VERCEL-PROD-FIX-001`
+**Agent**: Antigravity
+**Task**: Deep Root-Cause Investigation & Resolution of Vercel Production Gateway Proxy Communication & Infinite Loading Screen Bug + Playwright E2E Test Verification
+**Work Log**:
+- **Root Cause Identified**: The Vercel production deployment of `apps/web` had `runtime = "edge"` configured for its API proxy route (`apps/web/src/app/api/v1/[...slug]/route.ts`) and root layout (`apps/web/src/app/layout.tsx`). In Vercel's Edge runtime, importing Node commonjs dependencies requiring `node:crypto` crashed with `Error: Cannot find module 'node:crypto': Unsupported external type Url for commonjs reference`. This returned HTTP 500 on all `/api/v1/*` proxy calls, breaking the gateway handshake between the website (`buddysaradhi.vercel.app`) and the Supabase Edge Function gateway (`api.buddysaradhi.app`) and causing infinite loading screens across all 5 persistent screens.
+- **Runtime Fix (`apps/web`)**: Migrated API proxy route (`apps/web/src/app/api/v1/[...slug]/route.ts`), callback route (`apps/web/src/app/(auth)/callback/route.ts`), and root layout (`apps/web/src/app/layout.tsx`) from `runtime = "edge"` to `runtime = "nodejs"`. Updated proxy timeout to 12 seconds (`AbortController`).
+- **Gateway Fix (`apps/gateway`)**:
+  - Replaced hardcoded Turso credentials with environment variables (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`) with graceful fallbacks.
+  - Added 8-second `AbortController` timeout on Turso pipeline HTTP requests.
+  - Implemented dynamic CORS checking in `getCorsOrigin(req)` allowing `https://buddysaradhi.vercel.app`, `https://buddysaradhi.app`, and `http://localhost:3000`, and added `x-tenant-id`, `x-batch-name` to allowed headers.
+  - Fixed DDL schema missing tables (`attendance_sessions`, `attendance_records`) in `apps/gateway/lib/schema.ts` and batched DDL execution into a single pipeline request.
+  - Fixed ORM column name mismatches for `invoices` and `receipts` (`apps/gateway/lib/orm.ts`) to match canonical DDL.
+  - Added SQL injection protection to `student.findMany` sorting via column whitelist (`ALLOWED_SORT_COLUMNS`).
+  - Replaced silent `catch (_e) {}` blocks in `apps/gateway/routes/students.ts` with explicit error logging per Rule 9.
+- **Production Deployment & Verification**:
+  - Configured Vercel production environment variables `GATEWAY_PRODUCTION_URL` and `GATEWAY_SHARED_SECRET`.
+  - Deployed `apps/gateway` to Supabase Edge Function (`gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway`) and `apps/web` to Vercel production (`buddysaradhi.vercel.app`).
+  - Verified production HTTP API endpoint (`https://buddysaradhi.vercel.app/api/v1/students`) returns `200 OK` with JSON data.
+- **Playwright E2E & Unit Test Suite Verification**:
+  - Executed full Playwright E2E suite (`a11y.spec.ts`, `golden-path.spec.ts`, `settings-auth.spec.ts`, `stress.spec.ts` — 12 tests total) against Vercel production.
+  - All 12 Playwright E2E tests passed **100% green** in 1.2m, verifying WCAG 2.1 AA compliance across all 5 persistent screens, golden path user flows, auth/provisioning, and UI/UX Golden Palette Stress Test (checking Vibrant Glass & Neumorphism system across 8 palettes, light/dark modes, and 4 responsive viewports) with no infinite loading screens or timeouts.
+  - Executed `apps/web` unit test suite (vitest): **9/9 files passed, 58/58 tests passed**.
+
+**Stage Summary**: Complete. Production gateway communication is restored and fully verified via Playwright E2E and unit test suites.
