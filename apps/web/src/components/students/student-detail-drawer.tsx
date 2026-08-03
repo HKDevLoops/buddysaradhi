@@ -532,7 +532,7 @@ function MetricCard({
   return (
     <div
       className="glass p-4 rounded-xl flex flex-col justify-between transition-all hover:bg-[var(--surface-glass)]"
-      style={{ borderLeft: `3px solid ${accent}` }}
+      style={{ border: `1px solid color-mix(in srgb, ${accent} 25%, transparent)` }}
     >
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>

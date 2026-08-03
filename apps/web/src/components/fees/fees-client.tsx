@@ -286,21 +286,21 @@ function CollectionsTab({ students }: { students: StudentRow[] }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="glass p-5 rounded-xl flex flex-col justify-between" style={{ borderLeft: "3px solid var(--accent-emerald)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-emerald) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <TrendingUp className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Collected This Month</span>
           </div>
           <p className="text-2xl font-bold num" style={{ color: "var(--text-primary)" }}>{formatINR(collected)}</p>
         </div>
-        <div className="glass p-5 rounded-xl flex flex-col justify-between" style={{ borderLeft: "3px solid var(--accent-flare)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-flare) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <AlertCircle className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Due Till Date</span>
           </div>
           <p className="text-2xl font-bold num" style={{ color: "var(--text-primary)" }}>{formatINR(dueTillDate)}</p>
         </div>
-        <div className="glass p-5 rounded-xl flex flex-col justify-between" style={{ borderLeft: "3px solid var(--accent-cyan)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-cyan) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <Wallet className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Active Students</span>

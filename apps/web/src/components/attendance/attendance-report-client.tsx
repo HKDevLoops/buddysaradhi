@@ -275,7 +275,7 @@ function StatCard({
   accent: string;
 }) {
   return (
-    <div className="glass p-4 rounded-xl flex flex-col justify-between" style={{ borderLeft: `3px solid ${accent}` }}>
+    <div className="glass-panel p-4 rounded-xl flex flex-col justify-between" style={{ border: `1px solid color-mix(in srgb, ${accent} 25%, transparent)` }}>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>
         <div className="w-8 h-8 rounded-full flex items-center justify-center"
