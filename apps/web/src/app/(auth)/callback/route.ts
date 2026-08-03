@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);

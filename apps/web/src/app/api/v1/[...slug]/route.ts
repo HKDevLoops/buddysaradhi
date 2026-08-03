@@ -1,4 +1,4 @@
-export const runtime = "edge";
+export const runtime = "nodejs";
 // apps/web/src/app/api/v1/[...slug]/route.ts
 // Thin gateway pass-through. The canonical gateway is supabase/functions/gateway.
 // This BFF only handles: /releases/latest, /auth/signout, /provision.
