@@ -17,6 +17,7 @@ jobs:
   gitleaks:
     name: Secrets Scan (Gitleaks)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +36,7 @@ jobs:
   semgrep:
     name: SAST Scan (Semgrep)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       # Run only our project-specific custom rules to avoid network calls
@@ -48,6 +50,7 @@ jobs:
   osv-scanner:
     name: Dependency Vulnerability Audit (OSV-Scanner)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       # Install OSV-Scanner CLI directly for reliable cross-platform use.
@@ -64,6 +67,7 @@ jobs:
   license-checker:
     name: License Compliance Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm
@@ -88,6 +92,7 @@ jobs:
   sbom:
     name: Generate CycloneDX SBOM
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node
