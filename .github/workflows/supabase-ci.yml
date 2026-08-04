@@ -1,4 +1,4 @@
-name: Supabase CI/CD
+name: supabase-ci
 
 on:
   push:
