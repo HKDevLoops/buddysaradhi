@@ -127,6 +127,10 @@
         }
       },
       "apps/gateway": {
+        "dependencies": [
+          "npm:@libsql/client@0.14",
+          "npm:@supabase/supabase-js@2"
+        ],
         "packageJson": {
           "dependencies": [
             "npm:vitest@^4.1.10"

@@ -15,14 +15,14 @@ import { execLocal } from "../graphql/executor";
 
 function createMockDb(rowsBySql: Record<string, Record<string, unknown>[]>) {
   return {
-    execute: async (stmt: string | { sql: string; args?: unknown[] }) => {
+    execute: (stmt: string | { sql: string; args?: unknown[] }) => {
       const sqlQuery = typeof stmt === "string" ? stmt : stmt.sql;
       for (const [key, rows] of Object.entries(rowsBySql)) {
         if (sqlQuery.includes(key) || key.includes(sqlQuery)) {
-          return { rows };
+          return Promise.resolve({ rows });
         }
       }
-      return { rows: [] };
+      return Promise.resolve({ rows: [] });
     },
   } as any;
 }

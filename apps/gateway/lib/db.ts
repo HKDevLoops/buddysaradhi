@@ -31,7 +31,7 @@ export function getTurso(dbUrl: string, dbToken: string): DB {
   return c;
 }
 
-async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: string, dbToken?: string): Promise<{ rows: Record<string, unknown>[] }> {
+async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: string, dbToken?: string): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
   const formattedArgs = args.map((a) => {
     if (a === null || a === undefined) return { type: "null" };
     if (typeof a === "number") return Number.isInteger(a) ? { type: "integer", value: String(a) } : { type: "float", value: a };
@@ -94,13 +94,13 @@ async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: 
     return obj;
   });
 
-  return { rows };
+  return { rows, rowsAffected: execResult?.affected_row_count ?? 0 };
 }
 
-export async function run(db: DB, sql: string, args: unknown[] = []): Promise<{ rows: Record<string, unknown>[] }> {
+export async function run(db: DB, sql: string, args: unknown[] = []): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
   try {
     const res = await db.execute({ sql, args: args as never });
-    return { rows: (res.rows as Record<string, unknown>[]) ?? [] };
+    return { rows: (res.rows as Record<string, unknown>[]) ?? [], rowsAffected: res.rowsAffected };
   } catch (_err) {
     return await directPipelineExecute(sql, args);
   }

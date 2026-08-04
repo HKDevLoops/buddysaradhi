@@ -56,7 +56,7 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
 
   let tenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id") || "";
 
-  const { data: ud, error: ue } = await sb.auth.getUser(jwt);
+  const { data: ud, error: ue } = await (sb.auth as any).getUser(jwt);
   if (ue || !ud.user) {
     throw new AuthError("unauthorized: invalid or expired token", 401);
   }

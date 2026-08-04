@@ -1,6 +1,6 @@
 // Implements: 11_Data_Model.md & AGENTS.md §3.4
 // Self-Repairable Database Schema & Auto-Healing Manager
-import { DB, run, batchExecute } from "./db.ts";
+import { type DB, batchExecute } from "./db.ts";
 
 const healedTenants = new Set<string>();
 
@@ -247,7 +247,7 @@ const CORE_DDL_STATEMENTS = [
    END`,
 ];
 
-export async function ensureSelfRepairingSchema(db: DB, tenantId: string, dbUrl?: string, dbToken?: string): Promise<void> {
+export async function ensureSelfRepairingSchema(_db: DB, tenantId: string, dbUrl?: string, dbToken?: string): Promise<void> {
   if (healedTenants.has(tenantId)) return;
 
   try {

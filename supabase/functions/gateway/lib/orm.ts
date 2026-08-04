@@ -1,6 +1,6 @@
 // Implements: 11_Data_Model.md §1 & AGENTS.md §3.4
 // Mandatory Prisma ORM method adapter for libSQL
-import { DB, allRows, oneRow, run } from "./db.ts";
+import { type DB, allRows, oneRow, run } from "./db.ts";
 
 export interface PrismaOrm {
   student: {
