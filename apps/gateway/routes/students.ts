@@ -26,11 +26,13 @@ export async function recordOutbox(
   try {
     const orm = createPrismaOrm(db, tenantId);
     const jsonPayload = typeof payload === "string" ? payload : JSON.stringify(payload ?? {});
+    const rawOp = op.toLowerCase();
+    const normalizedOp = rawOp === "create" ? "insert" : (rawOp === "delete" ? "soft_delete" : rawOp);
     await orm.syncOutbox.create({
       data: {
         tableName: table,
         rowId,
-        op,
+        op: normalizedOp,
         payload: jsonPayload,
       },
     });
