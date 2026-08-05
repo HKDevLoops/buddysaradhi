@@ -17,13 +17,10 @@ function detectPlatform(ua: string): Platform {
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://buddysaradhi.vercel.app';
 const STORE_BASE_URL = process.env.NEXT_PUBLIC_STORE_URL || 'https://buddysaradhi-product.vercel.app';
 
-// Allowed CORS Origins
+// Allowed CORS Origins — explicit list only, no wildcard *.vercel.app
+// Ref: 10_Security.md §6 (CORS-1), 23_Security_Harness_Plan.md §7
 const ALLOWED_ORIGIN_PATTERNS = [
   'https://buddysaradhi.vercel.app',
-  'https://buddysaradhi-store.vercel.app',
-  'https://storebuddysaradhi.vercel.app',
-  'https://buddysaradhi-product.vercel.app',
-  'https://buddysaradhi-product-page.vercel.app',
   'https://buddysaradhi.app',
   'https://app.buddysaradhi.app',
   'http://localhost:3000',
@@ -42,7 +39,7 @@ if (process.env.ALLOWED_ORIGINS) {
 }
 
 function getCorsHeaders(origin: string | null) {
-  const isAllowed = origin && (ALLOWED_ORIGIN_PATTERNS.includes(origin) || origin.endsWith('.vercel.app'));
+  const isAllowed = origin && ALLOWED_ORIGIN_PATTERNS.includes(origin);
   const allowOrigin = isAllowed ? origin : APP_BASE_URL;
 
   return {
@@ -153,20 +150,27 @@ export default function proxy(req: NextRequest) {
   res.headers.set('x-detected-platform', detectedPlatform);
 
   if (isHtmlPage && nonce) {
-    const devConnect = process.env.NODE_ENV !== 'production' ? ' ws://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3010 ws://localhost:3100' : '';
+    // CSP: nonce-based in dev; strict-dynamic without unsafe-eval in prod.
+    // 'unsafe-eval' is explicitly excluded to prevent XSS via eval().
+    // Ref: 10_Security.md §6 (XSS-1), 23_Security_Harness_Plan.md §7
+    const devConnect = process.env.NODE_ENV !== 'production'
+      ? ' ws://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3010 ws://localhost:3100'
+      : '';
     const scriptCsp = process.env.NODE_ENV !== 'production'
       ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
-      : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.supabase.co";
-    res.headers.set('Content-Security-Policy', `
-      default-src 'self';
-      ${scriptCsp};
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' data: https://*.supabase.co;
-      connect-src 'self' https://*.supabase.co https://*.turso.ai https://api.buddysaradhi.app${devConnect};
-      frame-ancestors 'none';
-      base-uri 'self';
-      form-action 'self';
-    `.replace(/\s+/g, ' ').trim());
+      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
+    res.headers.set('Content-Security-Policy', [
+      `default-src 'self'`,
+      scriptCsp,
+      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+      `font-src 'self' https://fonts.gstatic.com`,
+      `img-src 'self' data: blob: https://*.supabase.co`,
+      `connect-src 'self' https://*.supabase.co https://*.turso.io https://*.turso.ai https://api.buddysaradhi.app${devConnect}`,
+      `frame-ancestors 'none'`,
+      `base-uri 'self'`,
+      `form-action 'self'`,
+      `upgrade-insecure-requests`,
+    ].join('; '));
     res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     res.headers.set('Cross-Origin-Resource-Policy', 'same-origin');

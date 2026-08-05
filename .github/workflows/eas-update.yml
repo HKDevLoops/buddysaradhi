@@ -60,7 +60,7 @@ jobs:
   ota:
     name: EAS Update OTA
     needs: detect-changes
-    if: needs.detect-changes.outputs.js_only == 'true' && vars.EXPO_PROJECT_ID != ''
+    if: needs.detect-changes.outputs.js_only == 'true' && vars.EXPO_PROJECT_ID != '' && secrets.EAS_TOKEN != ''
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:

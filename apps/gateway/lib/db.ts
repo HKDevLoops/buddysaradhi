@@ -5,24 +5,47 @@ export type DB = ReturnType<typeof createLibsql>;
 const tursoCache = new Map<string, DB>();
 
 function resolveTursoUrl(url?: string): string {
-  if (url && (url.startsWith("libsql://") || url.startsWith("https://") || url.startsWith("http://")) && !url.includes("supabase.co") && !url.includes("gmqwdnvbfnwpzpctwvho")) {
+  if (
+    url &&
+    (url.startsWith("libsql://") ||
+      url.startsWith("https://") ||
+      url.startsWith("http://")) &&
+    !url.includes("supabase.co") &&
+    !url.includes("gmqwdnvbfnwpzpctwvho")
+  ) {
     return url;
   }
-  const envUrl = typeof Deno !== "undefined" ? Deno.env.get("TURSO_DATABASE_URL") : undefined;
-  if (envUrl && (envUrl.startsWith("libsql://") || envUrl.startsWith("https://") || envUrl.startsWith("http://"))) {
+  const envUrl =
+    typeof Deno !== "undefined" ? Deno.env.get("TURSO_DATABASE_URL") : undefined;
+  if (
+    envUrl &&
+    (envUrl.startsWith("libsql://") ||
+      envUrl.startsWith("https://") ||
+      envUrl.startsWith("http://"))
+  ) {
     return envUrl;
   }
   return "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
 }
 
+function resolveToken(dbToken?: string): string {
+  const envToken =
+    typeof Deno !== "undefined"
+      ? Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")
+      : undefined;
+  if (dbToken && dbToken.length > 20) return dbToken;
+  if (envToken && envToken.length > 20) return envToken;
+  // No hardcoded fallback — fail loudly in production per Rule 9 (no silent failures)
+  throw new Error(
+    "TURSO_AUTH_TOKEN is required but not configured. " +
+      "Set TURSO_AUTH_TOKEN in your environment secrets (Supabase dashboard → Edge Functions → Secrets)."
+  );
+}
+
 export function getTurso(dbUrl: string, dbToken: string): DB {
   const targetUrl = resolveTursoUrl(dbUrl);
-  let token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "");
-  if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  }
-  const key = `${targetUrl}::${token}`;
+  const token = resolveToken(dbToken);
+  const key = `${targetUrl}::${token.slice(-16)}`;
   let c = tursoCache.get(key);
   if (!c) {
     c = createLibsql({ url: targetUrl, authToken: token });
@@ -31,19 +54,23 @@ export function getTurso(dbUrl: string, dbToken: string): DB {
   return c;
 }
 
-async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: string, dbToken?: string): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
+async function directPipelineExecute(
+  sql: string,
+  args: unknown[] = [],
+  dbUrl?: string,
+  dbToken?: string
+): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
   const formattedArgs = args.map((a) => {
     if (a === null || a === undefined) return { type: "null" };
-    if (typeof a === "number") return Number.isInteger(a) ? { type: "integer", value: String(a) } : { type: "float", value: a };
+    if (typeof a === "number")
+      return Number.isInteger(a)
+        ? { type: "integer", value: String(a) }
+        : { type: "float", value: a };
     return { type: "text", value: String(a) };
   });
 
   let host = resolveTursoUrl(dbUrl);
-  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
-  if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  }
+  const token = resolveToken(dbToken);
   if (host.startsWith("libsql://")) host = host.replace("libsql://", "https://");
 
   const controller = new AbortController();
@@ -84,20 +111,26 @@ async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: 
   const execResult = json.results?.[0]?.response?.result;
   if (!execResult) return { rows: [] };
 
-  const cols: string[] = execResult.cols.map((c: any) => c.name);
-  const rows: Record<string, unknown>[] = (execResult.rows || []).map((row: any[]) => {
-    const obj: Record<string, unknown> = {};
-    cols.forEach((col, idx) => {
-      const cell = row[idx];
-      obj[col] = cell?.value !== undefined ? cell.value : null;
-    });
-    return obj;
-  });
+  const cols: string[] = execResult.cols.map((c: { name: string }) => c.name);
+  const rows: Record<string, unknown>[] = (execResult.rows || []).map(
+    (row: Array<{ value?: unknown }>) => {
+      const obj: Record<string, unknown> = {};
+      cols.forEach((col, idx) => {
+        const cell = row[idx];
+        obj[col] = cell?.value !== undefined ? cell.value : null;
+      });
+      return obj;
+    }
+  );
 
   return { rows, rowsAffected: execResult?.affected_row_count ?? 0 };
 }
 
-export async function run(db: DB, sql: string, args: unknown[] = []): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
+export async function run(
+  db: DB,
+  sql: string,
+  args: unknown[] = []
+): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
   try {
     const res = await db.execute({ sql, args: args as never });
     return { rows: (res.rows as Record<string, unknown>[]) ?? [], rowsAffected: res.rowsAffected };
@@ -109,7 +142,7 @@ export async function run(db: DB, sql: string, args: unknown[] = []): Promise<{ 
 export async function allRows(
   db: DB,
   sql: string,
-  args: unknown[] = [],
+  args: unknown[] = []
 ): Promise<Record<string, unknown>[]> {
   const res = await run(db, sql, args);
   return res.rows ?? [];
@@ -118,7 +151,7 @@ export async function allRows(
 export async function oneRow(
   db: DB,
   sql: string,
-  args: unknown[] = [],
+  args: unknown[] = []
 ): Promise<Record<string, unknown> | null> {
   const rows = await allRows(db, sql, args);
   return rows[0] ?? null;
@@ -130,12 +163,8 @@ export async function batchExecute(
   dbToken?: string
 ): Promise<void> {
   let host = resolveTursoUrl(dbUrl);
-  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
-  if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  }
-  
+  const token = resolveToken(dbToken);
+
   if (host.startsWith("libsql://")) {
     host = host.replace("libsql://", "https://");
   }
@@ -144,7 +173,7 @@ export async function batchExecute(
     type: "execute",
     stmt: { sql, args: [] },
   }));
-  requests.push({ type: "close" } as any);
+  requests.push({ type: "close" } as unknown as { type: string; stmt: { sql: string; args: never[] } });
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);

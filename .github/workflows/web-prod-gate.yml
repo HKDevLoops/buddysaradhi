@@ -78,8 +78,8 @@ jobs:
       - name: Web / Unit Tests (Vitest)
         run: pnpm --filter web test -- run
 
-      - name: Web / Build
-        run: pnpm --filter web build
+      - name: Web & Product Page / Build
+        run: pnpm --filter web build && pnpm --filter product-page build
 
       - name: Install Playwright Browsers
         run: pnpm --filter web exec playwright install --with-deps

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": "22.x"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "next dev -p 3000",
@@ -32,7 +32,6 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.0",
     "@tanstack/react-query": "^5.101.1",
-    "@vercel/analytics": "^2.0.1",
     "boneyard-js": "^1.8.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

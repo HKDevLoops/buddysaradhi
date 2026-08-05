@@ -7,7 +7,17 @@ import { verifyPassword } from "../../lib/adminAuth";
 import { createHmac } from "crypto";
 
 const COOKIE_NAME = "bs_admin_session";
-const SESSION_SECRET = process.env.GATEWAY_SHARED_SECRET || "buddysaradhi-super-secret-hmac-key-32chars-min-dev-key";
+// GATEWAY_SHARED_SECRET is required in production.
+// Ref: Rule 9 (no silent failures), 10_Security.md §12 (SECRETS-1)
+const _envSecret = process.env.GATEWAY_SHARED_SECRET;
+if (!_envSecret && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "GATEWAY_SHARED_SECRET environment variable is required in production. " +
+    "Set it in your Vercel project environment variables."
+  );
+}
+const SESSION_SECRET = _envSecret || "buddysaradhi-dev-only-session-secret-32chars";
+
 
 function signSessionPayload(username: string): string {
   const payload = JSON.stringify({ username, exp: Date.now() + 24 * 60 * 60 * 1000 });
