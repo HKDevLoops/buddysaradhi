@@ -7,21 +7,24 @@ import { verifyPassword } from "../../lib/adminAuth";
 import { createHmac } from "crypto";
 
 const COOKIE_NAME = "bs_admin_session";
-// GATEWAY_SHARED_SECRET is required in production.
+// GATEWAY_SHARED_SECRET is required in production at runtime.
+// Checked lazily to avoid breaking Next.js static build page collection.
 // Ref: Rule 9 (no silent failures), 10_Security.md §12 (SECRETS-1)
-const _envSecret = process.env.GATEWAY_SHARED_SECRET;
-if (!_envSecret && process.env.NODE_ENV === "production") {
-  throw new Error(
-    "GATEWAY_SHARED_SECRET environment variable is required in production. " +
-    "Set it in your Vercel project environment variables."
-  );
+function getSessionSecret(): string {
+  const secret = process.env.GATEWAY_SHARED_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "GATEWAY_SHARED_SECRET environment variable is required in production. " +
+      "Set it in your Vercel project environment variables."
+    );
+  }
+  return secret || "buddysaradhi-dev-only-session-secret-32chars";
 }
-const SESSION_SECRET = _envSecret || "buddysaradhi-dev-only-session-secret-32chars";
 
 
 function signSessionPayload(username: string): string {
   const payload = JSON.stringify({ username, exp: Date.now() + 24 * 60 * 60 * 1000 });
-  const signature = createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  const signature = createHmac("sha256", getSessionSecret()).update(payload).digest("hex");
   return `${Buffer.from(payload).toString("base64")}.${signature}`;
 }
 
@@ -69,7 +72,7 @@ export async function getAdminSession(): Promise<string | null> {
   if (!payloadBase64 || !signature) return null;
   
   const payloadStr = Buffer.from(payloadBase64, "base64").toString("utf-8");
-  const computedSignature = createHmac("sha256", SESSION_SECRET).update(payloadStr).digest("hex");
+  const computedSignature = createHmac("sha256", getSessionSecret()).update(payloadStr).digest("hex");
   if (computedSignature !== signature) return null;
   
   try {

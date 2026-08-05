@@ -29,6 +29,11 @@ const csp: NextConfig["headers"] = () => [
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["172.23.224.1", "localhost", "127.0.0.1"],
   serverExternalPackages: ["@prisma/client"],
+  experimental: {
+    // TypeScript 7.x requires the CLI instead of the deprecated compiler API.
+    // Ref: Next.js 16 + TS 7 compatibility note.
+    useTypeScriptCli: true,
+  },
   async headers() {
     return csp();
   },
