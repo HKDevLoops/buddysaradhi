@@ -139,13 +139,7 @@ export function FeesClient() {
                     type="search"
                     placeholder="Filter students..."
                     aria-label="Filter students by name"
-                    className="neumo-inset w-full px-3 py-1.5 text-xs"
-                    style={{
-                      background: "var(--bg-surface-inset)",
-                      border: "1px solid var(--border-default)",
-                      color: "var(--text-primary)",
-                      borderRadius: "var(--radius-md)",
-                    }}
+                    className="w-full px-3 py-2 text-xs bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] rounded-xl focus:border-[var(--accent-cyan)] focus:outline-none transition-all placeholder:text-[var(--text-muted)]"
                     value={studentSearch}
                     onChange={(e) => setStudentSearch(e.target.value)}
                   />
@@ -165,21 +159,12 @@ export function FeesClient() {
                     <button
                       key={s.id}
                       onClick={() => setSelectedStudentId(s.id)}
-                      className="w-full flex items-center gap-3 px-3 py-3 text-left transition-colors min-h-[64px]"
-                      style={{
-                        background: isActive
-                          ? "color-mix(in srgb, var(--accent-primary) 10%, transparent)"
-                          : "transparent",
-                        borderLeft: isActive
-                          ? "3px solid var(--accent-primary)"
-                          : "3px solid transparent",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) e.currentTarget.style.background = "var(--surface-glass-faint)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) e.currentTarget.style.background = "transparent";
-                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-3 text-left transition-all min-h-[64px] rounded-lg cursor-pointer",
+                        isActive
+                          ? "bg-[var(--surface-glass-strong)] border-l-4 border-l-[var(--accent-emerald)] shadow-sm"
+                          : "hover:bg-[var(--surface-glass-faint)] border-l-4 border-l-transparent"
+                      )}
                       aria-pressed={isActive}
                     >
                       {/* Accent avatar with initials */}

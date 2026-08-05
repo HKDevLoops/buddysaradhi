@@ -20,11 +20,27 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
     const { client, tenantId } = await getAuthenticatedDb();
     const now = new Date().toISOString();
 
-    // 1. Get or create session
+    // 1. Get or create batch if needed (ensure FK constraint holds)
+    const targetBatchId = payload.batch_id && payload.batch_id.trim() !== "" && payload.batch_id !== "all" 
+      ? payload.batch_id 
+      : "batch-default";
+
+    const batchCheck = await client.execute({
+      sql: `SELECT id FROM batches WHERE id = ? LIMIT 1`,
+      args: [targetBatchId],
+    });
+    if (batchCheck.rows.length === 0) {
+      await client.execute({
+        sql: `INSERT INTO batches (id, tenant_id, name, created_at, updated_at) VALUES (?, ?, 'General Batch', ?, ?)`,
+        args: [targetBatchId, tenantId, now, now],
+      });
+    }
+
+    // 2. Get or create session
     const sessionRes = await client.execute({
       sql: `SELECT id, locked_at FROM attendance_sessions
             WHERE tenant_id = ? AND session_date = ? AND batch_id = ? LIMIT 1`,
-      args: [tenantId, payload.session_date, payload.batch_id || "all"],
+      args: [tenantId, payload.session_date, targetBatchId],
     });
 
     let sessionId: string;
@@ -37,7 +53,7 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       await client.execute({
         sql: `INSERT INTO attendance_sessions (id, tenant_id, session_date, batch_id, created_at, updated_at)
               VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [sessionId, tenantId, payload.session_date, payload.batch_id || "all", now, now],
+        args: [sessionId, tenantId, payload.session_date, targetBatchId, now, now],
       });
     }
 
@@ -56,7 +72,7 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       // P5/Rule 7: Every mutation writes to sync_outbox
       await client.execute({
         sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-              VALUES (?, ?, 'attendance_records', ?, 'UPSERT', ?, ?)`,
+              VALUES (?, ?, 'attendance_records', ?, 'update', ?, ?)`,
         args: [outboxId, tenantId, recordId, JSON.stringify(update), now],
       });
     }

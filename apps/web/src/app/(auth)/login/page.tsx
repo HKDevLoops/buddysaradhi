@@ -46,7 +46,8 @@ export default function LoginPage() {
         setError(signInError.message);
         setLoading(false);
       } else {
-        router.push("/dashboard");
+        await supabase.auth.getSession();
+        window.location.href = "/dashboard";
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred. Is your environment configured?");

@@ -8,8 +8,8 @@
 - NEVER save working files or tests to root — use `/src`, `/tests`, `/docs`, `/config`, `/scripts`
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
-- Keep files under 500 lines
-- Validate input at system boundaries
+- Use both TestSprite MCP (for local app tunneling & interactive testing) and TestSprite CLI (for deployed URLs & CI)
+- ALWAYS specify an explicit timeout for background tasks and test executions (e.g., --timeout 600 or process timeout bounds)
 
 ## Agent Comms — Reality-Based Coordination
 

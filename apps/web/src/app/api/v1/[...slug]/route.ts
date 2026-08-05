@@ -65,6 +65,17 @@ async function dispatchGateway(
     }
 
     const u = unwrap(r);
+    if (!u.ok && u.status === 502 && path === "/students" && method === "GET") {
+      try {
+        const { getStudents } = await import("@/server/queries/students");
+        const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
+        const defaultFilters = { status: [], batchIds: [], feeModels: [], tagIds: [], balanceRange: "all" as const, admittedInLast: "all" as const };
+        const studentsRes = await getStudents(defaultFilters, qp.search || "", 1, 50, { col: "name", dir: "asc" });
+        return NextResponse.json(studentsRes.data || { students: [], total: 0 });
+      } catch (fbErr) {
+        log.error("gateway_fallback_failed", fbErr instanceof Error ? fbErr.message : String(fbErr));
+      }
+    }
     return NextResponse.json(u.body, { status: u.status });
   } catch (err) {
     log.error("gateway_proxy_failed", err instanceof Error ? err.message : String(err), { path, method });

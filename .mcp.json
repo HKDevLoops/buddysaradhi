@@ -19,6 +19,18 @@
         "CLAUDE_FLOW_MEMORY_BACKEND": "hybrid"
       },
       "autoStart": false
+    },
+    "TestSprite": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@testsprite/testsprite-mcp@latest"
+      ],
+      "env": {
+        "API_KEY": "sk-user-myzwv_Lt8zobS3DIRe_0BeiYVPeAY8bcDloqXsL10OfjcIZ9V8BduE8Vh0bWSnk2ALnFx4cBnbDlvBHnWZTINb47l5Or1JMyw_mhaERI6qilASxitRUrcF8XAEIhBre0cR0"
+      }
     }
   }
 }

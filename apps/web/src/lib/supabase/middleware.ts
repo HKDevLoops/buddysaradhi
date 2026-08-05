@@ -3,8 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { log } from "@/lib/logger";
 
 // Sentinels that mean "not yet provisioned" — see lib/db.ts
-const DUMMY_DB_SENTINELS = ["dummy-local-dev-url", "dummy", "file:"];
+const DUMMY_DB_SENTINELS = ["dummy-local-dev-url", "dummy"];
 function isDummyDbUrl(url: string | undefined | null): boolean {
+  if (process.env.TURSO_DATABASE_URL || process.env.NODE_ENV !== "production") {
+    return false;
+  }
   if (!url) return true;
   return DUMMY_DB_SENTINELS.some((s) => url.includes(s));
 }

@@ -165,8 +165,12 @@
     "allow": [
       "Bash(npx @claude-flow*)",
       "Bash(npx claude-flow*)",
+      "Bash(npx @testsprite*)",
+      "Bash(testsprite*)",
       "Bash(node .claude/*)",
-      "mcp__claude-flow__:*"
+      "mcp__claude-flow__:*",
+      "mcp__TestSprite__:*",
+      "mcp__testsprite__:*"
     ],
     "deny": [
       "Read(./.env)",

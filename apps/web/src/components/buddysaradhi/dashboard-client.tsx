@@ -78,16 +78,16 @@ export function DashboardClient() {
           <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Dashboard</h1>
           <p className="text-sm text-[var(--text-muted)] mt-1">The truth of your tuition business, right now.</p>
         </div>
-        <div className="neumo-inset p-1 rounded-lg flex items-center bg-[var(--bg-surface-inset)] border border-[var(--border-default)]">
+        <div className="p-1 rounded-xl flex items-center bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] shadow-inner">
           {(["this_month", "last_month", "this_quarter", "all_time"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriodFilter(p)}
               className={cn(
-                "px-4 py-1.5 rounded-md text-sm transition-all",
+                "px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer",
                 periodFilter === p
-                  ? "bg-[var(--surface-glass-strong)] text-[var(--text-primary)] shadow-sm ring-1 ring-white/10"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  ? "bg-[var(--surface-glass-strong)] text-[var(--text-primary)] shadow-sm border border-[var(--border-glass)]"
+                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-glass-faint)]"
               )}
             >
               {p.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
@@ -285,12 +285,10 @@ function QuickAction({ icon, label, accent, onClick }: { icon: React.ReactNode; 
   return (
     <button
       onClick={onClick}
-      className="btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 hover:bg-[var(--surface-glass)] transition-all cursor-pointer"
-      style={{ ["--qa" as string]: accent }}
-      onMouseEnter={(e) => { e.currentTarget.style.color = accent; e.currentTarget.style.borderColor = "color-mix(in srgb, " + accent + " 30%, transparent)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.borderColor = "var(--border-glass)"; }}
+      className="btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-all cursor-pointer hover:bg-[var(--surface-glass)] hover:border-[var(--accent-cyan)]/30 hover:scale-[1.02] active:scale-[0.98]"
+      style={{ ["--qa-accent" as string]: accent }}
     >
-      {icon} {label}
+      <span style={{ color: accent }}>{icon}</span> {label}
     </button>
   );
 }

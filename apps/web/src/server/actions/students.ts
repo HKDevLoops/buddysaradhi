@@ -114,7 +114,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
         tenantId,
         tableName: "students",
         rowId: id,
-        op: "create",
+        op: "insert",
         payload: JSON.stringify(payload),
         status: "pending",
         createdAt: new Date(),
@@ -128,7 +128,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           data: {
             id: crypto.randomUUID(),
             tenantId,
-            tutorId: tenantId,
+            tutorId: null,
             name: batchName,
             subject: "General",
             createdAt: new Date(),

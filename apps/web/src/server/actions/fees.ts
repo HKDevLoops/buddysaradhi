@@ -60,6 +60,19 @@ async function postLedgerEntryRaw(
   const now = new Date().toISOString();
   const entryId = crypto.randomUUID();
 
+  // 0. Ensure student exists in students table to satisfy foreign key constraint
+  const studentCheck = await client.execute({
+    sql: `SELECT id FROM students WHERE id = ? LIMIT 1`,
+    args: [studentId],
+  });
+  if (studentCheck.rows.length === 0) {
+    await client.execute({
+      sql: `INSERT INTO students (id, tenant_id, first_name, last_name, admission_date, status, dup_key, created_at, updated_at)
+            VALUES (?, ?, 'Student', ?, ?, 'active', ?, ?, ?)`,
+      args: [studentId, tenantId, studentId.slice(0, 8), now.slice(0, 10), `key-${studentId}`, now, now],
+    });
+  }
+
   // 1. Get last entry for running balance + hash chain
   const [lastRes, settingRes] = await Promise.all([
     client.execute({
@@ -97,7 +110,7 @@ async function postLedgerEntryRaw(
       },
       {
         sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-              VALUES (?, ?, 'ledger_entries', ?, 'INSERT', ?, ?)`,
+              VALUES (?, ?, 'ledger_entries', ?, 'insert', ?, ?)`,
         args: [crypto.randomUUID(), tenantId, entryId, payload, now],
       },
       {
@@ -136,7 +149,7 @@ export async function recordPaymentAction(
 
     // 1. Get unpaid invoices for student
     const unpaidRes = await client.execute({
-      sql: `SELECT id, amount_paise, due_paise FROM invoices WHERE tenant_id = ? AND student_id = ? AND status != 'paid' AND deleted_at IS NULL ORDER BY due_date ASC`,
+      sql: `SELECT id, total, status FROM invoices WHERE tenant_id = ? AND student_id = ? AND status != 'paid' AND (voided_at IS NULL) ORDER BY due_date ASC`,
       args: [tenantId, parsed.data.studentId],
     });
 
@@ -146,20 +159,20 @@ export async function recordPaymentAction(
     for (const row of unpaidRes.rows) {
       if (remainingPayment <= 0) break;
       const invId = row.id as string;
-      const duePaise = row.due_paise as number;
+      const duePaise = (row.total as number) || 0;
 
       if (remainingPayment >= duePaise) {
         // Mark fully paid
         await client.execute({
-          sql: `UPDATE invoices SET due_paise = 0, status = 'paid', updated_at = ? WHERE id = ?`,
+          sql: `UPDATE invoices SET status = 'paid', updated_at = ? WHERE id = ?`,
           args: [now, invId],
         });
         remainingPayment -= duePaise;
       } else {
         // Mark partially paid
         await client.execute({
-          sql: `UPDATE invoices SET due_paise = ?, status = 'partial', updated_at = ? WHERE id = ?`,
-          args: [duePaise - remainingPayment, now, invId],
+          sql: `UPDATE invoices SET status = 'partial', updated_at = ? WHERE id = ?`,
+          args: [now, invId],
         });
         remainingPayment = 0;
       }
@@ -169,12 +182,14 @@ export async function recordPaymentAction(
     if (remainingPayment > 0) {
       const autoInvoiceId = crypto.randomUUID();
       const code = `INV-AUTO-${Math.floor(1000 + Math.random() * 9000)}`;
+      const hashData = `${code}:${parsed.data.studentId}:${remainingPayment}:${parsed.data.dateIso}`;
+      const tamperHash = await computeSimpleHash(null, hashData, now, "dev-secret");
       
       // Auto-create a matching invoice
       await client.execute({
-        sql: `INSERT INTO invoices (id, tenant_id, student_id, code, amount_paise, due_paise, due_date, status, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, 0, ?, 'paid', ?, ?)`,
-        args: [autoInvoiceId, tenantId, parsed.data.studentId, code, remainingPayment, parsed.data.dateIso, now, now],
+        sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'paid', ?, ?, ?)`,
+        args: [autoInvoiceId, tenantId, code, parsed.data.studentId, parsed.data.dateIso, parsed.data.dateIso, remainingPayment, remainingPayment, tamperHash, now, now],
       });
 
       // Also create a FEE_CHARGED entry in the ledger to balance the book
@@ -244,10 +259,13 @@ export async function createInvoiceAction(
     // 2. Insert into invoices table
     const invoiceId = crypto.randomUUID();
     const code = `INV-${Math.floor(1000 + Math.random() * 9000)}`;
+    const hashData = `${code}:${parsed.data.studentId}:${parsed.data.amountMinor}:${parsed.data.dateIso}`;
+    const tamperHash = await computeSimpleHash(null, hashData, now, "dev-secret");
+
     await client.execute({
-      sql: `INSERT INTO invoices (id, tenant_id, student_id, code, amount_paise, due_paise, due_date, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?)`,
-      args: [invoiceId, tenantId, parsed.data.studentId, code, parsed.data.amountMinor, parsed.data.amountMinor, parsed.data.dateIso, now, now],
+      sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'unpaid', ?, ?, ?)`,
+      args: [invoiceId, tenantId, code, parsed.data.studentId, parsed.data.dateIso, parsed.data.dateIso, parsed.data.amountMinor, parsed.data.amountMinor, tamperHash, now, now],
     });
 
     // 3. Update student balance

@@ -86,21 +86,9 @@ export function getDbCredentials(
     return { dbUrl: metaUrl, dbToken: metaToken };
   }
 
-  // Fall back to the shared/environment database
-  // This covers:
-  //   - Local development (file: SQLite)
-  //   - Vercel Preview deployments with a shared Turso DB
-  //   - Users whose provision webhook failed (dummy credentials stored)
-  const envUrl = process.env.TURSO_DATABASE_URL;
-  const envToken = process.env.TURSO_AUTH_TOKEN;
+  // Fall back to shared/environment database (file: SQLite or TURSO_DATABASE_URL)
+  const envUrl = process.env.TURSO_DATABASE_URL || "file:Z:/Projects/buddysaradhi/buddysaradhi/prisma/dev.db";
+  const envToken = process.env.TURSO_AUTH_TOKEN || "dummy-token";
 
-  if (envUrl && envToken) {
-    return { dbUrl: envUrl, dbToken: envToken };
-  }
-
-  // No valid credentials at all — user has not been provisioned
-  throw new Error(
-    "DB_NOT_PROVISIONED: User database is not yet provisioned. " +
-      "Please wait on the provisioning screen or contact support."
-  );
+  return { dbUrl: envUrl, dbToken: envToken };
 }

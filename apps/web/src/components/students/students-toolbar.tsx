@@ -33,12 +33,7 @@ export function StudentsToolbar() {
           />
           <Input
             placeholder="Search by name, phone or code..."
-            className="pl-9 h-9"
-            style={{
-              background: "var(--bg-surface-inset)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
-            }}
+            className="pl-9 h-9 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] rounded-xl focus:border-[var(--accent-cyan)] focus:outline-none transition-all placeholder:text-[var(--text-muted)]"
             value={searchQuery}
             onChange={handleSearchChange}
           />
@@ -47,12 +42,7 @@ export function StudentsToolbar() {
         <Button
           variant="outline"
           size="sm"
-          className="h-9 gap-2"
-          style={{
-            border: "1px solid var(--border-default)",
-            background: "var(--bg-surface-raised)",
-            color: "var(--text-primary)",
-          }}
+          className="h-9 gap-2 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] hover:bg-[var(--surface-glass)] rounded-xl cursor-pointer"
         >
           <Filter className="w-4 h-4" />
           Filters
