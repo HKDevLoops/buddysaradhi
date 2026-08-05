@@ -33,7 +33,7 @@ export function LedgerCard({ isLowEnd = false }: LedgerCardProps) {
       <Html transform position={[0, 0, 0.07]} center>
         <div className="w-[320px] text-center pointer-events-none select-none">
           <p className="text-[var(--text-primary)] font-medium text-lg leading-relaxed whitespace-nowrap">
-            {formatINR(kpi.owed * 100)} owed &middot; {kpi.students} students
+            {formatINR(kpi.owed)} owed &middot; {kpi.students} students
           </p>
           <p className="text-[var(--text-primary)] font-medium text-lg leading-relaxed whitespace-nowrap">
             {kpi.ledgers} ledger &middot; 5 screens
