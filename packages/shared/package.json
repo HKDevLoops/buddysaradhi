@@ -16,6 +16,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "eslint": "^9",
     "openapi-typescript-codegen": "^0.31.0",
     "openapi-zod-client": "^1.18.3",
