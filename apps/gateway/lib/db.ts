@@ -25,7 +25,10 @@ function resolveTursoUrl(url?: string): string {
   ) {
     return envUrl;
   }
-  return "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+  throw new Error(
+    "TURSO_DATABASE_URL is required but not configured. " +
+      "Set TURSO_DATABASE_URL in your environment secrets (Supabase dashboard → Edge Functions → Secrets)."
+  );
 }
 
 function resolveToken(dbToken?: string): string {

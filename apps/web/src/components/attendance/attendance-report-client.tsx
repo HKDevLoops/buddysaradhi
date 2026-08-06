@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import React from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { X, BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle } from "lucide-react";
+import { X, BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
 
 type Preset = "current_month" | "last_month" | "last_3_months" | "last_6_months" | "full_year";
@@ -59,12 +60,18 @@ export function AttendanceReportClient({
   const [isLoading, setIsLoading] = useState(false);
 
   // Fetch summary when preset changes
-  React.useEffect(() => {
+  useEffect(() => {
+    const controller = new AbortController();
     setIsLoading(true);
     fetchAttendanceSummaryAction(activePreset).then(res => {
-      if (res.ok && res.value) setSummaryData(res.value);
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        if (res.ok && res.value) setSummaryData(res.value);
+        setIsLoading(false);
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) setIsLoading(false);
     });
+    return () => controller.abort();
   }, [activePreset]);
 
   if (!isReportOpen) return null;
@@ -287,6 +294,3 @@ function StatCard({
     </div>
   );
 }
-
-import { CheckCircle, XCircle } from "lucide-react";
-import React from "react";

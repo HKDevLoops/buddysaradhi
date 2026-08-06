@@ -7,6 +7,7 @@ export function CountUp({ value, duration = 400, formatFn = (v) => v.toString() 
 
   useEffect(() => {
     let startTimestamp: number | null = null;
+    let rafId = 0;
     const step = (timestamp: number) => {
       if (!startTimestamp) startTimestamp = timestamp;
       const progress = Math.min((timestamp - startTimestamp) / duration, 1);
@@ -14,12 +15,13 @@ export function CountUp({ value, duration = 400, formatFn = (v) => v.toString() 
       const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
       setDisplayValue(Math.floor(easeProgress * value));
       if (progress < 1) {
-        window.requestAnimationFrame(step);
+        rafId = window.requestAnimationFrame(step);
       } else {
         setDisplayValue(value);
       }
     };
-    window.requestAnimationFrame(step);
+    rafId = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(rafId);
   }, [value, duration]);
 
   return <>{formatFn(displayValue)}</>;

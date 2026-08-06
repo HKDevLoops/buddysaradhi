@@ -6,7 +6,12 @@ const DATA_KEY = Deno.env.get("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
 if (!HMAC_SECRET || HMAC_SECRET.length < 32) {
   const env = Deno.env.get("DENO_DEPLOYMENT_ID") || Deno.env.get("SUPABASE_URL") || "local";
   if (env !== "local") {
-    logWarn("crypto.weak_hmac_secret", { length: HMAC_SECRET.length, minRequired: 32 });
+    // P1 SECURITY FIX: Throw in production instead of just warning.
+    // A missing/weak HMAC secret means requests can't be verified — fail loudly.
+    throw new Error(
+      `CRITICAL: GATEWAY_SHARED_SECRET must be >= 32 chars in production (got ${HMAC_SECRET.length}). ` +
+      "Set it in your Supabase Edge Function secrets."
+    );
   }
 }
 
@@ -57,7 +62,12 @@ function constantTimeCompare(a: string, b: string): boolean {
 }
 
 export async function encryptResponse(plaintext: string): Promise<string> {
-  if (!DATA_KEY) return plaintext;
+  if (!DATA_KEY) {
+    // P2 SECURITY FIX: Don't silently return plaintext when encryption key is missing.
+    // This is defense-in-depth — callers may assume data is encrypted when it isn't.
+    logWarn("crypto.encrypt_no_key", { message: "DATA_ENCRYPTION_KEY not set; returning plaintext" });
+    return plaintext;
+  }
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));

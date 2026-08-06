@@ -1,7 +1,9 @@
 // Implements: 11_Data_Model.md & AGENTS.md §3.4
 // Self-Repairable Database Schema & Auto-Healing Manager
 import { type DB, batchExecute } from "./db.ts";
+import { logError } from "./log.ts";
 
+const HEALED_TENANTS_MAX = 10_000;
 const healedTenants = new Set<string>();
 
 const CORE_DDL_STATEMENTS = [
@@ -250,10 +252,20 @@ const CORE_DDL_STATEMENTS = [
 export async function ensureSelfRepairingSchema(_db: DB, tenantId: string, dbUrl?: string, dbToken?: string): Promise<void> {
   if (healedTenants.has(tenantId)) return;
 
+  // Enforce max size — evict oldest entries if over limit
+  if (healedTenants.size >= HEALED_TENANTS_MAX) {
+    const iter = healedTenants.values();
+    for (let i = 0; i < HEALED_TENANTS_MAX / 4; i++) {
+      const next = iter.next();
+      if (next.done) break;
+      healedTenants.delete(next.value);
+    }
+  }
+
   try {
     await batchExecute(CORE_DDL_STATEMENTS, dbUrl, dbToken);
     healedTenants.add(tenantId);
   } catch (err) {
-    console.error("Self-repairing schema initialization completed with warning:", err);
+    logError("schema.heal_failed", "Self-repairing schema initialization completed with warning", { tenantId, error: err instanceof Error ? err.message : String(err) });
   }
 }

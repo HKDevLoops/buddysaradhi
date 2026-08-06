@@ -49,9 +49,70 @@ const PATH_TRAVERSAL_PATTERNS = [
 
 const COMMAND_INJECTION_PATTERNS = [/[;&|`$]/, /\$\(/, /\$\{/, /\|\|/, /&&/, /\n|\r/];
 
+const IP_RATE_LIMIT_MAX_ENTRIES = 10_000;
+const NONCE_CACHE_MAX_ENTRIES = 10_000;
+const FAILED_AUTH_MAX_ENTRIES = 10_000;
+const CLEANUP_INTERVAL_MS = 60_000;
+let lastCleanupAt = 0;
+
 const ipRateLimitMap = new Map<string, { count: number; resetAt: number; penaltyUntil: number }>();
 const nonceCache = new Map<string, number>();
 const failedAuthMap = new Map<string, { count: number; lastFail: number }>();
+
+// Evict expired entries periodically and enforce max size to prevent DoS.
+function periodicSecurityCleanup(): void {
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+
+  // Evict expired rate limit entries
+  if (ipRateLimitMap.size > IP_RATE_LIMIT_MAX_ENTRIES / 2) {
+    for (const [key, entry] of ipRateLimitMap) {
+      if (now > entry.resetAt && now > entry.penaltyUntil) {
+        ipRateLimitMap.delete(key);
+      }
+    }
+  }
+  // Enforce max size — drop oldest if still over limit
+  if (ipRateLimitMap.size > IP_RATE_LIMIT_MAX_ENTRIES) {
+    const iter = ipRateLimitMap.keys();
+    for (let i = 0; i < IP_RATE_LIMIT_MAX_ENTRIES / 4; i++) {
+      const next = iter.next();
+      if (next.done) break;
+      ipRateLimitMap.delete(next.value);
+    }
+  }
+
+  // Evict expired nonces
+  for (const [key, ts] of nonceCache) {
+    if (now - ts > NONCE_EXPIRY_MS) {
+      nonceCache.delete(key);
+    }
+  }
+  if (nonceCache.size > NONCE_CACHE_MAX_ENTRIES) {
+    const iter = nonceCache.keys();
+    for (let i = 0; i < NONCE_CACHE_MAX_ENTRIES / 4; i++) {
+      const next = iter.next();
+      if (next.done) break;
+      nonceCache.delete(next.value);
+    }
+  }
+
+  // Evict expired failed auth entries (>15min old)
+  for (const [key, entry] of failedAuthMap) {
+    if (now - entry.lastFail > 900_000) {
+      failedAuthMap.delete(key);
+    }
+  }
+  if (failedAuthMap.size > FAILED_AUTH_MAX_ENTRIES) {
+    const iter = failedAuthMap.keys();
+    for (let i = 0; i < FAILED_AUTH_MAX_ENTRIES / 4; i++) {
+      const next = iter.next();
+      if (next.done) break;
+      failedAuthMap.delete(next.value);
+    }
+  }
+}
 
 function getClientIp(req: Request): string {
   return (
@@ -307,6 +368,8 @@ export function getSecurityHeaders(): Record<string, string> {
 }
 
 export function runSecurityChecks(req: Request): SecurityCheckResult {
+  periodicSecurityCleanup();
+
   const sizeCheck = validateRequestSize(req);
   if (!sizeCheck.allowed) return sizeCheck;
 

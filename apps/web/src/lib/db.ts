@@ -6,6 +6,18 @@ import { createClient, Client } from "@libsql/client";
 // user_metadata (db_url + db_token) set by the /api/provision API route.
 // Clients are cached in-process by db_url to avoid re-connecting each call.
 // ---------------------------------------------------------------------------
+const MAX_CACHE_SIZE = 64;
+
+// LRU eviction helper: delete oldest entry when cache exceeds MAX_CACHE_SIZE
+function lruSet<K, V>(map: Map<K, V>, key: K, value: V): void {
+  if (map.size >= MAX_CACHE_SIZE && !map.has(key)) {
+    // Delete the first (oldest) entry
+    const firstKey = map.keys().next().value;
+    if (firstKey !== undefined) map.delete(firstKey);
+  }
+  map.set(key, value);
+}
+
 const clientCache = new Map<string, Client>();
 const prismaCache = new Map<string, any>();
 
@@ -26,7 +38,7 @@ export function getDb(dbUrl: string, dbToken: string): Client {
   if (existing) return existing;
 
   const client = createClient({ url: normalized, authToken: dbToken });
-  clientCache.set(normalized, client);
+  lruSet(clientCache, normalized, client);
   return client;
 }
 
@@ -41,7 +53,7 @@ export async function getPrismaClientAsync(dbUrl: string, dbToken: string): Prom
 
   const libsql = getDb(dbUrl, dbToken);
   const proxy = createLibsqlProxy(libsql);
-  prismaCache.set(dbUrl, proxy);
+  lruSet(prismaCache, dbUrl, proxy);
   return proxy;
 }
 
@@ -51,7 +63,7 @@ export function getPrismaClient(dbUrl: string, dbToken: string): any {
 
   const libsql = getDb(dbUrl, dbToken);
   const proxy = createLibsqlProxy(libsql);
-  prismaCache.set(dbUrl, proxy);
+  lruSet(prismaCache, dbUrl, proxy);
   return proxy;
 }
 

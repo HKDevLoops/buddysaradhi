@@ -158,14 +158,14 @@ Deno.serve(async (req: Request) => {
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
       Deno.env.get("TURSO_DATABASE_URL") ||
-      "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+      "";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||
       Deno.env.get("TURSO_AUTH_TOKEN") ||
       Deno.env.get("TURSO_TOKEN") ||
       "";
-    if (!dbUrl) return addSecurityHeaders(req, securityFail(400, requestId), requestId);
+    if (!dbUrl || !dbToken) return addSecurityHeaders(req, securityFail(400, requestId), requestId);
 
     const { tenantId } = await authenticateRequest(req);
     logCtx.tenantId = tenantId;
@@ -288,7 +288,10 @@ Deno.serve(async (req: Request) => {
       message: err instanceof Error ? err.message : String(err),
     });
     const errMsg = err instanceof Error ? err.message : String(err);
-    const body = JSON.stringify({ success: false, error: errMsg, requestId });
+    // Rule 9: never leak internal error details to the client.
+    // Server-side log already has the full message. Client gets a generic error.
+    const safeMessage = err instanceof AuthError ? errMsg : "internal server error";
+    const body = JSON.stringify({ success: false, error: safeMessage, requestId });
     return addSecurityHeaders(req, new Response(body, { status, headers: { "Content-Type": "application/json" } }), requestId);
   }
 });

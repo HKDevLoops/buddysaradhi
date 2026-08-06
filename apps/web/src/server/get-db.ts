@@ -237,17 +237,22 @@ async function gatewayBase(): Promise<string> {
   return process.env.GATEWAY_PRODUCTION_URL || SUPABASE_GATEWAY_URL;
 }
 
-// Create an AbortController with a timeout to prevent infinite hangs
-function createTimeoutSignal(timeoutMs = 12000): AbortSignal {
+// Create an AbortController with a timeout to prevent infinite hangs.
+// Returns the signal and a cleanup function to clear the timeout early.
+function createTimeoutSignal(timeoutMs = 12000): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+  const timerId = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timerId),
+  };
 }
 
 export async function gatewayGet<T = unknown>(
   path: string,
   params?: Record<string, string>
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const { signal, cleanup } = createTimeoutSignal();
   try {
     const { headers: h } = await getGatewayHeaders();
     const base = await gatewayBase();
@@ -256,7 +261,7 @@ export async function gatewayGet<T = unknown>(
       method: "GET",
       headers: { ...h },
       cache: "no-store",
-      signal: createTimeoutSignal(),
+      signal,
     });
 
     if (!res.ok) {
@@ -268,6 +273,8 @@ export async function gatewayGet<T = unknown>(
     const message = err instanceof Error ? err.message : "Unknown gateway error";
     log.error('gateway_get_failed', `Gateway GET ${path} failed: ${message}`, { path, method: 'GET' });
     return { success: false, error: message };
+  } finally {
+    cleanup();
   }
 }
 
@@ -275,6 +282,7 @@ export async function gatewayPatch<T = unknown>(
   path: string,
   body: unknown
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const { signal, cleanup } = createTimeoutSignal();
   try {
     const { headers: h } = await getGatewayHeaders();
     const base = await gatewayBase();
@@ -282,7 +290,7 @@ export async function gatewayPatch<T = unknown>(
       method: "PATCH",
       headers: { ...h, "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: createTimeoutSignal(),
+      signal,
     });
 
     if (!res.ok) {
@@ -294,6 +302,8 @@ export async function gatewayPatch<T = unknown>(
     const message = err instanceof Error ? err.message : "Unknown gateway error";
     log.error('gateway_patch_failed', `Gateway PATCH ${path} failed: ${message}`, { path, method: 'PATCH' });
     return { success: false, error: message };
+  } finally {
+    cleanup();
   }
 }
 
@@ -302,6 +312,7 @@ export async function gatewayPost<T = unknown>(
   body: unknown,
   extraHeaders?: Record<string, string>
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const { signal, cleanup } = createTimeoutSignal();
   try {
     const { headers: h } = await getGatewayHeaders();
     const base = await gatewayBase();
@@ -309,7 +320,7 @@ export async function gatewayPost<T = unknown>(
       method: "POST",
       headers: { ...h, "Content-Type": "application/json", ...extraHeaders },
       body: JSON.stringify(body),
-      signal: createTimeoutSignal(),
+      signal,
     });
 
     if (!res.ok) {
@@ -321,19 +332,22 @@ export async function gatewayPost<T = unknown>(
     const message = err instanceof Error ? err.message : "Unknown gateway error";
     log.error('gateway_post_failed', `Gateway POST ${path} failed: ${message}`, { path, method: 'POST' });
     return { success: false, error: message };
+  } finally {
+    cleanup();
   }
 }
 
 export async function gatewayDelete<T = unknown>(
   path: string
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const { signal, cleanup } = createTimeoutSignal();
   try {
     const { headers: h } = await getGatewayHeaders();
     const base = await gatewayBase();
     const res = await fetch(`${base}${path}`, {
       method: "DELETE",
       headers: { ...h },
-      signal: createTimeoutSignal(),
+      signal,
     });
 
     if (!res.ok) {
@@ -345,5 +359,7 @@ export async function gatewayDelete<T = unknown>(
     const message = err instanceof Error ? err.message : "Unknown gateway error";
     log.error('gateway_delete_failed', `Gateway DELETE ${path} failed: ${message}`, { path, method: 'DELETE' });
     return { success: false, error: message };
+  } finally {
+    cleanup();
   }
 }
