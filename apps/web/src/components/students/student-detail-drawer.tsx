@@ -60,10 +60,11 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["student", selectedStudentId],
     queryFn: () => fetchStudentDetailAction(selectedStudentId!),
     enabled: !!selectedStudentId,
+    retry: 1,
   });
 
   const { data: invData } = useQuery({
@@ -136,7 +137,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
     );
   }
 
-  if (isLoading || !student) {
+  if (isLoading) {
     return (
       <div className="glass-panel rounded-2xl h-full flex items-center justify-center">
         <div
@@ -146,6 +147,32 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             borderTopColor: "var(--accent-cyan)",
           }}
         />
+      </div>
+    );
+  }
+
+  if (isError || !student) {
+    return (
+      <div className="glass-panel rounded-2xl h-full flex flex-col items-center justify-center text-center p-8">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+          style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)" }}
+        >
+          <AlertTriangle className="w-8 h-8" />
+        </div>
+        <p className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+          Could not load student
+        </p>
+        <p className="text-sm mt-1 max-w-xs" style={{ color: "var(--text-secondary)" }}>
+          {error instanceof Error ? error.message : "Student not found or unavailable."}
+        </p>
+        <button
+          onClick={closeDrawer}
+          className="mt-4 px-4 py-2 rounded-xl text-sm font-semibold btn-glass"
+          style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
+        >
+          Close
+        </button>
       </div>
     );
   }

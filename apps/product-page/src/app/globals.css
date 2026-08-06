@@ -137,12 +137,9 @@ body {
   border: 1px border-glass;
 }
 
-/* Vibrant bioluminescent text gradients */
+/* Bioluminescent accent text */
 .gradient-text {
-  background: linear-gradient(135deg, #00FF9D 0%, #00F0FF 50%, #B388FF 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #00FF9D;
 }
 
 /* Custom CSS Ambient Animations */

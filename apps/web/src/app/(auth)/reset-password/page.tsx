@@ -113,8 +113,8 @@ export default function ResetPasswordPage() {
       </div>
 
       <div className="text-sm text-gray-400 flex items-center justify-center gap-2 pt-2">
-        <ArrowLeft className="w-4 h-4 text-gray-500" />
-        <Link href="/login" className="text-[var(--accent-cyan)] hover:underline">
+        <ArrowLeft className="w-4 h-4 text-gray-400" />
+        <Link href="/login" className="text-[var(--accent-cyan)] underline hover:text-[var(--accent-cyan)]/80">
           Back to Login
         </Link>
       </div>

@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Loader2 } from "lucide-react";
-import { FcGoogle } from "react-icons/fc";
+import { GoogleIcon } from "@/components/ui/google-icon";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -103,13 +103,13 @@ export default function SignupPage() {
           disabled={isAnyLoading}
           className="w-full py-6 rounded-xl neumo-raised bg-[var(--bg-surface-inset)] text-[var(--text-primary)] hover:bg-[var(--surface-glass-strong)] transition-colors flex items-center justify-center gap-3 disabled:opacity-50"
         >
-          {loadingGoogle ? <Loader2 className="w-5 h-5 animate-spin" /> : <FcGoogle className="w-5 h-5" />}
+          {loadingGoogle ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleIcon className="w-5 h-5" />}
           Sign up with Google
         </Button>
 
         <div className="flex items-center gap-4 py-2">
           <div className="flex-1 h-px bg-[var(--surface-glass-strong)]" />
-          <span className="text-xs text-gray-500 uppercase font-medium tracking-wider">OR</span>
+          <span className="text-xs text-gray-400 uppercase font-medium tracking-wider">OR</span>
           <div className="flex-1 h-px bg-[var(--surface-glass-strong)]" />
         </div>
 
@@ -160,7 +160,7 @@ export default function SignupPage() {
 
       <div className="text-sm text-gray-400">
         Already have an account?{" "}
-        <Link href="/login" className="text-[var(--accent-cyan)] hover:underline">
+        <Link href="/login" className="text-[var(--accent-cyan)] underline hover:text-[var(--accent-cyan)]/80">
           Sign in
         </Link>
       </div>

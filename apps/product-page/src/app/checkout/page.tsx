@@ -66,7 +66,7 @@ function CheckoutContent() {
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-in fade-in duration-500">
-        <CheckCircle className="w-16 h-16 text-[var(--accent-emerald)] mb-4 animate-bounce" />
+        <CheckCircle className="w-16 h-16 text-[var(--accent-emerald)] mb-4 animate-pulse" />
         <h2 className="text-2xl font-bold text-[var(--text-primary)]">Request Sent!</h2>
         <p className="text-sm text-[var(--text-secondary)] mt-2">
           We have received your upgrade request. Re-routing back to Settings...

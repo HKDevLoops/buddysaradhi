@@ -24,10 +24,14 @@ export async function fetchStudentsAction(
 
 export async function fetchStudentDetailAction(studentId: string): Promise<{ success: boolean; data?: Student; error?: string }> {
   try {
-    return await getStudentQuery(studentId);
+    const result = await getStudentQuery(studentId);
+    if (!result.success) {
+      throw new Error(result.error || "Student not found");
+    }
+    return result;
   } catch (error) {
     log.error('fetch_student_detail_action_failed', error instanceof Error ? error.message : String(error), { studentId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch student detail" };
+    throw error;
   }
 }
 

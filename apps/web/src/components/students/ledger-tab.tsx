@@ -50,7 +50,7 @@ export async function LedgerTab({ studentId }: { studentId: string }) {
                 <td className="px-4 py-4 text-gray-200">
                   <div className="font-medium">{entry.type.replace("_", " ")}</div>
                   {entry.description && (
-                    <div className="text-xs text-gray-500 mt-1">{entry.description}</div>
+                    <div className="text-xs text-gray-400 mt-1">{entry.description}</div>
                   )}
                 </td>
                 <td className="px-4 py-4 text-gray-400">

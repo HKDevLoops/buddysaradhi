@@ -88,6 +88,7 @@ export default async function RootLayout({
       className={`${sora.variable} ${onest.variable} ${jetbrainsMono.variable} scroll-smooth`}
       data-palette="aurora-cosmic"
       data-theme="dark"
+      data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <head>

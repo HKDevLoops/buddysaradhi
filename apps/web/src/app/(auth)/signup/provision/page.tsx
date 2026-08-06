@@ -150,12 +150,12 @@ export default function ProvisionPage() {
       </div>
 
       {status === "creating" && (
-        <div className="flex flex-col items-center gap-2 text-xs text-gray-500">
+        <div className="flex flex-col items-center gap-2 text-xs text-gray-400">
           <div className="flex gap-1">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
-                className="w-2 h-2 rounded-full bg-[var(--accent-violet)]/60 animate-bounce"
+                className="w-2 h-2 rounded-full bg-[var(--accent-violet)]/60 animate-pulse"
                 style={{ animationDelay: `${i * 150}ms` }}
               />
             ))}
@@ -174,7 +174,7 @@ export default function ProvisionPage() {
           </Button>
           <a
             href="mailto:support@buddysaradhi.app"
-            className="text-xs text-gray-500 hover:text-gray-300 underline underline-offset-2"
+            className="text-xs text-gray-400 hover:text-gray-300 underline underline-offset-2"
           >
             Contact support
           </a>

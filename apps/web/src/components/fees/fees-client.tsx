@@ -162,8 +162,8 @@ export function FeesClient() {
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-3 text-left transition-all min-h-[64px] rounded-lg cursor-pointer",
                         isActive
-                          ? "bg-[var(--surface-glass-strong)] border-l-4 border-l-[var(--accent-emerald)] shadow-sm"
-                          : "hover:bg-[var(--surface-glass-faint)] border-l-4 border-l-transparent"
+                          ? "bg-[var(--surface-glass-strong)] shadow-sm ring-1 ring-[var(--accent-emerald)]/30"
+                          : "hover:bg-[var(--surface-glass-faint)]"
                       )}
                       aria-pressed={isActive}
                     >

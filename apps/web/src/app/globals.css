@@ -79,7 +79,7 @@
   --motion-slow: 400ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Spacing (8px base) */
   --space-1: 4px;
@@ -1154,7 +1154,7 @@
 
   /* ---- Progress bar ---- */
   .progress { height: 6px; background: var(--surface-glass-faint); border-radius: var(--radius-full); overflow: hidden; }
-  .progress-bar { height: 100%; background: var(--accent-primary); border-radius: var(--radius-full); transition: width var(--motion-slow) var(--ease-out); }
+  .progress-bar { height: 100%; background: var(--accent-primary); border-radius: var(--radius-full); transition: transform var(--motion-slow) var(--ease-out); transform-origin: left; }
 
   /* ---- Tabs ---- */
   .tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-glass); }
@@ -1189,14 +1189,6 @@
 
   /* ---- Eyebrow / kicker ---- */
   .eyebrow { font-size: var(--text-xs); font-weight: 600; color: var(--accent-primary); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: var(--space-3); display: inline-block; }
-
-  /* ---- Gradient text ---- */
-  .gradient-text {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
 
   /* ---- Skeleton shimmer ---- */
   .skeleton {
