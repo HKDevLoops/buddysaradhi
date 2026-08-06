@@ -4,13 +4,14 @@ const HMAC_SECRET = Deno.env.get("GATEWAY_SHARED_SECRET") || "";
 const DATA_KEY = Deno.env.get("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
 
 if (!HMAC_SECRET || HMAC_SECRET.length < 32) {
-  const env = Deno.env.get("DENO_DEPLOYMENT_ID") || Deno.env.get("SUPABASE_URL") || "local";
+  const env = Deno.env.get("DENO_DEPLOYMENT_ID") ||
+    Deno.env.get("SUPABASE_URL") || "local";
   if (env !== "local") {
     // P1 SECURITY FIX: Throw in production instead of just warning.
     // A missing/weak HMAC secret means requests can't be verified — fail loudly.
     throw new Error(
       `CRITICAL: GATEWAY_SHARED_SECRET must be >= 32 chars in production (got ${HMAC_SECRET.length}). ` +
-      "Set it in your Supabase Edge Function secrets."
+        "Set it in your Supabase Edge Function secrets.",
     );
   }
 }
@@ -35,7 +36,10 @@ export async function hmacSign(data: string): Promise<string> {
     .join("");
 }
 
-export async function hmacVerify(data: string, signature: string): Promise<boolean> {
+export async function hmacVerify(
+  data: string,
+  signature: string,
+): Promise<boolean> {
   try {
     const expected = await hmacSign(data);
     return constantTimeCompare(expected, signature);
@@ -65,7 +69,9 @@ export async function encryptResponse(plaintext: string): Promise<string> {
   if (!DATA_KEY) {
     // P2 SECURITY FIX: Don't silently return plaintext when encryption key is missing.
     // This is defense-in-depth — callers may assume data is encrypted when it isn't.
-    logWarn("crypto.encrypt_no_key", { message: "DATA_ENCRYPTION_KEY not set; returning plaintext" });
+    logWarn("crypto.encrypt_no_key", {
+      message: "DATA_ENCRYPTION_KEY not set; returning plaintext",
+    });
     return plaintext;
   }
   const encoder = new TextEncoder();
@@ -90,7 +96,9 @@ export async function encryptResponse(plaintext: string): Promise<string> {
     key,
     encoder.encode(plaintext),
   );
-  const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+  const combined = new Uint8Array(
+    salt.length + iv.length + encrypted.byteLength,
+  );
   combined.set(salt, 0);
   combined.set(iv, salt.length);
   combined.set(new Uint8Array(encrypted), salt.length + iv.length);
@@ -120,7 +128,11 @@ export async function decryptRequest(ciphertextB64: string): Promise<string> {
     false,
     ["decrypt"],
   );
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    data,
+  );
   return new TextDecoder().decode(decrypted);
 }
 
@@ -164,17 +176,25 @@ export function checkRateLimit(
   const entry = rateLimitMap.get(tenantId);
 
   if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(tenantId, { count: 1, resetAt: now + windowMs, penaltyUntil: 0 });
+    rateLimitMap.set(tenantId, {
+      count: 1,
+      resetAt: now + windowMs,
+      penaltyUntil: 0,
+    });
     return true;
   }
 
   if (entry.penaltyUntil > 0 && now < entry.penaltyUntil) {
-    logWarn("rate_limit.penalty", { tenantId, penaltyUntil: entry.penaltyUntil });
+    logWarn("rate_limit.penalty", {
+      tenantId,
+      penaltyUntil: entry.penaltyUntil,
+    });
     return false;
   }
 
   if (entry.count >= maxRequests) {
-    const penaltyMs = 30_000 * Math.pow(2, Math.min(Math.floor((entry.count - maxRequests) / 10), 8));
+    const penaltyMs = 30_000 *
+      Math.pow(2, Math.min(Math.floor((entry.count - maxRequests) / 10), 8));
     entry.penaltyUntil = now + penaltyMs;
     logWarn("rate_limit.exceeded", { tenantId, count: entry.count, penaltyMs });
     return false;

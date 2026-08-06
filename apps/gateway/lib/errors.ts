@@ -41,17 +41,30 @@ function sanitizeError(error: string, status: number): string {
     return ERROR_MESSAGES[status] || "internal server error";
   }
   const sanitized = error
-    .replace(/(?:x-db-url|x-db-token|authorization|supabase|turso|libsql):?[^\s,]*/gi, "[REDACTED]")
-    .replace(/(?:password|secret|token|key|credential):?\s*[^\s,]*/gi, "[REDACTED]")
+    .replace(
+      /(?:x-db-url|x-db-token|authorization|supabase|turso|libsql):?[^\s,]*/gi,
+      "[REDACTED]",
+    )
+    .replace(
+      /(?:password|secret|token|key|credential):?\s*[^\s,]*/gi,
+      "[REDACTED]",
+    )
     .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, "[IP]")
-    .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, "[ID]");
+    .replace(
+      /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi,
+      "[ID]",
+    );
   if (sanitized.length > 200) {
     return ERROR_MESSAGES[status] || "bad request";
   }
   return sanitized;
 }
 
-export function json(data: unknown, status = 200, encrypt = false): Response | Promise<Response> {
+export function json(
+  data: unknown,
+  status = 200,
+  encrypt = false,
+): Response | Promise<Response> {
   const body = JSON.stringify(data);
   if (encrypt) {
     return encryptResponse(body).then((enc) =>
@@ -67,7 +80,11 @@ export function json(data: unknown, status = 200, encrypt = false): Response | P
   });
 }
 
-export function ok(data: unknown, status = 200, encrypt = false): Response | Promise<Response> {
+export function ok(
+  data: unknown,
+  status = 200,
+  encrypt = false,
+): Response | Promise<Response> {
   return json({ success: true, data }, status, encrypt);
 }
 
@@ -88,5 +105,9 @@ export function fail(error: string, status = 400): Response {
 
 export function securityFail(status: number, requestId?: string): Response {
   const message = ERROR_MESSAGES[status] || "bad request";
-  return json({ success: false, error: message, ...(requestId ? { requestId } : {}) }, status) as Response;
+  return json({
+    success: false,
+    error: message,
+    ...(requestId ? { requestId } : {}),
+  }, status) as Response;
 }

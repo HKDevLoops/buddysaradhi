@@ -26,7 +26,9 @@ const SENSITIVE_PATTERNS = [
   /https?:\/\/[^\s]*@[^\s]+/gi,
 ];
 
-function sanitizeLogData(data: Record<string, unknown>): Record<string, unknown> {
+function sanitizeLogData(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === "string") {
@@ -47,7 +49,11 @@ function sanitizeLogData(data: Record<string, unknown>): Record<string, unknown>
   return sanitized;
 }
 
-function emit(level: LogEntry["level"], event: string, data: Record<string, unknown> = {}): void {
+function emit(
+  level: LogEntry["level"],
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
   const sanitizedData = sanitizeLogData(data);
   const entry: LogEntry = {
     ts: new Date().toISOString(),
@@ -56,20 +62,31 @@ function emit(level: LogEntry["level"], event: string, data: Record<string, unkn
     ...sanitizedData,
   };
   try {
-    Deno.stdout.writeSync(new TextEncoder().encode(JSON.stringify(entry) + "\n"));
+    Deno.stdout.writeSync(
+      new TextEncoder().encode(JSON.stringify(entry) + "\n"),
+    );
   } catch {
     // Silently fail if stdout is not available
   }
 }
 
-export function logInfo(event: string, data: Record<string, unknown> = {}): void {
+export function logInfo(
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
   emit("info", event, data);
 }
 
-export function logWarn(event: string, data: Record<string, unknown> = {}): void {
+export function logWarn(
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
   emit("warn", event, data);
 }
 
-export function logError(event: string, data: Record<string, unknown> = {}): void {
+export function logError(
+  event: string,
+  data: Record<string, unknown> = {},
+): void {
   emit("error", event, data);
 }
