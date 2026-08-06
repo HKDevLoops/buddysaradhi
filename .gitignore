@@ -79,3 +79,5 @@ scratch_*.js
 
 .vercel
 .env*
+
+testsprite_tests\tmp\config.json

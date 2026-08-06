@@ -59,6 +59,10 @@ test.describe('Settings and Auth E2E Tests', () => {
   });
 
   test('Settings Appearance: density toggle updates html data-density attribute', async ({ page }) => {
+    if (!process.env.E2E_EMAIL || !process.env.E2E_PASSWORD) {
+      test.skip(true, 'E2E_EMAIL and E2E_PASSWORD env vars required for authenticated tests');
+      return;
+    }
     await authenticate(page);
 
     // Navigate to Settings

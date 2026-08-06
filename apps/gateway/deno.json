@@ -3,6 +3,7 @@
   "exports": "./index.ts",
   "runtime": "deno2",
   "entrypoint": "index.ts",
+  "nodeModulesDir": "auto",
   "import_map": "https://esm.sh/import_map.json",
   "imports": {
     "@libsql/client": "npm:@libsql/client@^0.14.0",

@@ -59,9 +59,37 @@ export const getStudent = cache(async (
   studentId: string
 ): Promise<{ success: boolean; data?: Student; error?: string }> => {
   try {
-    const res = await gatewayGet<Student>(`/api/v1/students/${studentId}`);
+    const res = await gatewayGet<Record<string, unknown>>(`/api/v1/students/${studentId}`);
     if (res.success) {
-      return { success: true, data: res.data };
+      // Gateway returns raw ORM output (camelCase). Map to Student schema (mixed snake/camel).
+      const g = res.data;
+      const mapped: Student = {
+        id: String(g.id),
+        tenant_id: String(g.tenantId ?? ""),
+        first_name: String(g.firstName ?? ""),
+        last_name: (g.lastName as string) || null,
+        code: (g.code as string) || null,
+        phone: (g.phone as string) || null,
+        email: (g.email as string) || null,
+        address: (g.address as string) || null,
+        school: (g.school as string) || null,
+        grade: (g.grade as string) || null,
+        board: (g.board as string) || null,
+        dob: (g.dob as string) || null,
+        gender: (["M", "F", "O"].includes(g.gender as string) ? g.gender : null) as Student["gender"],
+        admission_date: String(g.admissionDate ?? new Date().toISOString().slice(0, 10)),
+        status: ((g.status as string) || "active") as Student["status"],
+        fee_model: ((g.feeModel as string) || "postpaid") as Student["fee_model"],
+        baseFeePaise: Number(g.baseFeePaise ?? 0),
+        dup_key: (g.dupKey as string) || (g.code as string) || "",
+        merged_into_id: null,
+        custom_fields: null,
+        notes: (g.notes as string) || null,
+        archived_at: (g.archivedAt as string) || null,
+        created_at: String(g.createdAt ?? new Date().toISOString()),
+        updated_at: String(g.updatedAt ?? new Date().toISOString()),
+      };
+      return { success: true, data: mapped };
     }
 
     log.warn('get_student_gateway_failed_using_direct_db', res.error, { studentId });

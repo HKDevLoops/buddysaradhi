@@ -165,9 +165,23 @@ export async function getGatewayHeaders(): Promise<{
   }
 
   if (user) {
-    const { dbUrl, dbToken } = getDbCredentials(
-      user.user_metadata as Record<string, unknown>
-    );
+    let dbUrl: string;
+    let dbToken: string;
+    try {
+      ({ dbUrl, dbToken } = getDbCredentials(
+        user.user_metadata as Record<string, unknown>
+      ));
+    } catch {
+      // User metadata not provisioned — fall back to environment or local DB.
+      // This prevents getGatewayHeaders from throwing when user has no Turso
+      // creds, allowing gatewayGet to degrade to getAuthenticatedDb fallback.
+      dbUrl = process.env.TURSO_DATABASE_URL || "";
+      dbToken = process.env.TURSO_AUTH_TOKEN || "";
+      if (!dbUrl) {
+        log.warn('getGatewayHeaders_no_db_credentials', 'User has no DB credentials and no env fallback', { userId: user.id });
+        throw new Error("DB_NOT_PROVISIONED: User database is not yet provisioned.");
+      }
+    }
     const dataToSign = `${user.id}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
     const signature = await signHmacSha256(getSharedSecret(), dataToSign);
 

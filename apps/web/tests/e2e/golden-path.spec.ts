@@ -66,6 +66,10 @@ async function clickNav(page: Page, name: RegExp) {
 
 test.describe('Golden Path E2E', () => {
   test('Login → Dashboard → all 5 screens render', async ({ page }) => {
+    if (!process.env.E2E_EMAIL || !process.env.E2E_PASSWORD) {
+      test.skip(true, 'E2E_EMAIL and E2E_PASSWORD env vars required for authenticated tests');
+      return;
+    }
     await authenticate(page);
 
     await expect(page).toHaveTitle(/BuddySaradhi/);
