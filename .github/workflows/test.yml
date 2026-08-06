@@ -43,22 +43,29 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
 
       - name: Typecheck
         run: pnpm run typecheck
+        timeout-minutes: 5
 
       - name: Lint
         run: pnpm run lint
+        timeout-minutes: 5
 
       - name: Unit & Component Tests (Vitest)
         run: pnpm run test:unit
+        timeout-minutes: 5
 
       - name: Build Web App & Product Page
         run: pnpm --filter web build && pnpm --filter product-page build
+        timeout-minutes: 10
 
       - name: Install Playwright Browsers
         run: pnpm --filter web exec playwright install --with-deps
+        timeout-minutes: 5
 
       - name: End-to-End Tests (Playwright)
         run: pnpm --filter web exec playwright test
+        timeout-minutes: 10
         continue-on-error: true
