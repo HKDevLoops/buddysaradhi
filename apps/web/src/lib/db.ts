@@ -86,9 +86,12 @@ export function getDbCredentials(
     return { dbUrl: metaUrl, dbToken: metaToken };
   }
 
-  // Fall back to shared/environment database (file: SQLite or TURSO_DATABASE_URL)
-  const envUrl = process.env.TURSO_DATABASE_URL || "file:Z:/Projects/buddysaradhi/buddysaradhi/prisma/dev.db";
-  const envToken = process.env.TURSO_AUTH_TOKEN || "dummy-token";
+  const envUrl = process.env.TURSO_DATABASE_URL;
+  const envToken = process.env.TURSO_AUTH_TOKEN;
+
+  if (!envUrl || !envToken) {
+    throw new Error("DB_NOT_PROVISIONED: User database is not yet provisioned.");
+  }
 
   return { dbUrl: envUrl, dbToken: envToken };
 }

@@ -60,30 +60,46 @@ jobs:
   ota:
     name: EAS Update OTA
     needs: detect-changes
-    if: needs.detect-changes.outputs.js_only == 'true' && vars.EXPO_PROJECT_ID != '' && secrets.EAS_TOKEN != ''
+    if: needs.detect-changes.outputs.js_only == 'true' && vars.EXPO_PROJECT_ID != ''
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
+      - name: Check EAS token
+        id: check-token
+        run: |
+          if [ -z "$EAS_TOKEN" ]; then
+            echo "has_token=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+
       - name: Checkout
+        if: steps.check-token.outputs.has_token == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Bun
+        if: steps.check-token.outputs.has_token == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup pnpm
+        if: steps.check-token.outputs.has_token == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 11.15.0
 
       - name: Setup Node
+        if: steps.check-token.outputs.has_token == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Setup Expo
+        if: steps.check-token.outputs.has_token == 'true'
         uses: expo/expo-github-action@v8
         with:
           expo-version: latest
@@ -91,9 +107,11 @@ jobs:
           token: ${{ secrets.EAS_TOKEN }}
 
       - name: Install dependencies
+        if: steps.check-token.outputs.has_token == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Push OTA update
+        if: steps.check-token.outputs.has_token == 'true'
         run: |
           CHANNEL=${{ needs.detect-changes.outputs.channel }}
           COMMIT_MSG="${{ github.event.head_commit.message }}"
@@ -106,13 +124,14 @@ jobs:
           EXPO_PROJECT_ID: ${{ vars.EXPO_PROJECT_ID }}
 
       - name: Notify on success
+        if: steps.check-token.outputs.has_token == 'true'
         run: |
           curl -X POST -H "Content-Type: application/json" \
             -d "{\"content\": \"✅ EAS OTA pushed to ${{ needs.detect-changes.outputs.channel }} — ${{ github.event.head_commit.message }}\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify on failure
-        if: failure()
+        if: failure() && steps.check-token.outputs.has_token == 'true'
         run: |
           curl -X POST -H "Content-Type: application/json" \
             -d "{\"content\": \"⚠️ eas-update failed on ${{ github.ref }}\"}" \

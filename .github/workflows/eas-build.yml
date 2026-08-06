@@ -19,30 +19,45 @@ concurrency:
 jobs:
   build:
     name: EAS Build (iOS + Android)
-    if: secrets.EAS_TOKEN != ''
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
+      - name: Check EAS token
+        id: check-token
+        run: |
+          if [ -z "$EAS_TOKEN" ]; then
+            echo "has_token=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+
       - name: Checkout
+        if: steps.check-token.outputs.has_token == 'true'
         uses: actions/checkout@v4
 
       - name: Setup Bun
+        if: steps.check-token.outputs.has_token == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Setup pnpm
+        if: steps.check-token.outputs.has_token == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 11.15.0
 
       - name: Setup Node
+        if: steps.check-token.outputs.has_token == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Setup Expo
+        if: steps.check-token.outputs.has_token == 'true'
         uses: expo/expo-github-action@v8
         with:
           expo-version: latest
@@ -50,9 +65,11 @@ jobs:
           token: ${{ secrets.EAS_TOKEN }}
 
       - name: Install dependencies
+        if: steps.check-token.outputs.has_token == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Verify version matches tag
+        if: steps.check-token.outputs.has_token == 'true'
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           PKG_VERSION=$(jq -r .version apps/mobile/package.json)
@@ -63,6 +80,7 @@ jobs:
           echo "OK: version $TAG_VERSION"
 
       - name: EAS Build (iOS + Android, auto-submit, no-wait)
+        if: steps.check-token.outputs.has_token == 'true'
         run: |
           eas build --profile production --platform all \
             --auto-submit --no-wait --non-interactive
@@ -71,6 +89,7 @@ jobs:
           EXPO_PROJECT_ID: ${{ vars.EXPO_PROJECT_ID }}
 
       - name: Capture build IDs
+        if: steps.check-token.outputs.has_token == 'true'
         id: build-ids
         run: |
           IOS_BUILD_ID=$(eas build:list --platform ios --limit 1 --json | jq -r '.[0].id')
@@ -86,6 +105,7 @@ jobs:
   wait-and-mirror:
     name: Wait for builds + mirror APK to Blob
     needs: build
+    if: needs.build.result == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
