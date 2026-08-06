@@ -20,7 +20,7 @@ const SENSITIVE_PATTERNS = [
   /(?:authorization|auth)\s*[:=]\s*\S+/gi,
   /(?:x-db-token|x-db-url)\s*[:=]\s*\S+/gi,
   /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
-  /\b(?:\d{4}[-\s]?){3}\d{4}\b/g,
+  /(?<!\d)(?:\d{4}[- ]){3}\d{4}(?!\d)/g,
   /\b\d{3}[-.\s]?\d{2}[-.\s]?\d{4}\b/g,
   /libsql:\/\/[^\s]+/gi,
   /https?:\/\/[^\s]*@[^\s]+/gi,

@@ -132,6 +132,7 @@ interface RateLimitEntry {
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
 let lastCleanup = Date.now();
 
 function cleanupExpiredEntries(): void {
@@ -141,6 +142,14 @@ function cleanupExpiredEntries(): void {
   for (const [key, entry] of rateLimitMap) {
     if (now > entry.resetAt && now > entry.penaltyUntil) {
       rateLimitMap.delete(key);
+    }
+  }
+  if (rateLimitMap.size > RATE_LIMIT_MAX_ENTRIES) {
+    const entries = [...rateLimitMap.entries()]
+      .sort((a, b) => a[1].resetAt - b[1].resetAt);
+    const evictCount = Math.ceil(RATE_LIMIT_MAX_ENTRIES / 4);
+    for (let i = 0; i < evictCount && i < entries.length; i++) {
+      rateLimitMap.delete(entries[i][0]);
     }
   }
 }
