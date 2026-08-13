@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useScroll, Html } from '@react-three/drei';
-import anime from 'animejs';
+import * as animejs from 'animejs';
+const anime = (animejs as any).default || animejs;
 
 interface ScrollBoundAnimeProps {
   startScroll: number;
@@ -12,7 +13,7 @@ interface ScrollBoundAnimeProps {
 export function ScrollBoundAnime({ startScroll, endScroll, sceneId }: ScrollBoundAnimeProps) {
   const scroll = useScroll();
   const containerRef = useRef<HTMLDivElement>(null);
-  const timelineRef = useRef<anime.AnimeTimelineInstance | null>(null);
+  const timelineRef = useRef<animejs.AnimeTimelineInstance | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
