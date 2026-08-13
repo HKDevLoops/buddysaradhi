@@ -3,6 +3,7 @@ import { DownloadHub } from "@/components/marketing/download-hub";
 import { FAQSection } from "@/components/marketing/faq-section";
 import { TestimonialsSection } from "@/components/marketing/testimonials-section";
 import { Sparkles, Terminal, Shield, Cpu, ArrowRight } from "lucide-react";
+import { Hero3D } from "@/components/hero/Hero3D";
 import { seedAdminUser } from "../lib/seedAdmin";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -21,15 +22,9 @@ export default async function LandingPage() {
   return (
     <main className="relative min-h-screen w-full overflow-x-hidden bg-[var(--bg-cosmic)] text-[var(--text-primary)]">
       
-      {/* Liquid Glass Background (Highly responsive CSS animated gradient mesh) */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 bg-[#060414]">
-        {/* Animated Bioluminescent Blobs */}
-        <div className="absolute top-[5%] left-[5%] w-[45vw] h-[45vw] rounded-full filter blur-[100px] opacity-[0.15] animate-blob-1 bg-[#00FF9D]" />
-        <div className="absolute bottom-[10%] right-[5%] w-[50vw] h-[50vw] rounded-full filter blur-[120px] opacity-[0.15] animate-blob-2 bg-[#00F0FF]" />
-        <div className="absolute top-[35%] right-[25%] w-[35vw] h-[35vw] rounded-full filter blur-[90px] opacity-[0.12] animate-blob-3 bg-[#B388FF]" />
-        
-        {/* Futuristic SVG Grid Pattern Overlay */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:40px_40px] opacity-[0.25] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)]" />
+      {/* 3D Hero Background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0 bg-[var(--bg-cosmic)]">
+        <Hero3D />
       </div>
 
       {/* Header / Navbar */}

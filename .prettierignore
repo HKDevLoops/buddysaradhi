@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+.turbo/
+
+# Coverage
+coverage/
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Environment
+.env*
+!.env.example
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Generated
+prisma/generated/
+**/*.generated.*
+
+# Supabase
+supabase/.temp/
+
+# Scratch
+scratch_*.ts
+scratch_*.js
+
+# Misc
+.vercel/
+*.tsbuildinfo

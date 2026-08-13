@@ -1,0 +1,101 @@
+{
+  "timestamp": "2026-08-05T12:52:03.077Z",
+  "targetUrl": "http://localhost:3000",
+  "totalTests": 13,
+  "passedTests": 13,
+  "failedTests": 0,
+  "passRate": "100.0%",
+  "results": [
+    {
+      "suite": "Authentication",
+      "id": "TS-AUTH-01",
+      "name": "Login Form & OAuth UI Rendering",
+      "status": "PASSED",
+      "details": "HTTP 200, contains expected heading, inputs & Google OAuth button."
+    },
+    {
+      "suite": "Authentication",
+      "id": "TS-AUTH-02",
+      "name": "Protected Route Auth Guard (/dashboard)",
+      "status": "PASSED",
+      "details": "Unauthenticated GET /dashboard returned HTTP 307 redirect."
+    },
+    {
+      "suite": "Authentication",
+      "id": "TS-AUTH-03",
+      "name": "Signup Page Availability",
+      "status": "PASSED",
+      "details": "HTTP 200"
+    },
+    {
+      "suite": "Authentication",
+      "id": "TS-AUTH-04",
+      "name": "Forgot Password Route Accessibility",
+      "status": "PASSED",
+      "details": "HTTP 200"
+    },
+    {
+      "suite": "3D Product Hero",
+      "id": "TS-HERO-01",
+      "name": "3D Ledger Card Copy & Tutor-Centric Messaging",
+      "status": "PASSED",
+      "details": "Verified tutor-centric hero card copy: 'Built for Relentless Tutors', 'Offline Sovereign', '1-Click WhatsApp Receipts'."
+    },
+    {
+      "suite": "3D Product Hero",
+      "id": "TS-HERO-02",
+      "name": "Hero3D Three.js WebGL & Poster Fallback Engine",
+      "status": "PASSED",
+      "details": "Canvas, AccentLights, ParticleField, LedgerCard, and WebGL detection with Poster fallback present."
+    },
+    {
+      "suite": "Impeccable Aesthetics",
+      "id": "TS-UI-01",
+      "name": "Impeccable Glassmorphic & Neumorphic Design Tokens",
+      "status": "PASSED",
+      "details": "CSS includes --surface-glass-strong, backdrop-filter, neumo-raised, neumo-inset tokens."
+    },
+    {
+      "suite": "Student Management",
+      "id": "TS-STUDENT-01",
+      "name": "Student Batch Creation & Auto-Enrollment Logic",
+      "status": "PASSED",
+      "details": "createStudent action handles batchName, creates Batch & studentEnrollment, and normalizes base_fee_paise."
+    },
+    {
+      "suite": "Student Management",
+      "id": "TS-STUDENT-02",
+      "name": "AddStudentSheet Glass UI & Batch Input Component",
+      "status": "PASSED",
+      "details": "AddStudentSheet component includes batch input and glass-strong styling."
+    },
+    {
+      "suite": "Fees & Invoicing",
+      "id": "TS-FEES-01",
+      "name": "BR-M-01 Billing Precision & Invoice Generation",
+      "status": "PASSED",
+      "details": "Verified BR-M-01 integer paise conversion Math.round(rupees * 100) with zero float drift."
+    },
+    {
+      "suite": "Fees & Invoicing",
+      "id": "TS-FEES-02",
+      "name": "Fees Ledger View & Actions UI",
+      "status": "PASSED",
+      "details": "Fees Client renders LedgerTable, GenerateInvoiceSheet, RecordPaymentSheet actions."
+    },
+    {
+      "suite": "API Gateway",
+      "id": "TS-GW-01",
+      "name": "Desktop Manifest Distribution API (/api/v1/releases/latest)",
+      "status": "PASSED",
+      "details": "HTTP 200, manifest version 1.4.0, Windows MSI installer package payload."
+    },
+    {
+      "suite": "API Gateway",
+      "id": "TS-GW-02",
+      "name": "API Gateway /api/v1/provision Auth Security Guard",
+      "status": "PASSED",
+      "details": "Unauthenticated provision call returned HTTP 401 (401 Unauthorized)."
+    }
+  ]
+}

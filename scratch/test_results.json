@@ -1,0 +1,27 @@
+[
+  {
+    "test": "Screen 0: Login Page Render",
+    "status": "PASSED",
+    "details": "HTTP 200"
+  },
+  {
+    "test": "Auth Check: Unauthenticated /dashboard redirect",
+    "status": "PASSED",
+    "details": "HTTP 200"
+  },
+  {
+    "test": "API Gateway: /api/v1/releases/latest",
+    "status": "PASSED",
+    "details": "HTTP 200"
+  },
+  {
+    "test": "API Gateway: /api/v1/provision Auth Guard",
+    "status": "PASSED",
+    "details": "HTTP 401 - {\"success\":false,\"error\":\"Unauthorized\"}"
+  },
+  {
+    "test": "API Gateway: /api/v1/students Unreachable Proxy Handling",
+    "status": "PASSED",
+    "details": "HTTP 502"
+  }
+]

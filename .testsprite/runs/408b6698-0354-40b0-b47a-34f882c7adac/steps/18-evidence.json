@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "snapshot",
+    "stepIndex": 18,
+    "summary": "Step 18 'Expected the 'Collected' KPI card to be visible on the dashboard.' failed. Error: TEST FAILURE\n\nThe product landing page could not be reached from the signed-in application — clicking the 'Tuition Centre' title did not navigate away from the Dashboard.\n\nObservations:\n- Clicking the \"Tuition Centre\" title kept the app on the Dashboard; repeated attempts produced no navigation.\n- Dashboard and its KPI cards are visible (Collected: ₹0.00, Due Till Date: ₹0.00, Active Students: 0, Overdue: ₹0.00), confirming the signed-in Dashboard loads correctly.\n- The internal screens were reachable and inspected: Students (student 'Rohan Gupta' present), Attendance (date picker present, empty-state message), Fees & Payments (student sidebar with empty-state), Settings (institute profile and settings sections visible).",
+    "path": "steps/18-snapshot.html"
+  }
+]

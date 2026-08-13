@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "snapshot",
+    "stepIndex": 16,
+    "summary": "Step 16 'Click the 'Dashboard' button after searching the Settings page for visible 'FOREIGN KEY' or other DB error messages' passed.",
+    "path": "steps/16-snapshot.html"
+  }
+]

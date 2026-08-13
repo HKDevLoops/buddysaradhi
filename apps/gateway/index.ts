@@ -29,6 +29,7 @@ import { handleSecurity } from "./routes/security.ts";
 const ALLOWED_ORIGINS = new Set([
   'https://buddysaradhi.app',
   'https://buddysaradhi.vercel.app',
+  'https://buddysaradhi.store',
   'http://localhost:3000',
   'http://localhost:3001',
 ]);

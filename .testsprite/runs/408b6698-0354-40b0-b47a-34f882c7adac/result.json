@@ -1,0 +1,20 @@
+{
+  "testId": "f18ecad6-f190-4ff2-8eb1-abfacc8b67a4",
+  "status": "failed",
+  "startedAt": "2026-08-06T06:40:18.409Z",
+  "finishedAt": "2026-08-06T06:50:41.320Z",
+  "videoUrl": "https://testsprite-videos.s3.us-east-1.amazonaws.com/94984488-30c1-7096-59bf-df0379492bf9/1785999038080644//tmp/6fd22181-7b3b-4111-9a08-99c6ed68e77e/result.webm",
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_94006540f04a7fc9",
+  "runIdIfAvailable": "408b6698-0354-40b0-b47a-34f882c7adac",
+  "codeVersion": "v1",
+  "targetUrl": "https://buddysaradhi.vercel.app",
+  "targetUrlSource": "run",
+  "failedStepIndex": 18,
+  "failureKind": "assertion",
+  "verdict": "failed",
+  "executionStatus": "completed",
+  "summary": "Failed (assertion) on step 18: TEST FAILURE\n\nThe product landing page could not be reached from the signed-in application — clicking the 'Tuition Centre' title did not navigate away from the Dashboard.\n\nObservations:\n- Clicking the \"Tuition Centre\" title kept the app on the Dashboard; repeated attempts produced no navigation.\n- Dashboard and its KPI cards are visible (Collected: ₹0.00, Due Till Date: ₹0.00, Active Students: 0, Overdue: ₹0.00), confirming the signed-in Dashboard loads correctly.…",
+  "apiOutput": null,
+  "trace": null
+}

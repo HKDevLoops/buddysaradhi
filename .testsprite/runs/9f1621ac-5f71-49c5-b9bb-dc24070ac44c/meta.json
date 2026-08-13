@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "cli-v1",
+  "snapshotId": "snap_95cc87f013b31c9a",
+  "testId": "720786d9-86f4-43f0-865c-31f6cabb81e6",
+  "projectId": "927f0d10-8e3a-4a19-bddd-e2f0f3262ea6",
+  "codeVersion": "v1",
+  "runIdIfAvailable": "9f1621ac-5f71-49c5-b9bb-dc24070ac44c",
+  "targetUrl": "https://buddysaradhi.vercel.app",
+  "failedStepIndex": 17,
+  "failureKind": null,
+  "capturedAt": "2026-08-06T06:46:53.906Z",
+  "fetchedAt": "2026-08-06T06:51:12.186Z"
+}

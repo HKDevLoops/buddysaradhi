@@ -1,0 +1,20 @@
+{
+  "testId": "720786d9-86f4-43f0-865c-31f6cabb81e6",
+  "status": "blocked",
+  "startedAt": "2026-08-06T06:40:18.487Z",
+  "finishedAt": "2026-08-06T06:46:53.906Z",
+  "videoUrl": "https://testsprite-videos.s3.us-east-1.amazonaws.com/94984488-30c1-7096-59bf-df0379492bf9/1785998813681366//tmp/085bf0e2-52b6-4646-aedd-81dc29dc6928/result.webm",
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_95cc87f013b31c9a",
+  "runIdIfAvailable": "9f1621ac-5f71-49c5-b9bb-dc24070ac44c",
+  "codeVersion": "v1",
+  "targetUrl": "https://buddysaradhi.vercel.app",
+  "targetUrlSource": "run",
+  "failedStepIndex": 17,
+  "failureKind": null,
+  "verdict": "blocked",
+  "executionStatus": "completed",
+  "summary": "Blocked before a verdict could be produced: TEST BLOCKED\n\nThe smoke test of the 5 persistent screens completed UI-level checks, but the test could not be fully completed because the browser console could not be accessed from this environment.\n\nSummary of observations (UI-level):\n- Dashboard: Rendered successfully with KPI cards and empty-state messages (Collected ₹0.00, Due Till Date ₹0.00, Active Students 0, Overdue ₹0.00, Due Today empty, Activity empty). No infinite loading visible.\n- Studen…",
+  "apiOutput": null,
+  "trace": null
+}

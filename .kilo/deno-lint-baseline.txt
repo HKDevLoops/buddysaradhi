@@ -1,0 +1,768 @@
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown project config "symlink". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm notice run npx
+npm notice run deno lint apps/gateway/
+Warning "exports" field should be specified when specifying a "name".
+    at file:///D:/Projects/buddysaradhi/buddysaradhi/apps/gateway/deno.json
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\schema.ts:1:29
+  | 
+1 | import type { Client } from "https://esm.sh/@libsql/client@0.14.0";
+  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\db.ts:1:46
+  | 
+1 | import { createClient as createLibsql } from "https://esm.sh/@libsql/client@0.14.0";
+  |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[require-await]: Async function 'run' has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\db.ts:17:8
+   | 
+17 | export async function run(
+   |        ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async function 'recordAudit' has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\helpers.ts:43:8
+   | 
+43 | export async function recordAudit(
+   |        ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async function 'recordOutbox' has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\helpers.ts:66:8
+   | 
+66 | export async function recordOutbox(
+   |        ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[no-unused-vars]: `oneRow` is never used
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\routes\analytics.ts:2:10
+  | 
+2 | import { oneRow, allRows } from "../lib/db.ts";
+  |          ^^^^^^
+  = hint: If this is intentional, alias it with an underscore like `oneRow as _oneRow`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\graphql\resolvers.ts:18:11
+   | 
+18 |   health: async () => "ok",
+   |           ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\auth.ts:1:42
+  | 
+1 | import { createClient as createSb } from "https://esm.sh/@supabase/supabase-js@2";
+  |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\errors.test.ts:109:29
+    | 
+109 |   it("supports 403 status", async () => {
+    |                             ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\schema.test.ts:399:14
+    | 
+399 |     execute: async (stmt: string) => {
+    |              ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[no-unused-vars]: `vi` is never used
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\log.test.ts:1:44
+  | 
+1 | import { describe, it, expect, beforeEach, vi } from "vitest";
+  |                                            ^^
+  = hint: If this is intentional, alias it with an underscore like `vi as _vi`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[no-unused-vars]: `fail` is never used
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\index.ts:4:14
+  | 
+4 | import { ok, fail, json, securityFail } from "./lib/errors.ts";
+  |              ^^^^
+  = hint: If this is intentional, alias it with an underscore like `fail as _fail`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[no-unused-vars]: `now` is never used
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\routes\students.ts:268:11
+    | 
+268 |     const now = new Date().toISOString();
+    |           ^^^
+    = hint: If this is intentional, prefix it with an underscore like `_now`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[no-control-regex]: Unexpected control character(s) in regular expression: \x1.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\security.ts:77:27
+   | 
+77 |   result = result.replace(/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = hint: Disable the rule if the control character (\x... or \u00..) was intentional, otherwise rework your RegExp
+
+  docs: https://docs.deno.com/lint/rules/no-control-regex
+
+
+error[no-unused-vars]: `key` is never used
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\lib\security.ts:170:15
+    | 
+170 |   for (const [key, value] of req.headers) {
+    |               ^^^
+    = hint: If this is intentional, prefix it with an underscore like `_key`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\provision\index.ts:10:30
+   | 
+10 | import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[no-unused-vars]: `afterEach` is never used
+ --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\security.test.ts:1:44
+  | 
+1 | import { describe, it, expect, beforeEach, afterEach } from "vitest";
+  |                                            ^^^^^^^^^
+  = hint: If this is intentional, alias it with an underscore like `afterEach as _afterEach`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\graphql\index.ts:14:46
+   | 
+14 | import { createClient as createLibsql } from "https://esm.sh/@libsql/client@0.14.0";
+   |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[no-import-prefix]: Inline 'npm:', 'jsr:' or 'https:' dependency not allowed
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\graphql\index.ts:15:42
+   | 
+15 | import { createClient as createSb } from "https://esm.sh/@supabase/supabase-js@2";
+   |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = hint: Add it as a dependency in a deno.json or package.json instead and reference it here via its bare specifier
+
+  docs: https://docs.deno.com/lint/rules/no-import-prefix
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\graphql\index.ts:155:11
+    | 
+155 |   health: async () => "ok",
+    |           ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:25:10
+   | 
+25 |     run: async (sql: string, args: unknown[] = []) => {
+   |          ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:29:14
+   | 
+29 |     allRows: async (sql: string, args: unknown[] = []) => {
+   |              ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:34:13
+   | 
+34 |     oneRow: async (sql: string, args: unknown[] = []) => {
+   |             ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async function 'recordAudit' has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:48:1
+   | 
+48 | async function recordAudit(
+   | ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async function 'recordOutbox' has no 'await' expression or 'await using' declaration.
+  --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:73:1
+   | 
+73 | async function recordOutbox(
+   | ^^^^^
+   = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[no-unused-vars]: `now` is never used
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:115:9
+    | 
+115 |   const now = new Date().toISOString();
+    |         ^^^
+    = hint: If this is intentional, prefix it with an underscore like `_now`
+
+  docs: https://docs.deno.com/lint/rules/no-unused-vars
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:411:17
+    | 
+411 |     db.oneRow = async () => null;
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:421:17
+    | 
+421 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:425:18
+    | 
+425 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:429:14
+    | 
+429 |     db.run = async (sql, _args) => {
+    |              ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:442:17
+    | 
+442 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:446:18
+    | 
+446 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:462:17
+    | 
+462 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:466:18
+    | 
+466 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:482:17
+    | 
+482 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:486:18
+    | 
+486 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:502:17
+    | 
+502 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:506:18
+    | 
+506 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:522:17
+    | 
+522 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:526:18
+    | 
+526 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:541:17
+    | 
+541 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:545:18
+    | 
+545 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:559:17
+    | 
+559 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:563:18
+    | 
+563 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:577:17
+    | 
+577 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:581:18
+    | 
+581 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:595:17
+    | 
+595 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:599:18
+    | 
+599 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:603:14
+    | 
+603 |     db.run = async (sql, _args) => {
+    |              ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:620:17
+    | 
+620 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:624:18
+    | 
+624 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:628:14
+    | 
+628 |     db.run = async (sql, _args) => {
+    |              ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:648:17
+    | 
+648 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:652:18
+    | 
+652 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:668:17
+    | 
+668 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:672:18
+    | 
+672 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:688:17
+    | 
+688 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:692:18
+    | 
+692 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:708:17
+    | 
+708 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:712:18
+    | 
+712 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:739:17
+    | 
+739 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:743:18
+    | 
+743 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:747:14
+    | 
+747 |     db.run = async (sql, _args) => {
+    |              ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:771:17
+    | 
+771 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:775:18
+    | 
+775 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:795:17
+    | 
+795 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:799:18
+    | 
+799 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:813:17
+    | 
+813 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:817:18
+    | 
+817 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:831:17
+    | 
+831 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:835:18
+    | 
+835 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:849:17
+    | 
+849 |     db.oneRow = async (sql, _args) => {
+    |                 ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:853:18
+    | 
+853 |     db.allRows = async (sql, _args) => {
+    |                  ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:879:22
+    | 
+879 |     emptyDb.oneRow = async (sql, _args) => {
+    |                      ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:886:23
+    | 
+886 |     emptyDb.allRows = async (sql, _args) => {
+    |                       ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+error[require-await]: Async arrow function has no 'await' expression or 'await using' declaration.
+   --> D:\Projects\buddysaradhi\buddysaradhi\apps\gateway\__tests__\students-delete.test.ts:890:19
+    | 
+890 |     emptyDb.run = async (sql, _args) => {
+    |                   ^^^^^
+    = hint: Remove 'async' keyword from the function or use 'await' expression or 'await using' declaration inside.
+
+  docs: https://docs.deno.com/lint/rules/require-await
+
+
+Found 76 problems
+Checked 34 files

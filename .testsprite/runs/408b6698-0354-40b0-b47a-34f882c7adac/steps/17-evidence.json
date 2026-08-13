@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "snapshot",
+    "stepIndex": 17,
+    "summary": "Step 17 'Click the 'Tuition Centre' site title to open the product landing page and verify the hero, features, pricing, and download sections' passed.",
+    "path": "steps/17-snapshot.html"
+  }
+]
