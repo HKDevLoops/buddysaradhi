@@ -13,7 +13,7 @@ interface ScrollBoundAnimeProps {
 export function ScrollBoundAnime({ startScroll, endScroll, sceneId }: ScrollBoundAnimeProps) {
   const scroll = useScroll();
   const containerRef = useRef<HTMLDivElement>(null);
-  const timelineRef = useRef<animejs.AnimeTimelineInstance | null>(null);
+  const timelineRef = useRef<ReturnType<typeof anime.timeline> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
