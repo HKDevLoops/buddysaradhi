@@ -1,5 +1,0 @@
-{
-  "buildCommand": "bun x prisma generate && bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && bun --filter product-page build",
-  "installCommand": "bun install && bun x prisma generate",
-  "outputDirectory": "apps/product-page/.next"
-}
