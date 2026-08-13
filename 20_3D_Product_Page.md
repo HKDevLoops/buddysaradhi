@@ -378,3 +378,21 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
                                                      discrete → [1, 2]
                                                      integrated → [0.75, 1.5]
 ```
+
+---
+
+## 12. 3D Narrative Story (The "Curious Bastard" Journey)
+
+The 3D hero scene and associated video/animation assets will follow a specific narrative arc combining modern tech aesthetics with classic anime direction styles (inspired by Naruto, Dragonball, and One Piece). 
+
+**The Plot:**
+1. **The Hook:** A "curious tech nerd" holding a smartphone discovers a bustling tuition centre.
+2. **The Exploration:** He enters and roams the premises. The camera follows him as he witnesses the vibrant life of a tuition centre: students fighting, quarrelling, teasing each other, but also supporting, competing, learning morals, and experiencing comedy. 
+3. **The Relief:** Seeing this lively, dynamic environment, he is satisfied and all his doubts about the tuition centre are relieved.
+4. **The Climax (The Staffroom):** He enters the admin staffroom for admission. The camera reveals the secret behind the centre's seamless operation: every tutor is using the **BuddySaradhi** application.
+5. **The Reveal:** The 3D UI zooms into the BuddySaradhi screens, showcasing planning, attendance tracking, student details, SaaS implementation, and fee calculations—all incredibly transparent and easy to use.
+
+**Style & Direction:**
+- **Animation Style:** Dynamic camera angles, fast zooms, and expressive character reactions reminiscent of shōnen anime (Naruto, DBZ, One Piece).
+- **Aesthetic:** Modern dressing, contemporary scenes, but with high-energy anime pacing.
+- **Tools for Asset Generation:** Use Impeccable for anti-slop UI design. Use Nano Banana, Veo, or procedural Python animation scripts to generate the videography and animated assets, which will then be mapped onto 3D planes or embedded as video textures in the Three.js scene.

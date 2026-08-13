@@ -160,6 +160,14 @@ The following ten rules are the load-bearing constraints of the system. They are
 - **Enforced.** `axe-core` gate in CI. Lint `no-color-only-status`. Manual VoiceOver/TalkBack pass before release.
 - **If asked to violate.** Refuse. Cite P15. Propose: add an icon + text label alongside the color; raise the target to 44px.
 
+### Rule 11 — One Directory, One Deployment Target
+
+> **Each application directory in the monorepo must be deployed to exactly one dedicated backend server or cloud service. Cross-deployment mixing is forbidden.**
+
+- **Why.** Deploying multiple apps to the same target or mixing deployment configs (e.g., deploying `apps/web` to the `product-page` project) breaks environment isolation and causes severe routing/CORS failures.
+- **Enforced.** Deployment manifests (like `vercel.json` or `wrangler.toml`) must strictly map commands to their designated app directories.
+- **If asked to violate.** Refuse. Propose isolating the deployment target to its specific directory.
+
 ---
 
 ## 3. File Map
