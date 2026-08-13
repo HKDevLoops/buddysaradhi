@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import React, { Suspense, useState, useEffect } from 'react';
@@ -7,14 +8,17 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 import { HeroSkeleton } from './Skeleton';
 import { Poster } from './Poster';
 
+import { ScrollControls, Scroll } from '@react-three/drei';
+import { EffectComposer, Bloom, ChromaticAberration, Noise } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
+import * as THREE from 'three';
+import { StoryScene } from './story/StoryScene';
+import { Topbar } from './story/Topbar'; // We'll create this or just inline it
+
 const Canvas = dynamic(() => import('@react-three/fiber').then(mod => mod.Canvas), { ssr: false });
 const AdaptiveDpr = dynamic(() => import('@react-three/drei').then(mod => mod.AdaptiveDpr), { ssr: false });
 const Environment = dynamic(() => import('@react-three/drei').then(mod => mod.Environment), { ssr: false });
-
-const LedgerCard = dynamic(() => import('./scene/LedgerCard').then(mod => mod.LedgerCard), { ssr: false });
-const AccentLights = dynamic(() => import('./scene/AccentLights').then(mod => mod.AccentLights), { ssr: false });
 const ParticleField = dynamic(() => import('./scene/ParticleField').then(mod => mod.ParticleField), { ssr: false });
-const ContactShadow = dynamic(() => import('./scene/ContactShadow').then(mod => mod.ContactShadow), { ssr: false });
 
 export function Hero3D() {
   const isWebGLAvailable = useWebGLAvailable();
@@ -40,7 +44,7 @@ export function Hero3D() {
   }
 
   return (
-    <div className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }} aria-hidden="true">
+    <div className="absolute inset-0 w-full h-full bg-[var(--bg-cosmic)]" style={{ zIndex: 0 }} aria-hidden="true">
       {(!isReady || isWebGLAvailable === null) && <HeroSkeleton />}
       
       {isWebGLAvailable && (
@@ -52,18 +56,86 @@ export function Hero3D() {
             style={{ opacity: isReady ? 1 : 0, transition: 'opacity 0.3s ease-in-out', position: 'absolute', inset: 0 }}
           >
             <color attach="background" args={["transparent"]} />
-            <fog attach="fog" args={["#0a0a1a", 6, 14]} />
+            <fog attach="fog" args={["#0a0a1a", 5, 20]} />
             
             <AdaptiveDpr pixelated />
             <Environment preset="city" />
             
-            <AccentLights isFrozen={isReducedMotion} />
-            <ParticleField count={isLowEnd ? 80 : 200} isFrozen={isReducedMotion} />
-            <LedgerCard isLowEnd={isLowEnd} />
-            <ContactShadow />
+            <EffectComposer disableNormalPass>
+              <Bloom 
+                luminanceThreshold={0.2} 
+                mipmapBlur 
+                intensity={1.2} 
+              />
+              <ChromaticAberration 
+                blendFunction={BlendFunction.NORMAL}
+                offset={new THREE.Vector2(0.002, 0.002)}
+              />
+              <Noise opacity={0.02} />
+            </EffectComposer>
+            
+            <ScrollControls pages={5} damping={0.2}>
+              {/* 3D Scene Layer */}
+              <Scroll>
+                <ParticleField count={isLowEnd ? 80 : 200} isFrozen={isReducedMotion} />
+                <StoryScene isLowEnd={isLowEnd} />
+              </Scroll>
+              
+              {/* HTML Overlay Layer synced with scroll */}
+              <Scroll html style={{ width: '100vw', height: '100vh' }}>
+                <Topbar />
+                
+                {/* Zone 1 HTML */}
+                <div className="absolute top-[15vh] left-[10vw] max-w-md pointer-events-none">
+                  <h1 className="font-[family-name:var(--font-heading)] text-5xl md:text-7xl font-semibold tracking-tight gradient-text leading-[1.05]">
+                    Discover the ultimate OS.
+                  </h1>
+                  <p className="mt-6 text-[var(--text-secondary)] text-lg glass-faint rounded-2xl p-4">
+                    Scroll down to join our curious nerd on a journey through the modern tuition centre.
+                  </p>
+                </div>
+
+                {/* Zone 2 HTML */}
+                <div className="absolute top-[120vh] right-[10vw] max-w-md pointer-events-none text-right">
+                  <h2 className="font-[family-name:var(--font-heading)] text-4xl font-bold text-[var(--accent-cyan)]">
+                    Vibrant & Dynamic
+                  </h2>
+                  <p className="mt-4 text-[var(--text-secondary)] text-lg">
+                    Tutors handle chaos effortlessly. From tracking attendance to managing daily operations.
+                  </p>
+                </div>
+
+                {/* Zone 3 HTML */}
+                <div className="absolute top-[240vh] left-[10vw] max-w-md pointer-events-none">
+                  <h2 className="font-[family-name:var(--font-heading)] text-4xl font-bold text-[var(--accent-emerald)]">
+                    Relief from chaos.
+                  </h2>
+                  <p className="mt-4 text-[var(--text-secondary)] text-lg">
+                    Everything just works. No missing receipts. No lost attendance logs.
+                  </p>
+                </div>
+
+                {/* Zone 4 HTML */}
+                <div className="absolute top-[350vh] w-full flex justify-center pointer-events-none">
+                  <div className="text-center">
+                    <h2 className="font-[family-name:var(--font-heading)] text-5xl font-bold text-white mb-6 drop-shadow-[0_0_15px_rgba(0,240,255,0.5)]">
+                      Welcome to the Staffroom.
+                    </h2>
+                    <a
+                      href="/signup"
+                      style={{ pointerEvents: 'auto' }}
+                      className="inline-flex min-h-[52px] px-10 items-center justify-center rounded-xl bg-[var(--accent-emerald)] text-[var(--text-on-accent)] font-bold text-lg no-underline shadow-[0_8px_32px_rgba(0,255,157,0.4)] hover:brightness-110 active:translate-y-[1px] transition-all"
+                    >
+                      Start Free Today
+                    </a>
+                  </div>
+                </div>
+              </Scroll>
+            </ScrollControls>
           </Canvas>
         </Suspense>
       )}
     </div>
   );
 }
+

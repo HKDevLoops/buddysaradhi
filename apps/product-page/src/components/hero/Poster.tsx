@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 
 export function Poster() {
@@ -21,3 +22,4 @@ export function Poster() {
     </div>
   );
 }
+

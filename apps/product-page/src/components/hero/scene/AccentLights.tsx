@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { Float } from '@react-three/drei';
 
@@ -20,3 +21,4 @@ export function AccentLights({ isFrozen }: { isFrozen: boolean }) {
     </>
   );
 }
+

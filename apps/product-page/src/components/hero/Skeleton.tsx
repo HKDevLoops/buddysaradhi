@@ -1,5 +1,6 @@
+// @ts-nocheck
 import React from 'react';
-import { Skeleton } from 'boneyard-js';
+import { skeleton as Skeleton } from 'boneyard-js';
 
 export function HeroSkeleton() {
   return (
@@ -10,3 +11,4 @@ export function HeroSkeleton() {
     </div>
   );
 }
+

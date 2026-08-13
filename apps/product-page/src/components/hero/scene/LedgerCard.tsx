@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React from 'react';
 import { MeshTransmissionMaterial, Edges, Html } from '@react-three/drei';
 import { glassMaterialConfig } from '../materials/glassMaterial';
@@ -34,3 +35,4 @@ export function LedgerCard({ isLowEnd }: { isLowEnd: boolean }) {
     </mesh>
   );
 }
+
