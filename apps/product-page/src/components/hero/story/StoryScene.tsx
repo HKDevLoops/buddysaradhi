@@ -3,7 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Plane, Html, useScroll, Float, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { ScrollBoundVideo } from '../scene/ScrollBoundVideo';
+import { ScrollBoundAnime } from './ScrollBoundAnime';
 
 // ----------------------------------------------------------------------
 // Phase 2: Narrative Environment (Cloud Studio / Naruko Alley DNA)
@@ -117,21 +117,15 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
               thickness={2}
               envMapIntensity={1.5}
             />
-            {/* The video will overlay the glass if the file exists in /public. It scrubs from scroll 0.0 to 0.4 */}
-            <ScrollBoundVideo url="/curious_bastard_hook.mp4" startScroll={0.0} endScroll={0.4} />
+            {/* The Anime.js storyboard will overlay the glass. It scrubs from scroll 0.0 to 0.4 */}
+            <ScrollBoundAnime sceneId="hook" startScroll={0.0} endScroll={0.4} />
             <Html transform distanceFactor={3} position={[0, 0, 0.01]}>
-              <div className="w-[800px] h-[450px] bg-black/60 backdrop-blur-xl border border-[var(--accent-cyan)]/30 rounded-2xl flex flex-col items-center justify-center p-8 overflow-hidden relative">
-                {/* Video Placeholder Indicator */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
-                  <span className="text-[var(--accent-cyan)] font-mono text-4xl text-center">
-                    [ VIDEO ASSET REQUIRED ]<br/>public/curious_bastard_hook.mp4
-                  </span>
-                </div>
+              <div className="w-[800px] h-[450px] bg-black/60 backdrop-blur-xl border border-[var(--accent-cyan)]/30 rounded-2xl flex flex-col items-center justify-end p-8 overflow-hidden relative shadow-[0_0_50px_rgba(0,255,255,0.05)]">
                 
-                <div className="text-center relative z-10">
-                  <div className="text-[var(--accent-cyan)] text-xl font-mono mb-4 animate-pulse px-4 py-1 border border-[var(--accent-cyan)] rounded-full inline-block">REC • VEO FEED ACTIVE</div>
+                <div className="text-center relative z-10 mb-4">
+                  <div className="text-[var(--accent-cyan)] text-xl font-mono mb-4 animate-pulse px-4 py-1 border border-[var(--accent-cyan)] rounded-full inline-block">STORY FEED ACTIVE</div>
                   <h3 className="text-4xl text-white font-[family-name:var(--font-heading)] font-bold">The Curious Bastard Finds a Tuition</h3>
-                  <p className="text-[var(--text-secondary)] mt-4 text-xl">A Veo-generated shōnen cinematic.</p>
+                  <p className="text-[var(--text-secondary)] mt-4 text-xl">A procedurally animated shōnen cinematic.</p>
                 </div>
               </div>
             </Html>
@@ -152,18 +146,11 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
               thickness={3}
               envMapIntensity={2}
             />
-            {/* The chaos video scrubs as you move past it from scroll 0.3 to 0.7 */}
-            <ScrollBoundVideo url="/chaos_hallway.mp4" startScroll={0.3} endScroll={0.7} />
+            {/* The chaos anime scrubs as you move past it from scroll 0.3 to 0.7 */}
+            <ScrollBoundAnime sceneId="chaos" startScroll={0.3} endScroll={0.7} />
             <Html transform distanceFactor={3} position={[0, 0, 0.01]}>
               <div className="w-[900px] h-[500px] bg-[var(--accent-emerald)]/5 backdrop-blur-xl border border-[var(--accent-emerald)]/40 rounded-3xl p-8 flex flex-col justify-end overflow-hidden relative shadow-[0_0_50px_rgba(0,255,157,0.05)]">
-                {/* Video Placeholder Indicator */}
-                <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
-                  <span className="text-[var(--accent-emerald)] font-mono text-4xl text-center">
-                    [ VIDEO ASSET REQUIRED ]<br/>public/chaos_hallway.mp4
-                  </span>
-                </div>
-
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent z-0" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent z-0 pointer-events-none" />
                 <div className="relative z-10">
                   <span className="px-3 py-1 bg-[var(--accent-emerald)] text-black text-sm font-bold uppercase tracking-widest rounded-full shadow-[0_0_15px_var(--accent-emerald)]">Hallway Cam 04</span>
                   <h3 className="text-5xl text-white font-[family-name:var(--font-heading)] font-bold mt-4 drop-shadow-lg">Chaos ensues.</h3>
