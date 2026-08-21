@@ -23,7 +23,7 @@ export function TestimonialsSection() {
 
       {/* Workflow Highlights Grid */}
       <div className="grid gap-6 md:grid-cols-3">
-        {WORKFLOW_HIGHLIGHTS.map((item) => {
+        {WORKFLOW_HIGHLIGHTS.map((item: (typeof WORKFLOW_HIGHLIGHTS)[number]) => {
           return (
             <div
               key={item.id}

@@ -12,6 +12,39 @@ export interface Testimonial {
   gradientEnd: string;
 }
 
+export const WORKFLOW_HIGHLIGHTS = [
+  {
+    id: "attendance-engine",
+    category: "01 / Attendance",
+    title: "20-Second Batch Marking",
+    summary: "Mark 38 students present in 20 seconds with single-tap batch operations and automatic 24-hour locking.",
+    feature: "24-hour lock guarantee",
+    benefit: "Prevents post-facto disputes with audit trail",
+    accentColor: "var(--accent-emerald)",
+    initials: "✓",
+  },
+  {
+    id: "ledger-engine",
+    category: "02 / Ledger",
+    title: "Zero-Drift Finance",
+    summary: "Integer-paise ledger with HMAC-SHA256 chain — every fee maps to exact receipts, voids as new rows.",
+    feature: "Append-only immutable",
+    benefit: "No reconcile drift, even at 200 students",
+    accentColor: "var(--accent-cyan)",
+    initials: "₹",
+  },
+  {
+    id: "sovereign-engine",
+    category: "03 / Sovereign",
+    title: "Offline-First Sync",
+    summary: "Every mutation writes to sync_outbox in same transaction — works offline, syncs on reconnect.",
+    feature: "Offline-first + sovereign",
+    benefit: "No data loss when phone is stolen",
+    accentColor: "var(--accent-violet)",
+    initials: "◈",
+  },
+];
+
 export const TESTIMONIALS: Testimonial[] = [
   {
     id: "riya-sharma",
