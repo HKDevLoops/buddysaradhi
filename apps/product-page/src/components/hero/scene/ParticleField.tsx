@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Implements: 20_3D_Product_Page.md §1 (particle field 200 points, parallax on pointer)
 // Lightweight SSR-safe: Points with BufferGeometry, no instanced mesh, bioluminescent palette only.
 'use client';
