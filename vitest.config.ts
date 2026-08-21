@@ -15,5 +15,7 @@ export default defineConfig({
     // Gateway tests need Deno shims (stdout.writeSync, env.get, serve).
     // The setup file is a no-op for tests that don't use Deno APIs.
     setupFiles: [path.resolve(__dirname, 'apps/gateway/__tests__/setup.ts')],
+    hookTimeout: 60000,
+    testTimeout: 30000,
   },
 });

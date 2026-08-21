@@ -56,12 +56,13 @@ async function makeStudent() {
   return id;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "ledger-test-"));
   TEST_DB = join(tmpDir, "ledger-test.db").replace(/\\/g, "/");
   DATABASE_URL = `file:${TEST_DB}`;
-  
+
   const runner = process.platform === "win32" ? "npx.cmd" : "npx";
+  // prisma db push can take >10s on cold CI (Windows + pnpm store); allow 60s
   execSync(`${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss`, {
     cwd: REPO,
     stdio: "ignore",
@@ -75,7 +76,9 @@ beforeAll(() => {
       },
     },
   });
-});
+  // Verify DB is reachable before tests start (fails fast if push was slow)
+  await prisma.$connect();
+}, 60000);
 
 afterAll(async () => {
   if (prisma) await prisma.$disconnect().catch(() => {});
@@ -93,7 +96,7 @@ afterAll(async () => {
   } catch {
     // ignore
   }
-});
+}, 30000);
 
 describe("postLedgerEntry", () => {
   it("posts a chained fee entry and updates the running balance", async () => {
