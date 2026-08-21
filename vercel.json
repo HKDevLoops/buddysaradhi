@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "bun x prisma generate && bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && bun --filter web build",
+  "installCommand": "bun install && bun x prisma generate",
+  "outputDirectory": "apps/web/.next"
+}
