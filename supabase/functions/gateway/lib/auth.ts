@@ -34,8 +34,14 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
     throw new AuthError("unauthorized: missing authorization header", 401);
   }
 
+  // mock-token bypass is DEV-ONLY — Supabase Edge sets DENO_DEPLOYMENT_ID on prod. Reject in production.
   if (jwt.startsWith("mock-token-")) {
+    const isDeployed = typeof Deno !== "undefined" && !!Deno.env.get("DENO_DEPLOYMENT_ID");
+    if (isDeployed) {
+      throw new AuthError("unauthorized: mock tokens not permitted in production", 401);
+    }
     const tenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id") || jwt.replace(/^mock-token-/i, "") || "local-dev";
+    logWarn("auth.mock_token_used", { tenantId });
     return { tenantId };
   }
 

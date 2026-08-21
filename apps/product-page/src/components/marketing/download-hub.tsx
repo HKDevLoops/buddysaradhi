@@ -80,7 +80,7 @@ export function DownloadHub() {
     <section id="download" className="relative z-10 mx-auto max-w-6xl px-6 py-24 border-t border-[var(--border-glass)]">
       <div className="text-center max-w-3xl mx-auto mb-16">
         <span className="chip chip-info mb-4">
-          <span className="chip-dot" aria-hidden="true" />
+          <Monitor className="w-3.5 h-3.5" aria-hidden="true" />
           Cross-Platform OS
         </span>
         <h2 className="font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-semibold tracking-tight [text-wrap:balance] text-[var(--text-primary)]">
@@ -93,10 +93,10 @@ export function DownloadHub() {
 
       {/* Recommended Platform Banner */}
       {detected !== "web" && detected !== "linux" && detected !== "ios" && (
-        <div className="mb-8 flex items-center justify-center animate-pulse">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[var(--accent-emerald)]/10 border border-[var(--accent-emerald)]/20 text-xs text-[var(--accent-emerald)] font-semibold">
-            <Sparkles className="w-3.5 h-3.5" />
-            Detected {detected.toUpperCase()} — Recommended for your current device
+        <div className="mb-8 flex items-center justify-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[var(--surface-glass-strong)] border border-[var(--accent-emerald)]/30 text-xs text-[var(--accent-emerald)] font-mono font-semibold">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span>DETECTED {detected.toUpperCase()} — Recommended build for your current device</span>
           </div>
         </div>
       )}
@@ -111,16 +111,16 @@ export function DownloadHub() {
             <div
               key={platform.id}
               className={cn(
-                "glass transition-all duration-300 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden",
+                "transition-all duration-200 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden",
                 isRecommended
-                  ? "border border-[var(--accent-emerald)]/40 shadow-[0_0_24px_color-mix(in_srgb,var(--accent-emerald)_15%,transparent)] bg-[var(--surface-glass-strong)]"
-                  : "border border-[var(--border-glass)] hover:border-[var(--border-strong)] bg-[var(--surface-glass-faint)]",
-                isWeb && "md:col-span-2 lg:col-span-1" // Web card styling
+                  ? "border border-[var(--accent-emerald)]/50 bg-[var(--surface-glass-strong)] shadow-[0_4px_24px_rgba(0,255,157,0.08)]"
+                  : "border border-[var(--border-glass)] hover:border-[var(--border-strong)] bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)]",
+                isWeb && "md:col-span-2 lg:col-span-1"
               )}
             >
               {isRecommended && (
-                <div className="absolute top-0 right-0 px-3 py-1 rounded-bl-xl bg-[var(--accent-emerald)] text-[var(--text-on-accent)] font-semibold text-[10px] tracking-wider uppercase">
-                  Best Fit
+                <div className="absolute top-0 right-0 px-3 py-1 rounded-bl-lg bg-[var(--accent-emerald)] text-[var(--text-on-accent)] font-semibold text-[10px] tracking-wider uppercase font-mono">
+                  Recommended
                 </div>
               )}
 
@@ -128,16 +128,16 @@ export function DownloadHub() {
                 <div className="flex items-center gap-3 mb-4">
                   <div
                     className={cn(
-                      "w-10 h-10 rounded-xl flex items-center justify-center",
+                      "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
                       platform.accent === "emerald"
-                        ? "bg-[var(--accent-emerald)]/10 text-[var(--accent-emerald)]"
-                        : "bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)]"
+                        ? "bg-[var(--accent-emerald)]/10 text-[var(--accent-emerald)] border border-[var(--accent-emerald)]/20"
+                        : "bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] border border-[var(--accent-cyan)]/20"
                     )}
                   >
                     {getPlatformIcon(platform.id)}
                   </div>
                   <div>
-                    <span className="text-[10px] tracking-wider font-semibold text-[var(--text-muted)] uppercase">
+                    <span className="text-[10px] tracking-wider font-mono font-semibold text-[var(--text-muted)] uppercase block">
                       {platform.eyebrow}
                     </span>
                     <h3 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[var(--text-primary)]">
@@ -146,7 +146,7 @@ export function DownloadHub() {
                   </div>
                 </div>
 
-                <p className="text-sm text-[var(--text-secondary)] mb-6 min-h-[40px]">
+                <p className="text-sm text-[var(--text-secondary)] mb-6 min-h-[40px] leading-relaxed">
                   {platform.pitch}
                 </p>
 
@@ -155,9 +155,9 @@ export function DownloadHub() {
                   <div className="mb-6">
                     <button
                       onClick={() => setActiveAccordion(activeAccordion === platform.id ? null : platform.id)}
-                      className="inline-flex items-center gap-1.5 text-xs text-[var(--accent-cyan)] hover:underline font-medium focus:outline-none"
+                      className="inline-flex items-center gap-1.5 text-xs text-[var(--accent-cyan)] font-mono font-medium hover:underline focus:outline-none min-h-[32px]"
                     >
-                      <span>How to install</span>
+                      <span>{activeAccordion === platform.id ? "Hide steps" : "Installation steps"}</span>
                       <ChevronDown
                         className={cn(
                           "w-3.5 h-3.5 transition-transform duration-200",
@@ -167,10 +167,11 @@ export function DownloadHub() {
                     </button>
 
                     {activeAccordion === platform.id && (
-                      <ol className="mt-3 space-y-2 text-xs text-[var(--text-secondary)] list-decimal pl-4 animate-in slide-in-from-top-2 duration-200">
+                      <ol className="mt-3 space-y-2 text-xs text-[var(--text-secondary)] font-mono">
                         {getInstallSteps(platform.id).map((step, idx) => (
-                          <li key={idx} className="pl-1">
-                            {step}
+                          <li key={idx} className="flex gap-2 items-start">
+                            <span className="text-[var(--accent-cyan)] shrink-0 font-bold">0{idx + 1}.</span>
+                            <span>{step}</span>
                           </li>
                         ))}
                       </ol>
@@ -182,9 +183,9 @@ export function DownloadHub() {
               <button
                 onClick={() => handleDownload(platform.id)}
                 className={cn(
-                  "w-full py-2.5 px-4 rounded-xl font-semibold text-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-cosmic)] focus:ring-[var(--accent-cyan)]",
+                  "w-full min-h-[44px] py-2.5 px-4 rounded-xl font-semibold text-sm transition-all focus:outline-none active:scale-[0.98]",
                   platform.accent === "emerald"
-                    ? "bg-[var(--accent-emerald)] text-[var(--text-on-accent)] hover:brightness-110 shadow-[0_4px_12px_color-mix(in_srgb,var(--accent-emerald)_30%,transparent)]"
+                    ? "bg-[var(--accent-emerald)] text-[var(--text-on-accent)] hover:brightness-110"
                     : "bg-transparent border border-[var(--accent-cyan)] text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10"
                 )}
               >

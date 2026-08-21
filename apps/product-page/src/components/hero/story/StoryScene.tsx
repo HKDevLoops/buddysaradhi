@@ -48,6 +48,9 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
   const scroll = useScroll();
   const { camera } = useThree();
 
+  // Gate heavy 3D on low-end / save-data (approved hybrid): keep features but skip Tube+Html when isLowEnd
+  // Lightweight server: no per-frame heavy geometry on low-end, preserves 60fps per 20_3D §6.
+
   // Define a curved path through the "Tuition Centre"
   const curve = useMemo(() => {
     return new THREE.CatmullRomCurve3([
@@ -70,33 +73,28 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
   const ptRelief = curve.getPointAt(0.7);
   const ptClimax = curve.getPointAt(1.0);
 
-  // Hook for scrolling camera animation
-  useFrame((state, delta) => {
-    // scroll.offset goes from 0 to 1
+  // Hook for scrolling camera animation — lightweight, lerp only
+  useFrame((state) => {
     const offset = Math.max(0, Math.min(1, scroll.offset));
-    
-    // Position camera exactly on the curve
     const camPos = curve.getPointAt(offset);
     camera.position.lerp(camPos, 0.1);
-    
-    // Look slightly ahead on the curve
     const lookAtOffset = Math.min(1, offset + 0.05);
     const lookAtPos = curve.getPointAt(lookAtOffset);
-    
-    // If we are at the very end (Staffroom), stabilize the look direction
-    if (offset > 0.95) {
-      lookAtPos.set(0, 0, -60);
-    }
-    
+    if (offset > 0.95) lookAtPos.set(0, 0, -60);
     camera.lookAt(lookAtPos);
   });
 
+  // Lightweight gate: on low-end, skip heavy TubeGeometry + Html planes + GlitchOrbs
+  if (isLowEnd) {
+    return <group />;
+  }
+
   return (
     <group>
-      {/* The Architectural Tunnel */}
+      {/* Architectural Tunnel — gated, not on low-end */}
       <mesh geometry={tubeGeom}>
         <meshBasicMaterial 
-          color="#4F46E5" 
+          color="#00F0FF" 
           wireframe 
           transparent 
           opacity={0.05} 
@@ -123,9 +121,9 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
               <div className="w-[800px] h-[450px] bg-black/60 backdrop-blur-xl border border-[var(--accent-cyan)]/30 rounded-2xl flex flex-col items-center justify-end p-8 overflow-hidden relative shadow-[0_0_50px_rgba(0,255,255,0.05)]">
                 
                 <div className="text-center relative z-10 mb-4">
-                  <div className="text-[var(--accent-cyan)] text-xl font-mono mb-4 animate-pulse px-4 py-1 border border-[var(--accent-cyan)] rounded-full inline-block">STORY FEED ACTIVE</div>
-                  <h3 className="text-4xl text-white font-[family-name:var(--font-heading)] font-bold">The Curious Bastard Finds a Tuition</h3>
-                  <p className="text-[var(--text-secondary)] mt-4 text-xl">A procedurally animated shōnen cinematic.</p>
+                  <div className="text-[var(--accent-cyan)] text-xl font-mono mb-4 px-4 py-1 border border-[var(--accent-cyan)]/40 rounded-md inline-block">STORY SCENE 01</div>
+                  <h3 className="text-4xl text-white font-[family-name:var(--font-heading)] font-bold">A Day in a Tuition Centre</h3>
+                  <p className="text-[var(--text-secondary)] mt-4 text-xl">Operational flow from batch attendance to ledger sync.</p>
                 </div>
               </div>
             </Html>
@@ -152,9 +150,9 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
               <div className="w-[900px] h-[500px] bg-[var(--accent-emerald)]/5 backdrop-blur-xl border border-[var(--accent-emerald)]/40 rounded-3xl p-8 flex flex-col justify-end overflow-hidden relative shadow-[0_0_50px_rgba(0,255,157,0.05)]">
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent z-0 pointer-events-none" />
                 <div className="relative z-10">
-                  <span className="px-3 py-1 bg-[var(--accent-emerald)] text-black text-sm font-bold uppercase tracking-widest rounded-full shadow-[0_0_15px_var(--accent-emerald)]">Hallway Cam 04</span>
-                  <h3 className="text-5xl text-white font-[family-name:var(--font-heading)] font-bold mt-4 drop-shadow-lg">Chaos ensues.</h3>
-                  <p className="text-gray-300 mt-2 text-2xl max-w-2xl drop-shadow-md">Students fighting, teasing, learning. The raw energy of a 200-student batch.</p>
+                  <span className="px-3 py-1 bg-[var(--accent-emerald)] text-black text-sm font-bold uppercase tracking-widest rounded-md">Hallway Monitor</span>
+                  <h3 className="text-5xl text-white font-[family-name:var(--font-heading)] font-bold mt-4 drop-shadow-lg">Batch Activity</h3>
+                  <p className="text-gray-300 mt-2 text-2xl max-w-2xl drop-shadow-md">Real-time attendance tracking and student notifications across 200-student institutes.</p>
                 </div>
               </div>
             </Html>
@@ -193,7 +191,7 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
               <div className="flex justify-between items-start z-10">
                 <div>
                   <div className="flex items-center gap-3">
-                    <span className="w-4 h-4 rounded-full bg-[var(--accent-emerald)] shadow-[0_0_15px_var(--accent-emerald)] animate-pulse" />
+                    <span className="w-4 h-4 rounded-full bg-[var(--accent-emerald)]" />
                     <h2 className="text-4xl font-bold font-[family-name:var(--font-heading)] text-white tracking-tight">BuddySaradhi OS</h2>
                   </div>
                   <p className="text-[var(--text-secondary)] mt-2 text-xl">The Staffroom Terminal. Total control.</p>
@@ -237,11 +235,14 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
                 <div className="col-span-2 glass-strong rounded-2xl border border-[var(--border-glass)] p-8 flex items-center justify-between hover:bg-[var(--surface-glass-strong)] transition-all cursor-pointer">
                   <div>
                     <h4 className="text-2xl font-bold text-[var(--text-primary)]">Ready to take control?</h4>
-                    <p className="text-[var(--text-secondary)] text-lg mt-2">Join the waitlist for the tuition-business OS.</p>
+                    <p className="text-[var(--text-secondary)] text-lg mt-2">Access the tuition-business operating system.</p>
                   </div>
-                  <button className="px-8 py-4 bg-[var(--accent-emerald)] text-black font-bold text-lg rounded-xl shadow-[0_0_20px_rgba(0,255,157,0.3)] hover:scale-105 transition-transform">
-                    Start Free Trial
-                  </button>
+                  <a
+                    href={`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/login`}
+                    className="px-8 py-4 bg-[var(--accent-emerald)] text-black font-bold text-lg rounded-xl no-underline hover:brightness-110 transition-all inline-block"
+                  >
+                    Open Web Portal
+                  </a>
                 </div>
               </div>
             </div>

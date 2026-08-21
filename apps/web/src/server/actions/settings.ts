@@ -63,16 +63,25 @@ export async function deleteTenantDataAction(pin: string) {
     }
     const now = new Date().toISOString();
 
-    await client.execute({
-      sql: `UPDATE students SET status = 'archived', archived_at = ?, updated_at = ? WHERE tenant_id = ?`,
-      args: [now, now, tenantId],
-    });
-
-    await client.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'tenant', ?, 'tenant_data_deleted', ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ deleted_at: now }), now],
-    });
+    // Rule 7: archive + audit + sync_outbox in one batch
+    await client.batch(
+      [
+        {
+          sql: `UPDATE students SET status = 'archived', archived_at = ?, updated_at = ? WHERE tenant_id = ?`,
+          args: [now, now, tenantId],
+        },
+        {
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'batch_archive', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, JSON.stringify({ archived_at: now }), now],
+        },
+        {
+          sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
+                VALUES (?, ?, ?, 'tenant', ?, 'tenant_data_deleted', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ deleted_at: now }), now],
+        },
+      ],
+      "write",
+    );
 
     return { success: true };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -131,6 +140,22 @@ export async function updateSettingAction(field: string, value: unknown) {
         create: { tenantId, ...updateData },
         update: updateData,
       });
+      // Rule 7: every mutation writes sync_outbox + audit_log in same logical transaction
+      const now = new Date().toISOString();
+      const payload = JSON.stringify(updateData);
+      await client.batch(
+        [
+          {
+            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+            args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
+          },
+          {
+            sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'settings.update', 'settings', ?, ?, ?)`,
+            args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ field, value }), now],
+          },
+        ],
+        "write",
+      );
     }
 
     revalidatePath("/settings");
@@ -161,6 +186,22 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
         create: { tenantId, ...updateData },
         update: updateData,
       });
+      // Rule 7: batch sync_outbox + audit_log alongside settings mutation
+      const now = new Date().toISOString();
+      const payload = JSON.stringify(updateData);
+      await client.batch(
+        [
+          {
+            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+            args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
+          },
+          {
+            sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'settings.batch_update', 'settings', ?, ?, ?)`,
+            args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ fields: Object.keys(updateData) }), now],
+          },
+        ],
+        "write",
+      );
     }
 
     revalidatePath("/settings");
@@ -235,18 +276,27 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     const newHash = await hashPin(newPin);
     const now = new Date().toISOString();
 
-    await client.execute({
-      sql: `INSERT INTO settings (tenant_id, institute_name, tenant_secret, pin_hash, created_at, updated_at)
-            VALUES (?, 'My Tuition', ?, ?, ?, ?)
-            ON CONFLICT (tenant_id) DO UPDATE SET pin_hash = excluded.pin_hash, updated_at = excluded.updated_at`,
-      args: [tenantId, crypto.randomUUID(), newHash, now, now],
-    });
-
-    await client.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
-            VALUES (?, ?, ?, 'pin.update', 'settings', ?, ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ updated_at: now }), now],
-    });
+    // Rule 7: pin update must also write sync_outbox + audit_log atomically
+    await client.batch(
+      [
+        {
+          sql: `INSERT INTO settings (tenant_id, institute_name, tenant_secret, pin_hash, created_at, updated_at)
+                VALUES (?, 'My Tuition', ?, ?, ?, ?)
+                ON CONFLICT (tenant_id) DO UPDATE SET pin_hash = excluded.pin_hash, updated_at = excluded.updated_at`,
+          args: [tenantId, crypto.randomUUID(), newHash, now, now],
+        },
+        {
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, JSON.stringify({ pin_updated_at: now }), now],
+        },
+        {
+          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+                VALUES (?, ?, ?, 'pin.update', 'settings', ?, ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ updated_at: now }), now],
+        },
+      ],
+      "write",
+    );
 
     return { success: true };
   } catch (error) {

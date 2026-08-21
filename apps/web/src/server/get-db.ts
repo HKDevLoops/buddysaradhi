@@ -151,6 +151,10 @@ export async function getGatewayHeaders(): Promise<{
   const { user, accessToken } = await getUserAndSession();
   const timestamp = String(Date.now());
   const nonce = generateNonce();
+  // SECURITY: mock-token is dev-only. In production, unauthenticated requests must not reach gateway with mock.
+  if (!accessToken && process.env.NODE_ENV === 'production') {
+    throw new Error('AUTH_REQUIRED: No session — mock tokens not permitted in production');
+  }
   const tokenHeader = accessToken ? `Bearer ${accessToken}` : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
   
   let clientIp = "127.0.0.1";

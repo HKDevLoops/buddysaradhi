@@ -1,72 +1,61 @@
 "use client";
 
 import React from "react";
-import { TESTIMONIALS } from "@/content/marketing/testimonials";
-import { Star } from "lucide-react";
+import { WORKFLOW_HIGHLIGHTS } from "@/content/marketing/testimonials";
+import { ShieldCheck, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function TestimonialsSection() {
   return (
-    <section id="testimonials" className="relative z-10 mx-auto max-w-6xl px-6 py-24 border-t border-[var(--border-glass)]">
+    <section id="features-highlights" className="relative z-10 mx-auto max-w-6xl px-6 py-24 border-t border-[var(--border-glass)]">
       <div className="text-center max-w-2xl mx-auto mb-16">
         <span className="chip chip-success mb-4">
-          <span className="chip-dot" aria-hidden="true" />
-          Tutor Trust
+          <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+          Engine Guarantees
         </span>
         <h2 className="font-[family-name:var(--font-heading)] text-4xl md:text-5xl font-semibold tracking-tight text-[var(--text-primary)]">
-          Join 1,000+ tutors across India
+          Built for Private Tutors & Institutes
         </h2>
         <p className="mt-4 text-[var(--text-secondary)]">
-          Tutors, NEET/JEE coaches, and academy owners share how BuddySaradhi simplifies their daily batch management, ledger bookkeeping, and student records.
+          Every engine in BuddySaradhi is engineered to guarantee zero financial drift, instant attendance tracking, and complete offline sovereignty.
         </p>
       </div>
 
-      {/* Testimonials Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {TESTIMONIALS.map((t) => {
+      {/* Workflow Highlights Grid */}
+      <div className="grid gap-6 md:grid-cols-3">
+        {WORKFLOW_HIGHLIGHTS.map((item) => {
           return (
             <div
-              key={t.id}
+              key={item.id}
               className="glass border border-[var(--border-glass)] hover:border-[var(--border-strong)] bg-[var(--surface-glass-faint)] hover:bg-[var(--surface-glass)] transition-all duration-300 rounded-2xl p-6 flex flex-col justify-between"
             >
               <div>
-                {/* Rating & Initials */}
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex gap-1">
-                    {Array.from({ length: t.rating }).map((_, idx) => (
-                      <Star key={idx} className="w-4 h-4 fill-[var(--accent-amber)] text-[var(--accent-amber)]" />
-                    ))}
-                  </div>
+                  <span className="px-2.5 py-1 rounded-md bg-[var(--surface-glass-strong)] text-[var(--accent-cyan)] font-mono text-xs">
+                    {item.category}
+                  </span>
                   <div
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-[var(--text-on-accent)]"
-                    )}
-                    style={{
-                      background: `linear-gradient(135deg, var(${t.gradientStart}), var(${t.gradientEnd}))`,
-                    }}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-[var(--text-on-accent)]"
+                    style={{ background: item.accentColor }}
                   >
-                    {t.initials}
+                    {item.initials}
                   </div>
                 </div>
 
-                {/* Quote */}
-                <p className="text-sm md:text-base text-[var(--text-secondary)] leading-relaxed italic mb-6">
-                  &ldquo;{t.quote}&rdquo;
+                <h3 className="font-[family-name:var(--font-heading)] text-xl font-bold text-[var(--text-primary)] mb-2">
+                  {item.title}
+                </h3>
+                <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-6">
+                  {item.summary}
                 </p>
               </div>
 
-              {/* Profile details */}
-              <div className="border-t border-[var(--border-glass)]/25 pt-4 flex justify-between items-center text-xs">
-                <div>
-                  <h4 className="font-bold text-[var(--text-primary)]">{t.name}</h4>
-                  <p className="text-[var(--text-muted)]">{t.city}</p>
+              <div className="border-t border-[var(--border-glass)]/25 pt-4 space-y-2 text-xs">
+                <div className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
+                  <CheckCircle2 className="w-4 h-4 text-[var(--accent-emerald)] shrink-0" />
+                  <span>{item.feature}</span>
                 </div>
-                <div className="text-right">
-                  <span className="inline-block px-2 py-0.5 rounded-full bg-[var(--surface-glass-strong)] text-[var(--accent-cyan)] font-semibold text-[10px] tracking-wide mb-1">
-                    {t.tier}
-                  </span>
-                  <p className="text-[var(--text-muted)] font-medium">{t.students} students</p>
-                </div>
+                <p className="text-[var(--text-muted)] pl-6">{item.benefit}</p>
               </div>
             </div>
           );

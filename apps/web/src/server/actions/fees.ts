@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAuthenticatedDb } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import { paiseAdd, paiseSub } from "@buddysaradhi/shared";
 
 // Implements: 12_Business_Rules.md BR-M-01 (integer paise), BR-SYN-01 (every mutation → sync_outbox),
 // top-level AGENTS.md §2 Rule 1 (append-only ledger; voids are NEW rows with reverses_entry_id).
@@ -90,7 +91,7 @@ async function postLedgerEntryRaw(
   const lastEntry = lastRes.rows[0];
   const prevBalance = lastEntry ? (lastEntry.balance_after_paise as number) : 0;
   const prevHash = lastEntry ? (lastEntry.this_hash as string) : null;
-  const newBalance = prevBalance + debitPaise - creditPaise;
+  const newBalance = paiseSub(paiseAdd(prevBalance, debitPaise), creditPaise);
   const secret = settingRes.rows[0]?.tenant_secret as string | null;
   if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
 
@@ -162,12 +163,12 @@ export async function recordPaymentAction(
       const duePaise = (row.total as number) || 0;
 
       if (remainingPayment >= duePaise) {
-        // Mark fully paid
+        // Mark fully paid — BR-M-01 via paiseSub
         await client.execute({
           sql: `UPDATE invoices SET status = 'paid', updated_at = ? WHERE id = ?`,
           args: [now, invId],
         });
-        remainingPayment -= duePaise;
+        remainingPayment = paiseSub(remainingPayment, duePaise);
       } else {
         // Mark partially paid
         await client.execute({
@@ -206,7 +207,7 @@ export async function recordPaymentAction(
     });
     if (studRes.rows.length > 0) {
       const curBalance = studRes.rows[0].balance_paise as number;
-      const newBal = curBalance - parsed.data.amountMinor;
+      const newBal = paiseSub(curBalance, parsed.data.amountMinor);
       await client.execute({
         sql: `UPDATE students SET balance_paise = ?, updated_at = ? WHERE id = ?`,
         args: [newBal, now, parsed.data.studentId],
@@ -275,7 +276,7 @@ export async function createInvoiceAction(
     });
     if (studRes.rows.length > 0) {
       const curBalance = studRes.rows[0].balance_paise as number;
-      const newBal = curBalance + parsed.data.amountMinor;
+      const newBal = paiseAdd(curBalance, parsed.data.amountMinor);
       await client.execute({
         sql: `UPDATE students SET balance_paise = ?, updated_at = ? WHERE id = ?`,
         args: [newBal, now, parsed.data.studentId],

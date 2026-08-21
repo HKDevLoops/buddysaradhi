@@ -1,6 +1,13 @@
 import { hash as argon2Hash, verify as argon2Verify } from 'argon2';
 
-const PEPPER = process.env.PIN_PEPPER || process.env.GATEWAY_SHARED_SECRET || '';
+function resolvePepper(): string {
+  const p = process.env.PIN_PEPPER || process.env.GATEWAY_SHARED_SECRET || '';
+  if (!p && process.env.NODE_ENV === 'production') {
+    throw new Error('CRITICAL: PIN_PEPPER or GATEWAY_SHARED_SECRET must be set in production');
+  }
+  return p || `dev-pepper-${process.env.NODE_ENV || 'development'}`;
+}
+const PEPPER = resolvePepper();
 
 export async function hashPin(pin: string): Promise<string> {
   return argon2Hash(pin, {
@@ -23,7 +30,14 @@ export async function verifyPin(pin: string, hash: string): Promise<boolean> {
   }
 }
 
-const AES_KEY = process.env.DATA_ENCRYPTION_KEY || process.env.GATEWAY_SHARED_SECRET || '';
+function resolveAesKey(): string {
+  const k = process.env.DATA_ENCRYPTION_KEY || process.env.GATEWAY_SHARED_SECRET || '';
+  if (!k && process.env.NODE_ENV === 'production') {
+    throw new Error('CRITICAL: DATA_ENCRYPTION_KEY or GATEWAY_SHARED_SECRET must be set in production');
+  }
+  return k || `dev-aes-${process.env.NODE_ENV || 'development'}`;
+}
+const AES_KEY = resolveAesKey();
 
 function deriveAesKey(salt: Uint8Array): Promise<CryptoKey> {
   const encoder = new TextEncoder();

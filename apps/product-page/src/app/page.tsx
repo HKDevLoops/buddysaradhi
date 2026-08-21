@@ -1,24 +1,20 @@
-import React from "react";
-import { Hero3D } from "@/components/hero/Hero3D";
-import { seedAdminUser } from "../lib/seedAdmin";
+import React from 'react';
+import { HeroWrapper } from '@/components/hero/HeroWrapper';
+import { HeroSections } from '@/components/hero/HeroSections';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// Marketing page is static — no per-request DB work (lightweight server).
+// 3D canvas is client-island (ssr:false inside HeroWrapper); all copy is SSR.
+export const dynamic = 'force-static';
+export const revalidate = 3600;
 
-export const dynamic = "force-dynamic";
-
-export default async function LandingPage() {
-  try {
-    if (process.env.NEXT_PHASE !== "phase-production-build") {
-      await seedAdminUser();
-    }
-  } catch (error) {
-    console.warn("Failed to seed admin user (expected during build or serverless init):", error);
-  }
-
+export default function LandingPage() {
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-[var(--bg-cosmic)] text-[var(--text-primary)]">
-      {/* 3D Story Canvas takes over completely */}
-      <Hero3D />
+    <main className="relative min-h-screen w-full bg-[var(--bg-cosmic)] text-[var(--text-primary)]">
+      {/* Client island: Topbar + 3D background (Poster fallback on SSR/no-WebGL) */}
+      <HeroWrapper />
+      {/* Server-rendered marketing sections — SEO, no JS, lightweight */}
+      <HeroSections />
     </main>
   );
 }
+

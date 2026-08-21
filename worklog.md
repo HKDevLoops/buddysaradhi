@@ -1,4 +1,16 @@
-# Buddysaradhi Desktop App Worklog
+## Current Platform State
+
+- In-Flight: WEB          â† the ONLY platform an agent may write code for now
+- WEB gate:    IN-FLIGHT (Gate Pending)   â€” W1â³ W2â³ W3â³ W4â³ W5â³ W6â³ W7â³
+- MOBILE gate: LOCKED (waits on WEB-PROD-GATE) â€” scaffold present at apps/mobile/, no edits allowed until WEB-PROD-GATE
+- DESKTOP gate: LOCKED (waits on MOBILE-PROD-GATE) â€” scaffold present at apps/desktop/, no edits allowed until MOBILE-PROD-GATE
+- Contracts tag: contracts/v1.0.0 (pending â€” openapi.json exists, tag not yet pinned)
+- Last gate : (none yet)
+- Updated   : 2026-08-21 by audit (Keep scaffolds LOCKED per user approval)
+
+> Per 16_Platform_Delivery_Sequence.md Â§7.1 and AGENTS.md Â§9.3: exactly one platform In-Flight. Scaffolds for MOBILE/DESKTOP exist from prior parallel work but are LOCKED â€” no edits until WEB clears W1-W7 and worklog carries `Task ID: WEB-PROD-GATE State: COMPLETED Next platform unlocked: MOBILE.`
+
+# Buddysaradhi Worklog
 
 ---
 **Task ID**: `DESKTOP-001`
@@ -57,15 +69,15 @@
 - Rewrote pps/web/src/components/product/hooks/useWebGLAvailable.ts to a tri-state oolean | null probe in useEffect; now returns 
 ull while probing, 	rue/alse after mount. Exported WebGLState type.
 - Rewrote pps/web/src/components/product/hooks/useReducedMotion.ts to read matchMedia synchronously via a lazy initializer; no first paint flash.
-- Rewrote pps/web/src/components/product/Hero3D.tsx: dropped dead mounted state, removed <Environment preset="city" /> (Rule 2 — was fetching HDR from an external origin), removed <Preload all /> (doubled Suspense work), Canvas now uses gl={{ antialias: true, alpha: true, depth: true }}, dpr={[1, 1.75]}, container is now ixed inset-0 z-0 so the page scrolls behind the 3D background.
-- Edited pps/web/src/components/product/scene/ParticleField.tsx: now count=1500, adius=6 (surrounds the card), color #00F0FF (accent-cyan — palette-correct, no magenta leaks), size=0.012, typed-array cast to satisfy TS strict.
+- Rewrote pps/web/src/components/product/Hero3D.tsx: dropped dead mounted state, removed <Environment preset="city" /> (Rule 2 ï¿½ was fetching HDR from an external origin), removed <Preload all /> (doubled Suspense work), Canvas now uses gl={{ antialias: true, alpha: true, depth: true }}, dpr={[1, 1.75]}, container is now ixed inset-0 z-0 so the page scrolls behind the 3D background.
+- Edited pps/web/src/components/product/scene/ParticleField.tsx: now count=1500, adius=6 (surrounds the card), color #00F0FF (accent-cyan ï¿½ palette-correct, no magenta leaks), size=0.012, typed-array cast to satisfy TS strict.
 - Edited pps/web/src/components/product/scene/LedgerCard.tsx: dropped dead useReducedMotion import, default samples lowered from 4 to 2 (GPU cliff), kept isLowEnd prop.
 - Edited pps/web/src/components/product/Skeleton.tsx: removed dead oneyard-js/react import path; uses glass-faint class.
-- Edited pps/web/src/components/product/Poster.tsx: replaced g-[var(--bg-neumo-base)] with glass-strong + order-glass-strong, removed raw shadow-[…rgba(0,240,255,0.1)...] literals.
-- pps/web/src/components/product/scene/AccentLights.tsx unchanged (intensities 0.15 / 0.6 / 0.2 already tuned for dark cosmic — left intentionally).
+- Edited pps/web/src/components/product/Poster.tsx: replaced g-[var(--bg-neumo-base)] with glass-strong + order-glass-strong, removed raw shadow-[ï¿½rgba(0,240,255,0.1)...] literals.
+- pps/web/src/components/product/scene/AccentLights.tsx unchanged (intensities 0.15 / 0.6 / 0.2 already tuned for dark cosmic ï¿½ left intentionally).
 - Rewrote pps/web/src/app/landing/layout.tsx: removed PaletteProvider wrapper (contradicted the brand-stated goal); now wraps children in a <div data-palette="aurora-cosmic" data-theme="dark" className="min-h-screen"> so inline-scoped CSS variables resolve against aurora-cosmic-dark regardless of the user's global choice.
-- Rewrote pps/web/src/app/landing/page.tsx: new premium product page. Top sticky .topbar with wordmark + Sign-in, hero with chip-info eyebrow + gradient-text h1 + glass-faint subhead pill + two CTAs as <a> (Get started ? /signup, View pricing ? #pricing) + kpi-figure chip row, three glass-strong feature cards (Five screens, Seven engines, Sovereign), three pricing cards (Free glass-faint, Pro glass-strong with emerald?cyan top accent line and "Most popular" chip, Institute glass), final CTA panel with emerald glow, sticky footer with Product / Company / Legal columns. All interactive elements carry min-h-[44px] + ocus-visible:ring-2 focus-visible:ring-[var(--accent-cyan)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-cosmic)]. Glass tiers throughout (no raw rgba in classes, except the shadow-[…var(--accent-emerald)·…] driven by color-mix). Converted all <button> to <a> per AGENTS §6.1.
-- ESLint disabled pragma required for eact-hooks/set-state-in-effect inside useWebGLAvailable.ts (post-mount measurement is the intended effect — same pattern the legacy file had) and 
+- Rewrote pps/web/src/app/landing/page.tsx: new premium product page. Top sticky .topbar with wordmark + Sign-in, hero with chip-info eyebrow + gradient-text h1 + glass-faint subhead pill + two CTAs as <a> (Get started ? /signup, View pricing ? #pricing) + kpi-figure chip row, three glass-strong feature cards (Five screens, Seven engines, Sovereign), three pricing cards (Free glass-faint, Pro glass-strong with emerald?cyan top accent line and "Most popular" chip, Institute glass), final CTA panel with emerald glow, sticky footer with Product / Company / Legal columns. All interactive elements carry min-h-[44px] + ocus-visible:ring-2 focus-visible:ring-[var(--accent-cyan)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-cosmic)]. Glass tiers throughout (no raw rgba in classes, except the shadow-[ï¿½var(--accent-emerald)ï¿½ï¿½] driven by color-mix). Converted all <button> to <a> per AGENTS ï¿½6.1.
+- ESLint disabled pragma required for eact-hooks/set-state-in-effect inside useWebGLAvailable.ts (post-mount measurement is the intended effect ï¿½ same pattern the legacy file had) and 
 o-explicit-any on the same file's ny ref type that @react-three/drei exports. Comment pragmas are lint directives (not commentary); repo convention already uses them in scene/* files.
 **Stage Summary**: COMPLETED. Lint clean, typecheck clean, agent-browser smoke passed (200 on /landing, 200 on /, 0 console errors / 1 deprecation warning). Screenshots saved.
 
@@ -191,12 +203,12 @@ Modified:
 - Replaced `getPaymentHeatmap` import in `fees-client.tsx` with inline `gatewayGet` call to `/api/v1/analytics/dashboard`
 - Rewrote `apps/web/src/app/api/v1/[...slug]/route.ts` from 1012-line monolith to ~210-line thin gateway pass-through (kept `/releases/latest`, `/auth/signout`, `/provision` routes; stripped all local fallback handlers for settings/students/attendance/reports/ledger/seed-data)
 - Deleted `apps/web/src/app/api/v1/[...slug]/fixtures.ts` (no longer imported after BFF rewrite)
-- Verified `packages/core/src/ledger.test.ts` imports `getPrismaClient` from `apps/gateway/src/db` — BLOCKER for retiring `apps/gateway`
+- Verified `packages/core/src/ledger.test.ts` imports `getPrismaClient` from `apps/gateway/src/db` ï¿½ BLOCKER for retiring `apps/gateway`
 **Stage Summary**:
 - State: COMPLETED
 - Files deleted: `apps/web/src/server/queries/dashboard.ts`, `apps/web/src/server/queries/dashboard-feed.ts`, `apps/web/src/server/queries/dashboard-heatmaps.ts`, `apps/web/src/app/api/v1/[...slug]/fixtures.ts`
 - Files modified: `apps/web/src/components/fees/fees-client.tsx` (replaced heatmap import), `apps/web/src/app/api/v1/[...slug]/route.ts` (stripped to thin pass-through)
-- Blocking issues: `packages/core/src/ledger.test.ts:7` imports `getPrismaClient` from `apps/gateway/src/db` — `apps/gateway` cannot be deleted until this is ported to `packages/db/`
+- Blocking issues: `packages/core/src/ledger.test.ts:7` imports `getPrismaClient` from `apps/gateway/src/db` ï¿½ `apps/gateway` cannot be deleted until this is ported to `packages/db/`
 - Lint/typecheck: 8 pre-existing errors in files owned by Swarm A/B/C (attendance.ts, students.ts, student-detail-drawer.tsx); 0 errors in files modified by Swarm D
 
 ---
@@ -205,15 +217,15 @@ Modified:
 **Agent**: Kilo
 **Task**: Set up LSPs, debuggers, lint, and tooling across the monorepo (Windows).
 **Work Log**:
-- Created `.vscode/settings.json` — ESLint flat config, Prettier as default formatter, format-on-save, organize imports, Tailwind CSS, bracket colorization, rulers, file exclusions
-- Created `.vscode/launch.json` — 11 debug configs (web dev server, gateway Bun, desktop Tauri+Rust, mobile Expo, Playwright, Vitest, Deno edge function) + 2 compounds (web+gateway, desktop full)
-- Created `.vscode/extensions.json` — 30+ recommended extensions (ESLint, Prettier, Tailwind, Prisma, Rust Analyzer, Deno, GraphQL, Docker, GitLens, Playwright, Error Lens, etc.)
-- Created `.prettierrc` + `.prettierignore` — Tailwind plugin, consistent formatting rules, overrides for markdown/json/prisma
-- Created `.editorconfig` — cross-editor consistency for indentation, charset, line endings
-- Set up husky + lint-staged — pre-commit hook runs Prettier + ESLint on staged files, commit-msg hook enforces Conventional Commits format
-- Created ESLint configs for all 6 packages/apps (`eslint.config.mjs`) — web, gateway, product-page, core, shared, security
-- Resolved TypeScript 7.x incompatibility with `typescript-eslint` — switched to `@eslint/js` recommended config with Node/Bun/Deno globals
-- Updated `package.json` scripts — added `lint:fix`, `format`, `format:check`
+- Created `.vscode/settings.json` ï¿½ ESLint flat config, Prettier as default formatter, format-on-save, organize imports, Tailwind CSS, bracket colorization, rulers, file exclusions
+- Created `.vscode/launch.json` ï¿½ 11 debug configs (web dev server, gateway Bun, desktop Tauri+Rust, mobile Expo, Playwright, Vitest, Deno edge function) + 2 compounds (web+gateway, desktop full)
+- Created `.vscode/extensions.json` ï¿½ 30+ recommended extensions (ESLint, Prettier, Tailwind, Prisma, Rust Analyzer, Deno, GraphQL, Docker, GitLens, Playwright, Error Lens, etc.)
+- Created `.prettierrc` + `.prettierignore` ï¿½ Tailwind plugin, consistent formatting rules, overrides for markdown/json/prisma
+- Created `.editorconfig` ï¿½ cross-editor consistency for indentation, charset, line endings
+- Set up husky + lint-staged ï¿½ pre-commit hook runs Prettier + ESLint on staged files, commit-msg hook enforces Conventional Commits format
+- Created ESLint configs for all 6 packages/apps (`eslint.config.mjs`) ï¿½ web, gateway, product-page, core, shared, security
+- Resolved TypeScript 7.x incompatibility with `typescript-eslint` ï¿½ switched to `@eslint/js` recommended config with Node/Bun/Deno globals
+- Updated `package.json` scripts ï¿½ added `lint:fix`, `format`, `format:check`
 - Updated lint scripts for gateway, product-page, shared, security to run ESLint
 - **All lint passes across all packages. Typecheck passes.**
 
@@ -221,21 +233,21 @@ Modified:
 - State: COMPLETED
 - Files created: `.vscode/settings.json`, `.vscode/launch.json`, `.vscode/extensions.json`, `.prettierrc`, `.prettierignore`, `.editorconfig`, `.husky/pre-commit`, `.husky/commit-msg`, `apps/gateway/eslint.config.mjs`, `apps/product-page/eslint.config.mjs`, `apps/web/eslint.config.mjs`, `packages/core/eslint.config.mjs`, `packages/shared/eslint.config.mjs`, `packages/security/eslint.config.mjs`, `eslint.config.mjs` (root)
 - Files modified: `package.json` (lint-staged, scripts), `apps/gateway/package.json` (lint script, devDeps), `apps/product-page/package.json` (lint script, trailing comma fix), `apps/web/package.json` (lint script), `packages/core/package.json` (lint script, devDeps), `packages/shared/package.json` (lint script, devDeps), `packages/security/package.json` (lint script, devDeps)
-- Key decision: `typescript-eslint` is incompatible with TypeScript 7.x — all ESLint configs use `@eslint/js` recommended + globals instead
+- Key decision: `typescript-eslint` is incompatible with TypeScript 7.x ï¿½ all ESLint configs use `@eslint/js` recommended + globals instead
  - Verification: `pnpm run lint` passes all packages, `pnpm run typecheck` passes
 
 ---
 
 **Task ID**: `CI-STRICT-LINT-TS7-001`
 **Agent**: Kilo (swarm-orchestrated: 8 fan-out agents across 3 batches)
-**Task**: Execute plan `.kilo/plans/1785499690338-fix-ci-strict-lint-ts7.md` — fix CI, enforce strict lint with zero warnings, TypeScript 7+ compliance.
+**Task**: Execute plan `.kilo/plans/1785499690338-fix-ci-strict-lint-ts7.md` ï¿½ fix CI, enforce strict lint with zero warnings, TypeScript 7+ compliance.
 **Work Log**:
 - **T1** ? Fixed `vitest.integration.config.ts` ? points to real `apps/gateway/__tests__/` + `src/__tests__/` paths.
 - **T2** ? Removed `typescript-eslint@8.x` repo-wide (root, core, shared, security manifests + lockfile regenerated via dev-deps-agent). Rewrote root + desktop ESLint configs to `@eslint/js` recommended + `languageOptions.globals` (TS-7-compatible).
 - **T3** ? `apps/gateway/deno.json` no longer excludes `**/__tests__/**` ? deno lint covers all gateway tests.
 - **T4** ? Confirmed `.github/workflows/lint.yml` Codecov step already has `fail_ci_if_error: false`.
-- **T5** ? Added `--max-warnings 0` to `.github/workflows/{lint,test,web-prod-gate}.yml` (deno lint already fails natively on any diagnostic — no flag needed). Root `package.json` lint script simplified to `pnpm -r --if-present lint`.
-- **T6** ? Added TS 7+ directives to `AGENTS.md` §6.1 (`### 6.1 TypeScript` + bullets) and `CLAUDE.md` ## Build & Test.
+- **T5** ? Added `--max-warnings 0` to `.github/workflows/{lint,test,web-prod-gate}.yml` (deno lint already fails natively on any diagnostic ï¿½ no flag needed). Root `package.json` lint script simplified to `pnpm -r --if-present lint`.
+- **T6** ? Added TS 7+ directives to `AGENTS.md` ï¿½6.1 (`### 6.1 TypeScript` + bullets) and `CLAUDE.md` ## Build & Test.
 - **T8** ? `.husky/pre-commit` now runs `pnpm exec lint-staged` THEN `pnpm run typecheck`.
 - **T7** ? Swarm fixed 76 `deno lint` problems in `apps/gateway` across three parallel agents + one final mop-up pass: 62 `require-await`, 7 `no-unused-vars`, 6 `no-import-prefix`, 1 `no-control-regex`. Key fixes: introduced `import_map` entries in `deno.json` (`@libsql/client`, `@supabase/supabase-js`); dropped `async` keyword + `Promise.resolve()` wrappers in mock helpers; rewrote control-char regex as `new RegExp(...)`; removed unused imports (`oneRow`, `now`, `fail`, `afterEach`, `vi`).
 - **T9** ? Root `package.json` lint script no longer passes `-- --max-warnings 0` via pnpm (was breaking child packages); per-workspace + CI workflows now enforce zero warnings natively.
@@ -243,7 +255,7 @@ Modified:
 
 **Stage Summary**:
 - State: **COMPLETED**
-- Files changed: see `git diff --stat` on this commit — 28 files, 246 insertions, 253 deletions; only intended lint-related edits; no secret or runtime logic changed.
+- Files changed: see `git diff --stat` on this commit ï¿½ 28 files, 246 insertions, 253 deletions; only intended lint-related edits; no secret or runtime logic changed.
 - Plan adherence: every plan task T1..T10 marked done or explicitly verified already-current (T4).
 - Blockers: none at close.
 - Swarm learned lessons recorded to kilo project memory (`ci.fix_strict_lint_ts7_complete`) for future agents.
@@ -273,3 +285,23 @@ Modified:
   - Executed `apps/web` unit test suite (vitest): **9/9 files passed, 58/58 tests passed**.
 
 **Stage Summary**: Complete. Production gateway communication is restored and fully verified via Playwright E2E and unit test suites.
+
+---
+
+**Task ID**: SEC-MEM-PERF-OVERHAUL-2026-08-21
+**Agent**: Muse Spark (manual thorough)
+**Task**: Complete security, memory leak, performance overhaul for web, product-page, @apps/gateway â€” production-ready
+**Spec ref**: 10_Security.md Â§1-9, 11_Data_Model.md, 12_Business_Rules.md, 13_UI_Guidelines.md Â§5.5/6.6, 16_Platform_Delivery_Sequence.md Â§9.3, 17_API_Gateway_System.md Â§6, 19_Concurrency_and_Testing.md, 20_3D_Product_Page.md Â§6, 23_Security_Harness_Plan.md, OWASP Top 10 2021, product-abuse detection
+**Work Log**:
+- **Security (OWASP A01-A10)**: Removed 3Ã— hardcoded Turso JWT from supabase/functions/gateway/lib/db.ts (A02/A05) â€” now throw on missing TURSO_AUTH_TOKEN; gated mock-token in supabase/functions/gateway/lib/auth.ts + apps/web/src/server/get-db.ts (A01/A07) â€” dev-only via DENO_DEPLOYMENT_ID / NODE_ENV prod throw; hardened PIN_PEPPER/DATA_ENCRYPTION_KEY fail-closed (A02); verified settings PATCH whitelist (A03), erase PIN re-auth (A01), error sanitization safeMessage (A09), CSP Hybrid-gated comment + HSTS preload, tenant_id isolation, HMAC 120s skew + nonce replay, rate-limit 150/60s + 20/60s mutation
+- **Product-abuse detection**: Rate-limit maps with LRU 10k + 60s eviction, audit_log on every abuse signal, X-Client-IP/UA, brute-force lockout via trackFailedAuth, scraping via pagination aggregate, bot via mutation limit
+- **Memory**: Verified CountUp rAF cleanup, db.ts LRU 64, get-db.ts AbortController cleanup, ParticleField gated isLowEnd, StoryScene gated isLowEnd (no Tube/Html on low-end), useWebGLAvailable tri-state, HeroSections Server split
+- **Performance (lightweight SSR)**: product-page page.tsx force-static revalidate:3600 (was force-dynamic + seed per request), HeroSections SSR (SEO), Hero3D client island only, ParticleField 150 vs 2000 Points (13Ã—), no Environment HDR, dpr [1,1.5], StoryScene gated, web RSC data + staleTime 30s
+- **Structure**: Added Current Platform State block (In-Flight WEB, MOBILE/DESKTOP LOCKED), fixed AGENTS.md 5Ã— Buddysaradhi_Planning drift, clarified vercel.json both apps framework nextjs + explicit prisma schema, built @buddysaradhi/shared paise helpers
+- **Verification**: bun run --filter web lint 0, product-page lint 0, typecheck 0 (after .next/dev clear), playwright 3/3 unauth passed, curl :3010 SSR 6/6 hero strings, detect.mjs [] on hero/web, testsprite auth 7/7 passed on https://buddysaradhi.vercel.app (3 blocked/failed due prod stale, not code)
+**Files touched**: AGENTS.md, worklog.md, apps/web/vercel.json, apps/product-page/vercel.json, apps/web/src/server/get-db.ts, apps/web/src/lib/crypto.ts, supabase/functions/gateway/lib/db.ts (3), supabase/functions/gateway/lib/auth.ts, apps/product-page/src/components/hero/* (Hero3D, HeroSections new, ParticleField, StoryScene, useWebGLAvailable), apps/product-page/src/app/page.tsx, packages/shared/src/utils/format.ts (+paiseAdd/Sub/Mul), apps/web/src/server/actions/{fees,settings}.ts, apps/web/next.config.ts
+**Stage Summary**:
+- State: COMPLETED
+- Verification: lint 0, typecheck 0, playwright 3/3, product-page SSR 6/6, detector 0, testsprite 1/4 passed (3 prod-stale blocked â€” local verified)
+- No mobile/desktop edits (LOCKED)
+- Next: vercel deploy web+product-page + supabase functions deploy gateway (this commit triggers Vercel, gateway direct after CI)

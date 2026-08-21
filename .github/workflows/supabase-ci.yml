@@ -73,7 +73,9 @@ jobs:
       - name: Deploy Gateway
         if: steps.check-secrets.outputs.has_token == 'true'
         run: |
-          cd apps/gateway
+          mkdir -p .temp-deploy/supabase/functions/gateway
+          cp -r apps/gateway/* .temp-deploy/supabase/functions/gateway/
+          cd .temp-deploy
           supabase functions deploy gateway --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -81,7 +83,9 @@ jobs:
       - name: Deploy Provision DB
         if: steps.check-secrets.outputs.has_token == 'true'
         run: |
-          cd apps/gateway
+          mkdir -p .temp-deploy/supabase/functions/provision-db
+          cp -r apps/gateway/provision/* .temp-deploy/supabase/functions/provision-db/
+          cd .temp-deploy
           supabase functions deploy provision-db --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -89,7 +93,9 @@ jobs:
       - name: Deploy Gateway GraphQL
         if: steps.check-secrets.outputs.has_token == 'true'
         run: |
-          cd apps/gateway
+          mkdir -p .temp-deploy/supabase/functions/gateway-graphql
+          cp -r apps/gateway/graphql/* .temp-deploy/supabase/functions/gateway-graphql/
+          cd .temp-deploy
           supabase functions deploy gateway-graphql --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

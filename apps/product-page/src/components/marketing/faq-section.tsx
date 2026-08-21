@@ -81,33 +81,33 @@ export function FAQSection() {
           <button
             onClick={() => setActiveCategory("top-5")}
             className={cn(
-              "px-4 py-2 rounded-full text-xs font-semibold transition-all border",
+              "px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all border min-h-[38px] cursor-pointer",
               activeCategory === "top-5"
-                ? "bg-[var(--accent-cyan)] text-[var(--text-on-accent)] border-[var(--accent-cyan)]"
-                : "bg-[var(--surface-glass-faint)] text-[var(--text-secondary)] border-[var(--border-glass)] hover:border-[var(--border-strong)]"
+                ? "bg-[var(--accent-cyan)]/15 text-[var(--accent-cyan)] border-[var(--accent-cyan)]/40 shadow-sm"
+                : "bg-[var(--surface-glass-faint)] text-[var(--text-secondary)] border-[var(--border-glass)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
             )}
           >
-            ⭐ Top 5 Questions
+            ★ TOP 5 QUESTIONS
           </button>
           {FAQ_CATEGORIES.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
               className={cn(
-                "px-4 py-2 rounded-full text-xs font-semibold transition-all border",
+                "px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all border min-h-[38px] cursor-pointer",
                 activeCategory === cat.id
-                  ? "bg-[var(--accent-cyan)] text-[var(--text-on-accent)] border-[var(--accent-cyan)]"
-                  : "bg-[var(--surface-glass-faint)] text-[var(--text-secondary)] border-[var(--border-glass)] hover:border-[var(--border-strong)]"
+                  ? "bg-[var(--accent-cyan)]/15 text-[var(--accent-cyan)] border-[var(--accent-cyan)]/40 shadow-sm"
+                  : "bg-[var(--surface-glass-faint)] text-[var(--text-secondary)] border-[var(--border-glass)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
-              {cat.name}
+              {cat.name.toUpperCase()}
             </button>
           ))}
         </div>
       )}
 
       {/* Accordion Component */}
-      <div className="space-y-4 max-w-3xl mx-auto">
+      <div className="space-y-3 max-w-3xl mx-auto">
         {displayedItems.length > 0 ? (
           displayedItems.map((item) => {
             const isOpen = !!openIds[item.id];
@@ -115,31 +115,31 @@ export function FAQSection() {
               <div
                 key={item.id}
                 className={cn(
-                  "glass rounded-2xl border transition-all duration-300 overflow-hidden",
+                  "rounded-2xl border transition-all duration-200 overflow-hidden",
                   isOpen
-                    ? "border-[var(--accent-cyan)]/40 bg-[var(--surface-glass-strong)] shadow-[0_4px_16px_rgba(0,240,255,0.06)]"
+                    ? "border-[var(--accent-cyan)]/50 bg-[var(--surface-glass-strong)] shadow-[0_4px_16px_rgba(0,240,255,0.04)]"
                     : "border-[var(--border-glass)] hover:border-[var(--border-strong)] bg-[var(--surface-glass-faint)]"
                 )}
               >
                 <button
                   onClick={() => toggleOpen(item.id)}
                   aria-expanded={isOpen}
-                  className="w-full flex items-center justify-between px-6 py-4.5 text-left font-medium text-sm md:text-base text-[var(--text-primary)] hover:text-[var(--accent-cyan)] focus:outline-none"
+                  className="w-full flex items-center justify-between px-6 py-4.5 text-left font-medium text-sm md:text-base text-[var(--text-primary)] hover:text-[var(--accent-cyan)] focus:outline-none min-h-[52px] cursor-pointer"
                 >
-                  <span>{item.question}</span>
+                  <span className="font-[family-name:var(--font-heading)] font-semibold">{item.question}</span>
                   <ChevronDown
                     className={cn(
-                      "w-4 h-4 text-[var(--text-muted)] transition-transform duration-300 shrink-0 ml-4",
+                      "w-4 h-4 text-[var(--text-muted)] transition-transform duration-200 shrink-0 ml-4",
                       isOpen && "rotate-180 text-[var(--accent-cyan)]"
                     )}
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-6 pb-5 pt-1 text-xs md:text-sm text-[var(--text-secondary)] leading-relaxed border-t border-[var(--border-glass)]/30 animate-in fade-in duration-300">
+                  <div className="px-6 pb-5 pt-1 text-xs md:text-sm text-[var(--text-secondary)] leading-relaxed border-t border-[var(--border-glass)]/40">
                     <p>{item.answer}</p>
                     {item.linkSpec && (
-                      <span className="block mt-3 text-[10px] tracking-wider text-[var(--text-muted)] font-mono">
-                        Ref: {item.linkSpec}
+                      <span className="inline-block mt-3 px-2 py-0.5 rounded bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[10px] tracking-wider text-[var(--accent-cyan)] font-mono">
+                        SPEC REF: {item.linkSpec}
                       </span>
                     )}
                   </div>

@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 
+// Hybrid-gated (approved 2026-08-21): gateway @ api.buddysaradhi.app / supabase is primary (all web data via /api/v1/* BFF → gateway).
+// Direct Turso (wss://*.turso.io / https://*.turso.io) is fallback-only, gated by Supabase session + tenant-scoped JWT + row-level tenant_id predicate.
+// Full gateway-only enforced at WEB-PROD-GATE W2. See worklog Current Platform State and 17_API_Gateway_System.md §6.
 const csp: NextConfig["headers"] = () => [
   {
     source: "/:path*",
@@ -27,7 +30,7 @@ const csp: NextConfig["headers"] = () => [
 ];
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["172.23.224.1", "localhost", "127.0.0.1"],
+  allowedDevOrigins: ["172.23.224.1", "localhost", "127.0.0.1", "*.trycloudflare.com", "*.loca.lt", "*.lhr.life"],
   serverExternalPackages: ["@prisma/client"],
   experimental: {
     // TypeScript 7.x requires the CLI instead of the deprecated compiler API.

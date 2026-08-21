@@ -17,10 +17,9 @@ function resolveTursoUrl(url?: string): string {
 
 export function getTurso(dbUrl: string, dbToken: string): DB {
   const targetUrl = resolveTursoUrl(dbUrl);
-  let token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "");
+  const token = dbToken || (typeof Deno !== "undefined" ? (Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN")) : "");
   if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
+    throw new Error("CRITICAL: TURSO_AUTH_TOKEN missing — no fallback token allowed in production");
   }
   const key = `${targetUrl}::${token}`;
   let c = tursoCache.get(key);
@@ -38,12 +37,11 @@ async function directPipelineExecute(sql: string, args: unknown[] = [], dbUrl?: 
     return { type: "text", value: String(a) };
   });
 
-  let host = resolveTursoUrl(dbUrl);
-  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
-  if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  }
+  const hostRaw = resolveTursoUrl(dbUrl);
+  const token2 = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
+  if (!token2) throw new Error("CRITICAL: TURSO_AUTH_TOKEN missing for pipeline");
+  let host = hostRaw;
+  const token = token2;
   if (host.startsWith("libsql://")) host = host.replace("libsql://", "https://");
 
   const controller = new AbortController();
@@ -130,11 +128,8 @@ export async function batchExecute(
   dbToken?: string
 ): Promise<void> {
   let host = resolveTursoUrl(dbUrl);
-  let token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
-  if (!token) {
-    console.warn("Using fallback Turso token - this should only happen during initial deployment");
-    token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODU3MDA5MjEsImlkIjoiMDE5Zjc0MDItMWMwMS03NjUxLWEzNjQtY2VjYWQ1OWY3MGViIiwia2lkIjoiQXBxMERoSVM3dzlvOTJPNnhBUGFpaVVqYjJnVGFSRWphX3NOWkhCX1ZWWSIsInJpZCI6ImFjMTE5YjkyLTVlODgtNGRjYi04ZGY0LTE4ZjI1NWVjZWMxOSJ9.kkh4zYx236KCc8_FUaPU6olAkuzIUoXenQ8Y6ObYaH41OvfcJEgsmVMQY4KtMyYACvG4GKvZuti6ELEnYoElBA";
-  }
+  const token = dbToken || Deno.env.get("TURSO_AUTH_TOKEN") || Deno.env.get("TURSO_TOKEN");
+  if (!token) throw new Error("CRITICAL: TURSO_AUTH_TOKEN missing for batchExecute");
   
   if (host.startsWith("libsql://")) {
     host = host.replace("libsql://", "https://");

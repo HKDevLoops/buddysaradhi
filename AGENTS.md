@@ -8,7 +8,7 @@
 
 > **Before writing or modifying any code, read the relevant spec section. If no spec covers it, write the spec first, get it reviewed, then code. Code without a spec is tech debt.**
 
-The spec is not a suggestion, a "vibe," or a post-hoc decoration. It is the contract the code is held to. Every line of production code in this monorepo maps to a sentence in some spec under `Buddysaradhi_Planning/`. If you cannot point to that sentence, you are writing orphan code, and orphan code is the most expensive kind — it survives review because nobody knows what it's for, and it breaks in production because nobody knows how it should behave.
+The spec is not a suggestion, a "vibe," or a post-hoc decoration. It is the contract the code is held to. Every line of production code in this monorepo maps to a sentence in some spec under the spec root (`00_*.md` at repo root + `web/` + `product/` + `deployment/` + `mobile/` + `desktop/` — historically `Buddysaradhi_Planning/`). If you cannot point to that sentence, you are writing orphan code, and orphan code is the most expensive kind — it survives review because nobody knows what it's for, and it breaks in production because nobody knows how it should behave.
 
 ### 0.1 The Spec → Code → Test Loop
 
@@ -185,7 +185,7 @@ buddysaradhi/
 │   └── ui/             # Cross-platform glass component primitives (v1.x)
 ├── prisma/             # The Prisma schema (sandbox local dev DB)
 ├── migrations/         # Forward-only SQL migrations applied to each per-user DB
-├── Buddysaradhi_Planning/   # THE SPECIFICATION — root 00–22 + web/ mobile/ desktop/ deployment/ product/ subdirs. Read AGENTS.md + 16_Platform_Delivery_Sequence.md first.
+├── 00_*.md + web/ + product/ + deployment/ + mobile/ + desktop/   # THE SPECIFICATION — 00–23 at repo root + platform subdirs (historically Buddysaradhi_Planning/). Read AGENTS.md + 16_Platform_Delivery_Sequence.md first.
 ├── docs/
 └── .github/workflows/  # CI/CD harnesses (web, gateway, mobile, desktop)
 ```
@@ -203,9 +203,9 @@ buddysaradhi/
 | `packages/ui` (v1.x) | Cross-platform glass primitives: `GlassPanel`, `NeumoToggle`, `Chip`, `BarChart` | Compose from design tokens; never hardcode hex | Use indigo/blue accents; break the 44px target rule | `13_UI_Guidelines.md` |
 | `prisma` | Prisma schema — the single source of truth for every model (`prisma/schema.prisma`). All DB access across web, mobile, and desktop goes through `import { db } from '@/lib/db'`. | Add a model + run `bun run db:push`; never bypass ORM with `$queryRaw` / `$executeRaw` | Treat Prisma as a sandbox-only dev tool; introduce raw SQL at runtime | `11_Data_Model.md` |
 | `prisma/migrations` | Forward-only, idempotent, Prisma-managed migrations (`prisma migrate dev --name <desc>`). | Add a new numbered migration; never edit a merged one | Edit an existing migration; add a destructive `DROP` | `11_Data_Model.md` §1, `02_Core_Logic.md` §9 |
-| `Buddysaradhi_Planning` | The 24-file master spec (00–23 + 6 platform subdirs incl. deployment/06) | Read first; update via RFC when implementation diverges | Treat as documentation after the fact | This file + `01_Product_Principles.md` §Amendment Process |
+| `00_*.md` + `web/`/`product/`/`deployment/` | The 24-file master spec (00–23 + 6 platform subdirs incl. deployment/06) — spec root at repo root (historically `Buddysaradhi_Planning/`) | Read first; update via RFC when implementation diverges | Treat as documentation after the fact | This file + `01_Product_Principles.md` §Amendment Process |
 
-> The current sandbox ships only the `web` app + `Buddysaradhi_Planning`. Mobile and desktop are scaffolded in v1.x per `15_Future_Roadmap.md`.
+> The current sandbox ships only the `web` app + spec root at repo root. Mobile and desktop are scaffolded in v1.x per `15_Future_Roadmap.md` (LOCKED until WEB-PROD-GATE — see worklog Current Platform State).
 
 ### 3.2 The API-Gateway Reference (`@apps/gateway`)
 
@@ -593,7 +593,7 @@ This lint runs in the `webDevReview` cron job and on every PR. Orphaned work is 
 The full specification is `16_Platform_Delivery_Sequence.md`. This section is the executable summary every agent must obey:
 
 1. **Exactly one platform is `In-Flight` at any moment** — Web, Mobile, or Desktop. The state lives in a status block at the top of `/home/z/my-project/worklog.md`. Read it first.
-2. **An In-Flight agent edits only its own platform's files** — its app path (`apps/<platform>/`) and spec subdir (`buddysaradhi_Planning/<platform>/`). It may NOT create or edit another platform's app path or spec subdir. Cross-platform needs (a contract change, a shared-schema field) are an **RFC** (`docs/rfc/`), never a unilateral edit.
+2. **An In-Flight agent edits only its own platform's files** — its app path (`apps/<platform>/`) and spec subdir (`web/` / `product/` / `deployment/` / `mobile/` / `desktop/` at repo root — historically `Buddysaradhi_Planning/<platform>/`). It may NOT create or edit another platform's app path or spec subdir. Cross-platform needs (a contract change, a shared-schema field) are an **RFC** (`docs/rfc/`), never a unilateral edit.
 3. **A platform unlocks only on a signed Production Gate** (G1–G5) in the worklog, ending with `Next platform unlocked: <NEXT>.` Four-out-of-five is not a gate; it is `In-Flight (Gate Pending)`.
 4. **Contracts are pinned to a tag** (`contracts/v1.0.0`), never `main`, so a frozen gate cannot silently break when another platform begins.
 5. **The `no-parallel-platform` lint fails any PR** whose diff touches two or more of `apps/web/`, `apps/mobile/`, `apps/desktop/` (the sole exception: a reviewed contract-version bump).
@@ -703,7 +703,7 @@ Q4. Does it require a new network call, SDK, or telemetry beacon?
     └─ NO  → CONTINUE. Write the spec (§0.1), implement, QA per §14.
 ```
 
-**Branch semantics.** `REJECT` = log and stop. `DEFER` = RFC stub in `Buddysaradhi_Planning/rfc/`, return to orchestrator. `STOP AND ASK` = §8.1. `CONTINUE` = §0.1 + §14. *Examples:* WhatsApp auto-messaging → reject on Q3+Q4; reminder engine (Case Study 1). Edit-payment-5-min → `MAYBE` on Q2; reversing-entry design (Case Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
+**Branch semantics.** `REJECT` = log and stop. `DEFER` = RFC stub in `docs/rfc/`, return to orchestrator. `STOP AND ASK` = §8.1. `CONTINUE` = §0.1 + §14. *Examples:* WhatsApp auto-messaging → reject on Q3+Q4; reminder engine (Case Study 1). Edit-payment-5-min → `MAYBE` on Q2; reversing-entry design (Case Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 
 ---
 
@@ -1191,3 +1191,12 @@ PR-TEMPLATE ANATOMY (§5.2) — every PR cites spec, principle, edge cases, risk
 ---
 
 *This file is the operating manual. It is read first, before any spec. When a spec and this file disagree, the spec wins — unless the spec is wrong, in which case you amend the spec first, then the code, then this file. The order matters.*
+
+<!-- antislop: auto-managed block, do not edit -->
+## antislop
+For UI, copy, or people work, read `antislop.md` (core) and then the skill for the task:
+- UI / visual: `antislop-ui.md`
+- Copy & text: `antislop-copywriting.md`
+- People: `antislop-human.md`
+Before starting, ask the user when antislop applies: during the work, or after it is done.
+
