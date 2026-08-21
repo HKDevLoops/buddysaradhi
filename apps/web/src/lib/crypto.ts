@@ -16,7 +16,7 @@ export async function hashPin(pin: string): Promise<string> {
     timeCost: 3,
     parallelism: 2,
     hashLength: 32,
-    associatedData: Buffer.from(PEPPER),
+    secret: Buffer.from(PEPPER),
   });
 }
 
