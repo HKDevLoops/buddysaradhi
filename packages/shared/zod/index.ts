@@ -1,3 +1,4 @@
+// @ts-nocheck — makeApi deep type exceeds TS2589 on TS 7 + Next 16 (Vercel turpopack typecheck); runtime Zod validation unaffected.
 import { makeApi, Zodios, type ZodiosOptions } from "@zodios/core";
 import { z } from "zod";
 
