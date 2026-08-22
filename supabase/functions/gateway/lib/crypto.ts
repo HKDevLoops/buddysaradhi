@@ -6,7 +6,9 @@ const DATA_KEY = Deno.env.get("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
 if (!HMAC_SECRET || HMAC_SECRET.length < 32) {
   const env = Deno.env.get("DENO_DEPLOYMENT_ID") || Deno.env.get("SUPABASE_URL") || "local";
   if (env !== "local") {
-    logWarn("crypto.weak_hmac_secret", { length: HMAC_SECRET.length, minRequired: 32 });
+    throw new Error(
+      `CRITICAL: GATEWAY_SHARED_SECRET must be >= 32 chars in production (got ${HMAC_SECRET.length}). Set it in your Supabase Edge Function secrets.`,
+    );
   }
 }
 
@@ -57,7 +59,10 @@ function constantTimeCompare(a: string, b: string): boolean {
 }
 
 export async function encryptResponse(plaintext: string): Promise<string> {
-  if (!DATA_KEY) return plaintext;
+  if (!DATA_KEY) {
+    logWarn("crypto.encrypt_no_key", { message: "DATA_ENCRYPTION_KEY not set; returning plaintext" });
+    return plaintext;
+  }
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -122,6 +127,7 @@ interface RateLimitEntry {
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
+const RATE_LIMIT_MAX_ENTRIES = 10_000;
 let lastCleanup = Date.now();
 
 function cleanupExpiredEntries(): void {
@@ -131,6 +137,13 @@ function cleanupExpiredEntries(): void {
   for (const [key, entry] of rateLimitMap) {
     if (now > entry.resetAt && now > entry.penaltyUntil) {
       rateLimitMap.delete(key);
+    }
+  }
+  if (rateLimitMap.size > RATE_LIMIT_MAX_ENTRIES) {
+    const entries = [...rateLimitMap.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
+    const evictCount = Math.ceil(RATE_LIMIT_MAX_ENTRIES / 4);
+    for (let i = 0; i < evictCount && i < entries.length; i++) {
+      rateLimitMap.delete(entries[i][0]);
     }
   }
 }

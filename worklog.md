@@ -305,3 +305,23 @@ Modified:
 - Verification: lint 0, typecheck 0, playwright 3/3, product-page SSR 6/6, detector 0, testsprite 1/4 passed (3 prod-stale blocked — local verified)
 - No mobile/desktop edits (LOCKED)
 - Next: vercel deploy web+product-page + supabase functions deploy gateway (this commit triggers Vercel, gateway direct after CI)
+
+---
+
+**Task ID**: SWARM-AUDIT-PHASE3-2026-08-22
+**Agent**: Kilo
+**Task**: Continue swarm audit — fix remaining P1/P2 findings (CORS-1, LOG-1, SQL-1, HARDEN)
+**Spec ref**: 1785997996055-swarm-orchestration-security-audit.md Phase 3; 10_Security.md §23; AGENTS.md §2
+**Work Log**:
+- Audited prior sessions (latest ses_0276a9197ffe CI check 2026-08-20, worklog 309 lines, git main @a78fafb). Found Phase 3 plan deferred 4 tasks; verified apps/gateway already fixed (orm whitelist 4/4, crypto rateLimit 10k, log tightened, CORS in index.ts), but supabase/functions/gateway legacy was still stale.
+- **SQL-1** supabase/functions/gateway/lib/orm.ts: added ALLOWED_SORT_COLUMNS whitelist to attendanceSession (session_date/batch_name/created_at), ledgerEntry (occurred_on/type/created_at), notification (category/created_at/read) — mirrors apps/gateway fix. student already had it.
+- **CORS-1** supabase/functions/gateway/lib/errors.ts: replaced static CORS with ALLOWED_ORIGINS Set + getCorsHeaders(req) per-request origin validation + env override; no wildcard in production; credentials only with allowed origin.
+- **HARDEN** supabase/functions/gateway/lib/crypto.ts: added RATE_LIMIT_MAX_ENTRIES=10_000 + LRU eviction (oldest 25% by resetAt) matching apps/gateway; changed weak HMAC warn to throw in production; added encrypt_no_key warn.
+- **LOG-1** supabase/functions/gateway/lib/log.ts: tightened credit-card regex from /\b(?:\d{4}[-\s]?){3}\d{4}\b/g to /(?<!\d)(?:\d{4}[- ]){3}\d{4}(?!\d)/g matching apps/gateway.
+- Verification: pnpm run lint 0, pnpm run typecheck 0, deno lint apps/gateway/ 37 files 0 problems
+- Untracked antislop/ + testsprite-plans/ left intentionally — belongs to 1785527213690-realistic-ui-anti-slop plan (separate)
+**Stage Summary**:
+- State: COMPLETED
+- Files touched: supabase/functions/gateway/lib/orm.ts, errors.ts, crypto.ts, log.ts
+- Success criteria: 4/4 Phase 3 tasks done; supabase now parity with apps/gateway; no "*" CORS; all orderBy whitelisted; rateLimit capped
+- Next: commit + push; CI green check via gh (requires GH_TOKEN)

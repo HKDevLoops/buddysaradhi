@@ -260,7 +260,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         let sql = `SELECT * FROM attendance_sessions WHERE ${clause}`;
         if (args.orderBy) {
           const [col, dir] = Object.entries(args.orderBy)[0] || ["sessionDate", "desc"];
-          sql += ` ORDER BY ${camelToSnake(col)} ${dir.toUpperCase()}`;
+          const ALLOWED_SORT_COLUMNS = new Set(["session_date", "batch_name", "created_at"]);
+          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
+          const snakeCol = camelToSnake(col);
+          const upperDir = dir.toUpperCase();
+          if (ALLOWED_SORT_COLUMNS.has(snakeCol) && ALLOWED_DIRECTIONS.has(upperDir)) {
+            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
+          }
         }
         if (args.take) sql += ` LIMIT ${args.take}`;
         const rows = await allRows(db, sql, params);
@@ -357,7 +363,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         let sql = `SELECT * FROM ledger_entries WHERE ${clause}`;
         if (args.orderBy) {
           const [col, dir] = Object.entries(args.orderBy)[0] || ["occurredOn", "desc"];
-          sql += ` ORDER BY ${camelToSnake(col)} ${dir.toUpperCase()}`;
+          const ALLOWED_SORT_COLUMNS = new Set(["occurred_on", "type", "created_at"]);
+          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
+          const snakeCol = camelToSnake(col);
+          const upperDir = dir.toUpperCase();
+          if (ALLOWED_SORT_COLUMNS.has(snakeCol) && ALLOWED_DIRECTIONS.has(upperDir)) {
+            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
+          }
         }
         if (args.take) sql += ` LIMIT ${args.take}`;
         const rows = await allRows(db, sql, params);
@@ -479,7 +491,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         let sql = `SELECT * FROM notifications WHERE ${clause}`;
         if (args.orderBy) {
           const [col, dir] = Object.entries(args.orderBy)[0] || ["createdAt", "desc"];
-          sql += ` ORDER BY ${camelToSnake(col)} ${dir.toUpperCase()}`;
+          const ALLOWED_SORT_COLUMNS = new Set(["category", "created_at", "read"]);
+          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
+          const snakeCol = camelToSnake(col);
+          const upperDir = dir.toUpperCase();
+          if (ALLOWED_SORT_COLUMNS.has(snakeCol) && ALLOWED_DIRECTIONS.has(upperDir)) {
+            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
+          }
         }
         if (args.take) sql += ` LIMIT ${args.take}`;
         const rows = await allRows(db, sql, params);

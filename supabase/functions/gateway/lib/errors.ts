@@ -1,14 +1,36 @@
 import { encryptResponse } from "./crypto.ts";
 import { getSecurityHeaders } from "./security.ts";
 
-const CORS: Record<string, string> = {
-  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "https://buddysaradhi.app",
-  "Access-Control-Allow-Headers":
-    "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-  "Access-Control-Allow-Credentials": "true",
-};
+const ALLOWED_ORIGINS = new Set([
+  "https://buddysaradhi.app",
+  "https://buddysaradhi.vercel.app",
+  "https://buddysaradhi.store",
+  "http://localhost:3000",
+  "http://localhost:3001",
+]);
+
+function getCorsHeaders(req?: Request): Record<string, string> {
+  const origin = req?.headers.get("Origin") || "";
+  let allowedOrigin = "https://buddysaradhi.app";
+  if (ALLOWED_ORIGINS.has(origin)) {
+    allowedOrigin = origin;
+  } else {
+    const envOrigin = Deno.env.get("ALLOWED_ORIGIN") || Deno.env.get("ALLOWED_ORIGINS") || "";
+    if (envOrigin && envOrigin.includes(origin) && origin) {
+      allowedOrigin = origin;
+    }
+  }
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers":
+      "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce, x-tenant-id",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Access-Control-Allow-Credentials": "true",
+  };
+}
+
+const CORS: Record<string, string> = getCorsHeaders();
 
 const SECURITY_HEADERS = getSecurityHeaders();
 
