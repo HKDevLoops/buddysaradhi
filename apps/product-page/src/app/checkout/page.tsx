@@ -4,10 +4,13 @@ import React, { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Mail, MessageSquare, Loader2, ArrowLeft, CheckCircle, Send, AlertTriangle } from "lucide-react";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const BILLING_EMAIL = "billing@buddysaradhi.app";
+
 function CheckoutContent() {
   const searchParams = useSearchParams();
   const plan = searchParams.get("plan") || "growth";
-  const tenantId = searchParams.get("tenantId") || "local-dev";
+  const tenantId = searchParams.get("tenantId") || "";
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -32,45 +35,38 @@ function CheckoutContent() {
 
     setLoading(true);
 
-    // Simulate sending support/upgrade ticket to the backend
-    await new Promise((r) => setTimeout(r, 1500));
+    // Manual upgrades only: hand the request to the tutor's mail client
+    // addressed to billing. No server round-trip — this page is force-static.
+    const subject = encodeURIComponent(`Upgrade request: ${planName}`);
+    const body = encodeURIComponent(
+      `${message}\n\n—\nName: ${name}\nEmail: ${email}\nPlan: ${planName}${tenantId ? `\nAccount ID: ${tenantId}` : ""}`
+    );
+    window.location.href = `mailto:${BILLING_EMAIL}?subject=${subject}&body=${body}`;
 
-    try {
-      // Auto-provision plan for local testing, so the developer can see the change immediately
-      const res = await fetch("http://localhost:3001/api/v1/settings", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Tutor-Id": tenantId,
-        },
-        body: JSON.stringify({ plan }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Server returned ${res.status}`);
-      }
-
-      setSuccess(true);
-      await new Promise((r) => setTimeout(r, 2000));
-
-      // Redirect back to tutor settings screen
-      window.location.href = "http://localhost:3000/?screen=settings";
-    } catch (err) {
-      console.error("Upgrade request sync failed:", err);
-      alert("Something went wrong. Please try again or contact us directly at billing@buddysaradhi.app");
-    } finally {
-      setLoading(false);
-    }
+    await new Promise((r) => setTimeout(r, 800));
+    setSuccess(true);
+    setLoading(false);
   };
 
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-center animate-in fade-in duration-500">
         <CheckCircle className="w-16 h-16 text-[var(--accent-emerald)] mb-4 animate-pulse" />
-        <h2 className="text-2xl font-bold text-[var(--text-primary)]">Request Sent!</h2>
-        <p className="text-sm text-[var(--text-secondary)] mt-2">
-          We have received your upgrade request. Re-routing back to Settings...
+        <h2 className="text-2xl font-bold text-[var(--text-primary)]">Request Ready!</h2>
+        <p className="text-sm text-[var(--text-secondary)] mt-2 max-w-sm">
+          Your email client should have opened with the upgrade request addressed to {BILLING_EMAIL}.
+          If it did not, email us manually at{" "}
+          <a href={`mailto:${BILLING_EMAIL}`} className="text-[var(--accent-emerald)] underline">
+            {BILLING_EMAIL}
+          </a>
+          .
         </p>
+        <a
+          href={`${APP_URL}/?screen=settings`}
+          className="inline-flex min-h-[44px] items-center px-6 mt-6 rounded-xl bg-[var(--accent-emerald)] text-black font-bold text-sm no-underline hover:brightness-110 transition-all"
+        >
+          Return to Settings
+        </a>
       </div>
     );
   }
@@ -82,7 +78,7 @@ function CheckoutContent() {
       <div className="absolute top-0 right-0 w-32 h-32 rounded-full filter blur-[60px] opacity-10 bg-[var(--accent-emerald)]" />
       
       <button
-        onClick={() => window.location.href = "http://localhost:3000/?screen=settings"}
+        onClick={() => window.location.href = `${APP_URL}/?screen=settings`}
         className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition mb-6"
       >
         <ArrowLeft className="w-4 h-4" /> Cancel & Return
@@ -156,7 +152,7 @@ function CheckoutContent() {
             {loading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Sending Upgrade Request...
+                Opening Email Client...
               </>
             ) : (
               <>
