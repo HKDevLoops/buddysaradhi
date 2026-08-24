@@ -48,6 +48,7 @@ export function ScrollBoundVideo({
   }, [url]);
 
   useFrame(() => {
+    if (!scroll) return;
     if (videoRef.current && videoRef.current.readyState >= 2) {
       // 1. Calculate how far we are through this specific video's scroll zone
       const progress = Math.max(0, Math.min(1, (scroll.offset - startScroll) / (endScroll - startScroll)));

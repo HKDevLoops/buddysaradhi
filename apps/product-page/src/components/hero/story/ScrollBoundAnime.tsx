@@ -114,7 +114,7 @@ export function ScrollBoundAnime({ startScroll, endScroll, sceneId }: ScrollBoun
   }, [sceneId]);
 
   useFrame(() => {
-    if (!timelineRef.current) return;
+    if (!timelineRef.current || !scroll) return;
     
     // Normalize scroll progress for this specific component
     const range = endScroll - startScroll;

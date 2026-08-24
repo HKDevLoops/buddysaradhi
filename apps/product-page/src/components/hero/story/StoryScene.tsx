@@ -75,6 +75,7 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
 
   // Hook for scrolling camera animation — lightweight, lerp only
   useFrame((state) => {
+    if (!scroll) return;
     const offset = Math.max(0, Math.min(1, scroll.offset));
     const camPos = curve.getPointAt(offset);
     camera.position.lerp(camPos, 0.1);
