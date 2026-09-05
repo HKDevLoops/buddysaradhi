@@ -1,35 +1,59 @@
 # 20 — 3D Product Page
 
-> The commercial landing page (`/`) gains a **3D hero scene**: a floating neumorphic-glass tuition desk rendered in WebGL, with the bioluminescent accents from `13_UI_Guidelines.md` acting as the light sources. This is a **Web-phase deliverable** (`16_Platform_Delivery_Sequence.md` W6): it ships on web first, is verified at ≥ 50 fps on a mid-tier laptop, and degrades to a static poster on no-WebGL devices. Mobile and desktop inherit the scene only after their respective Production Gates unlock — mobile via `expo-three` (WebGL on RN), desktop via the same R3F scene running in the Tauri webview.
+> The commercial landing page (`/`) gains a **3D hero scene**: a floating
+> neumorphic-glass tuition desk rendered in WebGL, with the bioluminescent
+> accents from `13_UI_Guidelines.md` acting as the light sources. This is a
+> **Web-phase deliverable** (`16_Platform_Delivery_Sequence.md` W6): it ships on
+> web first, is verified at ≥ 50 fps on a mid-tier laptop, and degrades to a
+> static poster on no-WebGL devices. Mobile and desktop inherit the scene only
+> after their respective Production Gates unlock — mobile via `expo-three`
+> (WebGL on RN), desktop via the same R3F scene running in the Tauri webview.
 
 ---
 
 ## 0. Package Reality Check (do not hallucinate)
 
-The user named two npm packages. One exists; one does not. This section is the audit so the implementing agent does not waste a cycle.
+The user named two npm packages. One exists; one does not. This section is the
+audit so the implementing agent does not waste a cycle.
 
-| Package | npm status | Decision |
-|---|---|---|
-| `boneyard-js` | **EXISTS** — `boneyard-js@1.8.2`, "Pixel-perfect skeleton loading screens. Wrap your component in `<Skeleton>` and boneyard snapshots the real DOM layout — no manual descriptors, no configuration." | **Use it.** It is the skeleton loader for the 3D scene's asset-load phase (§4). Perfect fit: it snapshots the *real* hero layout and shows a pixel-perfect skeleton until the WebGL canvas hydrates, so there is no layout shift. |
-| `3d-js` | **DOES NOT EXIST** on the npm registry (`npm view 3d-js` → 404). | **Do not install.** Use the de-facto React 3D stack instead (§1.1). Document this decision in the PR so a future agent does not re-attempt `npm i 3d-js`. |
+| Package       | npm status                                                                                                                                                                                            | Decision                                                                                                                                                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `boneyard-js` | **EXISTS** — `boneyard-js@1.8.2`, "Pixel-perfect skeleton loading screens. Wrap your component in `<Skeleton>` and boneyard snapshots the real DOM layout — no manual descriptors, no configuration." | **Use it.** It is the skeleton loader for the 3D scene's asset-load phase (§4). Perfect fit: it snapshots the _real_ hero layout and shows a pixel-perfect skeleton until the WebGL canvas hydrates, so there is no layout shift. |
+| `3d-js`       | **DOES NOT EXIST** on the npm registry (`npm view 3d-js` → 404).                                                                                                                                      | **Do not install.** Use the de-facto React 3D stack instead (§1.1). Document this decision in the PR so a future agent does not re-attempt `npm i 3d-js`.                                                                         |
 
 ### 1.1 The Verified 3D Stack
 
-| Package | Verified version | Role |
-|---|---|---|
-| `three` | `0.185.0` | The WebGL engine |
-| `@react-three/fiber` | `9.6.1` | React renderer for three.js (declarative scene graph) |
-| `@react-three/drei` | `10.7.7` | Helpers: `Environment`, `Float`, `ContactShadows`, `MeshTransmissionMaterial` (the glass material), `Html` (DOM-in-3D) |
-| `boneyard-js` | `1.8.2` | Pixel-perfect skeleton during asset load |
-| `maath` | (drei peer) | Easing + random helpers for the float animation |
+| Package              | Verified version         | Role                                                                                                    |
+| -------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `three`              | `0.182.0` (spec `0.185`) | The WebGL engine                                                                                        |
+| `@react-three/fiber` | `9.5.0` (spec `9.6`)     | React renderer for three.js (declarative scene graph)                                                   |
+| `@react-three/drei`  | `10.7.8` (spec `10.7`)   | Helpers: `ScrollControls`, `Float`, `ContactShadows`, `MeshTransmissionMaterial`, `Html`, `AdaptiveDpr` |
+| `boneyard-js`        | `1.8.2`                  | Pixel-perfect skeleton during asset load                                                                |
+| `maath`              | (drei peer)              | Easing + damp for FOV whip + float                                                                      |
 
-All five resolve cleanly on the current registry. No fabricated packages.
+All five resolve. Actual pins at `^0.182.0 / ^9.5.0 / ^10.7.8` per
+`apps/product-page/package.json` (dedupe single React 19.2).
+
+### 1.2 Penguin Living — Isometric Stage (Reference: penguin.music)
+
+Penguin teaches **alive at load, no scroll required**: fullscreen `WebGL`
+isometric stage + idle `Float 1.2` + vinyl ripples on tap. Buddysaradhi maps it
+as: `Canvas fixed inset-0 h-[100dvh]` always visible, `LedgerCard` + seeker idle
+at `y=0` stage `Float 1.2`, `Poster` fallback via pop-out. Scroll hint
+`↓ scroll or click pin`.
 
 ---
 
 ## 1. The Scene — What the Tutor Sees
 
-A single hero canvas above the fold on `/`. Concept: **"The desk at the centre of a tuition business."** A neumorphic-glass panel (the "ledger card") floats centred, tilted ~15° toward the viewer. Bioluminescent accent lights (emerald, cyan, amber) orbit it slowly, casting coloured rim-light. The card shows a live KPI — "₹0 owed · 0 students · 1 ledger" — in the product's typography. Behind it, the cosmic gradient (`--bg-cosmic → --bg-midnight → --bg-abyss`) with a faint particle field (200 points, parallax on pointer move). Below the fold, the existing marketing sections (`product/02`–`09`) render normally.
+A single hero canvas above the fold on `/`. Concept: **"The desk at the centre
+of a tuition business."** A neumorphic-glass panel (the "ledger card") floats
+centred, tilted ~15° toward the viewer. Bioluminescent accent lights (emerald,
+cyan, amber) orbit it slowly, casting coloured rim-light. The card shows a live
+KPI — "₹0 owed · 0 students · 1 ledger" — in the product's typography. Behind
+it, the cosmic gradient (`--bg-cosmic → --bg-midnight → --bg-abyss`) with a
+faint particle field (200 points, parallax on pointer move). Below the fold, the
+existing marketing sections (`product/02`–`09`) render normally.
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────┐
@@ -57,13 +81,26 @@ A single hero canvas above the fold on `/`. Concept: **"The desk at the centre o
 
 ### 1.1 Design-Language Continuity (Neumorphism + Glassmorphism)
 
-This is not a separate "3D mode." It is the existing `13_UI_Guidelines.md` system expressed in three dimensions:
+This is not a separate "3D mode." It is the existing `13_UI_Guidelines.md`
+system expressed in three dimensions:
 
-- **Glassmorphism background →** the cosmic gradient lives in the scene's `<color>` background; the floating card uses `MeshTransmissionMaterial` (drei) — real refraction, the 3D equivalent of `--surface-glass` `rgba(255,255,255,0.05)` + `backdrop-blur(24px)`.
-- **Neumorphism on the card →** the card's edge is a soft dual-light extrusion: a `--bg-neumo-light`-tinted key light from upper-left, a `--bg-abyss`-tinted ambient occlusion from below. `ContactShadows` (drei) grounds it. This is the 3D translation of the `.neumo-raised` box-shadow (`13_UI_Guidelines.md` §4).
-- **Bioluminescent accents →** three point lights, colours `#00FF9D`, `#00F0FF`, `#FFB300`, intensity tuned so accents never exceed ~8% of the frame (the existing "accents never exceed 8%" rule, now in 3D).
-- **No indigo/blue accents** (`AGENTS.md` Rule 5) — the only blue-ish light is the cyan `#00F0FF`, which is a focus/selection accent, not a primary. Indigo is the canvas (the cosmic background), never a light source.
-- **No pure black / no pure white** (`13_UI_Guidelines.md` §1.3) — the darkest material is `#0a0a1a` (Abyss); the brightest text texture is `rgba(255,255,255,0.95)`.
+- **Glassmorphism background →** the cosmic gradient lives in the scene's
+  `<color>` background; the floating card uses `MeshTransmissionMaterial` (drei)
+  — real refraction, the 3D equivalent of `--surface-glass`
+  `rgba(255,255,255,0.05)` + `backdrop-blur(24px)`.
+- **Neumorphism on the card →** the card's edge is a soft dual-light extrusion:
+  a `--bg-neumo-light`-tinted key light from upper-left, a `--bg-abyss`-tinted
+  ambient occlusion from below. `ContactShadows` (drei) grounds it. This is the
+  3D translation of the `.neumo-raised` box-shadow (`13_UI_Guidelines.md` §4).
+- **Bioluminescent accents →** three point lights, colours `#00FF9D`, `#00F0FF`,
+  `#FFB300`, intensity tuned so accents never exceed ~8% of the frame (the
+  existing "accents never exceed 8%" rule, now in 3D).
+- **No indigo/blue accents** (`AGENTS.md` Rule 5) — the only blue-ish light is
+  the cyan `#00F0FF`, which is a focus/selection accent, not a primary. Indigo
+  is the canvas (the cosmic background), never a light source.
+- **No pure black / no pure white** (`13_UI_Guidelines.md` §1.3) — the darkest
+  material is `#0a0a1a` (Abyss); the brightest text texture is
+  `rgba(255,255,255,0.95)`.
 
 ---
 
@@ -88,7 +125,16 @@ This is not a separate "3D mode." It is the existing `13_UI_Guidelines.md` syste
    └── Poster.tsx              ← the static PNG fallback (no-WebGL / reduced-data)
 ```
 
-### 2.1 The Load Sequence (boneyard-js is the hero here)
+### 2.1 The Load Sequence + Zacamil Pins (Reference: coloniazacamil.com)
+
+Zacamil teaches **story as spatial pins, not linear tunnel**: 25 pins + `flyTo`
+camera `lerp` + `Raycaster` + CMS copy (`Discover`, `swipe/drag/pinch`).
+Buddysaradhi maps it as 5 beats → 5 fly-to pins along alley + 3 sub-pins in
+Exploration. Both `useScroll offset 0→1` **and**
+`onPointerDown pin → targetScroll lerp 0.06` drive `anime.timeline seek`. Spec
+mapping `20_3D §2 flyTo`.
+
+### 2.2 The Load Sequence (boneyard-js is the hero here)
 
 ```
    / loads
@@ -109,21 +155,25 @@ This is not a separate "3D mode." It is the existing `13_UI_Guidelines.md` syste
            (a pre-rendered PNG of the same scene, served via next/image)
 ```
 
-The key property: **the user never sees a blank box or a layout jump.** boneyard-js snapshots the *final* layout (the card + KPI text boxes) and shows a glass-tinted skeleton that occupies the exact pixels; the WebGL canvas swaps in underneath without shifting a pixel. This is why `boneyard-js` was the right pick over a hand-rolled skeleton.
+The key property: **the user never sees a blank box or a layout jump.**
+boneyard-js snapshots the _final_ layout (the card + KPI text boxes) and shows a
+glass-tinted skeleton that occupies the exact pixels; the WebGL canvas swaps in
+underneath without shifting a pixel. This is why `boneyard-js` was the right
+pick over a hand-rolled skeleton.
 
 ---
 
 ## 3. Performance Budget (the W6 bar)
 
-| Metric | Target | How |
-|---|---|---|
-| Frame rate (mid-tier laptop, e.g. M1 Air / Ryzen 5) | **≥ 50 fps** | instanced particles (1 draw call), transmission material at 1 sample, `<AdaptiveDpr>` caps DPR at 1.5 |
-| Frame rate (low-end / integrated GPU) | ≥ 30 fps | `<AdaptiveDpr>` drops to 0.75; particle count → 80; transmission samples → 1 |
-| First-contentful paint | < 1.2 s | boneyard skeleton is HTML/CSS, paints before JS; poster path < 200 KB |
-| Time-to-interactive (canvas hydrate) | < 3 s | three.js is dynamically imported (`next/dynamic`, ssr:false); HDRI is `<Environment>` lazy |
-| No-WebGL fallback | instant | `<Poster/>` is a static image, no JS |
-| Lighthouse (Performance) on `/` | **≥ 90** | the 3D scene is lazy + DPR-capped; below-the-fold marketing is RSC, zero client JS |
-| Bundle cost of the 3D stack | < 180 KB gzipped (three + fiber + drei tree-shaken) | dynamic import isolates it from the main chunk; users who never scroll to hero (rare) don't pay |
+| Metric                                              | Target                                              | How                                                                                                   |
+| --------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Frame rate (mid-tier laptop, e.g. M1 Air / Ryzen 5) | **≥ 50 fps**                                        | instanced particles (1 draw call), transmission material at 1 sample, `<AdaptiveDpr>` caps DPR at 1.5 |
+| Frame rate (low-end / integrated GPU)               | ≥ 30 fps                                            | `<AdaptiveDpr>` drops to 0.75; particle count → 80; transmission samples → 1                          |
+| First-contentful paint                              | < 1.2 s                                             | boneyard skeleton is HTML/CSS, paints before JS; poster path < 200 KB                                 |
+| Time-to-interactive (canvas hydrate)                | < 3 s                                               | three.js is dynamically imported (`next/dynamic`, ssr:false); HDRI is `<Environment>` lazy            |
+| No-WebGL fallback                                   | instant                                             | `<Poster/>` is a static image, no JS                                                                  |
+| Lighthouse (Performance) on `/`                     | **≥ 90**                                            | the 3D scene is lazy + DPR-capped; below-the-fold marketing is RSC, zero client JS                    |
+| Bundle cost of the 3D stack                         | < 180 KB gzipped (three + fiber + drei tree-shaken) | dynamic import isolates it from the main chunk; users who never scroll to hero (rare) don't pay       |
 
 ### 3.1 The Degradation Ladder
 
@@ -138,55 +188,90 @@ The key property: **the user never sees a blank box or a layout jump.** boneyard
    Save-Data header                   poster (skip the 3D bundle entirely)
 ```
 
-The ladder is checked in `useWebGLAvailable` + `useReducedMotion` + a `navigator.connection.saveData` read. No user toggles — it's automatic. The tutor on a ₹12,000 Android phone with 2 bars of 4G (the persona from `product/AGENTS.md`) gets the poster, fast.
+The ladder is checked in `useWebGLAvailable` + `useReducedMotion` + a
+`navigator.connection.saveData` read. No user toggles — it's automatic. The
+tutor on a ₹12,000 Android phone with 2 bars of 4G (the persona from
+`product/AGENTS.md`) gets the poster, fast.
 
 ---
 
 ## 4. Accessibility (the 3D scene is decorative, not a barrier)
 
-- **The hero conveys no information that isn't also in the DOM.** The KPI numbers ("₹0 owed · 0 students") are real HTML text overlaid via drei `<Html>` (or rendered as a sibling DOM node on top of the canvas), so a screen reader reads them regardless of WebGL. The 3D card is decoration.
-- **`prefers-reduced-motion`** freezes the orbit + float; the card sits still. No parallax.
-- **No flashing.** The accent lights pulse at 0.5 Hz max (well under the 3 Hz photosensitivity threshold).
-- **Keyboard.** The hero has no keyboard-operable 3D controls (it's not a game). The CTA below it ("Start free →") is the keyboard target.
-- **`aria-hidden="true"`** on the `<canvas>` itself (it's decorative); the KPI text node is the accessible surface.
+- **The hero conveys no information that isn't also in the DOM.** The KPI
+  numbers ("₹0 owed · 0 students") are real HTML text overlaid via drei `<Html>`
+  (or rendered as a sibling DOM node on top of the canvas), so a screen reader
+  reads them regardless of WebGL. The 3D card is decoration.
+- **`prefers-reduced-motion`** freezes the orbit + float; the card sits still.
+  No parallax.
+- **No flashing.** The accent lights pulse at 0.5 Hz max (well under the 3 Hz
+  photosensitivity threshold).
+- **Keyboard.** The hero has no keyboard-operable 3D controls (it's not a game).
+  The CTA below it ("Start free →") is the keyboard target.
+- **`aria-hidden="true"`** on the `<canvas>` itself (it's decorative); the KPI
+  text node is the accessible surface.
 
 ---
 
 ## 5. Mobile (P2 — after Mobile Production Gate work begins, not before)
 
-`16_Platform_Delivery_Sequence.md` forbids touching `apps/mobile/` until the Web Production Gate clears. The mobile 3D scene is specified here for completeness; it is built in the Mobile phase.
+`16_Platform_Delivery_Sequence.md` forbids touching `apps/mobile/` until the Web
+Production Gate clears. The mobile 3D scene is specified here for completeness;
+it is built in the Mobile phase.
 
 ### 5.1 Mobile Stack
 
-R3F is web-only. On React Native, the equivalent is **`expo-three`** (three.js over Expo GLView) for a true 3D scene, or **`@shopify/react-native-skia`** for a 2.5D parallax fallback on low-end devices.
+R3F is web-only. On React Native, the equivalent is **`expo-three`** (three.js
+over Expo GLView) for a true 3D scene, or **`@shopify/react-native-skia`** for a
+2.5D parallax fallback on low-end devices.
 
-| Tier | Stack | Renders |
-|---|---|---|
-| High-end (iPhone 12+, Pixel 6+) | `expo-three` + the same scene graph as web (ported) | full 3D, capped 30 fps, transmission @ 1 sample |
-| Mid/low Android | Skia — a 2.5D parallax of the card + accent glows (no real refraction) | the "feel" of 3D at 60 fps, cheap |
-| Fallback | static poster (the same PNG as web) | instant |
+| Tier                            | Stack                                                                  | Renders                                         |
+| ------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------- |
+| High-end (iPhone 12+, Pixel 6+) | `expo-three` + the same scene graph as web (ported)                    | full 3D, capped 30 fps, transmission @ 1 sample |
+| Mid/low Android                 | Skia — a 2.5D parallax of the card + accent glows (no real refraction) | the "feel" of 3D at 60 fps, cheap               |
+| Fallback                        | static poster (the same PNG as web)                                    | instant                                         |
 
 ### 5.2 Mobile Constraints
 
-- Battery: the scene renders only when the hero tab is visible (`useIsFocused`); pauses on background.
-- Heat: capped 30 fps even on high-end (a 60 fps 3D scene on a phone is a hand-warmer, not a marketing tool).
-- Data: the 3D bundle is downloaded on first launch only, after the user has signed up (not on the cold app-open — that's the poster).
+- Battery: the scene renders only when the hero tab is visible (`useIsFocused`);
+  pauses on background.
+- Heat: capped 30 fps even on high-end (a 60 fps 3D scene on a phone is a
+  hand-warmer, not a marketing tool).
+- Data: the 3D bundle is downloaded on first launch only, after the user has
+  signed up (not on the cold app-open — that's the poster).
 
 ---
 
+### 8.3 Graffico Walk — Blender Baked + WASD/E (Reference: office.graffico.it)
+
+Graffico teaches **you are there**: `Blender baked lightmaps + R3F` +
+`PointerLockControls` + `Rapier` colliders + `Html` live screens + `Howler`
+radio, `WASD + mouse + E near + Shift faster + Esc`. Buddysaradhi Reveal beat
+maps it as: at `0.85–1.0` camera lands `-38` staffroom, `WASD` unlocks
+desktop-only (`!isLowEnd && window.innerWidth>768`) to walk 2m to 5 desks — `E`
+opens `Html` live KPI `₹0 owed`. Mobile keeps scroll-zoom. Baked lightmaps keep
+First Load `<180KB gz`.
+
 ## 6. Desktop (P3 — after Desktop Production Gate work begins)
 
-Desktop runs the web app as a Tauri static export, so the **same R3F scene** renders in the Tauri webview with zero porting. The only desktop-specific tweaks:
+Desktop runs the web app as a Tauri static export, so the **same R3F scene**
+renders in the Tauri webview with zero porting. The only desktop-specific
+tweaks:
 
 - Higher DPR cap (desktop monitors are 1x–2x): `<AdaptiveDpr>` cap raised to 2.
-- The scene can be richer (desktop users have GPUs): transmission @ 4 samples, particle count 300.
-- The hero is the same component (`apps/web/src/components/hero/`), imported by the desktop shell. **No desktop-specific 3D code.** This is the payoff of serial delivery: by the time desktop begins, the web hero is a frozen, tested contract (`16_Platform_Delivery_Sequence.md` G2).
+- The scene can be richer (desktop users have GPUs): transmission @ 4 samples,
+  particle count 300.
+- The hero is the same component (`apps/web/src/components/hero/`), imported by
+  the desktop shell. **No desktop-specific 3D code.** This is the payoff of
+  serial delivery: by the time desktop begins, the web hero is a frozen, tested
+  contract (`16_Platform_Delivery_Sequence.md` G2).
 
 ---
 
 ## 7. Neumorphism + Glassmorphism — The 3D Material Spec
 
-This is the explicit mapping the user asked for ("Ensure Neumorphism on the components and Glassmorphism backgrounds"), expressed in three.js materials so the implementing agent has no ambiguity.
+This is the explicit mapping the user asked for ("Ensure Neumorphism on the
+components and Glassmorphism backgrounds"), expressed in three.js materials so
+the implementing agent has no ambiguity.
 
 ### 7.1 The Card — Neumorphic Glass (both at once)
 
@@ -196,15 +281,15 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
   <boxGeometry args={[3.2, 2, 0.12]} />
   {/* Glassmorphism: real refraction, the 3D backdrop-blur */}
   <MeshTransmissionMaterial
-    transmission={1}              // fully refractive
-    thickness={0.4}               // how deep the refraction samples
-    roughness={0.06}              // smooth, like the glass panels
-    ior={1.25}                    // subtle bend
-    chromaticAberration={0.02}    // faint colour split at edges (bioluminescent hint)
+    transmission={1} // fully refractive
+    thickness={0.4} // how deep the refraction samples
+    roughness={0.06} // smooth, like the glass panels
+    ior={1.25} // subtle bend
+    chromaticAberration={0.02} // faint colour split at edges (bioluminescent hint)
     backside={false}
-    samples={isLowEnd ? 1 : 4}    // the degradation lever
+    samples={isLowEnd ? 1 : 4} // the degradation lever
     resolution={256}
-    color="#1a1a3a"               // --bg-neumo-light tint (so it's not invisible glass)
+    color="#1a1a3a" // --bg-neumo-light tint (so it's not invisible glass)
   />
   {/* Neumorphism: the soft dual-light edge */}
   <Edges scale={1.01} threshold={15}>
@@ -237,9 +322,12 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
 
 ```tsx
 // Hero3D.tsx — the background recipe
-<Canvas gl={{ antialias: true, powerPreference: "high-performance" }} dpr={[0.75, cap]}>
-  <color attach="background" args={["#0f0c29"]} />          {/* --bg-cosmic floor */}
-  <fog attach="fog" args={["#0a0a1a", 6, 14]} />            {/* Abyss fog → depth */}
+<Canvas
+  gl={{ antialias: true, powerPreference: "high-performance" }}
+  dpr={[0.75, cap]}
+>
+  <color attach="background" args={["#0f0c29"]} /> {/* --bg-cosmic floor */}
+  <fog attach="fog" args={["#0a0a1a", 6, 14]} /> {/* Abyss fog → depth */}
   {/* particle field = the "aurora" grain on the cosmic canvas */}
   <ParticleField count={isLowEnd ? 80 : 200} />
   ...scene...
@@ -252,15 +340,15 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
 
 ## 8. What This Is NOT (Anti-Patterns)
 
-| Temptation | Why forbidden |
-|---|---|
-| A 3D scene that's interactive (drag/zoom the card) | The hero is marketing, not a toy; interaction invites a fiddly UX that hurts conversion. Static beauty. |
-| Loading the 3D bundle on every route | It's `/` only. Dynamically imported; other routes never fetch three.js. |
-| A 60 fps target on mobile | Phones throttle + heat; 30 fps cap is the responsible choice. |
-| Indigo/blue accent lights | `AGENTS.md` Rule 5. Cyan `#00F0FF` is a focus accent, permitted; indigo/violet lights are not. |
-| Pure-black materials | `13_UI_Guidelines.md` §1.3. Darkest is `#0a0a1a`. |
-| Skipping the poster fallback | A tutor on a 2G connection or a 5-year-old Android gets a blank box without it. The poster is the contract with that tutor. |
-| Building the mobile 3D scene during the Web phase | `16_Platform_Delivery_Sequence.md` §7. Mobile is locked until the Web Gate clears. |
+| Temptation                                         | Why forbidden                                                                                                               |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| A 3D scene that's interactive (drag/zoom the card) | The hero is marketing, not a toy; interaction invites a fiddly UX that hurts conversion. Static beauty.                     |
+| Loading the 3D bundle on every route               | It's `/` only. Dynamically imported; other routes never fetch three.js.                                                     |
+| A 60 fps target on mobile                          | Phones throttle + heat; 30 fps cap is the responsible choice.                                                               |
+| Indigo/blue accent lights                          | `AGENTS.md` Rule 5. Cyan `#00F0FF` is a focus accent, permitted; indigo/violet lights are not.                              |
+| Pure-black materials                               | `13_UI_Guidelines.md` §1.3. Darkest is `#0a0a1a`.                                                                           |
+| Skipping the poster fallback                       | A tutor on a 2G connection or a 5-year-old Android gets a blank box without it. The poster is the contract with that tutor. |
+| Building the mobile 3D scene during the Web phase  | `16_Platform_Delivery_Sequence.md` §7. Mobile is locked until the Web Gate clears.                                          |
 
 ---
 
@@ -286,12 +374,18 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
 
 ## 10. Cross-References
 
-- `16_Platform_Delivery_Sequence.md` W6 — this is a Web-gate deliverable; §7 forbids mobile 3D during Web phase.
-- `13_UI_Guidelines.md` §2.1 (tokens) + §4 (neumorphic classes) — the materials in §7 consume these exact tokens.
-- `product/02_Hero_and_Above_the_Fold.md` — the copy + KPI text the 3D card displays; the 3D scene is the visual, the product spec is the words.
-- `product/03_Features_Showcase.md` — below-the-fold sections (unchanged; the 3D hero sits above them).
-- `17_API_Gateway_System.md` — the KPI numbers on the card are fetched via the SDK (no hardcoded fetch).
-- `19_Concurrency_and_Testing.md` — the 3D scene has no server concurrency, but its load budget is part of W5 Lighthouse.
+- `16_Platform_Delivery_Sequence.md` W6 — this is a Web-gate deliverable; §7
+  forbids mobile 3D during Web phase.
+- `13_UI_Guidelines.md` §2.1 (tokens) + §4 (neumorphic classes) — the materials
+  in §7 consume these exact tokens.
+- `product/02_Hero_and_Above_the_Fold.md` — the copy + KPI text the 3D card
+  displays; the 3D scene is the visual, the product spec is the words.
+- `product/03_Features_Showcase.md` — below-the-fold sections (unchanged; the 3D
+  hero sits above them).
+- `17_API_Gateway_System.md` — the KPI numbers on the card are fetched via the
+  SDK (no hardcoded fetch).
+- `19_Concurrency_and_Testing.md` — the 3D scene has no server concurrency, but
+  its load budget is part of W5 Lighthouse.
 
 ---
 
@@ -381,18 +475,15 @@ This is the explicit mapping the user asked for ("Ensure Neumorphism on the comp
 
 ---
 
-## 12. 3D Narrative Story (The "Curious Bastard" Journey)
+## 12. 3D Narrative Story — Kurious Bastard 5 Beats, Shonen (Penguin×Zacamil×Graffico)
 
-The 3D hero scene and associated video/animation assets will follow a specific narrative arc combining modern tech aesthetics with classic anime direction styles (inspired by Naruto, Dragonball, and One Piece). 
+Shonen pacing (Naruto/DBZ/One Piece): fast ease-in, whip-pan on punch, `FOV 55->75->55` 200ms via `maath/damp`, speed-lines on chaos, impact frame.
 
-**The Plot:**
-1. **The Hook:** A "curious tech nerd" holding a smartphone discovers a bustling tuition centre.
-2. **The Exploration:** He enters and roams the premises. The camera follows him as he witnesses the vibrant life of a tuition centre: students fighting, quarrelling, teasing each other, but also supporting, competing, learning morals, and experiencing comedy. 
-3. **The Relief:** Seeing this lively, dynamic environment, he is satisfied and all his doubts about the tuition centre are relieved.
-4. **The Climax (The Staffroom):** He enters the admin staffroom for admission. The camera reveals the secret behind the centre's seamless operation: every tutor is using the **BuddySaradhi** application.
-5. **The Reveal:** The 3D UI zooms into the BuddySaradhi screens, showcasing planning, attendance tracking, student details, SaaS implementation, and fee calculations—all incredibly transparent and easy to use.
+**Canonical beats (scroll map, no overlap):**
+1. **Hook `0.00-0.25`** — seeker finds tuition, phone in hand (Penguin living idle at `y=0`).
+2. **Exploration `0.25-0.55`** — hallway chaos: fighting/teasing/supporting, 3 sub-pins (Zacamil pins).
+3. **Relief `0.55-0.70`** — doubts cleared, breathes easy, nod.
+4. **Climax `0.70-0.85`** — Staffroom cluster, every tutor on BuddySaradhi.
+5. **Reveal `0.85-1.00`** — zoom into 5 screens: Dashboard->Students->Attendance->Fees->Settings + optional `WASD/E` walk (Graffico).
 
-**Style & Direction:**
-- **Animation Style:** Dynamic camera angles, fast zooms, and expressive character reactions reminiscent of shōnen anime (Naruto, DBZ, One Piece).
-- **Aesthetic:** Modern dressing, contemporary scenes, but with high-energy anime pacing.
-- **Tools for Asset Generation:** Use Impeccable for anti-slop UI design. Use Nano Banana, Veo, or procedural Python animation scripts to generate the videography and animated assets, which will then be mapped onto 3D planes or embedded as video textures in the Three.js scene.
+**Assets:** Nano Banana stills (`public/nano/seeker.png, hallway-a/b/c.png, crowd.png` as `CanvasTexture` on `Plane` with `dispose()`) + Veo 10s alley roam (`public/veo/alley-roam.mp4` as `VideoTexture` on `Plane` at `ptChaos`, `crossOrigin Anonymous` only if CORS, `currentTime clamp duration-0.15`, `dispose()`). Code-first: `LedgerCard, AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls pages=3 damping 0.25` drives `anime.timeline seek`.

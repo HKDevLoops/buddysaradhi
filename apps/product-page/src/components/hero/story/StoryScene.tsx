@@ -1,249 +1,270 @@
 // @ts-nocheck
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Plane, Html, useScroll, Float, Text } from '@react-three/drei';
+import { Plane, Html, useScroll, Float } from '@react-three/drei';
 import * as THREE from 'three';
 import { ScrollBoundAnime } from './ScrollBoundAnime';
+import { LedgerCard } from '../scene/LedgerCard';
+import { AccentLights } from '../scene/AccentLights';
 
-// ----------------------------------------------------------------------
-// Phase 2: Narrative Environment (Cloud Studio / Naruko Alley DNA)
-// ----------------------------------------------------------------------
-
-// Interactive hovering orb
-function GlitchOrb({ position, color, speed = 1 }: { position: [number, number, number], color: string, speed?: number }) {
+function GlitchOrb({ position, color, speed = 1 }: { position: [number, number, number]; color: string; speed?: number }) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState(false);
-
   useFrame((state) => {
     if (meshRef.current) {
       meshRef.current.rotation.x = state.clock.elapsedTime * speed;
       meshRef.current.rotation.y = state.clock.elapsedTime * speed * 1.5;
-      
-      const targetScale = hovered ? 1.5 : 1;
-      meshRef.current.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.1);
+      const s = hovered ? 1.5 : 1;
+      meshRef.current.scale.lerp(new THREE.Vector3(s, s, s), 0.1);
     }
   });
-
   return (
     <Float speed={2} rotationIntensity={1} floatIntensity={2}>
-      <mesh 
-        ref={meshRef} 
-        position={position}
-        onPointerOver={() => setHovered(true)}
-        onPointerOut={() => setHovered(false)}
-      >
+      <mesh ref={meshRef} position={position} onPointerOver={() => setHovered(true)} onPointerOut={() => setHovered(false)}>
         <icosahedronGeometry args={hovered ? [0.6, 2] : [0.5, 0]} />
-        <meshStandardMaterial 
-          color={color} 
-          wireframe={!hovered}
-          emissive={color}
-          emissiveIntensity={hovered ? 2 : 0.5}
-        />
+        <meshStandardMaterial color={color} wireframe={!hovered} emissive={color} emissiveIntensity={hovered ? 2 : 0.5} />
       </mesh>
     </Float>
+  );
+}
+
+function SpeedLines({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <Plane args={[6, 3]} position={[0, 0, 0.4]}>
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.06} wireframe />
+    </Plane>
+  );
+}
+
+function Pin({ label, position, onClick }: { label: string; position: [number, number, number]; onClick: () => void }) {
+  return (
+    <group position={position}>
+      <Html center distanceFactor={6} position={[0, 0, 0]}>
+        <button onClick={onClick} className="px-2 py-1 rounded-full bg-white/5 border border-white/15 text-[10px] font-mono tracking-widest text-white/70 hover:bg-white/10 hover:text-white transition-colors whitespace-nowrap">
+          {label}
+        </button>
+      </Html>
+      <mesh position={[0, -0.25, 0]}>
+        <sphereGeometry args={[0.08, 12, 12]} />
+        <meshStandardMaterial color="#00F0FF" emissive="#00F0FF" emissiveIntensity={1.2} />
+      </mesh>
+    </group>
   );
 }
 
 export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
   const scroll = useScroll();
   const { camera } = useThree();
+  const [targetOffset, setTargetOffset] = useState<number | null>(null);
+  const camFovRef = useRef(55);
 
-  // Gate heavy 3D on low-end / save-data (approved hybrid): keep features but skip Tube+Html when isLowEnd
-  // Lightweight server: no per-frame heavy geometry on low-end, preserves 60fps per 20_3D §6.
+  const curve = useMemo(
+    () =>
+      new THREE.CatmullRomCurve3(
+        [new THREE.Vector3(0, 0.6, 5), new THREE.Vector3(0, 0.2, -2), new THREE.Vector3(0, -0.4, -14), new THREE.Vector3(0, 0, -28), new THREE.Vector3(0, 0, -42)],
+        false,
+        'chordal',
+        0.5
+      ),
+    []
+  );
 
-  // Define a curved path through the "Tuition Centre"
-  const curve = useMemo(() => {
-    return new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0, 5),     // Zone 1: Hook Exterior
-      new THREE.Vector3(-5, 0, -10),  // Curve left into hallway
-      new THREE.Vector3(5, -2, -25),  // Drop down and right into chaos
-      new THREE.Vector3(0, 0, -40),   // Zone 3: The Relief
-      new THREE.Vector3(0, 0, -55),   // Zone 4: The Climax (Staffroom)
-    ], false, 'chordal', 0.5);
-  }, []);
-
-  // Geometry for the stylized tunnel
   const tubeGeom = useMemo(() => {
-    return new THREE.TubeGeometry(curve, 64, 4, 8, false);
-  }, [curve]);
+    if (isLowEnd) return null;
+    return new THREE.TubeGeometry(curve, 48, 4, 6, false);
+  }, [curve, isLowEnd]);
 
-  // Points along the curve to place objects
+  useEffect(() => {
+    return () => {
+      if (tubeGeom) tubeGeom.dispose();
+    };
+  }, [tubeGeom]);
+
   const ptHook = curve.getPointAt(0.1);
   const ptChaos = curve.getPointAt(0.4);
-  const ptRelief = curve.getPointAt(0.7);
-  const ptClimax = curve.getPointAt(1.0);
+  const ptMid = curve.getPointAt(0.5);
+  const ptRelief = curve.getPointAt(0.65);
+  const ptClimax = curve.getPointAt(0.8);
 
-  // Hook for scrolling camera animation — lightweight, lerp only
+  const isChaosPunch = (() => {
+    const o = scroll ? scroll.offset : 0;
+    return o > 0.30 && o < 0.55;
+  })();
+
   useFrame((state) => {
-    if (!scroll) return;
-    const offset = Math.max(0, Math.min(1, scroll.offset));
+    let offset: number;
+    if (targetOffset !== null) {
+      const cur = scroll ? scroll.offset : 0;
+      offset = THREE.MathUtils.lerp(cur, targetOffset, 0.06);
+      if (Math.abs(offset - targetOffset) < 0.005) setTargetOffset(null);
+    } else {
+      if (!scroll) {
+        camera.position.set(0, 0.6, 5.8);
+        camera.lookAt(0, 0, 0);
+        return;
+      }
+      offset = Math.max(0, Math.min(1, scroll.offset));
+    }
     const camPos = curve.getPointAt(offset);
-    camera.position.lerp(camPos, 0.1);
-    const lookAtOffset = Math.min(1, offset + 0.05);
-    const lookAtPos = curve.getPointAt(lookAtOffset);
-    if (offset > 0.95) lookAtPos.set(0, 0, -60);
-    camera.lookAt(lookAtPos);
+    camera.position.lerp(camPos, 0.09);
+    const lookAtPos = curve.getPointAt(Math.min(1, offset + 0.06));
+    camera.lookAt(lookAtPos.x * 0.5, lookAtPos.y * 0.5, lookAtPos.z);
+
+    const targetFov = offset > 0.30 && offset < 0.42 ? 75 : 55;
+    camFovRef.current = THREE.MathUtils.damp(camFovRef.current, targetFov, 8, state.clock.getDelta());
+    if ((camera as any).fov !== undefined) {
+      (camera as any).fov = camFovRef.current;
+      (camera as any).updateProjectionMatrix();
+    }
   });
 
-  // Lightweight gate: on low-end, skip heavy TubeGeometry + Html planes + GlitchOrbs
-  if (isLowEnd) {
-    return <group />;
-  }
+  if (isLowEnd) return <group />;
+
+  const flyTo = (o: number) => setTargetOffset(o);
 
   return (
     <group>
-      {/* Architectural Tunnel — gated, not on low-end */}
-      <mesh geometry={tubeGeom}>
-        <meshBasicMaterial 
-          color="#00F0FF" 
-          wireframe 
-          transparent 
-          opacity={0.05} 
-          side={THREE.BackSide} 
-        />
-      </mesh>
+      {tubeGeom && (
+        <mesh geometry={tubeGeom}>
+          <meshBasicMaterial color="#00F0FF" wireframe transparent opacity={0.05} side={THREE.BackSide} />
+        </mesh>
+      )}
 
-      {/* --- ZONE 1: The Hook (Exterior) --- */}
-      <group position={[ptHook.x - 2, ptHook.y + 0.5, ptHook.z - 3]} rotation={[0, 0.4, 0]}>
+      {/* LedgerCard diorama center at pt 0.5 */}
+      <group position={[ptMid.x, ptMid.y, ptMid.z]}>
+        <Float speed={1.2} rotationIntensity={0.2} floatIntensity={0.4}>
+          <LedgerCard isLowEnd={isLowEnd} />
+        </Float>
+        <AccentLights isFrozen={false} />
+      </group>
+
+      <Pin label="01 — THE HOOK" position={[ptHook.x, ptHook.y + 1.2, ptHook.z]} onClick={() => flyTo(0.05)} />
+      <Pin label="02 — CHAOS" position={[ptChaos.x, ptChaos.y + 1.2, ptChaos.z]} onClick={() => flyTo(0.38)} />
+      <Pin label="03 — RELIEF" position={[ptRelief.x, ptRelief.y + 1.0, ptRelief.z]} onClick={() => flyTo(0.62)} />
+      <Pin label="04 — STAFFROOM" position={[ptClimax.x, ptClimax.y + 1.2, ptClimax.z]} onClick={() => flyTo(0.78)} />
+      <Pin label="05 — REVEAL" position={[0, 0.9, -38]} onClick={() => flyTo(0.92)} />
+
+      {/* ZONE 1 hook */}
+      <group position={[0, 0.3, 0.5]}>
         <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5}>
           <Plane args={[4, 2.25]}>
-            <meshPhysicalMaterial 
-              color="#050510" 
-              transmission={0.9} 
-              opacity={1} 
-              transparent 
-              roughness={0.2}
-              thickness={2}
-              envMapIntensity={1.5}
-            />
-            {/* The Anime.js storyboard will overlay the glass. It scrubs from scroll 0.0 to 0.4 */}
-            <ScrollBoundAnime sceneId="hook" startScroll={0.0} endScroll={0.4} />
+            <meshPhysicalMaterial color="#050510" transmission={0.9} roughness={0.2} thickness={2} envMapIntensity={1.2} transparent opacity={1} />
+            <ScrollBoundAnime sceneId="hook" startScroll={0.0} endScroll={0.25} />
             <Html transform distanceFactor={3} position={[0, 0, 0.01]}>
-              <div className="w-[800px] h-[450px] bg-black/60 backdrop-blur-xl border border-[var(--accent-cyan)]/30 rounded-2xl flex flex-col items-center justify-end p-8 overflow-hidden relative shadow-[0_0_50px_rgba(0,255,255,0.05)]">
-                
-                <div className="text-center relative z-10 mb-4">
-                  <div className="text-[var(--accent-cyan)] text-xl font-mono mb-4 px-4 py-1 border border-[var(--accent-cyan)]/40 rounded-md inline-block">STORY SCENE 01</div>
-                  <h3 className="text-4xl text-white font-[family-name:var(--font-heading)] font-bold">A Day in a Tuition Centre</h3>
-                  <p className="text-[var(--text-secondary)] mt-4 text-xl">Operational flow from batch attendance to ledger sync.</p>
-                </div>
+              <div className="w-[92vw] max-w-[560px] bg-black/40 border border-[var(--accent-cyan)]/20 rounded-2xl flex flex-col items-center justify-end p-6 overflow-hidden">
+                <div className="text-[var(--accent-cyan)] text-xs font-mono tracking-widest border border-[var(--accent-cyan)]/30 rounded px-2 py-1">CHAPTER 01 — THE HOOK</div>
+                <h3 className="text-xl text-white font-bold mt-3 text-center">A curious seeker finds a tuition</h3>
+                <p className="text-white/60 text-sm mt-2 text-center">phone in hand, looking for the right place</p>
               </div>
             </Html>
           </Plane>
         </Float>
       </group>
 
-      {/* --- ZONE 2: The Chaos Hallway --- */}
-      <group position={[ptChaos.x + 3, ptChaos.y, ptChaos.z - 2]} rotation={[0, -0.5, 0]}>
-        <Float speed={2} rotationIntensity={0.5} floatIntensity={1}>
+      {/* ZONE 2 chaos */}
+      <group position={[0, 0, -9]}>
+        <Float speed={2} rotationIntensity={0.4} floatIntensity={0.8}>
           <Plane args={[5, 2.8]}>
-            <meshPhysicalMaterial 
-              color="#050510" 
-              transmission={0.95} 
-              opacity={1} 
-              transparent 
-              roughness={0.3}
-              thickness={3}
-              envMapIntensity={2}
-            />
-            {/* The chaos anime scrubs as you move past it from scroll 0.3 to 0.7 */}
-            <ScrollBoundAnime sceneId="chaos" startScroll={0.3} endScroll={0.7} />
+            <meshPhysicalMaterial color="#050510" transmission={0.95} roughness={0.3} thickness={3} envMapIntensity={1.6} transparent opacity={1} />
+            <ScrollBoundAnime sceneId="chaos" startScroll={0.25} endScroll={0.55} />
+            <SpeedLines visible={isChaosPunch} />
             <Html transform distanceFactor={3} position={[0, 0, 0.01]}>
-              <div className="w-[900px] h-[500px] bg-[var(--accent-emerald)]/5 backdrop-blur-xl border border-[var(--accent-emerald)]/40 rounded-3xl p-8 flex flex-col justify-end overflow-hidden relative shadow-[0_0_50px_rgba(0,255,157,0.05)]">
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent z-0 pointer-events-none" />
-                <div className="relative z-10">
-                  <span className="px-3 py-1 bg-[var(--accent-emerald)] text-black text-sm font-bold uppercase tracking-widest rounded-md">Hallway Monitor</span>
-                  <h3 className="text-5xl text-white font-[family-name:var(--font-heading)] font-bold mt-4 drop-shadow-lg">Batch Activity</h3>
-                  <p className="text-gray-300 mt-2 text-2xl max-w-2xl drop-shadow-md">Real-time attendance tracking and student notifications across 200-student institutes.</p>
-                </div>
+              <div className="w-[92vw] max-w-[640px] bg-[var(--accent-emerald)]/5 border border-[var(--accent-emerald)]/30 rounded-2xl p-6 flex flex-col justify-end">
+                <span className="px-2 py-1 bg-[var(--accent-emerald)] text-black text-xs font-bold uppercase tracking-widest rounded self-start">CHAPTER 02 — HALLWAY CHAOS</span>
+                <h3 className="text-2xl text-white font-bold mt-3">Fighting · teasing · supporting</h3>
+                <p className="text-white/60 text-sm mt-1">learning, competing, laughing — the life of a tuition centre</p>
               </div>
             </Html>
           </Plane>
         </Float>
       </group>
-      
-      {/* Interactive Orbs floating in the chaos */}
-      <GlitchOrb position={[ptChaos.x - 2, ptChaos.y + 1, ptChaos.z + 2]} color="var(--accent-cyan)" speed={2} />
-      <GlitchOrb position={[ptChaos.x - 4, ptChaos.y - 1, ptChaos.z - 1]} color="var(--accent-flare)" speed={1.5} />
-      <GlitchOrb position={[ptChaos.x + 1, ptChaos.y + 2, ptChaos.z - 4]} color="var(--accent-amber)" speed={3} />
 
-      {/* --- ZONE 3 & 4: The Relief & Staffroom --- */}
-      {/* As we approach the end, the architecture straightens out */}
+      <GlitchOrb position={[ptChaos.x - 2, ptChaos.y + 1, ptChaos.z + 1]} color="#00F0FF" speed={2} />
+      <GlitchOrb position={[ptChaos.x + 2, ptChaos.y - 0.5, ptChaos.z - 1]} color="#FF5E00" speed={1.5} />
+      <GlitchOrb position={[ptChaos.x, ptChaos.y + 1.5, ptChaos.z - 3]} color="#FFB300" speed={2.5} />
+
+      {/* ZONE 3 relief */}
+      <group position={[ptRelief.x, ptRelief.y, ptRelief.z]}>
+        <Plane args={[4.2, 2.2]}>
+          <meshPhysicalMaterial color="#050510" transmission={0.9} roughness={0.25} thickness={2.5} transparent opacity={1} />
+          <ScrollBoundAnime sceneId="relief" startScroll={0.55} endScroll={0.70} />
+          <Html transform distanceFactor={4} position={[0, 0, 0.02]}>
+            <div className="w-[92vw] max-w-[520px] bg-white/[0.03] border border-white/10 rounded-2xl p-6 text-center">
+              <div className="text-xs font-mono tracking-widest text-white/50">CHAPTER 03 — RELIEF</div>
+              <h3 className="text-xl text-white font-bold mt-2">Doubts cleared — breathes easy</h3>
+              <p className="text-white/50 text-sm mt-1">a nod — this is the right place</p>
+            </div>
+          </Html>
+        </Plane>
+      </group>
+
+      {/* ZONE 4 staffroom climax */}
+      <group position={[ptClimax.x, ptClimax.y, ptClimax.z]}>
+        <Plane args={[5.5, 3.0]}>
+          <meshPhysicalMaterial color="#050510" transmission={0.9} roughness={0.2} thickness={3} transparent opacity={1} />
+          <ScrollBoundAnime sceneId="climax" startScroll={0.70} endScroll={0.85} />
+          <Html transform distanceFactor={4} position={[0, 0, 0.02]}>
+            <div className="w-[92vw] max-w-[620px] bg-[var(--bg-cosmic)]/60 border border-white/10 rounded-2xl p-6 text-center">
+              <div className="text-xs font-mono tracking-widest text-white/50">CHAPTER 04 — STAFFROOM</div>
+              <h3 className="text-xl text-white font-bold mt-2">Every tutor on BuddySaradhi</h3>
+              <p className="text-white/50 text-sm mt-1">the secret behind the centre&apos;s seamless operation</p>
+            </div>
+          </Html>
+        </Plane>
+      </group>
+
+      {/* ZONE 5 reveal — near -38, includes 5 screens */}
+      <group position={[0, 0, -38]}>
+        <Plane args={[6.5, 3.6]}>
+          <meshPhysicalMaterial color="#020205" transmission={0.8} roughness={0.12} thickness={4} envMapIntensity={2} transparent opacity={1} />
+          <ScrollBoundAnime sceneId="reveal" startScroll={0.85} endScroll={1.0} />
+          <Html transform distanceFactor={5} position={[0, 0, 0.03]}>
+            <div className="w-[92vw] max-w-[720px] bg-white/[0.04] border border-white/10 rounded-2xl p-6 text-center">
+              <div className="text-xs font-mono tracking-widest text-white/50">CHAPTER 05 — REVEAL</div>
+              <h3 className="text-xl text-white font-bold mt-2">Zoom into 5 screens</h3>
+              <p className="text-white/50 text-sm mt-1">Dashboard · Students · Attendance · Fees · Settings — transparent, offline, yours</p>
+            </div>
+          </Html>
+        </Plane>
+      </group>
+
+      {/* Bento far plane kept but pushed to -56 as ambient background, not story */}
       <group position={[0, 0, -56]}>
-        {/* The pristine glass dashboard (Impeccable style) */}
-        <Plane args={[12, 6.75]} position={[0, 0, 0]}>
-          <meshPhysicalMaterial 
-            color="#020205" 
-            transmission={0.8} 
-            opacity={1} 
-            transparent 
-            roughness={0.1}
-            thickness={5}
-            envMapIntensity={3}
-            clearcoat={1}
-          />
-          <Html transform distanceFactor={4} position={[0, 0, 0.1]} zIndexRange={[100, 0]}>
-            <div className="w-[1200px] h-[675px] bg-[var(--bg-cosmic)]/80 backdrop-blur-2xl border border-[var(--border-glass)] rounded-3xl p-10 text-white shadow-[0_30px_100px_rgba(0,240,255,0.1)] flex flex-col relative overflow-hidden">
-              
-              {/* Decorative glows */}
-              <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-[var(--accent-emerald)]/20 blur-[100px] pointer-events-none" />
-              <div className="absolute -bottom-[20%] -right-[10%] w-[50%] h-[50%] rounded-full bg-[var(--accent-violet)]/20 blur-[100px] pointer-events-none" />
-
-              {/* Header */}
-              <div className="flex justify-between items-start z-10">
+        <Plane args={[10, 5.6]} position={[0, 0, 0]}>
+          <meshPhysicalMaterial color="#020205" transmission={0.75} roughness={0.12} thickness={5} envMapIntensity={2} transparent opacity={0.9} />
+          <Html transform distanceFactor={6} position={[0, 0, 0.05]} zIndexRange={[10, 0]}>
+            <div className="w-[900px] h-[480px] bg-[var(--bg-cosmic)]/70 border border-white/10 rounded-3xl p-8 text-white flex flex-col relative overflow-hidden opacity-90">
+              <div className="flex justify-between items-start">
                 <div>
-                  <div className="flex items-center gap-3">
-                    <span className="w-4 h-4 rounded-full bg-[var(--accent-emerald)]" />
-                    <h2 className="text-4xl font-bold font-[family-name:var(--font-heading)] text-white tracking-tight">BuddySaradhi OS</h2>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full bg-[var(--accent-emerald)]" />
+                    <span className="text-lg font-bold tracking-tight">BuddySaradhi OS</span>
                   </div>
-                  <p className="text-[var(--text-secondary)] mt-2 text-xl">The Staffroom Terminal. Total control.</p>
+                  <p className="text-white/50 text-sm mt-1">Staffroom Terminal · Total control</p>
                 </div>
-                <div className="flex gap-4">
-                  <div className="px-6 py-2 rounded-full glass-faint border border-[var(--border-glass)] text-[var(--accent-cyan)] font-mono text-lg">
-                    SYNC_OUTBOX: 0
-                  </div>
-                </div>
+                <div className="px-3 py-1 rounded-full bg-white/[0.05] border border-white/10 text-[var(--accent-cyan)] font-mono text-xs">SYNC_OUTBOX: 0</div>
               </div>
-
-              {/* Bento Grid */}
-              <div className="grid grid-cols-4 grid-rows-2 gap-6 flex-grow mt-10 z-10">
-                {/* Main Ledger Chart */}
-                <div className="col-span-2 row-span-2 glass-strong rounded-2xl border border-[var(--border-glass)] p-8 flex flex-col">
-                  <h4 className="text-[var(--text-secondary)] text-lg uppercase tracking-wider font-semibold mb-4">Ledger Activity</h4>
-                  <div className="flex-grow flex items-end gap-2">
+              <div className="grid grid-cols-4 grid-rows-2 gap-4 flex-grow mt-6">
+                <div className="col-span-2 row-span-2 bg-white/[0.04] rounded-2xl border border-white/10 p-6 flex flex-col">
+                  <span className="text-white/40 text-xs uppercase tracking-widest">Ledger Activity</span>
+                  <div className="flex-grow flex items-end gap-1.5 mt-4">
                     {[40, 70, 45, 90, 65, 100, 80].map((h, i) => (
                       <div key={i} className="flex-1 bg-gradient-to-t from-[var(--accent-emerald)]/20 to-[var(--accent-emerald)] rounded-t-sm" style={{ height: `${h}%` }} />
                     ))}
                   </div>
                 </div>
-
-                {/* KPIs */}
-                <div className="glass-strong rounded-2xl border border-[var(--border-glass)] p-8 flex flex-col justify-between hover:border-[var(--accent-cyan)]/50 transition-colors cursor-pointer group">
-                  <h4 className="text-[var(--text-secondary)] text-lg">Active Students</h4>
-                  <div>
-                    <span className="text-5xl font-bold text-[var(--text-primary)] group-hover:text-[var(--accent-cyan)] transition-colors">342</span>
-                    <div className="text-[var(--accent-emerald)] text-sm mt-2 font-mono">+12 this week</div>
-                  </div>
+                <div className="bg-white/[0.04] rounded-2xl border border-white/10 p-5 flex flex-col justify-between">
+                  <span className="text-white/50 text-xs">Active Students</span>
+                  <span className="text-3xl font-bold">342</span>
                 </div>
-
-                <div className="glass-strong rounded-2xl border border-[var(--border-glass)] p-8 flex flex-col justify-between hover:border-[var(--accent-violet)]/50 transition-colors cursor-pointer group">
-                  <h4 className="text-[var(--text-secondary)] text-lg">Unsynced Edits</h4>
-                  <div>
-                    <span className="text-5xl font-bold text-[var(--text-primary)] group-hover:text-[var(--accent-violet)] transition-colors">0</span>
-                    <div className="text-[var(--text-muted)] text-sm mt-2 font-mono">Offline-first active</div>
-                  </div>
+                <div className="bg-white/[0.04] rounded-2xl border border-white/10 p-5 flex flex-col justify-between">
+                  <span className="text-white/50 text-xs">Unsynced</span>
+                  <span className="text-3xl font-bold">0</span>
                 </div>
-
-                <div className="col-span-2 glass-strong rounded-2xl border border-[var(--border-glass)] p-8 flex items-center justify-between hover:bg-[var(--surface-glass-strong)] transition-all cursor-pointer">
-                  <div>
-                    <h4 className="text-2xl font-bold text-[var(--text-primary)]">Ready to take control?</h4>
-                    <p className="text-[var(--text-secondary)] text-lg mt-2">Access the tuition-business operating system.</p>
-                  </div>
-                  <a
-                    href={`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/login`}
-                    className="px-8 py-4 bg-[var(--accent-emerald)] text-black font-bold text-lg rounded-xl no-underline hover:brightness-110 transition-all inline-block"
-                  >
-                    Open Web Portal
-                  </a>
+                <div className="col-span-2 bg-white/[0.04] rounded-2xl border border-white/10 p-5 flex items-center justify-between">
+                  <span className="text-sm font-semibold">Ready to take control?</span>
+                  <a href={`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/login`} className="px-5 py-2.5 bg-[var(--accent-emerald)] text-black font-bold text-sm rounded-xl no-underline">Open Web Portal</a>
                 </div>
               </div>
             </div>
@@ -253,4 +274,3 @@ export function StoryScene({ isLowEnd }: { isLowEnd: boolean }) {
     </group>
   );
 }
-
