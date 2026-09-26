@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": {
+    "deno": {
+      "disabled": true
+    }
+  },
+  "mcp": {
+    "firecrawl": {
+      "enabled": false
+    },
+    "agentdb": {
+      "enabled": false
+    },
+    "claude-flow": {
+      "enabled": false
+    },
+    "caveman": {
+      "enabled": false
+    }
+  },
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "**/dist/**",
+      ".next/**",
+      ".git/**",
+      ".opencode/node_modules/**"
+    ]
+  },
+  "subagent_depth": 1
+}
