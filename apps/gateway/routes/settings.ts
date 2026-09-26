@@ -75,29 +75,11 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
     return ok(updated);
   }
 
-  // POST /api/v1/settings/pin
-  if (path === "/api/v1/settings/pin" && method === "POST") {
-    const body = await req.json().catch(() => ({}));
-    const { pin_hash } = body;
-    if (!pin_hash || typeof pin_hash !== "string") {
-      return fail("pin_hash required", 400);
-    }
-
-    const updated = await orm.setting.upsert({
-      where: { tenantId },
-      create: {
-        instituteName: "My Tuition",
-        pinHash: pin_hash,
-      },
-      update: {
-        pinHash: pin_hash,
-      },
-    });
-
-    await recordAudit(db, tenantId, tenantId, "pin.update", "settings", tenantId, {});
-    invalidateTenant(tenantId);
-    return ok({ ok: true, setting: updated });
-  }
+  // POST /api/v1/settings/pin removed: uncontracted (absent from
+  // contracts/openapi.yaml), zero callers in web/mobile/desktop, and it accepted
+  // a client-supplied raw hash — the one path that could replace settings.pin_hash
+  // without old-PIN re-verification. PIN writes go through the web
+  // setPinAction (08_Settings.md SR-04: old PIN first, argon2id hash).
 
   return null;
 };

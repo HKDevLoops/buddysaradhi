@@ -19,6 +19,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
   
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [typedConfirmAccount, setTypedConfirmAccount] = useState("");
+  const [accountPin, setAccountPin] = useState("");
   
   const queryClient = useQueryClient();
 
@@ -30,7 +31,13 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => deleteTenantDataAction(pin),
+    mutationFn: async () => {
+      const res = await deleteTenantDataAction(pin);
+      // Surface the typed Result as a thrown error — otherwise a wrong PIN
+      // resolves silently and the UI never explains the failure (Rule 9).
+      if (!res.success) throw new Error(res.error || "Failed to delete data");
+      return res;
+    },
     onSuccess: (res) => {
       if (res.success) {
         queryClient.clear();
@@ -40,7 +47,11 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
   });
 
   const deleteAccountMutation = useMutation({
-    mutationFn: () => deleteAccountAction(),
+    mutationFn: async () => {
+      const res = await deleteAccountAction(accountPin);
+      if (!res.success) throw new Error(res.error || "Failed to delete account");
+      return res;
+    },
     onSuccess: (res) => {
       if (res.success) {
         queryClient.clear();
@@ -50,6 +61,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
   });
 
   const isValid = typedConfirm === "DELETE" && pin.length >= 4;
+  const isAccountValid = typedConfirmAccount === "DELETE MY ACCOUNT FOREVER" && accountPin.length >= 4;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const s = settings as any;
   const autoArchiveInactiveDays = s?.auto_archive_inactive_days ?? s?.autoArchiveInactiveDays ?? 90;
@@ -193,7 +205,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
             <div>
               <h3 className="text-base font-medium text-[var(--text-primary)] mb-1">Delete Account Forever</h3>
               <p className="text-sm text-[var(--text-muted)]">
-                Permanently close your BuddySaradhi account and destroy all databases, backups, and settings. This cannot be undone.
+                Permanently close your BuddySaradhi account and destroy all databases, backups, and settings. This cannot be undone. This action requires your security PIN.
               </p>
             </div>
             {!isDeletingAccount ? (
@@ -205,7 +217,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
               </button>
             ) : (
               <button 
-                onClick={() => { setIsDeletingAccount(false); setTypedConfirmAccount(""); }}
+                onClick={() => { setIsDeletingAccount(false); setTypedConfirmAccount(""); setAccountPin(""); }}
                 className="px-4 py-2 rounded-lg text-sm font-semibold text-[var(--text-muted)] btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] transition-all cursor-pointer shrink-0"
               >
                 Cancel
@@ -236,6 +248,21 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-flare)]"
                   />
                 </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                    Security PIN
+                  </label>
+                  <input 
+                    type="password" 
+                    value={accountPin}
+                    onChange={(e) => setAccountPin(e.target.value)}
+                    maxLength={4}
+                    placeholder="••••"
+                    aria-label="Security PIN for account deletion"
+                    className="glass-input w-full sm:w-48 px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--accent-flare)]"
+                  />
+                </div>
               </div>
 
               {deleteAccountMutation.error && (
@@ -244,10 +271,10 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
 
               <button 
                 onClick={() => deleteAccountMutation.mutate()}
-                disabled={typedConfirmAccount !== "DELETE MY ACCOUNT FOREVER" || deleteAccountMutation.isPending}
+                disabled={!isAccountValid || deleteAccountMutation.isPending}
                 className={cn(
                   "w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
-                  typedConfirmAccount === "DELETE MY ACCOUNT FOREVER"
+                  isAccountValid 
                     ? "bg-[var(--accent-flare)]/20 text-[var(--accent-flare)] border border-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/40 shadow-[0_0_15px_rgba(255,51,102,0.2)] cursor-pointer" 
                     : "bg-[var(--bg-surface-inset)] text-[var(--text-muted)] opacity-70 cursor-not-allowed shadow-none border border-[var(--border-glass)]"
                 )}

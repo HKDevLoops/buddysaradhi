@@ -91,26 +91,35 @@ export async function deleteTenantDataAction(pin: string) {
   }
 }
 
+/**
+ * Settings mass-assignment allowlist (08_Settings.md §3). Server-managed
+ * fields are deliberately absent: `pinHash` is written only by `setPinAction`
+ * (SR-04 — old-PIN re-verification, argon2id), and `plan` is billing state
+ * written only by the checkout flow — never by a client-supplied PATCH.
+ * Shared by `updateSettingAction` and `updateSettingsBatchAction`.
+ */
+const SETTING_WRITE_FIELDS: Record<string, boolean> = {
+  instituteName: true, instituteAddress: true, institutePhone: true,
+  instituteEmail: true, currencyCode: true, locale: true, timezone: true,
+  defaultFeeModel: true, invoicePrefix: true, receiptPrefix: true,
+  graceDays: true, autoInvoice: true, nextInvoiceSeq: true,
+  nextReceiptSeq: true, nextStudentSeq: true,
+  attendanceLockHours: true, defaultAttendanceStatus: true,
+  holidayListJson: true, notifyDueFee: true, notifyUpcomingDue: true,
+  notifyMissingAttendance: true, notifyInactiveStudent: true,
+  sessionTimeoutMin: true, biometricEnabled: true,
+  autoArchiveInactiveDays: true, theme: true, density: true,
+  reducedMotion: true, palette: true,
+};
+
 export async function updateSettingAction(field: string, value: unknown) {
   try {
     await getAuthenticatedPrisma();
 
     // Map UI camelCase field names to DB model fields
     // Prisma uses camelCase so we don't need to manually map to snake_case.
-    const allowedFields: Record<string, boolean> = {
-      instituteName: true, instituteAddress: true, institutePhone: true,
-      instituteEmail: true, currencyCode: true, locale: true, timezone: true,
-      defaultFeeModel: true, invoicePrefix: true, receiptPrefix: true,
-      graceDays: true, autoInvoice: true, nextInvoiceSeq: true,
-      nextReceiptSeq: true, nextStudentSeq: true,
-      attendanceLockHours: true, defaultAttendanceStatus: true,
-      holidayListJson: true, notifyDueFee: true, notifyUpcomingDue: true,
-      notifyMissingAttendance: true, notifyInactiveStudent: true,
-      sessionTimeoutMin: true,       biometricEnabled: true, pinHash: true,
-      autoArchiveInactiveDays: true, theme: true, density: true,
-      reducedMotion: true, palette: true, plan: true,
-    };
-    
+    const allowedFields = SETTING_WRITE_FIELDS;
+
     if (!allowedFields[field]) {
       return { success: false, error: "Invalid setting field: " + field };
     }
@@ -169,11 +178,16 @@ export async function updateSettingAction(field: string, value: unknown) {
 
 export async function updateSettingsBatchAction(settingsObj: Record<string, unknown>) {
   try {
+    // Same allowlist as updateSettingAction — a batch payload must not be an
+    // end-run around the single-field guard (pinHash/plan stay server-managed).
     const updateData: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(settingsObj)) {
-      if (val !== undefined) {
+      if (val !== undefined && SETTING_WRITE_FIELDS[key]) {
         updateData[key] = val;
       }
+    }
+    if (Object.keys(updateData).length === 0) {
+      return { success: false, error: "No valid settings fields" };
     }
 
     const res = await gatewayPatch("/api/v1/settings", updateData);
@@ -217,7 +231,7 @@ export async function updateThemeAction(theme: string) {
   return updateSettingAction("theme", theme);
 }
 
-export async function deleteAccountAction() {
+export async function deleteAccountAction(pin: string) {
   try {
     const supabase = await createSupabaseServer();
     const { data: { user } } = await supabase.auth.getUser();
@@ -227,17 +241,88 @@ export async function deleteAccountAction() {
     const userId = user.id;
 
     const { client, tenantId } = await getAuthenticatedDb();
-    await client.execute({ sql: "DELETE FROM settings WHERE tenant_id = ?", args: [tenantId] });
-    await client.execute({ sql: "DELETE FROM students WHERE tenant_id = ?", args: [tenantId] });
-    await client.execute({ sql: "DELETE FROM attendance WHERE tenant_id = ?", args: [tenantId] });
-    await client.execute({ sql: "DELETE FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] });
-    await client.execute({ sql: "DELETE FROM audit_log WHERE tenant_id = ?", args: [tenantId] });
+
+    // BR-SEC-04: re-confirm with PIN before the destructive erase — same gate
+    // as deleteTenantDataAction. 10_Security.md §18.1 step 1.
+    const settingsRow = await client.execute({
+      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+      args: [tenantId],
+    });
+    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    if (!pinHash) {
+      return { success: false, error: "No PIN configured. Set one in Settings → Security." };
+    }
+    const pinValid = await verifyPin(pin, pinHash);
+    if (!pinValid) {
+      return { success: false, error: "Invalid PIN" };
+    }
+
+    const now = new Date().toISOString();
+
+    // 10_Security.md §18.1 step 2: erase_initiated MUST be recorded before any
+    // row is deleted (BR-SEC-03). Fail-closed: a thrown error here aborts the
+    // erase before anything is destroyed.
+    await client.execute({
+      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
+            VALUES (?, ?, ?, 'tenant', ?, 'erase_initiated', ?, ?)`,
+      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ scope: "account" }), now],
+    });
+
+    // 10_Security.md §18.1 step 4 — ONE atomic cascade (libsql batch = single
+    // transaction). The previous five sequential executes could half-erase an
+    // account (settings+students deleted, then a failure on the non-existent
+    // `attendance` table aborted the rest).
+    //
+    // LEDGER-4 EXCEPTION (10_Security.md §9.2 / §18.1 step 4): the secure-erase
+    // flow is the single audited place where ledger_entries is physically
+    // deleted; every other code path posts a void instead. Erasing student PII
+    // while leaving its fee history readable would fail the erase guarantee.
+    // app_state carries tenant_secret + audit_chain_head — removing them
+    // crypto-shreds every tamper hash (§9.3) and orphans the audit chain
+    // (§18.1 step 3). audit_log rows SURVIVE as the erase record (§18.1 step 7).
+    await client.batch(
+      [
+        { sql: "DELETE FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM receipts WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM invoices WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM fee_schedule_items WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM fee_plans WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM attendance_records WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM attendance_sessions WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM student_documents WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM student_notes WHERE tenant_id = ?", args: [tenantId] },
+        // student_tags is a join table with no tenant_id column (single-tenant
+        // DB): unfiltered delete is the only valid form.
+        { sql: "DELETE FROM student_tags", args: [] },
+        { sql: "DELETE FROM tags WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM student_enrollments WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM guardians WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM students WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM batches WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM reminders WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM notifications WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM sync_outbox WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM backup_manifest WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM app_state WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM settings WHERE tenant_id = ?", args: [tenantId] },
+        { sql: "DELETE FROM tutors WHERE tenant_id = ?", args: [tenantId] },
+      ],
+      "write",
+    );
 
     const supabaseAdmin = await createSupabaseAdmin();
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
     if (deleteError) {
       return { success: false, error: "Auth delete failed: " + deleteError.message };
     }
+
+    // §18.1 step 7: erase_complete recorded AFTER the cascade — this row and
+    // erase_initiated are all that remain, the audit chain severed with them.
+    await client.execute({
+      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
+            VALUES (?, ?, ?, 'tenant', ?, 'erase_complete', ?, ?)`,
+      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ scope: "account" }), now],
+    });
 
     return { success: true };
   } catch (error) {
