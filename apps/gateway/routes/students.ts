@@ -1,7 +1,8 @@
 import type { DB } from "../lib/db.ts";
-import { ok, fail } from "../lib/errors.ts";
-import { logInfo } from "../lib/log.ts";
+import { ok, fail, failZod } from "../lib/errors.ts";
+import { logInfo, logError } from "../lib/log.ts";
 import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
+import { z } from "zod";
 
 export type RouteHandler = (
   req: Request,
@@ -15,6 +16,12 @@ export type RouteHandler = (
 
 import { createPrismaOrm } from "../lib/orm.ts";
 
+// Implements: 12_Business_Rules.md BR-SYN-01 (outbox row in the same logical
+// transaction as the mutation) + BR-SEC-03 (audit row) — Rule 7 in AGENTS.md.
+// Audit 2026-09-26: these helpers "swallow failures with console.error — the
+// Rule 7 guarantee is best-effort". They now rethrow (fail-closed): a failed
+// outbox/audit write aborts the request with 500 (index.ts typed log) instead
+// of reporting success for a mutation that will never replicate.
 export async function recordOutbox(
   db: DB,
   tenantId: string,
@@ -23,11 +30,11 @@ export async function recordOutbox(
   op: string,
   payload: unknown,
 ): Promise<void> {
+  const rawOp = op.toLowerCase();
+  const normalizedOp = rawOp === "create" ? "insert" : (rawOp === "delete" ? "soft_delete" : rawOp);
   try {
     const orm = createPrismaOrm(db, tenantId);
     const jsonPayload = typeof payload === "string" ? payload : JSON.stringify(payload ?? {});
-    const rawOp = op.toLowerCase();
-    const normalizedOp = rawOp === "create" ? "insert" : (rawOp === "delete" ? "soft_delete" : rawOp);
     await orm.syncOutbox.create({
       data: {
         tableName: table,
@@ -36,9 +43,10 @@ export async function recordOutbox(
         payload: jsonPayload,
       },
     });
-  } catch (_e) {
-    // sync failure is non-fatal
-    console.error('sync_outbox write failed:', _e);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    logError("sync_outbox.write_failed", { tenantId, table, rowId, op: normalizedOp, message });
+    throw new Error(`sync_outbox write failed (12_Business_Rules.md BR-SYN-01) for ${table}/${rowId}: ${message}`);
   }
 }
 
@@ -62,15 +70,53 @@ export async function recordAudit(
         metadata,
       },
     });
-  } catch (_e) {
-    // audit failure is non-fatal
-    console.error('audit_log write failed:', _e);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    logError("audit_log.write_failed", { tenantId, action, refType, refId, message });
+    throw new Error(`audit_log write failed (10_Security.md BR-SEC-03) for ${action}: ${message}`);
   }
 }
 
 
 
 // ======================== STUDENTS ========================
+
+// PATCH allowlist (OWASP API5 / audit 2026-09-26 "Gateway students PATCH —
+// mass assignment: `data: body` — raw JSON to orm.student.update").
+// Mirrors the ALLOWED_SETTINGS_FIELDS block in routes/settings.ts: a client may
+// only write the profile fields the product edits (05_Students.md "Edit
+// Profile"); z.object() strips everything else, so id, tenantId, createdAt,
+// updatedAt (server time), balancePaise (money moves only via ledger flows —
+// 12_Business_Rules.md BR-M-01, AGENTS.md Rule 6), dupKey (dedup identity),
+// mergedIntoId (merge is a dedicated flow, 05_Students.md E10) and archivedAt
+// (server-owned timestamp, 08_Settings.md auto-archive) are never client-writable.
+// Enums mirror packages/shared/src/schemas/student.ts:18-20.
+const STUDENT_PATCH_SCHEMA = z.object({
+  code: z.string().max(64).nullable(),
+  first_name: z.string().min(1).max(200),
+  firstName: z.string().min(1).max(200),
+  last_name: z.string().max(200).nullable(),
+  lastName: z.string().max(200).nullable(),
+  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dob must be YYYY-MM-DD").nullable(),
+  gender: z.enum(["M", "F", "O"]).nullable(),
+  phone: z.string().max(32).nullable(),
+  email: z.string().max(254).nullable(),
+  address: z.string().max(1000).nullable(),
+  school: z.string().max(300).nullable(),
+  grade: z.string().max(64).nullable(),
+  board: z.string().max(64).nullable(),
+  admission_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "admission_date must be YYYY-MM-DD"),
+  admissionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "admissionDate must be YYYY-MM-DD"),
+  status: z.enum(["active", "inactive", "graduated", "archived"]),
+  fee_model: z.enum(["postpaid", "prepaid", "mixed"]),
+  feeModel: z.enum(["postpaid", "prepaid", "mixed"]),
+  base_fee_paise: z.number().int().min(0),
+  baseFeePaise: z.number().int().min(0),
+  notes: z.string().max(5000).nullable(),
+  custom_fields: z.string().max(10000).nullable(),
+  customFields: z.string().max(10000).nullable(),
+}).partial();
+
 
 export const handleStudents: RouteHandler = async (
   req,
@@ -190,9 +236,12 @@ export const handleStudents: RouteHandler = async (
       });
     }
 
+    // Cache is invalidated before the outbox/audit writes so that a fail-closed
+    // Rule 7 throw (recordOutbox/recordAudit) never leaves pre-mutation GETs
+    // cached after the row has already changed.
+    invalidateTenant(tenantId);
     await recordOutbox(db, tenantId, "students", id, "create", body);
     await recordAudit(db, tenantId, tenantId, "student.create", "student", id, body);
-    invalidateTenant(tenantId);
     return ok(created, 201);
   }
 
@@ -200,14 +249,20 @@ export const handleStudents: RouteHandler = async (
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "PATCH") {
     const id = path.split("/").pop()!;
     const body = await req.json().catch(() => ({}));
-    
+
+    const parsed = STUDENT_PATCH_SCHEMA.safeParse(body);
+    if (!parsed.success) return failZod(parsed.error);
+    const patch = parsed.data;
+    if (Object.keys(patch).length === 0) return fail("no_valid_fields", 400);
+
     const updated = await orm.student.update({
       where: { id },
-      data: body,
+      data: patch,
     });
 
-    await recordOutbox(db, tenantId, "students", id, "update", body);
     invalidateTenant(tenantId);
+    await recordOutbox(db, tenantId, "students", id, "update", patch);
+    await recordAudit(db, tenantId, tenantId, "student.edit", "student", id, patch);
     return ok(updated);
   }
 
@@ -222,11 +277,11 @@ export const handleStudents: RouteHandler = async (
     await orm.studentEnrollment.deleteMany({ where: { studentId: id } });
     await orm.student.delete({ where: { id } });
 
+    invalidateTenant(tenantId);
     await recordAudit(db, tenantId, tenantId, "student.delete", "student", id, {});
     await recordOutbox(db, tenantId, "students", id, "delete", { id });
 
     logInfo("mutation.success", { ...logCtx, tenantId, path, method: "DELETE", studentId: id });
-    invalidateTenant(tenantId);
     return ok({ ok: true });
   }
 

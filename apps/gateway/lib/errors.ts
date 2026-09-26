@@ -1,5 +1,6 @@
 import { encryptResponse } from "./crypto.ts";
 import { getSecurityHeaders } from "./security.ts";
+import type { ZodError } from "zod";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Headers":
@@ -101,6 +102,15 @@ export function okCached(body: string, cacheControl: string): Response {
 export function fail(error: string, status = 400): Response {
   const sanitized = sanitizeError(error, status);
   return json({ success: false, error: sanitized }, status) as Response;
+}
+
+// AGENTS.md §6.1 — Zod for all input validation; a failed parse returns a
+// typed 400 instead of letting the handler proceed with garbage input
+// (Rule 9 — no silent failures).
+export function failZod(error: ZodError): Response {
+  const issue = error.issues[0];
+  const path = issue && issue.path.length > 0 ? issue.path.join(".") : "body";
+  return fail(issue ? `${path}: ${issue.message}` : "invalid request body", 400);
 }
 
 export function securityFail(status: number, requestId?: string): Response {

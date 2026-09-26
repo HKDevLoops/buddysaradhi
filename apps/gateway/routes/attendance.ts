@@ -1,8 +1,9 @@
 import type { RouteHandler } from "./students.ts";
-import { ok, fail } from "../lib/errors.ts";
+import { ok, fail, failZod } from "../lib/errors.ts";
 import { recordOutbox, recordAudit } from "./students.ts";
 import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
+import { z } from "zod";
 
 export const handleAttendance: RouteHandler = async (req, db, tenantId, path, method, url) => {
   const sp = url.searchParams;
@@ -116,26 +117,41 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
       });
     }
 
+    // Fail-closed Rule 7 ordering: invalidate first so a thrown
+    // recordOutbox/recordAudit never leaves pre-mutation GETs cached.
+    invalidateTenant(tenantId);
     await recordOutbox(db, tenantId, "attendance_sessions", String(sessionId), "update", body);
     await recordAudit(db, tenantId, tenantId, "attendance.mark", "session", String(sessionId), { count: updates.length });
-    invalidateTenant(tenantId);
     return ok({ sessionId });
   }
 
   // POST /api/v1/attendance/lock
   if (path === "/api/v1/attendance/lock" && method === "POST") {
     const body = await req.json().catch(() => ({}));
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(body);
+    if (!parsed.success) return failZod(parsed.error);
+    const sessionId = parsed.data.sessionId;
     const now = new Date().toISOString();
-    
+
     await orm.attendanceSession.update({
-      where: { id: body.sessionId },
+      where: { id: sessionId },
       data: {
         lockedAt: now,
         lockedBy: tenantId,
       },
     });
 
-    await recordAudit(db, tenantId, tenantId, "attendance.lock", "session", body.sessionId, {});
+    invalidateTenant(tenantId);
+    // Rule 7 (12_Business_Rules.md BR-SYN-01) — audit 2026-09-26 "Attendance
+    // lock — no sync_outbox ... gateway routes/attendance.ts:138 (audit ✓,
+    // outbox ✗)": a locked session that does not replicate can still be edited
+    // by a second device.
+    await recordOutbox(db, tenantId, "attendance_sessions", sessionId, "update", {
+      sessionId,
+      lockedAt: now,
+      lockedBy: tenantId,
+    });
+    await recordAudit(db, tenantId, tenantId, "attendance.lock", "session", sessionId, {});
     return ok({ locked: true });
   }
 
