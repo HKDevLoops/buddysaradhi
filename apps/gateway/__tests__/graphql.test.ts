@@ -11,7 +11,7 @@ vi.mock("../lib/db.ts", () => ({
   },
 }));
 
-import { execLocal } from "../graphql/executor";
+import { execLocal } from "../graphql/executor.ts";
 
 function createMockDb(rowsBySql: Record<string, Record<string, unknown>[]>) {
   return {
