@@ -101,17 +101,30 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     }
     const now = new Date().toISOString();
 
-    await client.execute({
-      sql: `UPDATE attendance_sessions SET locked_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`,
-      args: [now, now, sessionId, tenantId],
-    });
-
-    // Audit log
-    await client.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'attendance_session', ?, 'session_locked', ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
-    });
+    // W2 (reviews/overhaul-audit-report-2026-09-26.md): the lock UPDATE, its
+    // sync_outbox row and the audit_log row go in ONE write batch — Rule 7
+    // (AGENTS §2) / BR-SYN-01 require the outbox row in the same transaction
+    // as the mutation, so a locked session can never exist locally without a
+    // queued replication row.
+    await client.batch(
+      [
+        {
+          sql: `UPDATE attendance_sessions SET locked_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`,
+          args: [now, now, sessionId, tenantId],
+        },
+        {
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
+                VALUES (?, ?, 'attendance_sessions', ?, 'update', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
+        },
+        {
+          sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
+                VALUES (?, ?, ?, 'attendance_session', ?, 'session_locked', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
+        },
+      ],
+      "write",
+    );
 
     return { success: true };
   } catch (error) {
