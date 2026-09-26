@@ -25,22 +25,25 @@ import { handleAnalytics } from "./routes/analytics.ts";
 import { handleNotifications } from "./routes/notifications.ts";
 import { handleSync } from "./routes/sync.ts";
 import { handleSecurity } from "./routes/security.ts";
+import { handleMarketingPublic } from "./routes/marketing.ts";
 
 const ALLOWED_ORIGINS = new Set([
-  'https://buddysaradhi.app',
-  'https://buddysaradhi.vercel.app',
-  'https://buddysaradhi.store',
-  'http://localhost:3000',
-  'http://localhost:3001',
+  "https://buddysaradhi.app",
+  "https://buddysaradhi.vercel.app",
+  "https://buddysaradhi.store",
+  "https://buddysaradhi-product.vercel.app",
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3003",
 ]);
 
 function getCorsOrigin(req: Request): string {
-  const origin = req.headers.get('Origin') || '';
+  const origin = req.headers.get("Origin") || "";
   if (ALLOWED_ORIGINS.has(origin)) return origin;
   // Check env override
-  const envOrigin = Deno.env.get('ALLOWED_ORIGIN') || Deno.env.get('ALLOWED_ORIGINS');
+  const envOrigin = Deno.env.get("ALLOWED_ORIGIN") || Deno.env.get("ALLOWED_ORIGINS");
   if (envOrigin && envOrigin.includes(origin)) return origin;
-  return 'https://buddysaradhi.app'; // default
+  return "https://buddysaradhi.app"; // default
 }
 
 function getCorsHeaders(req: Request): Record<string, string> {
@@ -147,6 +150,17 @@ Deno.serve(async (req: Request) => {
         status: 200,
         headers: mergeHeaders(req, { "Content-Type": "text/plain" }),
       });
+    }
+
+    // Public marketing facts: no auth, no DB (20_3D §1.1.3, R-17).
+    // Branches before validatePath/db/auth like /health.
+    if (path === "/api/v1/marketing/stats") {
+      const marketing = handleMarketingPublic(path, method, logCtx);
+      if (marketing) {
+        const dt = performance.now() - t0;
+        marketing.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
+        return addSecurityHeaders(req, marketing, requestId);
+      }
     }
 
     const pathCheck = validatePath(path);
@@ -293,7 +307,11 @@ Deno.serve(async (req: Request) => {
     // Server-side log already has the full message. Client gets a generic error.
     const safeMessage = err instanceof AuthError ? errMsg : "internal server error";
     const body = JSON.stringify({ success: false, error: safeMessage, requestId });
-    return addSecurityHeaders(req, new Response(body, { status, headers: { "Content-Type": "application/json" } }), requestId);
+    return addSecurityHeaders(
+      req,
+      new Response(body, { status, headers: { "Content-Type": "application/json" } }),
+      requestId,
+    );
   }
 });
 
