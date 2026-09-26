@@ -95,7 +95,11 @@ export function AddStudentSheet() {
       admission_date: data.joined_at,
       status: "active",
       fee_model: data.fee_model || "postpaid",
-      baseFeePaise: (data.baseFee || 0) * 100,
+      // W1 (Rule 6 / BR-M-01): money crosses the wire as an exact rupee
+      // decimal string, never as a float paise amount — `(baseFee) * 100`
+      // produced 123355.49999999999 for 1233.555. The server converts to
+      // integer paise with integer math (actions/students.ts rupeesToPaise).
+      baseFee: String(data.baseFee ?? 0),
       dup_key: dupKey,
       merged_into_id: null,
       custom_fields: null,

@@ -6,6 +6,7 @@ import { StudentFilters, SortCol } from "@/types/students";
 import { revalidatePath } from "next/cache";
 import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "../queries/students";
 import { log } from "@/lib/logger";
+import { z } from "zod";
 
 export async function fetchStudentsAction(
   filters: StudentFilters,
@@ -35,31 +36,102 @@ export async function fetchStudentDetailAction(studentId: string): Promise<{ suc
   }
 }
 
+/**
+ * W1 (reviews/overhaul-audit-report-2026-09-26.md): the create-student payload
+ * used to be read as `data as any`. It is now parsed with Zod before any DB
+ * touch (AGENTS.md §6.1 — Zod for all input validation). The schema is
+ * module-private because this is a `"use server"` file: Next.js only allows
+ * async function exports.
+ *
+ * Zod's default strip mode drops the UI-only keys the sheet sends
+ * (`tenant_id`, `merged_into_id`, `custom_fields`, `notes`, `archived_at`,
+ * `created_at`, `updated_at`) instead of failing on them; `.strict()` would
+ * reject today's payload (add-student-sheet.tsx:82-106).
+ *
+ * Money (AGENTS.md §2 Rule 6, 12_Business_Rules.md BR-M-01): every amount is
+ * integer paise. `baseFeePaise` / `base_fee_paise` must be integer paise — a
+ * float such as 123355.49999999999 from `(1233.555) * 100` is rejected rather
+ * than stored. `baseFee` is the exact rupee decimal string instead, converted
+ * with integer arithmetic only (see rupeesToPaise below).
+ */
+const CreateStudentInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  code: z.string().regex(/^[A-Za-z0-9-]{1,20}$/, "code may only contain letters, digits and dashes").optional(),
+  first_name: z.string().trim().min(1, "first_name is required").max(200),
+  last_name: z.string().max(200).nullish(),
+  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dob must be YYYY-MM-DD").nullish(),
+  gender: z.enum(["M", "F", "O"]).nullish(),
+  phone: z.string().max(32).nullish(),
+  email: z.string().max(254).nullish(),
+  address: z.string().max(1000).nullish(),
+  school: z.string().max(300).nullish(),
+  grade: z.string().max(64).nullish(),
+  board: z.string().max(64).nullish(),
+  admission_date: z
+    .string()
+    .refine((v) => !Number.isNaN(Date.parse(v)), "admission_date must be a valid date"),
+  status: z.enum(["active", "inactive", "graduated", "archived"]).default("active"),
+  fee_model: z.enum(["postpaid", "prepaid", "mixed"]).default("postpaid"),
+  baseFeePaise: z.number().int().nonnegative("baseFeePaise must be integer paise").optional(),
+  base_fee_paise: z.number().int().nonnegative("base_fee_paise must be integer paise").optional(),
+  baseFee: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/, "baseFee must be a non-negative rupee amount").optional(),
+  dup_key: z.string().max(64).optional(),
+});
+
+/**
+ * BR-M-01: exact rupee decimal string → integer paise using integer math only
+ * (BigInt), so no float ever touches a money value. Digits beyond paise are
+ * truncated — BR-M-05's half-to-even rounding covers *computed* amounts;
+ * sub-paisa input digits carry no value. The schema caps the whole part at 12
+ * digits, so the result stays inside Number.MAX_SAFE_INTEGER.
+ */
+function rupeesToPaise(rupees: string): number {
+  const [whole, frac = ""] = rupees.split(".");
+  // BigInt() calls (not 100n literals): tsconfig target is ES2017.
+  const paise = BigInt(whole) * BigInt(100) + BigInt((frac + "00").slice(0, 2));
+  return Number(paise);
+}
+
+/**
+ * BR-STU-04 display code (05_Students.md §code format: `^[A-Za-z0-9-]{1,20}$`).
+ * 8 uppercase hex chars from crypto.getRandomValues — a 4.29e9 space that
+ * cannot collide with the old `S-<random 100..999>` (900 values) and needs no
+ * DB round-trip, so it is stable across devices. The `STU-<next_seq>` counter
+ * (BR-STU-04) is deferred: `settings.next_student_seq` is per-device and would
+ * hand out identical codes on two devices.
+ */
+function generateStudentCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return `S-${Array.from(bytes, (b) => b.toString(16).toUpperCase().padStart(2, "0")).join("")}`;
+}
+
 export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
   try {
-    const s = data as any;
-    const id = s.id || crypto.randomUUID();
-    const code = s.code || `S-${Math.floor(100 + Math.random() * 900)}`;
-    let validAdmissionDate = new Date().toISOString().slice(0, 10);
-    const rawDate = s.admission_date || s.joined_at || s.admissionDate;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        validAdmissionDate = d.toISOString().slice(0, 10);
-      }
+    const parsed = CreateStudentInputSchema.safeParse(data);
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      log.error("create_student_invalid_input", detail);
+      return { success: false, error: `Invalid student data — ${detail}` };
     }
+    const s = parsed.data;
 
-    const baseFeePaise = s.baseFeePaise !== undefined 
-      ? Number(s.baseFeePaise) 
-      : (s.base_fee_paise !== undefined 
-          ? Number(s.base_fee_paise) 
-          : Number(s.baseFee || 0) * 100);
+    // IDs: `id` stays a client-supplied UUID when present (prisma/schema.prisma
+    // model Student — `id String @id`, written as crypto.randomUUID()), and the
+    // human-facing `code` is generated server-side below. The UUIDv4-vs-UUIDv7
+    // drift noted by the audit lives in packages/core (out of this slice).
+    const id = s.id ?? crypto.randomUUID();
+    const code = s.code ?? generateStudentCode();
+    const validAdmissionDate = new Date(s.admission_date).toISOString().slice(0, 10);
+    const baseFeePaise =
+      s.baseFeePaise ?? s.base_fee_paise ?? (s.baseFee !== undefined ? rupeesToPaise(s.baseFee) : 0);
 
     const payload = {
       id,
       code,
-      first_name: s.first_name || s.firstName || s.name?.split(" ")[0] || "Student",
-      last_name: s.last_name || s.lastName || (s.name ? s.name.split(" ").slice(1).join(" ") : "") || null,
+      first_name: s.first_name,
+      last_name: s.last_name || null,
       dob: s.dob || null,
       gender: s.gender || null,
       phone: s.phone || null,
@@ -69,11 +141,11 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       grade: s.grade || null,
       board: s.board || null,
       admission_date: validAdmissionDate,
-      status: s.status || "active",
-      fee_model: s.fee_model || s.feeModel || "postpaid",
+      status: s.status,
+      fee_model: s.fee_model,
       base_fee_paise: baseFeePaise,
-      dup_key: s.dup_key || s.dupKey || code,
-      batchName: batchName || s.batchName || s.batch || null,
+      dup_key: s.dup_key ?? code,
+      batchName: batchName || null,
     };
 
     // 1. Try canonical Gateway first
@@ -111,19 +183,24 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
 
     await proxy.student.create({ data: studentData });
 
-    // Append to sync_outbox in local DB per Rule 7
-    await proxy.syncOutbox.create({
-      data: {
-        id: crypto.randomUUID(),
-        tenantId,
-        tableName: "students",
-        rowId: id,
-        op: "insert",
-        payload: JSON.stringify(payload),
-        status: "pending",
-        createdAt: new Date(),
-      },
-    });
+    // Rule 7 (AGENTS.md §2) / BR-SYN-01: the mutation is followed in the same
+    // logical transaction by its sync_outbox row (replication) and its
+    // audit_log row (BR-SEC-03) — the audit row was missing here before.
+    // Pattern: actions/settings.ts:152-167.
+    const now = new Date().toISOString();
+    await client.batch(
+      [
+        {
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'insert', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, id, JSON.stringify(payload), now],
+        },
+        {
+          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'student.create', 'student', ?, ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, id, JSON.stringify({ code, base_fee_paise: baseFeePaise }), now],
+        },
+      ],
+      "write",
+    );
 
     if (batchName) {
       let batch = await proxy.batch.findFirst({ where: { tenantId, name: batchName } });
