@@ -2,10 +2,10 @@ import { hash as argon2Hash, verify as argon2Verify } from 'argon2';
 
 function resolvePepper(): string {
   const p = process.env.PIN_PEPPER || process.env.GATEWAY_SHARED_SECRET || '';
-  if (!p && process.env.NODE_ENV === 'production') {
-    throw new Error('CRITICAL: PIN_PEPPER or GATEWAY_SHARED_SECRET must be set in production');
+  if (!p) {
+    throw new Error('CRITICAL: PIN_PEPPER or GATEWAY_SHARED_SECRET must be set — fail-closed, no dev fallback');
   }
-  return p || `dev-pepper-${process.env.NODE_ENV || 'development'}`;
+  return p;
 }
 const PEPPER = resolvePepper();
 
@@ -32,10 +32,10 @@ export async function verifyPin(pin: string, hash: string): Promise<boolean> {
 
 function resolveAesKey(): string {
   const k = process.env.DATA_ENCRYPTION_KEY || process.env.GATEWAY_SHARED_SECRET || '';
-  if (!k && process.env.NODE_ENV === 'production') {
-    throw new Error('CRITICAL: DATA_ENCRYPTION_KEY or GATEWAY_SHARED_SECRET must be set in production');
+  if (!k) {
+    throw new Error('CRITICAL: DATA_ENCRYPTION_KEY or GATEWAY_SHARED_SECRET must be set — fail-closed, no dev fallback');
   }
-  return k || `dev-aes-${process.env.NODE_ENV || 'development'}`;
+  return k;
 }
 const AES_KEY = resolveAesKey();
 

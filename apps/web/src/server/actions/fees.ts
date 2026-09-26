@@ -48,6 +48,22 @@ async function computeSimpleHash(prevHash: string | null, payload: string, times
     .join("");
 }
 
+// Implements: 10_Security.md §10 Receipt Tamper-Evidence — invoice tamper_hash
+// is keyed by tenant_secret (256-bit, provisioned per tenant, never client-readable).
+// Fail-closed: an unprovisioned tenant must not get a hash under a guessable key.
+async function requireTenantSecret(
+  client: import("@libsql/client").Client,
+  tenantId: string,
+): Promise<string> {
+  const settingRes = await client.execute({
+    sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`,
+    args: [tenantId],
+  });
+  const secret = settingRes.rows[0]?.tenant_secret as string | null;
+  if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
+  return secret;
+}
+
 async function postLedgerEntryRaw(
   client: import("@libsql/client").Client,
   tenantId: string,
@@ -184,7 +200,7 @@ export async function recordPaymentAction(
       const autoInvoiceId = crypto.randomUUID();
       const code = `INV-AUTO-${Math.floor(1000 + Math.random() * 9000)}`;
       const hashData = `${code}:${parsed.data.studentId}:${remainingPayment}:${parsed.data.dateIso}`;
-      const tamperHash = await computeSimpleHash(null, hashData, now, "dev-secret");
+      const tamperHash = await computeSimpleHash(null, hashData, now, await requireTenantSecret(client, tenantId));
       
       // Auto-create a matching invoice
       await client.execute({
@@ -261,7 +277,7 @@ export async function createInvoiceAction(
     const invoiceId = crypto.randomUUID();
     const code = `INV-${Math.floor(1000 + Math.random() * 9000)}`;
     const hashData = `${code}:${parsed.data.studentId}:${parsed.data.amountMinor}:${parsed.data.dateIso}`;
-    const tamperHash = await computeSimpleHash(null, hashData, now, "dev-secret");
+    const tamperHash = await computeSimpleHash(null, hashData, now, await requireTenantSecret(client, tenantId));
 
     await client.execute({
       sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)

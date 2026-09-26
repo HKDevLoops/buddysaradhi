@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
+    // lib/crypto.ts fails closed at module load (10_Security.md §15) unless a
+    // secret is present. Test-only value: never used at runtime, never in prod.
+    env: {
+      GATEWAY_SHARED_SECRET: 'vitest-only-shared-secret-not-for-production-0000',
+    },
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
