@@ -138,7 +138,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-[var(--accent-flare)] text-left">{error}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--accent-flare)] text-left">{error}</p>}
           {successMsg && <p className="text-sm text-[var(--accent-emerald)] text-left">{successMsg}</p>}
 
           <div className="pt-2">
