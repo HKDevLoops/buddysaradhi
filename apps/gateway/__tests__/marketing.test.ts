@@ -12,7 +12,7 @@ describe("handleMarketingPublic()", () => {
     expect(handleMarketingPublic("/api/v1/students", "GET", CTX)).toBeNull();
   });
 
-  it("rejects non-GET with 405", async () => {
+  it("rejects non-GET with 405", () => {
     const res = handleMarketingPublic("/api/v1/marketing/stats", "POST", CTX);
     expect(res).not.toBeNull();
     expect(res!.status).toBe(405);
