@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hashPin, verifyPin, encrypt, decrypt, hmacSign, hmacVerify } from '@/lib/crypto';
+import { hashPin, verifyPin, encryptBackup, decryptBackup, hmacSign, hmacVerify } from '@/lib/crypto';
 
 describe('PIN hashing (Argon2id)', () => {
   it('hashes a PIN', async () => {
@@ -28,38 +28,40 @@ describe('PIN hashing (Argon2id)', () => {
   });
 });
 
-describe('AES-256-GCM encrypt/decrypt', () => {
+describe('AES-256-GCM + Argon2id backup envelope (Rule 8)', () => {
+  const PASSPHRASE = 'correct-horse-battery-staple';
+
   it('round-trips a string', async () => {
     const plaintext = 'sensitive student data';
-    const enc = await encrypt(plaintext);
+    const enc = await encryptBackup(plaintext, PASSPHRASE);
     expect(enc).not.toBe(plaintext);
-    const dec = await decrypt(enc);
+    const dec = await decryptBackup(enc, PASSPHRASE);
     expect(dec).toBe(plaintext);
   });
 
   it('round-trips Unicode', async () => {
     const plaintext = '\u20B91,255.55 \u2014 \u092E\u0947\u0930\u093E \u0928\u093E\u092E';
-    const enc = await encrypt(plaintext);
-    const dec = await decrypt(enc);
+    const enc = await encryptBackup(plaintext, PASSPHRASE);
+    const dec = await decryptBackup(enc, PASSPHRASE);
     expect(dec).toBe(plaintext);
   });
 
-  it('produces different ciphertexts for same plaintext (random IV)', async () => {
-    const enc1 = await encrypt('hello');
-    const enc2 = await encrypt('hello');
+  it('produces different ciphertexts for same plaintext (random salt + IV)', async () => {
+    const enc1 = await encryptBackup('hello', PASSPHRASE);
+    const enc2 = await encryptBackup('hello', PASSPHRASE);
     expect(enc1).not.toBe(enc2);
-    expect(await decrypt(enc1)).toBe('hello');
-    expect(await decrypt(enc2)).toBe('hello');
+    expect(await decryptBackup(enc1, PASSPHRASE)).toBe('hello');
+    expect(await decryptBackup(enc2, PASSPHRASE)).toBe('hello');
   });
 
   it('fails to decrypt invalid base64 data', async () => {
-    await expect(decrypt('not-valid-base64!!!')).rejects.toThrow();
+    await expect(decryptBackup('not-valid-base64!!!', PASSPHRASE)).rejects.toThrow();
   });
 
   it('fails to decrypt truncated ciphertext', async () => {
-    const validEnc = await encrypt('test');
+    const validEnc = await encryptBackup('test', PASSPHRASE);
     const truncated = validEnc.slice(0, 10);
-    await expect(decrypt(truncated)).rejects.toThrow();
+    await expect(decryptBackup(truncated, PASSPHRASE)).rejects.toThrow();
   });
 });
 

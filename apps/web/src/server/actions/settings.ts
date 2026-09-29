@@ -4,7 +4,7 @@ import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlP
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { verifyPin, encrypt } from "@/lib/crypto";
+import { verifyPin, encryptBackup } from "@/lib/crypto";
 
 export async function createBackupAction(passphrase: string) {
   try {
@@ -28,7 +28,9 @@ export async function createBackupAction(passphrase: string) {
       ledger: ledgerRes.rows,
     });
 
-    const encryptedB64 = await encrypt(backupPayload);
+    // Rule 8: the passphrase is the KDF input (Argon2id), not just a check —
+    // the backup must be restorable on any device with only the passphrase.
+    const encryptedB64 = await encryptBackup(backupPayload, passphrase);
     const sizeBytes = Buffer.byteLength(encryptedB64, 'base64');
     const sizeKB = (sizeBytes / 1024).toFixed(1);
 
