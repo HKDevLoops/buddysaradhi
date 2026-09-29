@@ -117,13 +117,26 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
   useEffect(() => {
     if (typeof window === "undefined") return;
     const html = document.documentElement;
-    html.setAttribute("data-palette", resolvedPalette);
+    // APPLIED-first for data-palette (103036f density-fix class): the swatch
+    // click in appearance-section applyPalette() writes this attribute AND
+    // localStorage in the same tick, so localStorage IS the applied value —
+    // read it fresh here. A stale server echo (dbPalette from the last
+    // settings response) or its absence (failed/empty getSettings → dbPalette
+    // undefined → the aurora-cosmic fallback prop) must NEVER clobber
+    // html[data-palette] after the user chose one. e2e F-2:
+    // tests/e2e/stress.spec.ts:176 — the attribute flapped violet-nebula →
+    // aurora-cosmic and never reached the selected emerald-ledger.
+    const applied = localStorage.getItem("buddysaradhi.palette");
+    html.setAttribute("data-palette", applied || resolvedPalette);
     html.setAttribute("data-theme", resolvedTheme);
     html.setAttribute("data-theme-preference", themePreference || "system");
     html.setAttribute("data-density", resolvedDensity);
 
-    // Sync localStorage with DB settings when logged in
-    if (dbPalette) localStorage.setItem("buddysaradhi.palette", dbPalette);
+    // Sync localStorage with DB settings when logged in — SEED only when this
+    // device has no applied value (first visit / cross-device restore).
+    // Unconditionally writing dbPalette here is what let a stale echo undo the
+    // user's click on the next effect run.
+    if (dbPalette && !applied) localStorage.setItem("buddysaradhi.palette", dbPalette);
     if (dbTheme) localStorage.setItem("buddysaradhi.theme", dbTheme);
     if (dbDensity) localStorage.setItem("buddysaradhi.density", dbDensity);
   }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity, dbPalette, dbTheme, dbDensity]);
