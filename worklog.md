@@ -1370,3 +1370,74 @@ page fresh with R3F; set up Higgsfield; check NIM models. **Work Log**:
 - State: COMPLETED except user actions: (1) `vercel login` (deploys + TestSprite live legs), (2) STOP-AND-ASK 7 approvals, (3) AIHUBMIX_API_KEY env setup for B1, (4) video assets (Higgsfield login).
 - Verdict preview: web + gateway = Blocked band (multiple 69-cap triggers); product page = Launchable with caveats (~76). Full report: reviews/overhaul-audit-report-2026-09-26.md.
 - Resume point: Phase 7 report file, then await approvals.
+
+---
+
+**Task ID**: S1-S2-PRODUCTION-REPAIR-2026-09-27
+**Agent**: lead (build mode) + Agents A/B/C/D (Task general swarm waves)
+**Task**: Execute the approved S0-S5 plan — Stage 1 (cap-69 removal) and Stage 2 (P0 base), with user pre-approval of all 7 STOP-AND-ASK items.
+**Work Log**:
+
+- S1-C1 (8488b43): PIN trio. `SETTING_WRITE_FIELDS` drops `pinHash`/`plan`; `deleteAccountAction(pin)` rewritten as PIN-gated fail-closed atomic 23-table cascade per `10_Security.md` §18.1 + LEDGER-4 (the sole audited ledger-delete exception); `data-privacy-section.tsx` gains PIN input + thrown errors (Rule 9); uncontracted gateway `POST /settings/pin` deleted; contract-mandated `POST /security/erase` rewritten to `{tutorId===tenantId, confirm==='ERASE'}` + fail-closed pre-audit + atomic 13-table batch + `invalidateTenant`.
+- S1-C2 (67aab56): dev-secret removal. `fees.ts` `requireTenantSecret()` (tenant_secret, fail-closed throw — `10_Security.md` §10); `crypto.ts` resolvers throw unconditionally; test-only `GATEWAY_SHARED_SECRET` in apps/web vitest.config. `rg dev-secret|dev-pepper|dev-aes` repo-clean.
+- S1-C3 (021e9ef): `reviews/rollback-runbook.md` (756 lines) — per-surface rollback, verify probes, 9 cannot-rollback items, 14-row `[UNVERIFIED]` register. Cap-69 "no rollback path" cleared.
+- S2 wave (5 commits, `021e9ef..ddf2b65`): `2593628` recordOutbox/recordAudit rethrow fail-closed + attendance-lock/settings outbox + students PATCH zod allowlist (OWASP API5) + zod@3.24.2 pin (matches packages/shared); `9b2eeac` ledger zod integer-paise validation (input only); `03af9a7` web students zod + BigInt `rupeesToPaise` + collision-safe `S-<8hex>` code + audit row on local fallback; `8ceb9ea` web attendance lock: UPDATE + sync_outbox + audit_log in ONE `client.batch`; `ddf2b65` `execSafe` rethrows non-schema errors, `$executeRaw`/`$queryRaw` proxy branches deleted (zero callers), `createLibsqlProxy` typed.
+- Gates (orchestrator, serial, post-S2): web eslint 0, tsc 0, deno lint 0, deno check 0, unit 224/224, integration 207/207, working tree clean, all pushed. Gateway smoke (Agent C): 43 assertions — mass-assignment strip, 400-before-DB, outbox/audit ordering, integer-paise end-to-end.
+- KNOWN pre-existing: local `next build` red at CLEAN HEAD baseline too (Next 16.2.12 + Node 24.18.1 "Invariant: Expected workStore" on `/_global-error`|`/_not-found`, page varies per run) — proven via stash + clean `.next`; NO CI workflow runs `next build`; prod builds happen on Vercel. Treat local web build as unreliable; Vercel build is the S4 gate.
+- Deferred to S3 (audit refs): ledger unification (stale-balance race, no transaction, void semantics, overpayment clamp), Date.now receipt/invoice seq, Argon2id backup crypto (BACKUP-1), execSafe shadow-DDL removal (needs spec §3.4 amendment first), `notification→notifications` tableMap typo, Turso token expiry, gateway `POST /students` body zod.
+
+**Stage Summary**:
+- State: COMPLETED.
+- Files touched: `apps/gateway/{deno.json,deno.lock,lib/errors.ts,routes/{students,attendance,settings,ledger,security}.ts}`, `apps/web/src/{server/actions/{settings,students,attendance,fees}.ts,lib/{crypto,libsql-proxy}.ts,components/settings/data-privacy-section.tsx,components/students/add-student-sheet.tsx,vitest.config.ts}`, `reviews/{overhaul-audit-report-2026-09-26.md,rollback-runbook.md}`.
+- Resume point: S3 wave — spec §3.4 amendment (constitution-level diff shown before commit) then execSafe shadow-DDL removal + tableMap typo, ledger unification + monotonic seq (one agent, same file), Argon2id backup crypto (STOP-AND-ASK #1, approved).
+- Blocker: none for S3; S4 still gated on user `vercel login`.
+
+---
+
+**Task ID**: `WEB-QA-2026-09-29` **Agent**: Buffy (Freebuff) **Task**: Full
+verification pass of web/gateway/product-page + AI agent swarm (code-checker,
+fullstack-tester, web-engineer) + production-readiness report.
+
+**Work Log**:
+
+- Fast gates at session start: web/gateway/product-page lint+typecheck green;
+  gateway 207/207.
+- Full CI-equivalent pass via new `scratch/fullpass.sh`: root unit ✓,
+  integration ✓, web build ✓, product-page build ✓, `version:check` ✓,
+  Playwright 4-engine e2e 32 passed / 16 failed (raw log `/tmp/fullpass.log`).
+- INCIDENT + FIX: root `deno.json` `nodeModulesDir: auto` — running the
+  AGENTS-mandated `deno check`/`deno lint` from repo root clobbered the pnpm
+  hoisted tree (81 `.deno` symlinks across apps/packages at 15:05:58) → dual
+  React → 7 web vitest failures. Fixed: `nodeModulesDir: "none"`, purged all
+  symlinks + `node_modules/.deno`, clean `pnpm install --frozen-lockfile`.
+  Verified: web vitest **61/61**, deno gates green, 0 re-contamination after
+  re-running them.
+- E2E findings (real product bugs): F-1 `GET /api/v1/students` returns 500
+  for unauthenticated caller (spec allows 200/401/503 only);
+  F-2 palette selection never applies (`data-palette` flaps violet-nebula →
+  aurora-cosmic, never emerald-ledger — same class as `103036f`);
+  F-3 WebKit + Mobile-Safari login `waitForURL` timeouts + a11y failures
+  (chromium green) + 2× SSL connect errors.
+- Swarm delivered: `.opencode/agents/{code-checker,fullstack-tester,web-engineer}.md`
+  — validated via `opencode agent list`, prettier-formatted; permissions
+  pin checker read-only, tester to test files only, engineer no-push/ask-commit.
+- Report: `reviews/verification-production-readiness-report-2026-09-29.md`
+  (verdicts, findings F-1..F-12, mermaid mind map + pipeline graph, tooling
+  gap map, phased roadmap to WEB-PROD-GATE).
+- `apps/web/stress-shots/*.png` dirtied by the e2e run → restored to
+  committed state (F-10: propose gitignoring them).
+
+**Stage Summary**:
+
+- State: COMPLETED.
+- Files touched: `deno.json` (nodeModulesDir none — prevents workspace
+  corruption), `.opencode/agents/*` (3 new subagents),
+  `reviews/verification-production-readiness-report-2026-09-29.md` (new),
+  `scratch/fullpass.sh` (new, re-runnable full pass), `worklog.md` (this
+  entry).
+- Resume point: Phase 1 of the report — fix F-1 (typed 401/503 in the web
+  `/api/v1` dispatch + regression test), then F-2 (palette apply path in
+  `server/actions/settings.ts` + appearance reducer); then commit the pending
+  S3 wave (8 modified files) in <300-line chunks with spec refs (crypto diff
+  needs STOP-AND-ASK #4 dual review).
+- Blocker: none.
