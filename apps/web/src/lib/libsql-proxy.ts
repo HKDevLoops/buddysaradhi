@@ -1,5 +1,4 @@
 import type { Client, InValue, ResultSet } from "@libsql/client";
-import { log } from "@/lib/logger";
 
 function toDbCol(col: string): string {
   return col.replace(/([A-Z])/g, "_$1").toLowerCase();
@@ -15,60 +14,35 @@ function toJsRow(row: any): any {
   return out;
 }
 
-const EMPTY_RESULT: ResultSet = {
-  columns: [],
-  columnTypes: [],
-  rows: [],
-  rowsAffected: 0,
-  lastInsertRowid: undefined,
-  toJSON() {
-    return { columns: [], columnTypes: [], rows: [], rowsAffected: 0, lastInsertRowid: undefined };
-  },
-};
-
 /**
- * Implements: AGENTS.md §2 Rule 9 (no silent failures — a query error throws,
- * it is never reported as an empty result set).
+ * Implements: AGENTS.md §3.4 (runtime schema authority is `bun run db:push` or
+ * the gateway self-heal `ensureSelfRepairingSchema` — `apps/web` runtime code
+ * never executes DDL) and §2 Rule 9 (a query error throws a typed error, it is
+ * never reported as an empty result set).
  *
- * The "no such table" branch still creates a shadow schema via runtime DDL.
- * That contradicts prisma/schema.prisma §3.4 ("DDL never runs at runtime");
- * removing it is deferred to the stage that amends §3.4 first, so the branch
- * is behaviourally unchanged here and is only made observable via a typed
- * warning (audit: reviews/overhaul-audit-report-2026-09-26.md, "execSafe").
+ * A missing table used to be papered over with shadow `CREATE TABLE` DDL plus an
+ * empty-result fallback: a second, unaudited schema authority contradicting
+ * §3.4 and a silent-wrong-UI path. Both are removed (audit:
+ * reviews/overhaul-audit-report-2026-09-26.md "execSafe" / STOP-AND-ASK #7).
  */
 async function execSafe(client: Client, sql: string, args: InValue[] = []): Promise<ResultSet> {
   try {
     return await client.execute({ sql, args });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("no such table")) {
-      // Rule 9: surface the real error instead of fabricating { rows: [] }.
-      throw err;
-    }
-    log.warn(
-      "libsql_proxy_shadow_ddl",
-      "no such table — creating shadow schema at runtime (prisma §3.4 DDL-at-runtime, deferred)",
-      { sql: sql.slice(0, 160) },
-    );
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "settings" ("tenant_id" TEXT PRIMARY KEY, "institute_name" TEXT DEFAULT 'Jyothi Tutions', "institute_address" TEXT, "institute_phone" TEXT, "institute_email" TEXT, "currency_code" TEXT DEFAULT 'INR', "locale" TEXT DEFAULT 'en-IN', "timezone" TEXT DEFAULT 'Asia/Kolkata', "default_fee_model" TEXT DEFAULT 'postpaid', "invoice_prefix" TEXT DEFAULT 'INV-', "receipt_prefix" TEXT DEFAULT 'REC-', "grace_days" INTEGER DEFAULT 7, "auto_invoice" INTEGER DEFAULT 1, "next_invoice_seq" INTEGER DEFAULT 1, "next_receipt_seq" INTEGER DEFAULT 1, "next_student_seq" INTEGER DEFAULT 1, "attendance_lock_hours" INTEGER DEFAULT 24, "default_attendance_status" TEXT DEFAULT 'present', "holiday_list_json" TEXT, "notify_due_fee" INTEGER DEFAULT 1, "notify_upcoming_due" INTEGER DEFAULT 1, "notify_missing_attendance" INTEGER DEFAULT 1, "notify_inactive_student" INTEGER DEFAULT 1, "session_timeout_min" INTEGER DEFAULT 60, "biometric_enabled" INTEGER DEFAULT 0, "pin_hash" TEXT, "backup_passphrase_hash" TEXT, "auto_archive_inactive_days" INTEGER DEFAULT 90, "theme" TEXT DEFAULT 'dark', "density" TEXT DEFAULT 'comfortable', "reduced_motion" INTEGER DEFAULT 0, "palette" TEXT DEFAULT 'emerald', "plan" TEXT DEFAULT 'free', "tenant_secret" TEXT, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "updated_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "deleted_at" DATETIME);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "students" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "code" TEXT NOT NULL, "first_name" TEXT NOT NULL, "last_name" TEXT, "dob" TEXT, "gender" TEXT, "phone" TEXT, "email" TEXT, "address" TEXT, "school" TEXT, "grade" TEXT, "board" TEXT, "admission_date" TEXT, "status" TEXT DEFAULT 'active', "fee_model" TEXT DEFAULT 'postpaid', "base_fee_paise" INTEGER DEFAULT 0, "balance_paise" INTEGER DEFAULT 0, "dup_key" TEXT, "merged_into_id" TEXT, "custom_fields" TEXT, "notes" TEXT, "archived_at" DATETIME, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "updated_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "deleted_at" DATETIME);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "tutors" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "name" TEXT NOT NULL, "email" TEXT NOT NULL, "is_active" INTEGER DEFAULT 1, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "updated_at" DATETIME DEFAULT CURRENT_TIMESTAMP);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "batches" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "tutor_id" TEXT NOT NULL, "name" TEXT NOT NULL, "subject" TEXT, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "updated_at" DATETIME DEFAULT CURRENT_TIMESTAMP);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "student_enrollments" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "student_id" TEXT NOT NULL, "batch_id" TEXT NOT NULL, "joined_on" TEXT, "exited_on" TEXT, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "updated_at" DATETIME DEFAULT CURRENT_TIMESTAMP);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "sync_outbox" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "table_name" TEXT NOT NULL, "row_id" TEXT NOT NULL, "op" TEXT NOT NULL, "payload" TEXT NOT NULL, "status" TEXT DEFAULT 'pending', "attempts" INTEGER DEFAULT 0, "last_error" TEXT, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP, "flushed_at" DATETIME);`, args: [] }).catch(() => {});
-    await client.execute({ sql: `CREATE TABLE IF NOT EXISTS "audit_log" ("id" TEXT PRIMARY KEY, "tenant_id" TEXT NOT NULL, "actor" TEXT NOT NULL, "action" TEXT NOT NULL, "ref_type" TEXT, "ref_id" TEXT, "metadata" TEXT, "created_at" DATETIME DEFAULT CURRENT_TIMESTAMP);`, args: [] }).catch(() => {});
-    // Still failing after the shadow DDL: the table is not covered by it (e.g.
-    // `notification` → `notifications`). Log it, then keep the historical
-    // behaviour of returning an empty result so a partial schema degrades to
-    // empty lists instead of crashing the caller.
-    return await client.execute({ sql, args }).catch((retryErr: unknown) => {
-      log.error(
-        "libsql_proxy_shadow_query_failed",
-        retryErr instanceof Error ? retryErr.message : String(retryErr),
-        { sql: sql.slice(0, 160) },
+    const missing = /no such table:\s*(\S+)/.exec(msg);
+    if (missing) {
+      const table = missing[1] ?? "(unknown)";
+      throw new Error(
+        `Schema missing at runtime: table "${table}" does not exist — ` +
+          `schema authority is the gateway self-heal (apps/gateway/lib/schema.ts) ` +
+          `or \`bun run db:push\`, not apps/web runtime (AGENTS.md §3.4). ` +
+          `Original error: ${msg}`,
+        { cause: err },
       );
-      return EMPTY_RESULT;
-    });
+    }
+    // Rule 9: surface the real error instead of fabricating { rows: [] }.
+    throw err;
   }
 }
 
@@ -163,8 +137,13 @@ export function createLibsqlProxy(client: Client): LibsqlProxy {
       invoice: "invoices",
       receipt: "receipts",
       ledgerEntry: "ledger_entries",
+      reminder: "reminders",
+      notification: "notifications",
       syncOutbox: "sync_outbox",
       auditLog: "audit_log",
+      backupManifest: "backup_manifest",
+      appState: "app_state",
+      adminUser: "admin_users",
     };
     const tableName = tableMap[modelName] || modelName;
 
