@@ -211,7 +211,7 @@ async function dispatch(req: NextRequest, slug: string[]): Promise<NextResponse>
                 Authorization: `Bearer ${TURSO_API_TOKEN}`,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ expiration: "never", authorization: "full-access" }),
+              body: JSON.stringify({ expiration: "1y" }),
             }
           );
           if (tokenRes.ok) {
