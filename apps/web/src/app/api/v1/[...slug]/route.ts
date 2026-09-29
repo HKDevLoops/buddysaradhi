@@ -19,6 +19,23 @@ function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: un
   if (r.success) return { ok: true, status: 200, body: r.data };
   const msg = (r as { error: string }).error;
   if (msg.startsWith("DB_NOT_PROVISIONED")) return { ok: false, status: 503, body: { success: false, error: msg, needs_provision: true } };
+  // Auth/session failures are 401, never the default 500. getGatewayHeaders()
+  // in server/get-db.ts throws "AUTH_REQUIRED: No session — mock tokens not
+  // permitted in production" (:156) for an unauthenticated caller; the
+  // gateway* helpers catch it and surface the prefix here, where it used to
+  // fall through to the 500 default below and fail the response-code matrix
+  // asserted by tests/e2e/settings-auth.spec.ts:121-131 (only 200/401/503 are
+  // allowed for GET /api/v1/students).
+  // Spec: web/04_API_Routes.md §9 Error Code Catalogue — UNAUTHENTICATED → 401
+  // ("No Supabase session; client should redirect to /login") + §4.1
+  // GET /api/students error codes; web/03_Auth_and_Provisioning.md (session
+  // required on protected routes).
+  // Full get-db.ts throw audit: AUTH_REQUIRED (:156) → 401 (this branch);
+  // DB_NOT_PROVISIONED (:186) → 503 + needs_provision (branch above, unchanged);
+  // "Gateway NNN:" (:272/:301/:331/:358) → NNN (branch below); CRITICAL:
+  // GATEWAY_SHARED_SECRET missing (:88) and "Web Crypto API" (:109) are
+  // server misconfigurations and correctly stay 500.
+  if (msg.startsWith("AUTH_REQUIRED") || msg.startsWith("UNAUTHENTICATED")) return { ok: false, status: 401, body: { success: false, error: msg } };
   if (msg.startsWith("SECURITY_VIOLATION")) return { ok: false, status: 401, body: { success: false, error: msg } };
   if (msg.startsWith("Free tier limit")) return { ok: false, status: 403, body: { success: false, error: msg } };
   if (msg.startsWith("Not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
