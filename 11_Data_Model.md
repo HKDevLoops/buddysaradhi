@@ -2,7 +2,7 @@
 
 > **The schema bible of Buddysaradhi.** Every Turso per-user database conforms to this contract. Money is integer paise. IDs are UUID v7 (time-sortable). The ledger is append-only, hash-chained, and trigger-guarded. This file is the source of truth cited by `02_Core_Logic.md` (algorithms), `12_Business_Rules.md` (BR-* IDs), `10_Security.md` (crypto), and `14_Edge_Cases.md`.
 >
-> **Schema-as-code.** The canonical schema lives in `prisma/schema.prisma`. Migrations are produced and applied by `prisma migrate dev --name <desc>` (dev) / `prisma migrate deploy` (CI) / `bun run db:push` (sandbox). The DDL blocks below (§4 entity tables, §10 triggers, §11 migration SQL) are the **logical equivalent** of the Prisma schema, kept here so reviewers can verify trigger logic + column types without leaving the spec. No raw DDL runs at runtime — all DB access is via `import { db } from '@/lib/db'` using Prisma ORM methods (`findMany`, `create`, `aggregate`, `$transaction`, etc.). The only exceptions are SQLite admin commands with no ORM equivalent (`PRAGMA key`, `PRAGMA wal_checkpoint`, `PRAGMA foreign_keys=ON`); these run once at DB init or backup-verify time inside `lib/db/admin.ts`.
+> **Schema-as-code.** The canonical schema lives in `prisma/schema.prisma`. Migrations are produced and applied by `prisma migrate dev --name <desc>` (dev) / `prisma migrate deploy` (CI) / `bun run db:push` (sandbox). The DDL blocks below (§4 entity tables, §10 triggers, §11 migration SQL) are the **logical equivalent** of the Prisma schema, kept here so reviewers can verify trigger logic + column types without leaving the spec. Runtime schema authority is two, and only two (`AGENTS.md` §3.4): Prisma migrations / `bun run db:push` (web local/dev and every deploy) and the gateway self-heal `apps/gateway/lib/schema.ts::ensureSelfRepairingSchema` (idempotent `CREATE … IF NOT EXISTS` + the append-only ledger triggers) for gateway-managed tenant DBs. Outside those two, no raw DDL runs at runtime — all DB access is via `import { db } from '@/lib/db'` using Prisma ORM methods (`findMany`, `create`, `aggregate`, `$transaction`, etc.). The only other exceptions are SQLite admin commands with no ORM equivalent (`PRAGMA key`, `PRAGMA wal_checkpoint`, `PRAGMA foreign_keys=ON`); these run once at DB init or backup-verify time inside `lib/db/admin.ts`.
 
 ---
 
@@ -105,7 +105,7 @@ Eight non-negotiable principles shape the schema.
 
 ## 4. Per-Entity Schema
 
-For each entity: DDL (SQLite types only, mirroring `prisma/schema.prisma`), purpose, lifecycle, and invariants. All `CREATE TABLE` statements are idempotent (`IF NOT EXISTS`) and applied by `prisma migrate deploy` against the generated `prisma/migrations/<timestamp>_<name>/migration.sql`. **Schema DDL never runs at runtime** — every runtime DB call uses Prisma ORM methods (`db.student.findMany()`, `db.ledgerEntry.create()`, etc.).
+For each entity: DDL (SQLite types only, mirroring `prisma/schema.prisma`), purpose, lifecycle, and invariants. All `CREATE TABLE` statements are idempotent (`IF NOT EXISTS`) and applied by `prisma migrate deploy` against the generated `prisma/migrations/<timestamp>_<name>/migration.sql` — or by the gateway self-heal (`apps/gateway/lib/schema.ts`) on gateway-managed tenant DBs. **`apps/web` never executes schema DDL at runtime** (`AGENTS.md` §3.4) — every web runtime DB call uses Prisma ORM methods (`db.student.findMany()`, `db.ledgerEntry.create()`, etc.).
 
 ### 4.1 `settings` (singleton)
 

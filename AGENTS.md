@@ -399,8 +399,24 @@ DB file.
 - Schema lives in `prisma/schema.prisma` — the single source of truth for every
   model. Migrations are Prisma-managed and forward-only
   (`prisma migrate dev --name <desc>` →
-  `prisma/migrations/<timestamp>_<name>/migration.sql`). Schema DDL never runs
-  at runtime; `bun run db:push` applies the schema during deploys.
+  `prisma/migrations/<timestamp>_<name>/migration.sql`).
+- **Runtime schema authority is TWO, and only two** (§3.4 amendment — audit
+  STOP-AND-ASK #7, `reviews/overhaul-audit-report-2026-09-26.md` §9):
+  (a) **`bun run db:push` / Prisma migrations** — web local/dev and every
+  deploy. Provisioning-time `bootstrapSchema` runs the same idempotent
+  migrations at sign-up (`17_API_Gateway_System.md` §5.1,
+  `web/03_Auth_and_Provisioning.md` Step 7) — a sign-up path, not a
+  request-time one; (b) **`apps/gateway/lib/schema.ts`
+  `ensureSelfRepairingSchema`** (called from `apps/gateway/index.ts` before any
+  tenant query) — the single audited self-heal for gateway-managed tenant DBs:
+  idempotent `CREATE TABLE IF NOT EXISTS` plus the append-only ledger triggers
+  `trg_ledger_no_update` / `trg_ledger_no_delete`, memoised per tenant. These
+  two, and no other module, may execute DDL.
+- **`apps/web` runtime code may NOT execute DDL.** No shadow tables, no
+  `CREATE TABLE` in `libsql-proxy.ts` or in any query, server action, or API
+  route. A table missing at runtime is a loud typed error naming the table and
+  the two authorities above (Rule 9) — never a silently self-created table and
+  never a fabricated empty result set.
 - **All runtime DB access goes through Prisma ORM methods** —
   `import { db } from '@/lib/db'`. Allowed: `findMany`, `findUnique`,
   `findUniqueOrThrow`, `create`, `createMany`, `update`, `updateMany`, `upsert`,
@@ -408,8 +424,10 @@ DB file.
   `db.$transaction([...])` or `db.$transaction(async (tx) => { ... })`,
   `include`, `select`. **Forbidden at runtime:** `$queryRaw`, `$executeRaw`, raw
   SQL strings, `PRAGMA`, `sqlite_*` functions.
-- The only exceptions are SQLite-level admin commands with no Prisma ORM
-  equivalent (e.g. `PRAGMA key` for SQLCipher encryption,
+- The only exceptions are (a) the two runtime schema authorities above —
+  idempotent DDL confined to `apps/gateway/lib/schema.ts` — and (b) SQLite-level
+  admin commands with no Prisma ORM equivalent (e.g. `PRAGMA key` for SQLCipher
+  encryption,
   `PRAGMA wal_checkpoint(TRUNCATE)` before a backup snapshot,
   `PRAGMA foreign_keys=ON` / `journal_mode=WAL` at connection init). These are
   SQLite-level admin commands with no Prisma ORM equivalent; they run ONCE
