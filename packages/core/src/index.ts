@@ -1,4 +1,6 @@
 export * from "./ledger";
+export * from "./ledgerSql";
+export * from "./fees";
 export * from "./engines/search";
 export * from "./engines/reminder";
 export * from "./engines/report";

@@ -2,14 +2,17 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { randomUUID, createHash } from "crypto";
 
-export type LedgerEntryType =
-  | "FEE_CHARGED"
-  | "PAYMENT_RECEIVED"
-  | "DISCOUNT_GRANTED"
-  | "REFUND_ISSUED"
-  | "ADJUSTMENT"
-  | "WRITEOFF"
-  | "VOID";
+export const LEDGER_ENTRY_TYPES = [
+  "FEE_CHARGED",
+  "PAYMENT_RECEIVED",
+  "DISCOUNT_GRANTED",
+  "REFUND_ISSUED",
+  "ADJUSTMENT",
+  "WRITEOFF",
+  "VOID",
+] as const;
+
+export type LedgerEntryType = (typeof LEDGER_ENTRY_TYPES)[number];
 
 export interface LedgerEntryInput {
   tenantId: string;
@@ -26,7 +29,7 @@ export interface LedgerEntryInput {
 export type Result<T, E = Error> =
   { ok: true; value: T } | { ok: false; error: E };
 
-function computeHash(
+export function computeHash(
   prevHash: string | null,
   payload: string,
   createdAt: string,
@@ -38,6 +41,55 @@ function computeHash(
   hash.update(createdAt);
   hash.update(tenantSecret);
   return hash.digest("hex");
+}
+
+/**
+ * The canonical hash-payload for one ledger row (BR-LED-06). Both writer
+ * dialects — Prisma (`postLedgerEntry`) and libsql (`postLedgerEntrySql` in
+ * `ledgerSql.ts`) — MUST build the payload through this single function so a
+ * row written by either dialect verifies against `reconcileLedger`
+ * (reviews/overhaul-audit-report-2026-09-26.md F2: hash-dialect unification).
+ * JSON key order is load-bearing: `JSON.stringify` preserves insertion order,
+ * so this field order is part of the contract.
+ */
+export function buildEntryPayload(entry: {
+  id: string;
+  studentId: string;
+  type: string;
+  debitPaise: number;
+  creditPaise: number;
+  balanceAfterPaise: number;
+  occurredOn: string;
+}): string {
+  return JSON.stringify({
+    id: entry.id,
+    studentId: entry.studentId,
+    type: entry.type,
+    debitPaise: entry.debitPaise,
+    creditPaise: entry.creditPaise,
+    balanceAfterPaise: entry.balanceAfterPaise,
+    occurredOn: entry.occurredOn,
+  });
+}
+
+/**
+ * Strictly-monotonic `created_at` (BR-LED-06 + 07_Fees_and_Payments.md §9.6).
+ * `reconcileLedger` walks rows `ORDER BY created_at ASC` and recomputes each
+ * hash from its predecessor, so two rows sharing a millisecond timestamp can
+ * reorder and break verification. This per-process clock never repeats or goes
+ * backwards (a backwards system clock is nudged +1ms past the last issued
+ * value). Cross-process/cross-device ties remain possible — the writer with
+ * the newer rowid wins chain continuation (documented residual gap).
+ */
+let lastCreatedAtIso = "";
+export function nextCreatedAtIso(): string {
+  const iso = new Date().toISOString();
+  const next =
+    lastCreatedAtIso && iso <= lastCreatedAtIso
+      ? new Date(Date.parse(lastCreatedAtIso) + 1).toISOString()
+      : iso;
+  lastCreatedAtIso = next;
+  return next;
 }
 
 /**
@@ -61,7 +113,7 @@ export async function postLedgerEntry(
   }
 
   const entryId = randomUUID();
-  const now = new Date().toISOString();
+  const now = nextCreatedAtIso();
   const source = input.source || "manual";
 
   try {
@@ -92,7 +144,7 @@ export async function postLedgerEntry(
       if (!setting) throw new Error("Tenant settings not found");
 
       // 3. Compute hash
-      const payload = JSON.stringify({
+      const payload = buildEntryPayload({
         id: entryId,
         studentId: input.studentId,
         type: input.type,
@@ -132,6 +184,22 @@ export async function postLedgerEntry(
       await tx.student.update({
         where: { id: input.studentId },
         data: { balancePaise: newBalance },
+      });
+
+      // 4c. Rule 7 / BR-SYN-01: the derived student balance is a local write
+      // too — queue its replication row in the same transaction (both dialects:
+      // ledgerSql.ts posts the identical row).
+      await tx.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          tableName: "students",
+          rowId: input.studentId,
+          op: "update",
+          payload: JSON.stringify({ id: input.studentId, balancePaise: newBalance }),
+          status: "pending",
+          createdAt: new Date(now),
+        },
       });
 
       // 5. Append to sync_outbox
@@ -258,9 +326,14 @@ export async function reconcileLedger(
   studentId: string,
 ): Promise<Result<boolean>> {
   try {
+    // P3-12: `created_at` is millisecond ISO — two rows written in the same
+    // transaction routinely share it, and a tie would let SQLite/Prisma return
+    // them in any order, replaying the hash chain out of sequence and reporting
+    // a false `Balance mismatch`. `id` is UUIDv7 (AGENTS.md §3.4), whose
+    // lexicographic order is creation order, so it is a total, stable tie-break.
     const entries = await db.ledgerEntry.findMany({
       where: { tenantId, studentId },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
 
     let runningBalance = 0;
@@ -284,7 +357,7 @@ export async function reconcileLedger(
         };
       }
 
-      const payload = JSON.stringify({
+      const payload = buildEntryPayload({
         id: entry.id,
         studentId: entry.studentId,
         type: entry.type,

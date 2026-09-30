@@ -73,7 +73,9 @@ export async function generateBatchInvoices(
       try {
         const invoiceId = randomUUID();
         const seq = seqMap.get(plan.id)!;
-        const number = `${invoicePrefix}${seq.toString().padStart(5, "0")}`;
+        // BR-LED-03 / 07 §9.7: zero-pad to 6 digits (was 5 — produced
+        // INV-00001-shaped numbers that collide visually with pad-6 values).
+        const number = `${invoicePrefix}${seq.toString().padStart(6, "0")}`;
 
         const subtotal = plan.baseAmount;
         const discountValue = plan.discountValue || 0;
