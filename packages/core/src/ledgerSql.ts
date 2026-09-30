@@ -22,6 +22,7 @@ import {
   type Result,
   buildEntryPayload,
   computeHash,
+  encodeOutboxPayload,
   nextCreatedAtIso,
 } from "./ledger";
 import { paiseAdd, paiseSub } from "./money";
@@ -240,8 +241,10 @@ export async function postLedgerEntrySql(
 
     // 4c. Rule 7 / BR-SYN-01 — outbox rows in the same transaction: the
     // ledger insert plus the derived student-balance update (dialect parity:
-    // `postLedgerEntry` writes the identical pair).
-    const rowJson = JSON.stringify({
+    // `postLedgerEntry` writes the identical pair). Payloads are the canonical
+    // snake_case envelope (`encodeOutboxPayload` in `ledger.ts`, mirroring
+    // `packages/shared/src/outboxPayload.ts` — P3-11).
+    const encodedLedger = encodeOutboxPayload("ledger_entries", "insert", {
       id: entryId,
       tenant_id: input.tenantId,
       student_id: input.studentId,
@@ -261,7 +264,12 @@ export async function postLedgerEntrySql(
     await tx.execute({
       sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
             VALUES (?, ?, 'ledger_entries', ?, 'insert', ?, ?)`,
-      args: [randomUUID(), input.tenantId, entryId, rowJson, now],
+      args: [randomUUID(), input.tenantId, entryId, encodedLedger.payload, now],
+    });
+    const encodedBalance = encodeOutboxPayload("students", "update", {
+      id: input.studentId,
+      balance_paise: newBalance,
+      updated_at: now,
     });
     await tx.execute({
       sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
@@ -270,7 +278,7 @@ export async function postLedgerEntrySql(
         randomUUID(),
         input.tenantId,
         input.studentId,
-        JSON.stringify({ id: input.studentId, balance_paise: newBalance, updated_at: now }),
+        encodedBalance.payload,
         now,
       ],
     });

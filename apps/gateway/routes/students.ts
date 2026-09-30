@@ -3,6 +3,7 @@ import type { SqlHandle } from "../lib/sql.ts";
 import { ok, fail, failZod } from "../lib/errors.ts";
 import { logInfo, logError } from "../lib/log.ts";
 import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
+import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
 import { z } from "zod";
 
 export type RouteHandler = (
@@ -242,9 +243,12 @@ export const handleStudents: RouteHandler = async (
 
     // Cache is invalidated before the outbox/audit writes so that a fail-closed
     // Rule 7 throw (recordOutbox/recordAudit) never leaves pre-mutation GETs
-    // cached after the row has already changed.
+    // cached after the row has already changed. Outbox payload via the
+    // canonical shared codec (`packages/shared/src/outboxPayload.ts` — P3-11):
+    // the raw client body may use either key spelling; the stored payload is
+    // always snake_case with sorted keys.
     invalidateTenant(tenantId);
-    await recordOutbox(db, tenantId, "students", id, "create", body);
+    await recordOutbox(db, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", body).payload);
     await recordAudit(db, tenantId, tenantId, "student.create", "student", id, body);
     return ok(created, 201);
   }
@@ -265,7 +269,7 @@ export const handleStudents: RouteHandler = async (
     });
 
     invalidateTenant(tenantId);
-    await recordOutbox(db, tenantId, "students", id, "update", patch);
+    await recordOutbox(db, tenantId, "students", id, "update", encodeOutboxPayload("students", "update", patch).payload);
     await recordAudit(db, tenantId, tenantId, "student.edit", "student", id, patch);
     return ok(updated);
   }
@@ -283,7 +287,7 @@ export const handleStudents: RouteHandler = async (
 
     invalidateTenant(tenantId);
     await recordAudit(db, tenantId, tenantId, "student.delete", "student", id, {});
-    await recordOutbox(db, tenantId, "students", id, "delete", { id });
+    await recordOutbox(db, tenantId, "students", id, "delete", encodeOutboxPayload("students", "delete", { id }).payload);
 
     logInfo("mutation.success", { ...logCtx, tenantId, path, method: "DELETE", studentId: id });
     return ok({ ok: true });

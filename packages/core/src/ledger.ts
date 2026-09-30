@@ -1,6 +1,7 @@
 // Verification audit: Core logic check
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { randomUUID, createHash } from "crypto";
+import { z } from "zod";
 
 export const LEDGER_ENTRY_TYPES = [
   "FEE_CHARGED",
@@ -70,6 +71,113 @@ export function buildEntryPayload(entry: {
     balanceAfterPaise: entry.balanceAfterPaise,
     occurredOn: entry.occurredOn,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Outbox codec mirror (P3-11).
+//
+// Exact mirror of the canonical codec in
+// `packages/shared/src/outboxPayload.ts` (same semantics, same key order,
+// same error strings). `packages/core` cannot import that module: its
+// `tsconfig.json` pins `rootDir: ./src` and it carries no
+// `@buddysaradhi/shared` workspace dependency, so a cross-package source
+// import fails `tsc` with TS6059 — the same boundary documented in `money.ts`
+// for `paiseAdd`/`paiseSub`. Keep the two in sync: changing the canonical
+// shape (snake_case keys, sorted key order, `insert | update | soft_delete`
+// ops with `create → insert` / `delete → soft_delete` aliases) without
+// changing this mirror re-opens P3-11.
+//
+// `apps/gateway` imports the canonical module directly (Deno/vitest both
+// resolve it), so only the core dialects need this mirror.
+// ---------------------------------------------------------------------------
+
+const OUTBOX_OPS_MIRROR = ["insert", "update", "soft_delete"] as const;
+
+type OutboxOpMirror = (typeof OUTBOX_OPS_MIRROR)[number];
+
+const OutboxOpMirrorSchema = z.enum(OUTBOX_OPS_MIRROR);
+
+const OutboxEnvelopeMirrorSchema = z.object({
+  table_name: z.string().min(1),
+  op: OutboxOpMirrorSchema,
+  payload: z.string().refine(
+    (s) => {
+      try {
+        const value: unknown = JSON.parse(s);
+        return typeof value === "object" && value !== null && !Array.isArray(value);
+      } catch {
+        return false;
+      }
+    },
+    { message: "payload must be a JSON object string" },
+  ),
+});
+
+export type OutboxEnvelopeMirror = z.infer<typeof OutboxEnvelopeMirrorSchema>;
+
+function normalizeOutboxOpMirror(op: string): OutboxOpMirror {
+  const lower = op.toLowerCase();
+  if (lower === "create") return "insert";
+  if (lower === "delete") return "soft_delete";
+  const parsed = OutboxOpMirrorSchema.safeParse(lower);
+  if (!parsed.success) {
+    throw new Error(
+      `OUTBOX_OP_INVALID: op must be one of insert/update/soft_delete (aliases create/delete), got ${JSON.stringify(op)}`,
+    );
+  }
+  return parsed.data;
+}
+
+function toSnakeKeyMirror(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+/**
+ * Mirror of shared `encodeOutboxPayload`: camelCase-or-snake_case row in,
+ * canonical snake_case JSON + `{ table_name, op, payload }` envelope out
+ * (Zod-validated). See the block comment above for why the mirror exists.
+ */
+export function encodeOutboxPayload(
+  table: string,
+  op: string,
+  row: Record<string, unknown>,
+): OutboxEnvelopeMirror {
+  if (typeof table !== "string" || table.length === 0) {
+    throw new Error("OUTBOX_TABLE_INVALID: table_name must be a non-empty string");
+  }
+  if (row === null || typeof row !== "object" || Array.isArray(row)) {
+    throw new Error("OUTBOX_ROW_INVALID: row must be a plain object");
+  }
+  const normalizedOp = normalizeOutboxOpMirror(op);
+  const seen = new Map<string, unknown>();
+  for (const rawKey of Object.keys(row)) {
+    const key = toSnakeKeyMirror(rawKey);
+    const value: unknown = row[rawKey];
+    if (seen.has(key)) {
+      const prev: unknown = seen.get(key);
+      if (JSON.stringify(prev) !== JSON.stringify(value)) {
+        throw new Error(
+          `OUTBOX_ROW_CONFLICT: keys collide on column ${JSON.stringify(key)} with different values (12_Business_Rules.md BR-SYN-02)`,
+        );
+      }
+      continue;
+    }
+    seen.set(key, value);
+  }
+  const canonical: Record<string, unknown> = {};
+  for (const key of [...seen.keys()].sort()) {
+    canonical[key] = seen.get(key);
+  }
+  const envelope = {
+    table_name: table,
+    op: normalizedOp,
+    payload: JSON.stringify(canonical),
+  };
+  const parsed = OutboxEnvelopeMirrorSchema.safeParse(envelope);
+  if (!parsed.success) {
+    throw new Error(`OUTBOX_ENVELOPE_INVALID: ${parsed.error.message}`);
+  }
+  return parsed.data;
 }
 
 /**
@@ -188,7 +296,8 @@ export async function postLedgerEntry(
 
       // 4c. Rule 7 / BR-SYN-01: the derived student balance is a local write
       // too — queue its replication row in the same transaction (both dialects:
-      // ledgerSql.ts posts the identical row).
+      // ledgerSql.ts posts the identical row). Payload shape is the canonical
+      // snake_case envelope (`encodeOutboxPayload` above — P3-11).
       await tx.syncOutbox.create({
         data: {
           id: randomUUID(),
@@ -196,13 +305,18 @@ export async function postLedgerEntry(
           tableName: "students",
           rowId: input.studentId,
           op: "update",
-          payload: JSON.stringify({ id: input.studentId, balancePaise: newBalance }),
+          payload: encodeOutboxPayload("students", "update", {
+            id: input.studentId,
+            balancePaise: newBalance,
+          }).payload,
           status: "pending",
           createdAt: new Date(now),
         },
       });
 
-      // 5. Append to sync_outbox
+      // 5. Append to sync_outbox (canonical snake_case envelope — P3-11: the
+      // Prisma dialect previously emitted the camelCase model while the libsql
+      // dialect emitted snake_case columns for this same table).
       const outboxId = randomUUID();
       await tx.syncOutbox.create({
         data: {
@@ -211,7 +325,7 @@ export async function postLedgerEntry(
           tableName: "ledger_entries",
           rowId: entryId,
           op: "insert",
-          payload: JSON.stringify(newEntry),
+          payload: encodeOutboxPayload("ledger_entries", "insert", { ...newEntry }).payload,
           status: "pending",
           createdAt: new Date(now),
         },

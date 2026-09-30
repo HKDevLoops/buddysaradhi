@@ -36,7 +36,7 @@
 // `ledgerSql.ts`. It executes NO DDL — schema authority stays with
 // `prisma migrate` and `apps/gateway/lib/schema.ts` (AGENTS.md §3.4).
 import { randomUUID } from "crypto";
-import { nextCreatedAtIso, type Result } from "./ledger";
+import { encodeOutboxPayload, nextCreatedAtIso, type Result } from "./ledger";
 import { computeInvoiceTamperHash } from "./tamper";
 import {
   paiseAdd,
@@ -204,7 +204,9 @@ async function insertInvoiceRow(
     tableName: "invoices",
     rowId: inv.invoiceId,
     op: "insert",
-    payload: JSON.stringify({
+    // Canonical snake_case envelope (`encodeOutboxPayload` in `ledger.ts`,
+    // mirroring `packages/shared/src/outboxPayload.ts` — P3-11).
+    payload: encodeOutboxPayload("invoices", "insert", {
       id: inv.invoiceId,
       tenant_id: inv.tenantId,
       number: inv.number,
@@ -219,7 +221,7 @@ async function insertInvoiceRow(
       tamper_hash: inv.tamperHash,
       created_at: inv.now,
       updated_at: inv.now,
-    }),
+    }).payload,
     createdAt: inv.now,
   });
 }
@@ -241,7 +243,12 @@ async function updateInvoiceStatus(
     tableName: "invoices",
     rowId: invoiceId,
     op: "update",
-    payload: JSON.stringify({ id: invoiceId, status, updated_at: now }),
+    // Canonical snake_case envelope (P3-11 — see `insertInvoiceRow` above).
+    payload: encodeOutboxPayload("invoices", "update", {
+      id: invoiceId,
+      status,
+      updated_at: now,
+    }).payload,
     createdAt: now,
   });
 }
@@ -347,17 +354,18 @@ export async function createInvoiceSql(
       });
 
       // Rule 7: `settings.next_invoice_seq` was mutated → queue it too.
+      // Canonical snake_case envelope (P3-11 — see `insertInvoiceRow` above).
       await insertOutbox(tx, {
         tenantId: input.tenantId,
         tableName: "settings",
         rowId: input.tenantId,
         op: "update",
-        payload: JSON.stringify({
+        payload: encodeOutboxPayload("settings", "update", {
           tenant_id: input.tenantId,
           invoice_prefix: prefix,
           next_invoice_seq: seq,
           updated_at: now,
-        }),
+        }).payload,
         createdAt: now,
       });
 
@@ -535,12 +543,13 @@ export async function recordPaymentSql(
           tableName: "settings",
           rowId: input.tenantId,
           op: "update",
-          payload: JSON.stringify({
+          // Canonical snake_case envelope (P3-11 — see `insertInvoiceRow` above).
+          payload: encodeOutboxPayload("settings", "update", {
             tenant_id: input.tenantId,
             invoice_prefix: prefix,
             next_invoice_seq: seq,
             updated_at: now,
-          }),
+          }).payload,
           createdAt: now,
         });
 

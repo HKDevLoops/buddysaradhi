@@ -14,6 +14,7 @@ import {
 import { withWriteTransaction } from "../lib/tx.ts";
 import { z } from "zod";
 import { paiseAdd, paiseSub } from "../../../packages/shared/src/utils/format.ts";
+import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
 import { computeInvoiceTamperHash } from "../../../packages/core/src/tamper.ts";
 
 // AGENTS.md §6.1 (Zod for all input validation) + Rule 6
@@ -166,12 +167,13 @@ async function takeSequence(
   // Rule 7 / BR-SYN-01 — `settings.next_<x>_seq` was just mutated, so the
   // sequence bump replays like every other write. Without this row a lost
   // bump resurfaces as a REUSED receipt/invoice number on the replica
-  // (BR-RC-01 / BR-LED-03).
-  await recordOutbox(tx, tenantId, "settings", tenantId, "update", {
+  // (BR-RC-01 / BR-LED-03). Payload via the canonical shared codec
+  // (`packages/shared/src/outboxPayload.ts` — P3-11).
+  await recordOutbox(tx, tenantId, "settings", tenantId, "update", encodeOutboxPayload("settings", "update", {
     tenant_id: tenantId,
     [seqCol]: nextSeq,
     updated_at: now,
-  });
+  }).payload);
   return {
     usedSeq: nextSeq - 1,
     prefix,
@@ -204,12 +206,13 @@ async function syncStudentBalance(
   // it gets its own outbox row in the same transaction. The ledger insert is
   // NOT a substitute: a replica that received only the ledger row would show a
   // stale `balance_due` on Students/Attendance until its own recompute ran.
-  await recordOutbox(tx, tenantId, "students", studentId, "update", {
+  // Payload via the canonical shared codec (P3-11).
+  await recordOutbox(tx, tenantId, "students", studentId, "update", encodeOutboxPayload("students", "update", {
     id: studentId,
     tenant_id: tenantId,
     balance_paise: balancePaise,
     updated_at: now,
-  });
+  }).payload);
 }
 
 export const handleLedger: RouteHandler = async (req, db, tenantId, path, method, url) => {
@@ -398,14 +401,14 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
 
         await syncStudentBalance(tx, tenantId, studentId, newBalance);
 
-        await recordOutbox(tx, tenantId, "ledger_entries", le.id, "create", {
+        await recordOutbox(tx, tenantId, "ledger_entries", le.id, "create", encodeOutboxPayload("ledger_entries", "create", {
           type: "payment",
           receiptNo,
-        });
+        }).payload);
         // Rule 7 / BR-SYN-01 — `receipts` is a distinct mutated table: without
         // its own outbox row the replica never learns the receipt exists, and
         // EC-F-05's voided flag would have nothing to attach to.
-        await recordOutbox(tx, tenantId, "receipts", rcpt.id, "create", {
+        await recordOutbox(tx, tenantId, "receipts", rcpt.id, "create", encodeOutboxPayload("receipts", "create", {
           id: rcpt.id,
           tenant_id: tenantId,
           receipt_no: receiptNo,
@@ -415,7 +418,7 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
           payment_method: paymentMethod,
           received_on: occurredOn,
           voided_at: null,
-        });
+        }).payload);
         await recordAudit(tx, tenantId, tenantId, "ledger.payment", "student", studentId, {
           credit,
           receiptNo,
@@ -534,15 +537,15 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
 
         await syncStudentBalance(tx, tenantId, studentId, newBalance);
 
-        await recordOutbox(tx, tenantId, "ledger_entries", le.id, "create", {
+        await recordOutbox(tx, tenantId, "ledger_entries", le.id, "create", encodeOutboxPayload("ledger_entries", "create", {
           type: "invoice",
           invoiceNo: invNo,
-        });
+        }).payload);
         // Rule 7 / BR-SYN-01 — `invoices` is a distinct mutated table; its
         // outbox row carries the spec §4.12 columns (including the tamper
         // evidence) so the replica's Fees screen can render the invoice
         // without re-deriving it from the ledger.
-        await recordOutbox(tx, tenantId, "invoices", inv.id, "create", {
+        await recordOutbox(tx, tenantId, "invoices", inv.id, "create", encodeOutboxPayload("invoices", "create", {
           id: inv.id,
           tenant_id: tenantId,
           number: invNo,
@@ -555,7 +558,7 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
           total: amount,
           status: "unpaid",
           tamper_hash: tamperHash,
-        });
+        }).payload);
         await recordAudit(tx, tenantId, tenantId, "ledger.invoice", "student", studentId, {
           amount,
           invoiceNo: invNo,
@@ -681,19 +684,19 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
             // Rule 7 / BR-SYN-01 — the EC-F-05 `voided_at` UPDATE above must
             // replicate too, or a reconnected replica shows a receipt as live
             // that the ledger already reversed.
-            await recordOutbox(tx, tenantId, "receipts", String(receipt.id), "update", {
+            await recordOutbox(tx, tenantId, "receipts", String(receipt.id), "update", encodeOutboxPayload("receipts", "update", {
               id: receipt.id,
               tenant_id: tenantId,
               receipt_no: entry.receiptNo,
               voided_at: createdAt,
               updated_at: createdAt,
-            });
+            }).payload);
           }
         }
 
-        await recordOutbox(tx, tenantId, "ledger_entries", voidRow.id, "create", {
+        await recordOutbox(tx, tenantId, "ledger_entries", voidRow.id, "create", encodeOutboxPayload("ledger_entries", "create", {
           void_of: entryId,
-        });
+        }).payload);
         return { voidId: voidRow.id, newBalance };
       });
       // Cache invalidation follows COMMIT — see the payment path.
