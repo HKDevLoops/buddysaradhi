@@ -344,7 +344,7 @@ buddysaradhi/
 | `packages/core` (v1.x)                      | The ledger engine — `postLedgerEntry`, `voidEntry`, `computeBalance`, `reconcileLedger`. Pure functions over a DB handle.                                                        | Extend with new entry types via spec amendment; unit-test every path                                                  | Touch the engine without reading `12_Business_Rules.md` §3 first                                            | `12_Business_Rules.md`, `10_Security.md` §9                          |
 | `packages/shared`                           | Zod schemas (single source of truth for types), calculation utilities (balances, attendance %, due-dates)                                                                        | Add Zod schemas here first; export inferred types; unit-test calc utils                                               | Hand-write types in an app; duplicate a fee formula                                                         | `11_Data_Model.md`, `12_Business_Rules.md` BR-CALC*                  |
 | `packages/ui` (v1.x)                        | Cross-platform glass primitives: `GlassPanel`, `NeumoToggle`, `Chip`, `BarChart`                                                                                                 | Compose from design tokens; never hardcode hex                                                                        | Use indigo/blue accents; break the 44px target rule                                                         | `13_UI_Guidelines.md`                                                |
-| `prisma`                                    | Prisma schema — the single source of truth for every model (`prisma/schema.prisma`). All DB access across web, mobile, and desktop goes through `import { db } from '@/lib/db'`. | Add a model + run `bun run db:push`; never bypass ORM with `$queryRaw` / `$executeRaw`                                | Treat Prisma as a sandbox-only dev tool; introduce raw SQL at runtime                                       | `11_Data_Model.md`                                                   |
+| `prisma`                                    | Prisma schema — the single source of truth for every model (`prisma/schema.prisma`). All DB access across web, mobile, and desktop goes through `import { db } from '@/lib/db'`. | Add a model + run `pnpm exec prisma db push`; never bypass ORM with `$queryRaw` / `$executeRaw`                                | Treat Prisma as a sandbox-only dev tool; introduce raw SQL at runtime                                       | `11_Data_Model.md`                                                   |
 | `prisma/migrations`                         | Forward-only, idempotent, Prisma-managed migrations (`prisma migrate dev --name <desc>`).                                                                                        | Add a new numbered migration; never edit a merged one                                                                 | Edit an existing migration; add a destructive `DROP`                                                        | `11_Data_Model.md` §1, `02_Core_Logic.md` §9                         |
 | `00_*.md` + `web/`/`product/`/`deployment/` | The 24-file master spec (00–23 + 6 platform subdirs incl. deployment/06) — spec root at repo root (historically `Buddysaradhi_Planning/`)                                        | Read first; update via RFC when implementation diverges                                                               | Treat as documentation after the fact                                                                       | This file + `01_Product_Principles.md` §Amendment Process            |
 
@@ -402,7 +402,7 @@ DB file.
   `prisma/migrations/<timestamp>_<name>/migration.sql`).
 - **Runtime schema authority is TWO, and only two** (§3.4 amendment — audit
   STOP-AND-ASK #7, `reviews/overhaul-audit-report-2026-09-26.md` §9):
-  (a) **`bun run db:push` / Prisma migrations** — web local/dev and every
+  (a) **`pnpm exec prisma db push` / Prisma migrations** — web local/dev and every
   deploy. Provisioning-time `bootstrapSchema` runs the same idempotent
   migrations at sign-up (`17_API_Gateway_System.md` §5.1,
   `web/03_Auth_and_Provisioning.md` Step 7) — a sign-up path, not a
@@ -676,14 +676,14 @@ await postLedgerEntry(db, entry); // what did this test?
 
 Merge is blocked unless **all** pass:
 
-1. `bun run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
+1. `pnpm run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
    `no-float-money`, `no-empty-catch`, `no-color-only-status`).
-2. `bun run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
-3. `bun run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
+2. `pnpm run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
+3. `pnpm run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
    `packages/shared`.
-4. `bun run test:integration` — Vitest with in-memory SQLite, every flow in
+4. `pnpm run test:integration` — Vitest with in-memory SQLite, every flow in
    §7.2.
-5. `bun run test:a11y` — `axe-core` on every screen.
+5. `pnpm run test:a11y` — `axe-core` on every screen.
 6. (If web) Agent Browser smoke: every screen renders, sticky footer behaves,
    primary interaction works.
 
@@ -719,7 +719,7 @@ Merge is blocked unless **all** pass:
 
 1. **Keep commits small.** <300 lines per commit. A 600-line commit is two
    commits.
-2. **Run `bun run lint` before every commit.** Fix all errors before staging.
+2. **Run `pnpm run lint` before every commit.** Fix all errors before staging.
 3. **Never commit secrets.** The `.env.example` pattern: `.env.example`
    documents the keys; `.env.local` holds the values and is git-ignored. If you
    accidentally commit a secret, rotate it — do not just delete the line.
@@ -748,7 +748,7 @@ When an autonomous agent is working a task:
 2. Read `worklog.md` to learn prior context.
 3. Read the relevant spec section per §4.
 4. Make the smallest correct change.
-5. Run `bun run lint`. Fix all errors.
+5. Run `pnpm run lint`. Fix all errors.
 6. (If web) verify in Agent Browser: render + primary interaction + sticky
    footer.
 7. **Update memory after coding work.** After any meaningful code change, update
@@ -784,7 +784,7 @@ Before an agent abandons, pauses, or finishes the current task to start a new
 one, it MUST run this 6-step close-out. No exceptions, no "I'll come back to
 it."
 
-1. **Run `bun run lint`** on the current diff. If lint fails, either fix it
+1. **Run `pnpm run lint`** on the current diff. If lint fails, either fix it
    (preferred) or `git stash` with a message `WIP: <task-id> <reason>` and note
    the stash ref in the worklog. Never leave a red-lint diff on disk for the
    next agent.
@@ -837,7 +837,7 @@ Resume <prior-task-id> — <one-line summary>
 Work Log:
 
 - Read prior worklog entry <prior-task-id>; resume point was: <quote>.
-- Verified WIP commit <sha> is on disk; ran `bun run lint` → clean.
+- Verified WIP commit <sha> is on disk; ran `pnpm run lint` → clean.
 - <next micro-step>
 ```
 
@@ -848,7 +848,7 @@ When an agent is assigned (or self-selects) a task that a prior agent paused:
 1. **Read the most recent worklog entry for that Task ID.** Extract the Resume
    point, the WIP commit SHA, and the blocker (if any).
 2. **Verify the WIP state.** `git log --oneline -5` to confirm the WIP commit is
-   present; `git status` to confirm no uncommitted drift; `bun run lint` to
+   present; `git status` to confirm no uncommitted drift; `pnpm run lint` to
    confirm the tree is clean. If any of these fail, the WIP is corrupt — do not
    blindly continue. File a `BLOCKED` worklog entry and escalate.
 3. **Re-read the spec section** the task touches. Do not trust memory; the spec
@@ -993,8 +993,8 @@ you are about to create `apps/mobile/` while `In-Flight: WEB`, **STOP** — read
 
 A task is done when **all** are true:
 
-- Lint passes (`bun run lint`).
-- Typecheck passes (`bun run typecheck`).
+- Lint passes (`pnpm run lint`).
+- Typecheck passes (`pnpm run typecheck`).
 - Unit + integration tests pass (when tests are requested — see §7.1).
 - The relevant screen renders without runtime/hydration errors in Agent Browser
   (web).
@@ -1051,7 +1051,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 
 | #   | Check                                                                                                      | Rule / Ref                 |
 | --- | ---------------------------------------------------------------------------------------------------------- | -------------------------- |
-| 1   | `bun run lint` + `bun run typecheck` pass (0 errors, 0 warnings)                                           | §9, §6.1                   |
+| 1   | `pnpm run lint` + `pnpm run typecheck` pass (0 errors, 0 warnings)                                           | §9, §6.1                   |
 | 2   | No `any`; no `as` casts without `// SAFETY:` comment                                                       | §6.1, AP-7                 |
 | 3   | Money in integer paise; never `float`; no `+`/`-`/`*` on money — use `paiseAdd`/`paiseMul`                 | Rule 6, BR-M-01, EC-F-01   |
 | 4   | Glass tier classes used (`glass`/`glass-strong`/`glass-faint`); no raw `rgba()`                            | `13_UI_Guidelines.md` §5.2 |
@@ -1098,13 +1098,13 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 > Bar to clear before "done" (§12). Run in order; fix failures before
 > proceeding.
 
-1. **Lint + typecheck.** `bun run lint` (0 errors, 0 warnings) +
-   `bun run typecheck` (`tsc --noEmit` across `apps/web`, `packages/*`).
-2. **Unit + integration tests** (if requested, §7.1). `bun run test:unit` (≥70%
+1. **Lint + typecheck.** `pnpm run lint` (0 errors, 0 warnings) +
+   `pnpm run typecheck` (`tsc --noEmit` across `apps/web`, `packages/*`).
+2. **Unit + integration tests** (if requested, §7.1). `pnpm run test:unit` (≥70%
    line coverage on `packages/core` and `packages/shared`);
-   `bun run test:integration` against in-memory SQLite (`:memory:`). Never mock
+   `pnpm run test:integration` against in-memory SQLite (`:memory:`). Never mock
    the DB in a ledger test (§7.3).
-3. **Accessibility.** `bun run test:a11y` — `axe-core` on every screen rendered
+3. **Accessibility.** `pnpm run test:a11y` — `axe-core` on every screen rendered
    in Agent Browser. Zero critical or serious violations.
 4. **Agent Browser smoke (web).** Using the `agent-browser` skill: navigate to
    `/`, switch to the affected screen via Zustand, perform the primary

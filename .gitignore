@@ -52,6 +52,7 @@ supabase/.temp/
 playwright-report/
 test-results/
 blob-report/
+apps/web/stress-shots/
 
 # Coverage
 coverage/
