@@ -1,12 +1,20 @@
 // Implements: 11_Data_Model.md & AGENTS.md §3.4
 // Self-Repairable Database Schema & Auto-Healing Manager
-import { batchExecute, type DB } from "./db.ts";
+// Statement execution comes from lib/sql.ts (dependency-free) and `DB` is a
+// type-only import, so the DDL itself stays importable by the integration
+// tests that assert on it — see apps/gateway/__tests__/ledger-routes.test.ts.
+import { batchExecute } from "./sql.ts";
+import type { DB } from "./db.ts";
 import { logError } from "./log.ts";
 
 const HEALED_TENANTS_MAX = 10_000;
 const healedTenants = new Set<string>();
 
-const CORE_DDL_STATEMENTS = [
+/** The complete gateway schema, including the append-only ledger triggers
+ * (`trg_ledger_no_update` / `trg_ledger_no_delete`). Idempotent
+ * `CREATE ... IF NOT EXISTS` — the only DDL the gateway is allowed to run
+ * (AGENTS.md §3.4). Exported for the schema/ledger integration tests. */
+export const CORE_DDL_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS settings (
     tenant_id TEXT PRIMARY KEY,
     institute_name TEXT DEFAULT 'My Tuition',
@@ -136,26 +144,75 @@ const CORE_DDL_STATEMENTS = [
     updated_at TEXT NOT NULL
   )`,
 
-  `CREATE TABLE IF NOT EXISTS invoices (
+  // Fee scheduling — added for B1. `invoices.fee_schedule_item_id` REFERENCES
+  // `fee_schedule_items(id)`, which itself REFERENCES `fee_plans(id)`; with
+  // foreign keys enabled the invoice INSERT below fails with
+  // "no such table: main.fee_schedule_items" unless both parents exist. Both
+  // are verbatim from `migrations/0001_init.sql:203-234` (AGENTS.md §3.4 — the
+  // two schema authorities must not diverge on a referenced table either).
+  `CREATE TABLE IF NOT EXISTS fee_plans (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    student_id TEXT NOT NULL,
-    invoice_number TEXT NOT NULL,
-    period_start TEXT NOT NULL,
-    period_end TEXT NOT NULL,
-    due_date TEXT NOT NULL,
-    subtotal_paise INTEGER NOT NULL,
-    discount_paise INTEGER DEFAULT 0,
-    tax_paise INTEGER DEFAULT 0,
-    total_paise INTEGER NOT NULL,
-    paid_paise INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'issued',
-    notes TEXT,
-    pdf_blob_key TEXT,
-    deleted_at TEXT,
+    student_id TEXT NOT NULL REFERENCES students(id),
+    batch_id TEXT REFERENCES batches(id),
+    model TEXT NOT NULL CHECK(model IN ('postpaid','prepaid','mixed')),
+    cycle TEXT NOT NULL CHECK(cycle IN ('monthly','quarterly','half_yearly','annual','one_time','custom')),
+    base_amount INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    discount_type TEXT CHECK(discount_type IN ('fixed','percent') OR discount_type IS NULL),
+    discount_value INTEGER,
+    scholarship TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  `CREATE INDEX IF NOT EXISTS idx_plans_student ON fee_plans(student_id, is_active)`,
+
+  `CREATE TABLE IF NOT EXISTS fee_schedule_items (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    fee_plan_id TEXT NOT NULL REFERENCES fee_plans(id),
+    label TEXT NOT NULL,
+    due_date TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','invoiced','paid','partial','overdue','void')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_items_due   ON fee_schedule_items(due_date, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_items_plan  ON fee_schedule_items(fee_plan_id, status)`,
+
+  // 11_Data_Model.md §4.12 verbatim — the ONLY invoices shape the gateway
+  // writes (`lib/orm.ts`) and reads (`routes/ledger.ts`, `routes/analytics.ts`);
+  // `packages/core/src/fees.ts` also needs `voided_at` for its open-invoice
+  // filter. `IF NOT EXISTS` keeps an existing tenant's old table until
+  // reprovisioning (AGENTS.md §3.4), so `__tests__/invoices-ddl-parity.test.ts`
+  // pins this literal to `migrations/0001_init.sql` — the DDL
+  // `packages/core/src/fees.integration.test.ts` runs.
+  `CREATE TABLE IF NOT EXISTS invoices (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    number TEXT NOT NULL,
+    student_id TEXT NOT NULL REFERENCES students(id),
+    fee_schedule_item_id TEXT REFERENCES fee_schedule_items(id),
+    issue_date TEXT NOT NULL,
+    due_date TEXT,
+    subtotal INTEGER NOT NULL,
+    discount INTEGER NOT NULL DEFAULT 0,
+    extra_charges INTEGER NOT NULL DEFAULT 0,
+    total INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'unpaid' CHECK(status IN ('unpaid','partial','paid','void','overdue')),
+    voided_at TEXT,
+    void_reason TEXT,
+    tamper_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(tenant_id, number)
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_invoices_student ON invoices(student_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_invoices_due     ON invoices(due_date, status)`,
 
   `CREATE TABLE IF NOT EXISTS receipts (
     id TEXT PRIMARY KEY,

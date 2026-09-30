@@ -1,6 +1,9 @@
 // Implements: 11_Data_Model.md §1 & AGENTS.md §3.4
-// Mandatory Prisma ORM method adapter for libSQL
-import { allRows, type DB, oneRow, run } from "./db.ts";
+// Mandatory Prisma ORM method adapter for libSQL.
+// The handle type is `SqlHandle` (lib/sql.ts), not `lib/db.ts`'s `Client`:
+// ledger mutations pass an interactive transaction here (BR-SYN-01 / audit
+// 2026-09-26 G2), and integration tests pass a real SQLite handle.
+import { allRows, oneRow, run, type SqlHandle } from "./sql.ts";
 
 export interface PrismaOrm {
   student: {
@@ -163,7 +166,7 @@ function mapRowToCamel(
   return out;
 }
 
-export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
+export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
   const buildWhere = (where: Record<string, any> = {}) => {
     const clauses: string[] = ["tenant_id = ?"];
     const params: any[] = [tenantId];
@@ -596,28 +599,69 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         return mapRowToCamel(row);
       },
       create: async (args) => {
+        // 11_Data_Model.md §4.12 — the gateway writes the SPEC column shape
+        // (whitespace-normalised twin of `migrations/0001_init.sql:237` and of
+        // `CORE_DDL_STATEMENTS` in lib/schema.ts; `invoices-ddl-parity.test.ts`
+        // keeps the three honest). The previous INSERT targeted
+        // `invoice_number`/`*_paise`, columns that do not exist on a
+        // spec-built DB, so every gateway invoice failed at the SQL layer.
         const d = args.data;
+        if (typeof d.number !== "string" || d.number.length === 0) {
+          // Rule 9: `number` is NOT NULL and UNIQUE(tenant_id, number) — a
+          // missing number would abort deep in SQLite with a bare constraint
+          // message instead of naming the caller's mistake.
+          throw new Error(
+            `invoices.number is required (11_Data_Model.md §4.12) for student ${String(d.studentId)}`,
+          );
+        }
+        if (typeof d.tamperHash !== "string" || d.tamperHash.length === 0) {
+          // Rule 9 + 10_Security.md §10: `tamper_hash` is NOT NULL and is the
+          // evidence a tutor's Diagnostics screen recomputes — defaulting it
+          // would make every gateway invoice read as tampered (and would break
+          // `ledgerEntry`'s sibling guard discipline). Fail loud instead.
+          throw new Error(
+            `invoices.tamper_hash is required (10_Security.md §10) for invoice ${d.number}`,
+          );
+        }
+        // Rule 6 / BR-M-01: `discount`/`extra_charges` default to 0 per §4.12,
+        // but every amount reaching SQLite must be integer paise — a
+        // fractional or NaN `total` would commit as a REAL and never format
+        // with `formatINR`.
+        const subtotal = d.subtotal ?? 0;
+        const discount = d.discount ?? 0;
+        const extraCharges = d.extraCharges ?? 0;
+        const total = d.total ?? subtotal;
+        if (
+          !Number.isSafeInteger(subtotal) ||
+          !Number.isSafeInteger(discount) ||
+          !Number.isSafeInteger(extraCharges) ||
+          !Number.isSafeInteger(total)
+        ) {
+          throw new Error(
+            `invoices money columns must be integer paise (12_Business_Rules.md BR-M-01) for invoice ${d.number}`,
+          );
+        }
         const now = new Date().toISOString();
+        const issueDate = typeof d.issueDate === "string" ? d.issueDate : now.slice(0, 10);
         const id = d.id ?? crypto.randomUUID();
         await run(
           db,
-          `INSERT INTO invoices (id, tenant_id, invoice_number, student_id, period_start, period_end, due_date, subtotal_paise, discount_paise, tax_paise, total_paise, paid_paise, status, notes, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO invoices (id, tenant_id, number, student_id, fee_schedule_item_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             tenantId,
-            d.invoiceNumber ?? d.number,
+            d.number,
             d.studentId,
-            d.periodStart ?? now.slice(0, 10),
-            d.periodEnd ?? now.slice(0, 10),
+            d.feeScheduleItemId ?? null,
+            issueDate,
             d.dueDate ?? null,
-            d.subtotalPaise ?? d.subtotal ?? 0,
-            d.discountPaise ?? d.discount ?? 0,
-            d.taxPaise ?? d.extraCharges ?? 0,
-            d.totalPaise ?? d.total ?? 0,
-            d.paidPaise ?? 0,
-            d.status ?? "issued",
-            d.notes ?? null,
+            subtotal,
+            discount,
+            extraCharges,
+            total,
+            d.status ?? "unpaid",
+            d.tamperHash,
             now,
             now,
           ],
@@ -676,14 +720,26 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       create: async (args) => {
-        // Enforces Rule 1 (Append-only immutable ledger)
+        // Enforces Rule 1 (Append-only immutable ledger) + BR-LED-06 (chain).
         const d = args.data;
+        if (typeof d.thisHash !== "string" || d.thisHash.length === 0) {
+          // Rule 9 + BR-LED-06: a ledger row without a chain hash is an audit
+          // break. The old `d.thisHash ?? "hash"` default silently disabled the
+          // tamper chain for every gateway-posted entry — hard-fail instead.
+          throw new Error(
+            `ledger_entries.this_hash is required (BR-LED-06) for ${d.type} entry`,
+          );
+        }
         const now = new Date().toISOString();
+        // The hashed `created_at` must be byte-identical to the stored column
+        // (packages/core/src/ledger.ts:107 hashes `now`, then stores it), so
+        // callers pass the same string they hashed — never a fresh clock read.
+        const createdAt = typeof d.createdAt === "string" ? d.createdAt : now;
         const id = d.id ?? crypto.randomUUID();
         await run(
           db,
-          `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, receipt_no, payment_method, payment_ref, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, receipt_no, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             tenantId,
@@ -698,12 +754,13 @@ export function createPrismaOrm(db: DB, tenantId: string): PrismaOrm {
             d.receiptNo ?? null,
             d.paymentMethod ?? null,
             d.paymentRef ?? null,
-            d.thisHash ?? "hash",
+            d.prevHash ?? null,
+            d.thisHash,
             d.voidOfId ?? null,
-            d.occurredOn ?? now.slice(0, 10),
+            d.occurredOn ?? createdAt.slice(0, 10),
             d.source ?? "manual",
-            now,
-            now,
+            createdAt,
+            createdAt,
           ],
         );
         return mapRowToCamel(
