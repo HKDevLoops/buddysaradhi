@@ -4,10 +4,23 @@ import { z } from "zod";
 import { getAuthenticatedDb } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { paiseAdd, paiseSub } from "@buddysaradhi/shared";
+import { createInvoiceSql, recordPaymentSql } from "@buddysaradhi/core/fees";
 
-// Implements: 12_Business_Rules.md BR-M-01 (integer paise), BR-SYN-01 (every mutation → sync_outbox),
-// top-level AGENTS.md §2 Rule 1 (append-only ledger; voids are NEW rows with reverses_entry_id).
+// Implements: 12_Business_Rules.md BR-M-01 (integer paise), BR-SYN-01 (every
+// mutation → sync_outbox), AGENTS.md §2 Rule 1 (append-only ledger), Rule 9
+// (typed Result, no silent failures); 07_Fees_and_Payments.md §9.6 (atomic
+// payment) + §9.7 (monotonic invoice numbers).
+//
+// This file is ONLY the Zod boundary + typed-Result mapping for the fees
+// mutations. The transaction, the ledger posting, the numbering and the
+// tamper hash all live in `packages/core/src/fees.ts` — shared with the
+// gateway — because the previous web-local implementation was a shadow
+// ledger: divergent HMAC hash construction (reconcileLedger failed on every
+// row it wrote), `INV-`+Math.random numbers, phantom student INSERTs, no
+// transaction, and partial payments attributed against `invoices.total`
+// (reviews/overhaul-audit-report-2026-09-26.md F1/F2/F3/F4/F5/F9). One
+// writer dialect now exists: `postLedgerEntrySql` in packages/core.
+//
 // Amounts are integer paise only (no float, no negative, no fractional).
 const FeeInputSchema = z.object({
   studentId: z.string().uuid(),
@@ -15,138 +28,6 @@ const FeeInputSchema = z.object({
   description: z.string().min(1).max(280),
   dateIso: z.string().refine((v) => !Number.isNaN(Date.parse(v)), { message: "Invalid date" }),
 });
-
-// R-CRYPTO-1, R-CRYPTO-2, Rule 8. Paise integer + HMAC-SHA256 chain.
-async function computeSimpleHash(prevHash: string | null, payload: string, timestamp: string, secret: string): Promise<string> {
-  const raw = `${prevHash ?? ""}|${payload}|${timestamp}|${secret}`;
-  
-  const cryptoSubtle = typeof globalThis !== 'undefined' ? globalThis.crypto?.subtle : null;
-  if (!cryptoSubtle) {
-    throw new Error("Web Crypto API (crypto.subtle) is not available.");
-  }
-
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const messageData = encoder.encode(raw);
-
-  const key = await cryptoSubtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await cryptoSubtle.sign(
-    "HMAC",
-    key,
-    messageData
-  );
-
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-// Implements: 10_Security.md §10 Receipt Tamper-Evidence — invoice tamper_hash
-// is keyed by tenant_secret (256-bit, provisioned per tenant, never client-readable).
-// Fail-closed: an unprovisioned tenant must not get a hash under a guessable key.
-async function requireTenantSecret(
-  client: import("@libsql/client").Client,
-  tenantId: string,
-): Promise<string> {
-  const settingRes = await client.execute({
-    sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`,
-    args: [tenantId],
-  });
-  const secret = settingRes.rows[0]?.tenant_secret as string | null;
-  if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
-  return secret;
-}
-
-async function postLedgerEntryRaw(
-  client: import("@libsql/client").Client,
-  tenantId: string,
-  studentId: string,
-  type: string,
-  debitPaise: number,
-  creditPaise: number,
-  description: string,
-  occurredOn: string,
-) {
-  const now = new Date().toISOString();
-  const entryId = crypto.randomUUID();
-
-  // 0. Ensure student exists in students table to satisfy foreign key constraint
-  const studentCheck = await client.execute({
-    sql: `SELECT id FROM students WHERE id = ? LIMIT 1`,
-    args: [studentId],
-  });
-  if (studentCheck.rows.length === 0) {
-    await client.execute({
-      sql: `INSERT INTO students (id, tenant_id, first_name, last_name, admission_date, status, dup_key, created_at, updated_at)
-            VALUES (?, ?, 'Student', ?, ?, 'active', ?, ?, ?)`,
-      args: [studentId, tenantId, studentId.slice(0, 8), now.slice(0, 10), `key-${studentId}`, now, now],
-    });
-  }
-
-  // 1. Get last entry for running balance + hash chain
-  const [lastRes, settingRes] = await Promise.all([
-    client.execute({
-      sql: `SELECT balance_after_paise, this_hash FROM ledger_entries
-            WHERE tenant_id = ? AND student_id = ?
-            ORDER BY created_at DESC LIMIT 1`,
-      args: [tenantId, studentId],
-    }),
-    client.execute({
-      sql: `SELECT tenant_secret FROM settings WHERE tenant_id = ? LIMIT 1`,
-      args: [tenantId],
-    }),
-  ]);
-
-  const lastEntry = lastRes.rows[0];
-  const prevBalance = lastEntry ? (lastEntry.balance_after_paise as number) : 0;
-  const prevHash = lastEntry ? (lastEntry.this_hash as string) : null;
-  const newBalance = paiseSub(paiseAdd(prevBalance, debitPaise), creditPaise);
-  const secret = settingRes.rows[0]?.tenant_secret as string | null;
-  if (!secret) throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
-
-  const payload = JSON.stringify({ id: entryId, studentId, type, debitPaise, creditPaise, balanceAfterPaise: newBalance, occurredOn });
-  const thisHash = await computeSimpleHash(prevHash, payload, now, secret);
-
-  // Rule 7: ledger + sync_outbox + audit_log in one batch.
-  await client.batch(
-    [
-      {
-        sql: `INSERT INTO ledger_entries (
-                id, tenant_id, student_id, type, debit_paise, credit_paise,
-                balance_after_paise, description, occurred_on, this_hash, prev_hash,
-                source, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', ?, ?)`,
-        args: [entryId, tenantId, studentId, type, debitPaise, creditPaise, newBalance, description, occurredOn, thisHash, prevHash, now, now],
-      },
-      {
-        sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-              VALUES (?, ?, 'ledger_entries', ?, 'insert', ?, ?)`,
-        args: [crypto.randomUUID(), tenantId, entryId, payload, now],
-      },
-      {
-        sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          crypto.randomUUID(), tenantId, tenantId,
-          `ledger.${type.toLowerCase()}`,
-          "student", studentId,
-          JSON.stringify({ entryId, debitPaise, creditPaise, newBalance }),
-          now,
-        ],
-      },
-    ],
-    "write",
-  );
-
-  return entryId;
-}
 
 export async function recordPaymentAction(
   studentId: string,
@@ -158,84 +39,26 @@ export async function recordPaymentAction(
   const parsed = FeeInputSchema.safeParse({ studentId, amountMinor, description, dateIso });
   if (!parsed.success) {
     log.error('fee_record_payment_invalid_input', parsed.error.message, { studentId });
-    return { success: false, error: parsed.error.message };
+    return { success: false as const, error: parsed.error.message };
   }
   try {
     const { client, tenantId } = await getAuthenticatedDb();
-    const now = new Date().toISOString();
-
-    // 1. Get unpaid invoices for student
-    const unpaidRes = await client.execute({
-      sql: `SELECT id, total, status FROM invoices WHERE tenant_id = ? AND student_id = ? AND status != 'paid' AND (voided_at IS NULL) ORDER BY due_date ASC`,
-      args: [tenantId, parsed.data.studentId],
+    // 07 §9.6: audit-first, all-or-nothing, partial payments attributed per
+    // invoice (F9), remainder auto-invoiced under a monotonic number (F3).
+    const result = await recordPaymentSql(client, {
+      tenantId,
+      studentId: parsed.data.studentId,
+      amountPaise: parsed.data.amountMinor,
+      description: parsed.data.description,
+      receivedOn: parsed.data.dateIso,
     });
-
-    let remainingPayment = parsed.data.amountMinor;
-
-    // 2. Pay off unpaid invoices
-    for (const row of unpaidRes.rows) {
-      if (remainingPayment <= 0) break;
-      const invId = row.id as string;
-      const duePaise = (row.total as number) || 0;
-
-      if (remainingPayment >= duePaise) {
-        // Mark fully paid — BR-M-01 via paiseSub
-        await client.execute({
-          sql: `UPDATE invoices SET status = 'paid', updated_at = ? WHERE id = ?`,
-          args: [now, invId],
-        });
-        remainingPayment = paiseSub(remainingPayment, duePaise);
-      } else {
-        // Mark partially paid
-        await client.execute({
-          sql: `UPDATE invoices SET status = 'partial', updated_at = ? WHERE id = ?`,
-          args: [now, invId],
-        });
-        remainingPayment = 0;
-      }
-    }
-
-    // 3. If there is remaining payment (or no invoices existed), auto-generate a paid invoice
-    if (remainingPayment > 0) {
-      const autoInvoiceId = crypto.randomUUID();
-      const code = `INV-AUTO-${Math.floor(1000 + Math.random() * 9000)}`;
-      const hashData = `${code}:${parsed.data.studentId}:${remainingPayment}:${parsed.data.dateIso}`;
-      const tamperHash = await computeSimpleHash(null, hashData, now, await requireTenantSecret(client, tenantId));
-      
-      // Auto-create a matching invoice
-      await client.execute({
-        sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'paid', ?, ?, ?)`,
-        args: [autoInvoiceId, tenantId, code, parsed.data.studentId, parsed.data.dateIso, parsed.data.dateIso, remainingPayment, remainingPayment, tamperHash, now, now],
-      });
-
-      // Also create a FEE_CHARGED entry in the ledger to balance the book
-      await postLedgerEntryRaw(client, tenantId, parsed.data.studentId, "FEE_CHARGED", remainingPayment, 0, `Auto-invoice for payment: ${parsed.data.description}`, parsed.data.dateIso);
-    }
-
-    // 4. Post the PAYMENT_RECEIVED ledger entry
-    const entryId = await postLedgerEntryRaw(client, tenantId, parsed.data.studentId, "PAYMENT_RECEIVED", 0, parsed.data.amountMinor, parsed.data.description, parsed.data.dateIso);
-
-    // 5. Update the student's balancePaise in the database
-    const studRes = await client.execute({
-      sql: `SELECT balance_paise FROM students WHERE id = ? LIMIT 1`,
-      args: [parsed.data.studentId],
-    });
-    if (studRes.rows.length > 0) {
-      const curBalance = studRes.rows[0].balance_paise as number;
-      const newBal = paiseSub(curBalance, parsed.data.amountMinor);
-      await client.execute({
-        sql: `UPDATE students SET balance_paise = ?, updated_at = ? WHERE id = ?`,
-        args: [newBal, now, parsed.data.studentId],
-      });
-    }
-
+    if (!result.ok) throw result.error;
     revalidatePath("/fees");
-    return { success: true, data: entryId };
+    return { success: true as const, data: result.value };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to record payment";
     log.error('fee_record_payment_failed', message, { studentId, amountMinor });
-    return { success: false, error: message };
+    return { success: false as const, error: message };
   }
 }
 
@@ -243,14 +66,14 @@ export async function voidReceiptAction(entryIdToVoid: string, pin: string) {
   try {
     // Fail-closed: previous `if (pin !== "1234")` was a backdoor.
     if (!pin || !pin.trim()) {
-      return { success: false, error: "PIN required to void a receipt" };
+      return { success: false as const, error: "PIN required to void a receipt" };
     }
     log.error('fee_void_receipt_blocked', 'PIN verification disabled; awaiting Argon2', { entryIdToVoid });
-    return { success: false, error: "PIN verification disabled — contact support" };
+    return { success: false as const, error: "PIN verification disabled — contact support" };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to void receipt";
     log.error('fee_void_receipt_failed', message, { entryIdToVoid });
-    return { success: false, error: message };
+    return { success: false as const, error: message };
   }
 }
 
@@ -264,46 +87,25 @@ export async function createInvoiceAction(
   const parsed = FeeInputSchema.safeParse({ studentId, amountMinor, description, dateIso });
   if (!parsed.success) {
     log.error('fee_create_invoice_invalid_input', parsed.error.message, { studentId });
-    return { success: false, error: parsed.error.message };
+    return { success: false as const, error: parsed.error.message };
   }
   try {
     const { client, tenantId } = await getAuthenticatedDb();
-    const now = new Date().toISOString();
-
-    // 1. Post ledger entry
-    const entryId = await postLedgerEntryRaw(client, tenantId, parsed.data.studentId, "FEE_CHARGED", parsed.data.amountMinor, 0, parsed.data.description, parsed.data.dateIso);
-    
-    // 2. Insert into invoices table
-    const invoiceId = crypto.randomUUID();
-    const code = `INV-${Math.floor(1000 + Math.random() * 9000)}`;
-    const hashData = `${code}:${parsed.data.studentId}:${parsed.data.amountMinor}:${parsed.data.dateIso}`;
-    const tamperHash = await computeSimpleHash(null, hashData, now, await requireTenantSecret(client, tenantId));
-
-    await client.execute({
-      sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'unpaid', ?, ?, ?)`,
-      args: [invoiceId, tenantId, code, parsed.data.studentId, parsed.data.dateIso, parsed.data.dateIso, parsed.data.amountMinor, parsed.data.amountMinor, tamperHash, now, now],
+    // 07 §9 line 419: seq increment → invoice row with tamper_hash →
+    // FEE_CHARGED → audit_log → sync_outbox, in ONE transaction.
+    const result = await createInvoiceSql(client, {
+      tenantId,
+      studentId: parsed.data.studentId,
+      amountPaise: parsed.data.amountMinor,
+      description: parsed.data.description,
+      issueDate: parsed.data.dateIso,
     });
-
-    // 3. Update student balance
-    const studRes = await client.execute({
-      sql: `SELECT balance_paise FROM students WHERE id = ? LIMIT 1`,
-      args: [parsed.data.studentId],
-    });
-    if (studRes.rows.length > 0) {
-      const curBalance = studRes.rows[0].balance_paise as number;
-      const newBal = paiseAdd(curBalance, parsed.data.amountMinor);
-      await client.execute({
-        sql: `UPDATE students SET balance_paise = ?, updated_at = ? WHERE id = ?`,
-        args: [newBal, now, parsed.data.studentId],
-      });
-    }
-
+    if (!result.ok) throw result.error;
     revalidatePath("/fees");
-    return { success: true, data: entryId };
+    return { success: true as const, data: result.value };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create invoice";
     log.error('fee_create_invoice_failed', message, { studentId, amountMinor });
-    return { success: false, error: message };
+    return { success: false as const, error: message };
   }
 }

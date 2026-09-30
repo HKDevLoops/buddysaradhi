@@ -13,10 +13,12 @@ export async function createBackupAction(passphrase: string) {
     }
 
     const { client, tenantId } = await getAuthenticatedDb();
+    // Rule 9 + AGENTS §3.4: a failed/missing-table read throws and is caught
+    // below (typed failure). Never emit an empty-but-"successful" backup.
     const [settingsRes, studentsRes, ledgerRes] = await Promise.all([
-      client.execute({ sql: "SELECT * FROM settings WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: "SELECT * FROM students WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
-      client.execute({ sql: "SELECT * FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] }).catch(() => ({ rows: [] })),
+      client.execute({ sql: "SELECT * FROM settings WHERE tenant_id = ?", args: [tenantId] }),
+      client.execute({ sql: "SELECT * FROM students WHERE tenant_id = ?", args: [tenantId] }),
+      client.execute({ sql: "SELECT * FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] }),
     ]);
 
     const backupPayload = JSON.stringify({
