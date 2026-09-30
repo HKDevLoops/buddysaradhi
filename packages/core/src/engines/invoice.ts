@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID } from "crypto";
+import { computeInvoiceTamperHash } from "../tamper";
 
 export interface BatchInvoiceConfig {
   tenantId: string;
@@ -20,9 +21,10 @@ export interface InvoiceResult {
  * Implements batch invoice generation via parallel processing
  * using Promise.allSettled as required by the specification.
  *
- * Implements: 07_Fees_and_Payments.md §4 — Batch Invoice Generation
+ * Implements: 07_Fees_and_Payments.md §4 — Batch Invoice Generation (+ §10.3
+ * BR-FEE-05 canonical tamper hash, BR-FEE-06 basis-point discounts)
  * Rule 6: amounts stored as integer paise
- * Rule 7: sync_outbox written in same transaction as invoice create
+ * Rule 7: sync_outbox + audit_log written in same transaction as invoice create
  */
 export async function generateBatchInvoices(
   db: PrismaClient,
@@ -44,10 +46,10 @@ export async function generateBatchInvoices(
 
   if (feePlans.length === 0) return [];
 
-  // 2. Fetch settings for sequence number and invoice prefix
+  // 2. Fetch settings for sequence number, invoice prefix, and tamper secret
   const setting = await db.setting.findUnique({
     where: { tenantId },
-    select: { nextInvoiceSeq: true, invoicePrefix: true },
+    select: { nextInvoiceSeq: true, invoicePrefix: true, tenantSecret: true },
   });
 
   if (!setting) throw new Error("Settings not found for tenant");
@@ -84,16 +86,26 @@ export async function generateBatchInvoices(
         if (plan.discountType === "fixed") {
           calculatedDiscount = discountValue;
         } else if (plan.discountType === "percent") {
-          // Floor to paise — never ceil (Rule 6: integer paise only)
-          calculatedDiscount = Math.floor(subtotal * (discountValue / 100));
+          // BR-FEE-06 (07 §10.3): percent discounts are basis points
+          // (1000 = 10%). Floor to paise — never ceil (Rule 6).
+          calculatedDiscount = Math.floor((subtotal * discountValue) / 10000);
         }
 
         const total = subtotal - calculatedDiscount;
-        const tamperHash = createHash("sha256")
-          .update(`${invoiceId}${total}${issueDate}`)
-          .digest("hex");
+        // BR-FEE-05 (10_Security.md §10): canonical tamper bytes
+        // sha256(number|student|total|date|secret) via the shared helper —
+        // never re-derive the formula here (writer/verifier byte parity).
+        const tamperHash = computeInvoiceTamperHash(
+          {
+            number,
+            studentId: plan.studentId,
+            totalPaise: total,
+            issueDate: new Date(issueDate).toISOString(),
+          },
+          setting.tenantSecret,
+        );
 
-        // All three writes happen in a single atomic transaction.
+        // All four writes happen in a single atomic transaction.
         // Losing any one of them makes the record incomplete (Rule 7).
         await db.$transaction(async (tx: any) => {
           const itemId = randomUUID();
@@ -144,6 +156,21 @@ export async function generateBatchInvoices(
               op: "insert",
               payload: JSON.stringify({ id: invoiceId, number, total }),
               status: "pending",
+              createdAt: new Date(),
+            },
+          });
+
+          // Rule 7 / AP-13: every batch invoice mutation writes its audit row
+          // in the same transaction as the invoice + outbox rows.
+          await tx.auditLog.create({
+            data: {
+              id: randomUUID(),
+              tenantId,
+              actor: "system",
+              action: "invoice.create",
+              refType: "invoices",
+              refId: invoiceId,
+              metadata: JSON.stringify({ number, total }),
               createdAt: new Date(),
             },
           });
