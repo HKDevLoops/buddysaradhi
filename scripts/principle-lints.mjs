@@ -148,6 +148,12 @@ const L1_ALLOW = [
       "secure-erase per 10_Security.md §18.1 (LEDGER-4 exception), cited in the surrounding code comment",
   },
   {
+    file: "packages/core/src/engines/security.ts",
+    re: /tx\.ledgerEntry\s*\.\s*deleteMany/,
+    reason:
+      "EC-SEC-01 brute-force wipe (02_Core_Logic.md §12.4 / BR-SEC-03): 15 failed PINs destroy the device-local cache replica via Prisma ORM deleteMany inside the wipe $transaction — the 10_Security.md §18.1 LEDGER-4 secure-erase exception applied to the lockout wipe (cloud ledger intact, re-sync restores); audited via pin_lockout_wipe in the same transaction",
+  },
+  {
     file: "schema.sql",
     re: /(ALTER\s+TABLE\s+ledger_entries\s+ADD\s+COLUMN|UPDATE\s+ledger_entries\s+SET)/i,
     reason:
