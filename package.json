@@ -17,8 +17,9 @@
   "scripts": {
     "postinstall": "prisma generate && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build",
     "build": "prisma generate && pnpm --filter web build",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "pnpm -r --if-present lint && node scripts/principle-lints.mjs",
     "lint:fix": "pnpm -r --if-present lint --fix",
+    "lint:principles": "node scripts/principle-lints.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
