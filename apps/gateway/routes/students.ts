@@ -1,4 +1,5 @@
 import type { DB } from "../lib/db.ts";
+import type { SqlHandle } from "../lib/sql.ts";
 import { ok, fail, failZod } from "../lib/errors.ts";
 import { logInfo, logError } from "../lib/log.ts";
 import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
@@ -22,8 +23,11 @@ import { createPrismaOrm } from "../lib/orm.ts";
 // Rule 7 guarantee is best-effort". They now rethrow (fail-closed): a failed
 // outbox/audit write aborts the request with 500 (index.ts typed log) instead
 // of reporting success for a mutation that will never replicate.
+// The handle is `SqlHandle`, not `DB`: ledger routes pass the open write
+// transaction so outbox + audit land in the SAME transaction as the mutation
+// (Rule 7 / BR-SYN-01 — "no exceptions for small mutations").
 export async function recordOutbox(
-  db: DB,
+  db: SqlHandle,
   tenantId: string,
   table: string,
   rowId: string,
@@ -51,7 +55,7 @@ export async function recordOutbox(
 }
 
 export async function recordAudit(
-  db: DB,
+  db: SqlHandle,
   tenantId: string,
   actor: string,
   action: string,
