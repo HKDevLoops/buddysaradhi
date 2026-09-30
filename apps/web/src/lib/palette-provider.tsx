@@ -128,29 +128,45 @@ export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", chi
     // aurora-cosmic and never reached the selected emerald-ledger.
     const applied = localStorage.getItem("buddysaradhi.palette");
     html.setAttribute("data-palette", applied || resolvedPalette);
-    html.setAttribute("data-theme", resolvedTheme);
+    // APPLIED-first for data-theme — F-2 class (tests/e2e/stress.spec.ts:182):
+    // the Light/Dark click in appearance-section writes data-theme AND
+    // localStorage in the same tick, so localStorage IS the applied value —
+    // read it fresh here. A stale server echo (dbTheme from a pre-mutation
+    // settings response, or a fallback-path write invisible to gateway reads)
+    // must NEVER clobber html[data-theme] after the user chose one.
+    // Scoped to concrete light/dark intent so "system" and custom themes keep
+    // resolving live (OS changes still follow).
+    const appliedTheme = localStorage.getItem("buddysaradhi.theme");
+    const concretePref = themePreference === "light" || themePreference === "dark";
+    const concreteApplied = appliedTheme === "light" || appliedTheme === "dark";
+    html.setAttribute("data-theme", concretePref && concreteApplied ? appliedTheme : resolvedTheme);
     html.setAttribute("data-theme-preference", themePreference || "system");
-    html.setAttribute("data-density", resolvedDensity);
+    // APPLIED-first for data-density — same stale-echo class (103036f): the
+    // density buttons write DOM + localStorage synchronously.
+    const appliedDensity = localStorage.getItem("buddysaradhi.density");
+    html.setAttribute("data-density", appliedDensity || resolvedDensity);
 
     // Sync localStorage with DB settings when logged in — SEED only when this
     // device has no applied value (first visit / cross-device restore).
-    // Unconditionally writing dbPalette here is what let a stale echo undo the
-    // user's click on the next effect run.
+    // Unconditionally writing dbTheme/dbDensity here is what let a stale echo
+    // undo the user's click on the next effect run (theme: stress.spec.ts:182).
     if (dbPalette && !applied) localStorage.setItem("buddysaradhi.palette", dbPalette);
-    if (dbTheme) localStorage.setItem("buddysaradhi.theme", dbTheme);
-    if (dbDensity) localStorage.setItem("buddysaradhi.density", dbDensity);
+    if (dbTheme && !appliedTheme) localStorage.setItem("buddysaradhi.theme", dbTheme);
+    if (dbDensity && !appliedDensity) localStorage.setItem("buddysaradhi.density", dbDensity);
   }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity, dbPalette, dbTheme, dbDensity]);
 
-  // Update localStorage when resolvedTheme changes
+  // Update localStorage when resolvedTheme changes — SEED only (see above):
+  // an applied same-device value is user intent and must survive a stale
+  // server echo arriving via resolvedTheme.
   useEffect(() => {
-    if (resolvedTheme) {
+    if (resolvedTheme && !localStorage.getItem("buddysaradhi.theme")) {
       localStorage.setItem("buddysaradhi.theme", resolvedTheme);
     }
   }, [resolvedTheme]);
 
-  // Update localStorage when resolvedDensity changes
+  // Update localStorage when resolvedDensity changes — SEED only (same class).
   useEffect(() => {
-    if (resolvedDensity) {
+    if (resolvedDensity && !localStorage.getItem("buddysaradhi.density")) {
       localStorage.setItem("buddysaradhi.density", resolvedDensity);
     }
   }, [resolvedDensity]);
