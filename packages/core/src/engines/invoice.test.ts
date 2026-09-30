@@ -5,11 +5,10 @@
 // + EC-SEC-03 (tamper mismatch), AGENTS.md §2 Rules 6 + 7 + §7.3 (real SQLite
 // via `prisma db push`, never mocked).
 //
-// The `it.fails` pin on FIND-INV-02 stays: BR-FEE-01 + EC-F-01 (half-to-even)
-// directly contradict BR-M-05 (round-half-up), pending the
-// 22_Redundancy_Audit.md precedence ruling. Findings FIND-INV-01 (tamper
-// formula), FIND-INV-03 (basis points), FIND-INV-04 (missing audit_log) are
-// fixed in ./invoice.ts; their pins are normal tests now.
+// Resolved 2026-09-30 via 22_Redundancy_Audit.md P16 (scope-split, pending
+// human ratification): BR-FEE-01 governs division sites (half-to-even),
+// BR-M-05 governs the display step + instalment splits. FIND-INV-02 fixed in
+// ./invoice.ts via paiseDivHalfEven; pin is a normal test now.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "crypto";
 import { execSync } from "child_process";
@@ -349,17 +348,16 @@ describe("batch writer vs canonical invoice contract — SPEC pins", () => {
     },
   );
 
-  it.fails(
+  it(
     "FIND-INV-02: fractional-paise discounts round half-to-even (EC-F-01 / BR-FEE-01)",
     async () => {
       const tenantId = await seedTenant();
       const s1 = await seedStudent(tenantId);
-      // 10% of 125555 = 12555.5 paise → half-to-even = 12556 → total 112999.
-      // Engine floors → 12555 → total 113000.
+      // 10% = 1000bps of 125555 = 12555.5 paise → half-to-even = 12556 → total 112999.
       await seedFeePlan(tenantId, s1, {
         baseAmount: 125555,
         discountType: "percent",
-        discountValue: 10,
+        discountValue: 1000,
       });
 
       const [result] = await generateBatchInvoices(prisma, {

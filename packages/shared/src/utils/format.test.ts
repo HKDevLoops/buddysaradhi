@@ -6,6 +6,7 @@ import {
   formatINR,
   paiseAdd,
   paiseSub,
+  paiseDivHalfEven,
   paiseMul,
   assertPaise,
 } from "./format";
@@ -163,6 +164,31 @@ describe("assertPaise (BR-M-01 input guard)", () => {
   it("rejects Infinity exactly", () => {
     expect(() => assertPaise(Number.POSITIVE_INFINITY)).toThrow(
       new Error("assertPaise: invalid paise Infinity"),
+    );
+  });
+});
+
+describe("paiseDivHalfEven (BR-FEE-01 + 22 P16: division rounds half-to-even)", () => {
+  it.each([
+    [12555, 10, 1256],
+    [125555000, 10000, 12556],
+    [12554, 10, 1255],
+    [12556, 10, 1256],
+    [12545, 10, 1254],
+    [200, 3, 67],
+    [0, 10000, 0],
+  ])("paiseDivHalfEven(%i, %i) === %i", (dividend, divisor, expected) => {
+    expect(paiseDivHalfEven(dividend, divisor)).toBe(expected);
+  });
+
+  it("throws typed errors on bad inputs", () => {
+    expect(() => paiseDivHalfEven(1.5, 2)).toThrow(
+      new Error("paiseDivHalfEven: non-safe-integer"),
+    );
+    expect(() => paiseDivHalfEven(10, 0)).toThrow(
+      new Error(
+        "paiseDivHalfEven: non-negative dividend and positive divisor required",
+      ),
     );
   });
 });

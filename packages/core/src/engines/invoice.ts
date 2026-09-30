@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { computeInvoiceTamperHash } from "../tamper";
+import { paiseDivHalfEven, paiseMul } from "../money";
 
 export interface BatchInvoiceConfig {
   tenantId: string;
@@ -87,8 +88,9 @@ export async function generateBatchInvoices(
           calculatedDiscount = discountValue;
         } else if (plan.discountType === "percent") {
           // BR-FEE-06 (07 §10.3): percent discounts are basis points
-          // (1000 = 10%). Floor to paise — never ceil (Rule 6).
-          calculatedDiscount = Math.floor((subtotal * discountValue) / 10000);
+          // (1000 = 10%). BR-FEE-01 + 22 P16: division rounds half-to-even —
+          // floor and ceil both violate BR-FEE-01 (EC-F-01: 12555/10 -> 1256).
+          calculatedDiscount = paiseDivHalfEven(paiseMul(subtotal, discountValue), 10000);
         }
 
         const total = subtotal - calculatedDiscount;

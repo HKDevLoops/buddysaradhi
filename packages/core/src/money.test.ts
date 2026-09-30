@@ -6,7 +6,7 @@
 // Pure unit tests for `money.ts` — no DB, no I/O. Every amount is an exact
 // integer; assertions compare exact paise integers, never floats.
 import { describe, it, expect } from "vitest";
-import { paiseAdd, paiseSub } from "./money";
+import { paiseAdd, paiseSub, paiseMul, paiseDivHalfEven } from "./money";
 
 const MAX_SAFE = Number.MAX_SAFE_INTEGER; // 9007199254740991
 const MIN_SAFE = Number.MIN_SAFE_INTEGER;
@@ -86,5 +86,39 @@ describe("paiseAdd/paiseSub EC-F-01 regression (no float dust)", () => {
       expect(Number.isInteger(paiseAdd(a, b))).toBe(true);
       expect(Number.isInteger(paiseSub(a, b))).toBe(true);
     }
+  });
+
+  it("paiseMul mirrors shared semantics (quarterly = 3x, annual = 12x)", () => {
+    expect(paiseMul(150000, 3)).toBe(450000);
+    expect(paiseMul(150000, 12)).toBe(1800000);
+    expect(() => paiseMul(1.5, 2)).toThrow(new Error("paiseMul: non-safe-integer"));
+    expect(() => paiseMul(Number.MAX_SAFE_INTEGER, 2)).toThrow(new Error("paiseMul: overflow"));
+  });
+});
+
+describe("paiseDivHalfEven (BR-FEE-01 + 22 P16: division rounds half-to-even)", () => {
+  it.each([
+    [12555, 10, 1256], // EC-F-01: the canonical tie, odd quotient rounds up
+    [125555000, 10000, 12556], // INV-02: 10% of 125555 via bps
+    [12554, 10, 1255], // below-half rounds down
+    [12556, 10, 1256], // above-half rounds up
+    [12545, 10, 1254], // tie with EVEN quotient stays (banker's)
+    [12565, 10, 1256], // tie with even quotient stays
+    [100, 3, 33], // repeating fraction truncates-side
+    [200, 3, 67], // 66.67 rounds up
+    [0, 10000, 0], // zero dividend
+    [1, 1, 1],
+  ])("paiseDivHalfEven(%i, %i) === %i", (dividend, divisor, expected) => {
+    expect(paiseDivHalfEven(dividend, divisor)).toBe(expected);
+  });
+
+  it("throws typed errors on bad inputs", () => {
+    expect(() => paiseDivHalfEven(1.5, 2)).toThrow(new Error("paiseDivHalfEven: non-safe-integer"));
+    expect(() => paiseDivHalfEven(10, 0)).toThrow(
+      new Error("paiseDivHalfEven: non-negative dividend and positive divisor required"),
+    );
+    expect(() => paiseDivHalfEven(-10, 2)).toThrow(
+      new Error("paiseDivHalfEven: non-negative dividend and positive divisor required"),
+    );
   });
 });
