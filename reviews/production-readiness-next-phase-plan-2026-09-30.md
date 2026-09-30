@@ -90,6 +90,47 @@ All pushed to `main`; retrospective review required before any release cut:
 10. Mobile/desktop stay LOCKED per `16_Platform_Delivery_Sequence.md` until
     WEB-PROD-GATE is signed (4/4 gate + reviews + N2 rulings).
 
+---
+
+## 4. NEXT-PHASE-01 session update (same day, later)
+
+Deployed gateway + webpage/product-page verification and deferred-work
+completion, all pushed to `main` (`b60adb3..610c73e`):
+
+- **Gateway LIVE**: Supabase Edge Function
+  `gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway` (ap-south-1) —
+  `/health` 200 `{ok:true}` (0.48s); `/api/v1/students` without auth → 401
+  typed (F-1 behaviour holds on the deployed box); HSTS/nosniff/DENY present.
+  `api.buddysaradhi.app` does not resolve — custom domain not attached.
+- **Web/product checked**: product-page builds exit 0 and serves 200 locally;
+  deployed `buddysaradhi.vercel.app/login` and `product-page-one-nu.vercel.app`
+  both 200 with correct HTML. No prod e2e per F-6.
+- **N2-4 rounding RESOLVED** (was "needs ruling"): new `22` P16 scope-split
+  (division half-to-even / display half-up / splits remainder) —
+  **pending human ratification**. `paiseDivHalfEven` (BigInt-exact) in shared +
+  core mirror; invoice percent uses it; pin setup fixed to bps; **zero
+  `it.fails` remain** (`babe8e5`).
+- **N2-5 feeCalc DONE**: `packages/shared/src/feeCalc.ts` (BR-CALC-09/10/11,
+  43 tests, 100% cov). Gaps filed, not guessed: G1 (no enrolment-status DDL),
+  G2 (`void_of_id` projection), G4 (null-vs-0) need spec amendments;
+  `attendancePct` correctly left out (needs division → was rounding-blocked).
+- **N2-6 models: findings-only, correctly NOT tightened** — DDL CHECK
+  (`11_Data_Model.md:379`) and `03_User_Flows.md:302` mandate the 5th value
+  `holiday`; tightening to the 4-set would reject legitimate rows. RFC filed:
+  fix `generate_zod.py` to emit enums from CHECKs, or delete the orphan.
+- **P3-11 codec DONE** (`fa0ba8d`): canonical snake_case codec; no replay
+  reader exists — landed in time. Residual: gateway stubs vs full rows
+  (follow-up RFC).
+- **N3-7 stress theme FIXED**: stale server echo clobbered `data-theme`/
+  `data-density` (F-2 class) → applied-first + seed-only. Stress e2e **2/2**
+  (chromium+webkit); unit test 4/4 (`b60adb3`).
+- **Live op-CHECK bug fixed** (`ca14b78`): settings PATCH wrote outbox op
+  `upsert` (CHECK allows only insert/update/soft_delete) → `update`.
+- **G3 fixed**: quarter sketch zero-pad in `02_Core_Logic.md`.
+- N1 review packet grows: P16 ruling + `babe8e5` join the §8#1 ledger-crypto
+  queue. Ops: no infinite servers — every run bounded
+  start→poll→use→kill; ports verified free.
+
 ### Explicitly out of scope (do not start)
 - `apps/mobile/`, `apps/desktop/` code or spec edits (§9.3 platform lock).
 - Rounding implementation before the N2 ruling (would pick a side in a live
