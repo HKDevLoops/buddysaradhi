@@ -353,7 +353,10 @@ export async function expectedForPeriod(db, studentId, fromMonth, toMonth): Prom
 
 export const expectedForMonth  = (db, s, m) => expectedForPeriod(db, s, m, m);
 export const expectedForQuarter = (db, s, year, q) =>
-  expectedForPeriod(db, s, `${year}-${(q-1)*3+1}-01`.slice(0,7), `${year}-${q*3}-01`.slice(0,7));
+  expectedForPeriod(db, s, `${year}-${String((q-1)*3+1).padStart(2,"0")}`, `${year}-${String(q*3).padStart(2,"0")}`);
+  // NOTE (2026-09-30, G3 fix): the prior sketch `${year}-${(q-1)*3+1}-01`.slice(0,7)
+  // produced "2025-1-" for Q1 (missing zero-pad). Months are always zero-padded
+  // (P-DM7); the implemented `packages/shared/src/feeCalc.ts` uses calendar quarters.
 export const expectedForYear   = (db, s, year) =>
   expectedForPeriod(db, s, `${year}-01`, `${year}-12`);
 

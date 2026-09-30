@@ -83,7 +83,10 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
     // Rule 7 (12_Business_Rules.md BR-SYN-01 / BR-SEC-03) — audit 2026-09-26
     // "gateway settings PATCH (audit only)": the settings upsert now writes
     // sync_outbox alongside audit_log in the same logical transaction.
-    await recordOutbox(db, tenantId, "settings", tenantId, "upsert", filteredBody);
+    // Op is "update" (not "upsert"): the migration CHECK on sync_outbox.op
+    // allows only (insert, update, soft_delete), and the audit row below
+    // already records this mutation as "settings.update".
+    await recordOutbox(db, tenantId, "settings", tenantId, "update", filteredBody);
     await recordAudit(db, tenantId, tenantId, "settings.update", "settings", tenantId, filteredBody);
     return ok(updated);
   }
