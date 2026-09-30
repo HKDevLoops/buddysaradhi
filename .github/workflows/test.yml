@@ -71,6 +71,15 @@ jobs:
         run: pnpm --filter web exec vitest run
         timeout-minutes: 5
 
+      # AGENTS §7.4 / report L6: coverage floors enforced — ≥70% lines on
+      # packages/core and packages/shared. --coverage.all so never-imported
+      # files count (verified: core 97.45%, shared 100%).
+      - name: Coverage floors (core + shared ≥70% lines)
+        run: |
+          pnpm --filter @buddysaradhi/core exec vitest run --coverage --coverage.all --coverage.thresholds.lines=70
+          pnpm --filter @buddysaradhi/shared exec vitest run --coverage --coverage.all --coverage.thresholds.lines=70
+        timeout-minutes: 10
+
       - name: Build Web App & Product Page
         run: pnpm --filter web build && pnpm --filter product-page build
         timeout-minutes: 10
