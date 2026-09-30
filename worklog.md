@@ -1467,3 +1467,59 @@ Stage Summary:
 - Files touched: 13 wave commits (workflows, e2e specs + helper, AGENTS.md, antislop x4, principle-lints + wiring, core ledger/fees/ledgerSql/tamper/money + tests, web fees/settings actions, gateway schema/orm/sql/tx/chain/ledger routes + tests) + 5 follow-ups (core/shared coverage tests, security ladder, invoice fixes, coverage-floor CI) + this entry.
 - Resume point: next phase = reviews/production-readiness-next-phase-plan-2026-09-30.md (final report of this session): human reviews (B3 + ledger chunks), 22 rounding ruling, feeCalc RFC, stress theme triage, then S4 (vercel login).
 - Blocker: human review pending - AGENTS change (section 8#6: 2 reviewers + orchestrator sign-off) and ledger chunks (section 8#1: 2 reviewers incl. ledger-crypto); user actions blocked: vercel login, AIHUBMIX_API_KEY.
+
+---
+
+Task ID: NEXT-PHASE-01 (gateway/web/product verification + deferred work)
+Agent: orchestrator + swarm (web-engineer x4: feeCalc, models, codec, stress)
+Task: Verify user-deployed gateway + webpage + product page; complete deferred
+work (N2 feeCalc/models/codec/P16, N3 stress theme, op-CHECK, G3).
+
+Work Log:
+
+- Deployed gateway found + VERIFIED LIVE: Supabase Edge Function
+  gmqwdnvbfnwpzpctwvho.supabase.co/functions/v1/gateway (ap-south-1).
+  /health 200 {ok:true} 0.48s; /api/v1/students no-auth 401 typed
+  (F-1 class correct on the deployed box); HSTS/nosniff/DENY present, no CSP
+  on /health (note). api.buddysaradhi.app does NOT resolve (DNS) - custom
+  domain not attached; functions URL is the live one.
+- Webpage + product page checked: local :3003 200 (pp builds exit 0, 3 static
+  pages); deployed buddysaradhi.vercel.app/login 200 (proper HTML, fonts,
+  nonce); product-page-one-nu.vercel.app 200. No prod e2e (F-6).
+- Swarm results: feeCalc.ts created (BR-CALC-09/10/11 pure, 43 tests, 100%
+  cov; gaps G1/G2/G4 filed, attendancePct blocked on rounding); models.ts
+  findings-only (must NOT tighten: DDL CHECK has 5th value holiday per
+  11_Data_Model.md:379 + 03_User_Flows.md:302 writes it; RFC recommended for
+  generate_zod.py); outbox codec unified (shared canonical + core mirror +
+  gateway direct import; zero test edits needed; no replay reader exists);
+  stress agent aborted mid-run BUT left a correct palette-provider fix +
+  4/4 unit test (verified, kept).
+- Stress LIGHT-mode ROOT CAUSE: stale dbTheme/dbDensity server echo clobbering
+  applied values (F-2 class). Fix: applied-first + seed-only localStorage.
+  Stress e2e now 2/2 (chromium+webkit), bounded run (start->poll->test->kill).
+- Rounding N2-4 RESOLVED via 22 P16 scope-split (both win in scope):
+  division half-to-even (BR-FEE-01), display half-up (BR-M-05, vacuous for
+  integer paise), splits remainder-to-last. paiseDivHalfEven (BigInt-exact) in
+  shared + core mirror (+paiseMul mirror); invoice uses it; pin setup fixed
+  to bps 1000 and flipped. ZERO it.fails remain. PENDING HUMAN RATIFICATION.
+- Live op-CHECK bug fixed: gateway settings PATCH wrote outbox op upsert
+  (CHECK allows insert/update/soft_delete only) -> update (matches own audit).
+- G3 fixed: 02_Core_Logic.md quarter sketch zero-pad.
+- Commits b60adb3, 96fd623, fa0ba8d, babe8e5, ca14b78 pushed to main.
+  Gates: typecheck 0, lint 0 (20 allowlisted), unit 671+1 flake (low-latency
+  p95, 13/13 solo), integration 224/224, web 65/65, gateway 224/224, deno 0,
+  shared 255/255, core 184/184, stress 2/2 e2e.
+- Ops discipline per user: no infinite servers (all killed; ports free);
+  every server use bounded start->readiness-poll->use->kill in one command.
+
+Stage Summary:
+
+- State: COMPLETED.
+- Files touched: palette-provider.tsx + test (new), feeCalc.ts + test (new),
+  outboxPayload.ts (new) + index + core ledger/ledgerSql/fees + gateway
+  ledger/students routes, money.ts x2 + format.ts x2 + tests, invoice.ts +
+  test, 22 P16 row, settings.ts op, 02 quarter sketch + this entry.
+- Resume point: N1 human reviews still pending (AGENTS section 8#6 + ledger
+  section 8#1 incl. NEW P16 ruling + babe8e5); N2 leftovers need spec
+  decisions (G1/G2/G4, models RFC, display tension); N4 needs vercel login.
+- Blocker: human review + ratification (P16, ledger chunks); user: vercel login.
