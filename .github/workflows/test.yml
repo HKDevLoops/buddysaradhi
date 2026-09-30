@@ -19,9 +19,17 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-      # E2E tests hit the live Vercel deployment — no local server needed.
-      # The Vercel app has real Supabase + Turso connections.
-      PLAYWRIGHT_TEST_BASE_URL: https://buddysaradhi.vercel.app
+      # Report F-6: production must never receive write-e2e — the stress/palette
+      # specs WRITE settings to whatever DB serves the base URL. Local-server
+      # recipe per scratch/fullpass.sh: build -> start :3300 -> readiness wait
+      # -> playwright -> teardown (steps below). The local server talks to the
+      # same real Supabase (E2E_* secrets), so auth flows still work; NEXT_PUBLIC_*
+      # is baked into the bundle by the build step below (same job env).
+      # 127.0.0.1 on purpose (not localhost): playwright.config.ts spawns its own
+      # webServer only for baseURLs starting with http://localhost, and
+      # reuseExistingServer=false in CI would abort with "url is already used"
+      # while our yaml-managed server is up.
+      PLAYWRIGHT_TEST_BASE_URL: http://127.0.0.1:3300
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +65,12 @@ jobs:
         run: pnpm run test:unit
         timeout-minutes: 5
 
+      # Report F-5: root vitest.config.ts excludes apps/web/**, so this suite
+      # (61 tests) was in no CI workflow and could never fail a PR.
+      - name: Web unit tests (vitest)
+        run: pnpm --filter web exec vitest run
+        timeout-minutes: 5
+
       - name: Build Web App & Product Page
         run: pnpm --filter web build && pnpm --filter product-page build
         timeout-minutes: 10
@@ -65,7 +79,47 @@ jobs:
         run: pnpm --filter web exec playwright install --with-deps
         timeout-minutes: 5
 
+      # Report F-6: serve the freshly built app locally (scratch/fullpass.sh §8).
+      # setsid puts pnpm/next in their own process group so teardown can kill
+      # the whole tree; readiness loop mirrors fullpass.sh's curl poll.
+      - name: "Start local web server (F-6: e2e runs locally, never production)"
+        run: |
+          nohup setsid pnpm --filter web exec next start -p 3300 > /tmp/webserver.log 2>&1 &
+          echo $! > /tmp/webserver.pid
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:3300/; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::local web server did not become ready on :3300 within 60s"
+          cat /tmp/webserver.log
+          exit 1
+        timeout-minutes: 2
+
+      # Rule 10 / report F-9: axe gate against the local server above —
+      # BLOCKING (no continue-on-error), separate from the soft e2e batch so an
+      # accessibility regression is never hidden inside continue-on-error.
+      # All 4 engines incl. webkit + Mobile Safari pass (F-3 fixed test-side:
+      # apps/web/tests/e2e/csp-test-helper.ts strips the inert-on-https
+      # upgrade-insecure-requests directive so the plain-http test origin
+      # behaves like the https production origin). Verified green locally on
+      # all 5 persistent screens (axe violations: 0).
+      - name: Accessibility tests (axe-core, blocking)
+        run: pnpm run test:a11y
+        timeout-minutes: 5
+
       - name: End-to-End Tests (Playwright)
         run: pnpm --filter web exec playwright test
         timeout-minutes: 10
         continue-on-error: true
+
+      - name: Stop local web server
+        if: always()
+        run: |
+          if [ -f /tmp/webserver.pid ]; then
+            kill -- -"$(cat /tmp/webserver.pid)" 2>/dev/null || true
+          fi
+          pkill -f "next start -p 3300" 2>/dev/null || true
+          pkill -f "next-server" 2>/dev/null || true

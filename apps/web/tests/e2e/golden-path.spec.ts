@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { neutralizePlainHttpUpgrade } from './csp-test-helper'; // F-3: see csp-test-helper.ts
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -17,6 +18,7 @@ async function fillField(page: Page, label: string, value: string) {
 }
 
 async function authenticate(page: Page) {
+  await neutralizePlainHttpUpgrade(page);
   const email = process.env.E2E_EMAIL;
   const password = process.env.E2E_PASSWORD;
   if (!email || !password) {

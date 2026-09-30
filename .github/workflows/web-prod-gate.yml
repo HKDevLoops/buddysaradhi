@@ -32,7 +32,13 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-      PLAYWRIGHT_TEST_BASE_URL: https://buddysaradhi.vercel.app
+      # Report F-6: production must never receive write-e2e (stress/palette specs
+      # write settings). Serve the build from this job locally — same recipe as
+      # test.yml / scratch/fullpass.sh: build -> start :3300 -> readiness ->
+      # playwright -> teardown (steps below). 127.0.0.1 (not localhost) so
+      # playwright.config.ts does not auto-spawn a second webServer (CI sets
+      # reuseExistingServer=false, which would abort with "url is already used").
+      PLAYWRIGHT_TEST_BASE_URL: http://127.0.0.1:3300
     steps:
       - uses: actions/checkout@v4
 
@@ -84,9 +90,37 @@ jobs:
       - name: Install Playwright Browsers
         run: pnpm --filter web exec playwright install --with-deps
 
+      # Report F-6: serve the freshly built app locally (scratch/fullpass.sh §8).
+      # setsid puts pnpm/next in their own process group so teardown can kill
+      # the whole tree; readiness loop mirrors fullpass.sh's curl poll.
+      - name: "Start local web server (F-6: e2e runs locally, never production)"
+        run: |
+          nohup setsid pnpm --filter web exec next start -p 3300 > /tmp/webserver.log 2>&1 &
+          echo $! > /tmp/webserver.pid
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:3300/; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::local web server did not become ready on :3300 within 60s"
+          cat /tmp/webserver.log
+          exit 1
+        timeout-minutes: 2
+
       - name: E2E Tests (Playwright)
         run: pnpm --filter web exec playwright test
         continue-on-error: true
+
+      - name: Stop local web server
+        if: always()
+        run: |
+          if [ -f /tmp/webserver.pid ]; then
+            kill -- -"$(cat /tmp/webserver.pid)" 2>/dev/null || true
+          fi
+          pkill -f "next start -p 3300" 2>/dev/null || true
+          pkill -f "next-server" 2>/dev/null || true
 
       - name: Upload Playwright Report
         if: always()

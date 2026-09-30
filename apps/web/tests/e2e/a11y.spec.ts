@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { neutralizePlainHttpUpgrade } from "./csp-test-helper";
+// F-3 rationale lives on the helper — see csp-test-helper.ts.
 
 async function fillField(page: import("@playwright/test").Page, label: string, value: string) {
   const input = page.getByLabel(label);
@@ -14,6 +16,7 @@ async function fillField(page: import("@playwright/test").Page, label: string, v
 }
 
 async function authenticate(page: import("@playwright/test").Page) {
+  await neutralizePlainHttpUpgrade(page);
   const email = process.env.E2E_EMAIL || "hkdevloops@gmail.com";
   const password = process.env.E2E_PASSWORD || "hkdevs";
   await page.goto("/login", { waitUntil: "domcontentloaded" });

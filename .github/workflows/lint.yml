@@ -25,8 +25,10 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-      # Point Playwright to the live Vercel deployment so no local server needed
-      PLAYWRIGHT_TEST_BASE_URL: https://buddysaradhi.vercel.app
+      # Report F-6/F-9: no playwright steps in this job — lint.yml does not
+      # build or serve the app. e2e + axe run against a yaml-managed local
+      # server in test.yml (build -> :3300 -> playwright -> teardown), never
+      # against the production deployment.
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -74,14 +76,11 @@ jobs:
         run: pnpm run test:integration
         timeout-minutes: 5
 
-      - name: Install Playwright browsers
-        run: pnpm --filter web exec playwright install chromium --with-deps
+      # Report F-5: root vitest.config.ts excludes apps/web/**, so this suite
+      # (61 tests) was in no always-on CI workflow and could never fail a PR.
+      - name: Web unit tests (vitest)
+        run: pnpm --filter web exec vitest run
         timeout-minutes: 5
-
-      - name: Accessibility tests
-        run: pnpm run test:a11y
-        timeout-minutes: 5
-        continue-on-error: true
 
       - name: Upload coverage to Codecov
         if: always()

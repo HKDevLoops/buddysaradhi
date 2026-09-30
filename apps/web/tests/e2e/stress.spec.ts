@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { neutralizePlainHttpUpgrade } from "./csp-test-helper"; // F-3: see csp-test-helper.ts
 
 const PALETTES: { label: string; id: string }[] = [
   { label: "Aurora Cosmic", id: "aurora-cosmic" },
@@ -32,6 +33,7 @@ async function fillField(page: import("@playwright/test").Page, label: string, v
 }
 
 async function authenticate(page: import("@playwright/test").Page) {
+  await neutralizePlainHttpUpgrade(page);
   const email = process.env.E2E_EMAIL || "hkdevloops@gmail.com";
   const password = process.env.E2E_PASSWORD || "hkdevs";
   await page.goto("/login", { waitUntil: "domcontentloaded" });
