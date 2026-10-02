@@ -1,7 +1,7 @@
 "use server";
 
 import { Student } from "@buddysaradhi/shared";
-import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayDelete, gatewayPatch, gatewayPost } from "@/server/get-db";
+import { getAuthenticatedPrisma, gatewayDelete, gatewayPatch, gatewayPost } from "@/server/get-db";
 import { StudentFilters, SortCol } from "@/types/students";
 import { revalidatePath } from "next/cache";
 import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "../queries/students";
@@ -168,8 +168,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     }
 
     // 2. Local fallback if Gateway is unreachable (Offline-first per Rule 7)
-    const { client, tenantId } = await getAuthenticatedDb();
-    const proxy = createLibsqlProxy(client);
+    const { db, tenantId } = await getAuthenticatedPrisma();
 
     const studentData = {
       id,
@@ -187,31 +186,44 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       updatedAt: new Date(),
     };
 
-    await proxy.student.create({ data: studentData });
+    await db.student.create({ data: studentData });
 
     // Rule 7 (AGENTS.md §2) / BR-SYN-01: the mutation is followed in the same
-    // logical transaction by its sync_outbox row (replication) and its
-    // audit_log row (BR-SEC-03) — the audit row was missing here before.
+    // transaction by its sync_outbox row (replication) and its
+    // audit_log row (BR-SEC-03) — CHECK-valid op 'insert', action
+    // 'student.create', same payload as before.
     // Pattern: actions/settings.ts:152-167.
     const now = new Date().toISOString();
-    await client.batch(
-      [
-        {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'insert', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, id, JSON.stringify(payload), now],
+    await db.$transaction([
+      db.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "students",
+          rowId: id,
+          op: "insert",
+          payload: JSON.stringify(payload),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'student.create', 'student', ?, ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, id, JSON.stringify({ code, base_fee_paise: baseFeePaise }), now],
+      }),
+      db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "student.create",
+          refType: "student",
+          refId: id,
+          metadata: JSON.stringify({ code, base_fee_paise: baseFeePaise }),
+          createdAt: now,
         },
-      ],
-      "write",
-    );
+      }),
+    ]);
 
     if (batchName) {
-      let batch = await proxy.batch.findFirst({ where: { tenantId, name: batchName } });
+      let batch = await db.batch.findFirst({ where: { tenantId, name: batchName } });
       if (!batch) {
-        batch = await proxy.batch.create({
+        batch = await db.batch.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
@@ -223,7 +235,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           },
         });
       }
-      await proxy.studentEnrollment.create({
+      await db.studentEnrollment.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -460,9 +472,8 @@ export async function updateStudentAction(
 
     // Defensive pre-check (gateway CAS pending): re-read inside the action.
     // Stale base → typed CONFLICT; the writes below never run.
-    const { client, tenantId } = await getAuthenticatedDb();
-    const proxy = createLibsqlProxy(client);
-    const current = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const current = await db.student.findFirst({ where: { tenantId, id: studentId } });
     if (!current) {
       return { success: false, error: "Student not found" };
     }
@@ -494,7 +505,7 @@ export async function updateStudentAction(
     // Server-side CAS won a race after our pre-check: surface its 409 with a
     // fresh row; nothing is written locally.
     if (/Gateway 409\b/.test(gatewayRes.error)) {
-      const fresh = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+      const fresh = await db.student.findFirst({ where: { tenantId, id: studentId } });
       log.warn("cas_conflict_student", "Student CAS mismatch — gateway 409");
       return {
         success: false,
@@ -504,29 +515,43 @@ export async function updateStudentAction(
       };
     }
 
-    // Local fallback (offline-first, Rule 7): update + outbox + audit.
+    // Local fallback (offline-first, Rule 7): update + outbox + audit in one
+    // transaction — CHECK-valid op 'update', action 'student.edit', same
+    // payload as before.
     log.warn("update_student_gateway_failed_using_direct_db", gatewayRes.error);
     const now = new Date().toISOString();
-    // Stamp `updated_at`: the proxy is raw SQL (no Prisma `@updatedAt`), so
-    // without this the CAS base would never advance.
-    await proxy.student.update({ where: { tenantId, id: studentId }, data: { ...camel, updatedAt: now } });
-    await client.batch(
-      [
-        {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'update', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, studentId, JSON.stringify(snake), now],
+    // Stamp `updated_at`: the ORM surface does not auto-bump it on this path,
+    // so without this the CAS base would never advance.
+    await db.student.update({ where: { tenantId, id: studentId }, data: { ...camel, updatedAt: now } });
+    await db.$transaction([
+      db.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "students",
+          rowId: studentId,
+          op: "update",
+          payload: JSON.stringify(snake),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'student.edit', 'student', ?, ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, studentId, JSON.stringify({ fields: Object.keys(camel) }), now],
+      }),
+      db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "student.edit",
+          refType: "student",
+          refId: studentId,
+          metadata: JSON.stringify({ fields: Object.keys(camel) }),
+          createdAt: now,
         },
-      ],
-      "write",
-    );
+      }),
+    ]);
 
     revalidatePath("/students");
     revalidatePath("/dashboard");
-    const updated = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+    const updated = await db.student.findFirst({ where: { tenantId, id: studentId } });
     return { success: true, data: updated ? toStudentRow(updated, tenantId) : undefined };
   } catch (error) {
     log.error("update_student_action_failed", error instanceof Error ? error.message : String(error));

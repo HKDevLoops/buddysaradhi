@@ -1,7 +1,7 @@
 "use server";
 
 import { getAttendanceForDate } from "../queries/attendance";
-import { getAuthenticatedDb } from "@/server/get-db";
+import { getAuthenticatedPrisma } from "@/server/get-db";
 import { UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
@@ -18,7 +18,9 @@ export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
 
 export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
+    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL) +
+    // §2 Rule 7 (outbox in the same transaction as the mutation).
+    const { db, tenantId } = await getAuthenticatedPrisma();
     const now = new Date().toISOString();
 
     // 1. Get or create batch if needed (ensure FK constraint holds)
@@ -26,35 +28,45 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       ? payload.batch_id 
       : "batch-default";
 
-    const batchCheck = await client.execute({
-      sql: `SELECT id FROM batches WHERE id = ? LIMIT 1`,
-      args: [targetBatchId],
+    const batchCheck = await db.batch.findFirst({
+      where: { id: targetBatchId },
     });
-    if (batchCheck.rows.length === 0) {
-      await client.execute({
-        sql: `INSERT INTO batches (id, tenant_id, name, created_at, updated_at) VALUES (?, ?, 'General Batch', ?, ?)`,
-        args: [targetBatchId, tenantId, now, now],
+    if (!batchCheck) {
+      await db.batch.create({
+        data: {
+          id: targetBatchId,
+          tenantId,
+          name: "General Batch",
+          createdAt: now,
+          updatedAt: now,
+        },
       });
     }
 
     // 2. Get or create session
-    const sessionRes = await client.execute({
-      sql: `SELECT id, locked_at FROM attendance_sessions
-            WHERE tenant_id = ? AND session_date = ? AND batch_id = ? LIMIT 1`,
-      args: [tenantId, payload.session_date, targetBatchId],
+    const existingSession = await db.attendanceSession.findFirst({
+      where: {
+        tenantId,
+        sessionDate: payload.session_date,
+        batchId: targetBatchId,
+      },
     });
 
     let sessionId: string;
-    if (sessionRes.rows.length > 0) {
-      const existing = sessionRes.rows[0];
-      if (existing.locked_at) throw new Error("Session is locked. Unlock it to edit.");
-      sessionId = existing.id as string;
+    if (existingSession) {
+      if (existingSession.lockedAt) throw new Error("Session is locked. Unlock it to edit.");
+      sessionId = existingSession.id as string;
     } else {
       sessionId = crypto.randomUUID();
-      await client.execute({
-        sql: `INSERT INTO attendance_sessions (id, tenant_id, session_date, batch_id, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [sessionId, tenantId, payload.session_date, targetBatchId, now, now],
+      await db.attendanceSession.create({
+        data: {
+          id: sessionId,
+          tenantId,
+          sessionDate: payload.session_date,
+          batchId: targetBatchId,
+          createdAt: now,
+          updatedAt: now,
+        },
       });
     }
 
@@ -63,19 +75,37 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       const recordId = crypto.randomUUID();
       const outboxId = crypto.randomUUID();
 
-      await client.execute({
-        sql: `INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, marked_at, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT (session_id, student_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
-        args: [recordId, tenantId, sessionId, update.student_id, update.status, now, now, now],
-      });
-
-      // P5/Rule 7: Every mutation writes to sync_outbox
-      await client.execute({
-        sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-              VALUES (?, ?, 'attendance_records', ?, 'update', ?, ?)`,
-        args: [outboxId, tenantId, recordId, JSON.stringify(update), now],
-      });
+      // Rule 7: record write + outbox row land in one logical transaction.
+      await db.$transaction([
+        db.attendanceRecord.upsert({
+          where: { sessionId, studentId: update.student_id },
+          create: {
+            id: recordId,
+            tenantId,
+            sessionId,
+            studentId: update.student_id,
+            status: update.status,
+            markedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          },
+          update: {
+            status: update.status,
+            updatedAt: now,
+          },
+        }),
+        db.syncOutbox.create({
+          data: {
+            id: outboxId,
+            tenantId,
+            tableName: "attendance_records",
+            rowId: recordId,
+            op: "update",
+            payload: JSON.stringify(update),
+            createdAt: now,
+          },
+        }),
+      ]);
     }
 
     invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch may auto-create above
@@ -88,12 +118,11 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
 
 export async function lockSessionAction(sessionId: string, pin: string) {
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
-    const settingsRow = await client.execute({
-      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
-      args: [tenantId],
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({
+      where: { tenantId },
     });
-    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
@@ -104,29 +133,39 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     const now = new Date().toISOString();
 
     // W2 (reviews/overhaul-audit-report-2026-09-26.md): the lock UPDATE, its
-    // sync_outbox row and the audit_log row go in ONE write batch — Rule 7
-    // (AGENTS §2) / BR-SYN-01 require the outbox row in the same transaction
-    // as the mutation, so a locked session can never exist locally without a
-    // queued replication row.
-    await client.batch(
-      [
-        {
-          sql: `UPDATE attendance_sessions SET locked_at = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`,
-          args: [now, now, sessionId, tenantId],
+    // sync_outbox row and the audit_log row go in ONE write transaction —
+    // Rule 7 (AGENTS §2) / BR-SYN-01 require the outbox row in the same
+    // transaction as the mutation, so a locked session can never exist
+    // locally without a queued replication row.
+    await db.$transaction([
+      db.attendanceSession.update({
+        where: { id: sessionId, tenantId },
+        data: { lockedAt: now, updatedAt: now },
+      }),
+      db.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "attendance_sessions",
+          rowId: sessionId,
+          op: "update",
+          payload: JSON.stringify({ locked_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
-                VALUES (?, ?, 'attendance_sessions', ?, 'update', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
+      }),
+      db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "attendance_session",
+          refId: sessionId,
+          action: "session_locked",
+          metadata: JSON.stringify({ locked_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-                VALUES (?, ?, ?, 'attendance_session', ?, 'session_locked', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, sessionId, JSON.stringify({ locked_at: now }), now],
-        },
-      ],
-      "write",
-    );
+      }),
+    ]);
 
     return { success: true };
   } catch (error) {
@@ -170,7 +209,8 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
   error?: string;
 }> {
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
+    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL).
+    const { db, tenantId } = await getAuthenticatedPrisma();
     const now = new Date();
     let periodStart: string;
     let periodEnd = now.toISOString().slice(0, 10);
@@ -207,12 +247,19 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
       overall_percentage: 0,
     };
 
-    let students: Awaited<ReturnType<typeof client.execute>>;
+    // Active roster via the ORM surface (same filter + ordering as before:
+    // tenant, status active, not archived, ordered by first name).
+    let studentRows: Array<{ id: string; firstName: string; lastName: string | null }>;
     try {
-      students = await client.execute({
-        sql: `SELECT id, first_name, last_name FROM students WHERE tenant_id = ? AND status = 'active' AND archived_at IS NULL ORDER BY first_name`,
-        args: [tenantId],
+      const rows = await db.student.findMany({
+        where: { tenantId, status: "active", archivedAt: null },
+        orderBy: { firstName: "asc" },
       });
+      studentRows = rows.map((row) => ({
+        id: String(row.id),
+        firstName: String(row.firstName ?? ""),
+        lastName: (row.lastName as string | null) ?? null,
+      }));
     } catch (sqlErr) {
       log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
       return {
@@ -227,16 +274,24 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
       };
     }
 
-    // Get attendance records in period
-    let records: Awaited<ReturnType<typeof client.execute>>;
+    // Attendance records in period. The ORM surface has no JOIN or date-range
+    // operator, so sessions + records are read per-tenant and filtered in JS —
+    // same rows as the previous JOIN, no raw SQL.
+    let recordRows: Array<{ studentId: string; status: string }>;
     try {
-      records = await client.execute({
-        sql: `SELECT ar.student_id, ar.status
-              FROM attendance_records ar
-              JOIN attendance_sessions s ON s.id = ar.session_id
-              WHERE ar.tenant_id = ? AND s.session_date >= ? AND s.session_date <= ?`,
-        args: [tenantId, periodStart, periodEnd],
-      });
+      const sessions = await db.attendanceSession.findMany({ where: { tenantId } });
+      const sessionIds = new Set(
+        sessions
+          .filter((session) => {
+            const day = String(session.sessionDate ?? "");
+            return day >= periodStart && day <= periodEnd;
+          })
+          .map((session) => String(session.id)),
+      );
+      const allRecords = await db.attendanceRecord.findMany({ where: { tenantId } });
+      recordRows = allRecords
+        .filter((rec) => sessionIds.has(String(rec.sessionId)))
+        .map((rec) => ({ studentId: String(rec.studentId), status: String(rec.status) }));
     } catch (sqlErr) {
       log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
       return {
@@ -246,26 +301,24 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
           period_start: periodStart,
           period_end: periodEnd,
           summaries: [],
-          overall: { ...emptyOverall, total_students: students.rows.length },
+          overall: { ...emptyOverall, total_students: studentRows.length },
         },
       };
     }
 
     // Aggregate by student
     const summaryMap = new Map<string, { present: number; absent: number; late: number; excused: number }>();
-    for (const row of students.rows) {
-      summaryMap.set(row.id as string, { present: 0, absent: 0, late: 0, excused: 0 });
+    for (const row of studentRows) {
+      summaryMap.set(row.id, { present: 0, absent: 0, late: 0, excused: 0 });
     }
 
-    for (const rec of records.rows) {
-      const sid = rec.student_id as string;
-      const status = rec.status as string;
-      const existing = summaryMap.get(sid);
+    for (const rec of recordRows) {
+      const existing = summaryMap.get(rec.studentId);
       if (existing) {
-        if (status === "present") existing.present++;
-        else if (status === "absent") existing.absent++;
-        else if (status === "late") existing.late++;
-        else if (status === "excused") existing.excused++;
+        if (rec.status === "present") existing.present++;
+        else if (rec.status === "absent") existing.absent++;
+        else if (rec.status === "late") existing.late++;
+        else if (rec.status === "excused") existing.excused++;
       }
     }
 
@@ -273,7 +326,7 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
     let overallPresent = 0, overallAbsent = 0, overallLate = 0, overallExcused = 0, totalSessions = 0;
 
     for (const [studentId, counts] of summaryMap.entries()) {
-      const student = students.rows.find((s: any) => s.id === studentId);
+      const student = studentRows.find((s) => s.id === studentId);
       if (!student) continue;
       const total = counts.present + counts.absent + counts.late + counts.excused;
       totalSessions += total;
@@ -283,7 +336,7 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
       overallExcused += counts.excused;
       summaries.push({
         student_id: studentId,
-        student_name: `${student.first_name} ${student.last_name || ""}`.trim(),
+        student_name: `${student.firstName} ${student.lastName || ""}`.trim(),
         present: counts.present,
         absent: counts.absent,
         late: counts.late,
@@ -303,7 +356,7 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
         period_end: periodEnd,
         summaries,
         overall: {
-          total_students: students.rows.length,
+          total_students: studentRows.length,
           total_sessions: totalOverall,
           overall_present: overallPresent,
           overall_absent: overallAbsent,
