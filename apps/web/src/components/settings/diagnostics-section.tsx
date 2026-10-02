@@ -1,6 +1,7 @@
 "use client";
 
 import { Activity, Database, WifiOff, CloudOff } from "lucide-react";
+import { log } from "@/lib/logger";
 
 export function DiagnosticsSection() {
   const handleExportLogs = () => {
@@ -16,8 +17,8 @@ export function DiagnosticsSection() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
-      console.error("Failed to export logs", err);
+    } catch {
+      log.error("diagnostics_export_failed", "Failed to export logs");
     }
   };
 

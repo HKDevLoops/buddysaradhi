@@ -3,6 +3,7 @@
 import React, { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, Download, FileJson, AlertCircle, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { log } from "@/lib/logger";
 
 export function ImportExportSection() {
   const queryClient = useQueryClient();
@@ -21,8 +22,8 @@ export function ImportExportSection() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
-      console.error("Failed to export settings as JSON", err);
+    } catch {
+      log.error("settings_export_failed", "Failed to export settings as JSON");
     }
   };
 
@@ -41,8 +42,8 @@ export function ImportExportSection() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-    } catch (err) {
-      console.error("Failed to export settings as CSV", err);
+    } catch {
+      log.error("settings_export_failed", "Failed to export settings as CSV");
     }
   };
 

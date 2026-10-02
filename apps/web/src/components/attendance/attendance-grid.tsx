@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, X, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
+import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
@@ -55,7 +56,7 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
     },
     onError: (err, newPayload, context) => {
       queryClient.setQueryData(["attendance", selectedDateIso, selectedBatch], context?.previousData);
-      setErrorToast(err.message || "Failed to update attendance");
+      setErrorToast(toAppErrorState(err).message);
       setTimeout(() => setErrorToast(null), 3000);
     },
     onSettled: () => {

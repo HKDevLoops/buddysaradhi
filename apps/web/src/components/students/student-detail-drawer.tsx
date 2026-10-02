@@ -30,6 +30,8 @@ import { useStudentsStore } from "@/stores/students-store";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchStudentDetailAction } from "@/server/actions/students";
 import { getStudentInvoices } from "@/server/queries/ledger";
+import { toAppErrorState } from "@/lib/app-errors";
+import { log } from "@/lib/logger";
 import { LedgerTable } from "../fees/ledger-table";
 import { deleteStudentAction } from "@/server/actions/students";
 import { cn } from "@/lib/utils";
@@ -58,6 +60,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
   const { selectedStudentId, closeDrawer } = useStudentsStore();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } = useQuery({
@@ -109,8 +112,10 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
     },
     onError: (err, _id, context) => {
       if (context?.prev) queryClient.setQueryData(["students"], context.prev);
+      const mapped = toAppErrorState(err);
+      setDeleteError(mapped.message);
       setShowDeleteConfirm(true);
-      alert(err instanceof Error ? err.message : "Failed to delete student");
+      log.error("student_delete_failed", mapped.title);
     },
     onSettled: (_data, _err, _id) => {
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -139,40 +144,83 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
 
   if (isLoading) {
     return (
-      <div className="glass-panel rounded-2xl h-full flex items-center justify-center">
+      <div
+        className="glass-panel rounded-2xl h-full flex items-center justify-center"
+        role="status"
+        aria-live="polite"
+      >
         <div
           className="w-8 h-8 border-2 rounded-full animate-spin"
           style={{
             borderColor: "var(--border-glass)",
             borderTopColor: "var(--accent-cyan)",
           }}
+          aria-hidden="true"
         />
+        <span className="sr-only">Loading student…</span>
       </div>
     );
   }
 
   if (isError || !student) {
+    // G-ERR: never render raw server text (message, digest, stack). The mapper
+    // returns static copy plus one recovery affordance per failure class.
+    const state = toAppErrorState(error ?? "NOT_FOUND: student record unavailable");
+    const retryDetail = () => {
+      void queryClient.invalidateQueries({ queryKey: ["student", selectedStudentId] });
+    };
     return (
       <div className="glass-panel rounded-2xl h-full flex flex-col items-center justify-center text-center p-8">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
           style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)" }}
         >
-          <AlertTriangle className="w-8 h-8" />
+          <AlertTriangle className="w-8 h-8" aria-hidden="true" />
         </div>
         <p className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-          Could not load student
+          {state.title}
         </p>
         <p className="text-sm mt-1 max-w-xs" style={{ color: "var(--text-secondary)" }}>
-          {error instanceof Error ? error.message : "Student not found or unavailable."}
+          {state.message}
         </p>
-        <button
-          onClick={closeDrawer}
-          className="mt-4 px-4 py-2 rounded-xl text-sm font-semibold btn-glass"
-          style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
-        >
-          Close
-        </button>
+        <div className="mt-4 flex flex-col gap-2 w-full max-w-xs">
+          {state.action === "re-login" && (
+            <a
+              href="/login"
+              className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px] flex items-center justify-center"
+              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+            >
+              Re-login
+            </a>
+          )}
+          {state.action === "provision" && (
+            <a
+              href="/login"
+              className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px] flex items-center justify-center"
+              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+            >
+              Re-connect database
+            </a>
+          )}
+          {state.action === "retry" && (
+            <button
+              type="button"
+              onClick={retryDetail}
+              className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px]"
+              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+            >
+              Retry
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={closeDrawer}
+            className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px]"
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
+          >
+            Close
+          </button>
+        </div>
       </div>
     );
   }
@@ -224,7 +272,10 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowDeleteConfirm(true)}
+              onClick={() => {
+                setDeleteError(null);
+                setShowDeleteConfirm(true);
+              }}
               aria-label="Delete student"
               className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
               style={{ color: "var(--accent-flare)" }}
@@ -519,6 +570,11 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             <p className="text-xs mb-6 p-3 rounded-lg" style={{ background: "var(--accent-flare)/10", color: "var(--accent-flare)" }}>
               Dashboard totals and fee reports will be recalculated after deletion.
             </p>
+            {deleteError && (
+              <p className="text-xs mb-4 text-center" style={{ color: "var(--accent-flare)" }}>
+                {deleteError}
+              </p>
+            )}
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowDeleteConfirm(false)}

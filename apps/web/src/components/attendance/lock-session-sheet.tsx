@@ -6,6 +6,7 @@ import { AttendanceSession } from "@buddysaradhi/shared";
 import { lockSessionAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, Lock, AlertTriangle } from "lucide-react";
+import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 
 
@@ -102,7 +103,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
                 className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-2xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
               />
               {mutation.error && (
-                <p className="text-[var(--accent-flare)] text-xs mt-2 text-center">{mutation.error.message}</p>
+                <p className="text-[var(--accent-flare)] text-xs mt-2 text-center">{toAppErrorState(mutation.error).message}</p>
               )}
             </div>
 
