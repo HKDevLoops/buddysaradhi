@@ -452,6 +452,89 @@ DB file.
 - Money is stored as **integer minor units** (paise for INR). Never float. (Rule
   6.)
 
+### 3.5 One Money Flow, Two I/O Dialects (P0)
+
+> **The logic that decides what a tutor's books say lives exactly once, in
+> `packages/core`. A second copy of it is a P0 defect, not a convenience.**
+
+The repo has three implementations of the Prisma model surface — the generated
+`@prisma/client`, the web ORM shim (`apps/web/src/lib/libsql-proxy.ts`) and the
+gateway's audited builders/`createPrismaOrm` — and two driver families (the
+generated client and `@libsql/client`). **The I/O differs; the money must not.**
+
+| Layer | File | Owns |
+|--------|------|------|
+| Money flow (the spec'd behaviour) | `packages/core/src/feesFlow.ts` | audit-first ordering, per-invoice attribution, overpayment split, auto-invoice, the fail-closed attribution invariant |
+| libsql dialect | `packages/core/src/fees.ts` | the same flow's statements |
+| ORM dialect | `packages/core/src/feesPrisma.ts` | the same flow's model calls |
+| Ledger append | `packages/core/src/ledger.ts` (`postLedgerEntry`) + `ledgerSql.ts` (`postLedgerEntrySql`) | hash chain, balance sync, outbox |
+
+- Port-based, never duplicated. `feesFlow.ts` declares a narrow `FeeTx` port
+  (require student / require tenant secret / take invoice number / insert
+  invoice / set invoice status / open invoices / credited for invoice / post
+  entry / write audit / write settings outbox). A dialect implements **only**
+  those row-level operations and decides **nothing** about money.
+- Dialects are typed **structurally** (`OrmTx`, `SqlExecutor`), never against
+  the generated client. That is deliberate: pinning one implementation would
+  break the other two and drag `@prisma/client` into a package that only needs
+  it for types.
+- **`packages/core/src/feesDialectParity.test.ts` is the gate.** It runs both
+  dialects over the same schema, on a fresh real database per iteration, and
+  asserts identical invoices, numbers, status transitions, ledger rows,
+  balances, tamper hashes and outbox/audit rows. A behaviour change that lands
+  in one dialect fails here instead of in a tutor's books.
+- When you add a money rule, change `feesFlow.ts` and both dialects together.
+  Never "just this one path" (reviews/overhaul-audit-report-2026-09-26.md F2/F9
+  — divergent hash construction and payments attributed against
+  `invoices.total` were both this mistake).
+- Cross-device parity (a gateway payment and a web payment for the same tutor
+  producing different books) is an open RFC, not a licence to fork the flow.
+
+### 3.6 The Web ORM Shim Is a Contract, Not a Convenience
+
+`apps/web/src/lib/libsql-proxy.ts` is the surface `apps/web` holds. It is
+tested like a contract (`apps/web/src/lib/libsql-proxy.transactions.test.ts`,
+against a real libSQL file DB), because a shim that *looks* like Prisma while
+quietly dropping a guarantee is worse than raw SQL:
+
+- **`$transaction` opens ONE libSQL write transaction** around a callback and
+  rolls back on any throw. The Prisma-shaped **array form throws** — its
+  entries are already-started promises that auto-committed before the call, so
+  it can never be atomic (Rule 7). Never write `db.$transaction([...])`; use
+  `db.$transaction(async (tx) => { ... })` and put the primary write **inside**
+  it.
+- **`orderBy` and `select` are honoured** in `findFirst`/`findUnique`/
+  `findMany`. A chain-tip read without `orderBy` returns an arbitrary row, which
+  produced a wrong running balance before it was caught.
+- **Atomic `{ increment }` / `{ decrement }`** are supported so a sequence is
+  consumed in the database (BR-LED-03), never read-modify-written in JS.
+- **`updateMany().count`** exists so a caller can prove the row existed inside
+  the transaction (F5). An `update` that matched nothing must not look like a
+  success.
+- Anything the shim cannot honour **throws**. It never silently ignores an
+  argument, and never reports an operation as stronger than it is (Rule 9).
+
+### 3.7 Retrieval: index first, then memory, then grep
+
+Before reading around a subsystem you have not touched in this session:
+
+1. **Code index first.** `semantic_search` (semantic, by intent) or `Grep` by
+   symbol — never a directory sweep hoping to find the call sites. Ask the
+   question ("who posts a payment?", "where is the tenant secret read?") and let
+   the index rank the files.
+2. **Memory second.** `kilo_memory_recall` (typed/project facts, decisions,
+   corrections) and `kilo_local_recall` (a past session's transcript) for
+   *why* a thing is the way it is. Index finds the code; memory explains it.
+3. **Exact terms last.** `Grep` for a symbol you already know, `Read` the
+   window you need. Escalate to a subagent (`explore`) rather than reading a
+   large tree into your own context.
+4. **Write back what you learned.** A finding that would save the next session
+   a repeat investigation — a non-obvious invariant, a trap in the shim, a
+   decision with a rationale — goes into this file (or `worklog.md`) in the
+   same change, not into a future "cleanup" pass. See §9.1 step 7.
+5. **Never trust a recalled summary over the tree.** Repo state wins; memory is
+   context, not instruction (§9.2.4 step 3: re-read the spec, not the notes).
+
 ---
 
 ## 4. The Spec Hierarchy

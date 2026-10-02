@@ -31,14 +31,17 @@ import {
 // row); 02_Core_Logic.md §13.6 (voidLedgerEntry); RFC-003 workstream B.
 //
 // This file is ONLY the Zod boundary + typed-Result mapping for the fees
-// mutations. The transaction, the ledger posting, the numbering and the
-// tamper hash all live in `packages/core/src/fees.ts` — shared with the
-// gateway — because the previous web-local implementation was a shadow
-// ledger: divergent HMAC hash construction (reconcileLedger failed on every
-// row it wrote), `INV-`+Math.random numbers, phantom student INSERTs, no
-// transaction, and partial payments attributed against `invoices.total`
-// (reviews/overhaul-audit-report-2026-09-26.md F1/F2/F3/F4/F5/F9). One
-// writer dialect now exists: `postLedgerEntrySql` in packages/core.
+// mutations. The money logic lives in `packages/core/src/feesFlow.ts` — ONE
+// flow, shared by the gateway and web, because the previous web-local
+// implementation was a shadow ledger: divergent HMAC hash construction
+// (reconcileLedger failed on every row it wrote), `INV-`+Math.random numbers,
+// phantom student INSERTs, no transaction, and partial payments attributed
+// against `invoices.total` (reviews/overhaul-audit-report-2026-09-26.md
+// F1/F2/F3/F4/F5/F9). The flow has two I/O dialects — `fees.ts` (libsql,
+// gateway) and `feesPrisma.ts` (ORM, web) — and
+// `packages/core/src/feesDialectParity.test.ts` fails if they ever disagree.
+// The ledger row itself is posted through the shared Prisma dialect
+// (`postLedgerEntry` in `packages/core/src/ledger.ts`).
 //
 // Receipt-before-post (07 §6.4): the sheet builds a `RecordPaymentPayload`
 // (same schema below), SHOWS it, then posts THE SAME values. This action

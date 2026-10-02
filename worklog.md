@@ -1584,3 +1584,73 @@ Stage Summary:
   unification; (4) N4 needs vercel login.
 - Blocker: human reviews (section 8#1 ledger-crypto, #6 constitution);
   user: gateway redeploy + vercel login.
+
+
+---
+
+Task ID: DIALECT-UNIFICATION-01 (close the ORM-ONLY law + one money flow)
+Agent: orchestrator (build mode) + retrieval via code index
+Task: Resume the previous session's last open item — `apps/web` still held a raw
+libSQL client on the payment path (`packages/core` only had the libsql dialect),
+and its ORM shim's `$transaction` was not a transaction. Unify the money flow,
+retire the raw client from web, and land the retrieval convention.
+
+Work Log:
+
+- Retrieval was code-index first (`semantic_search`) per the new AGENTS §3.7,
+  then exact reads. The index surfaced what a grep would have missed: web's
+  "Prisma" is a hand-written shim over the raw libsql client, so "migrating to
+  the ORM" there is only as real as the shim is.
+- P0 FOUND (introduced by the previous session's SQL removal): the shim's
+  `$transaction(tasks)` awaited already-started promises, so every statement had
+  auto-committed before it was entered — nine write paths (settings x5, students
+  x2, attendance x2) claimed Rule 7 atomicity they never had, and in two of them
+  the primary write sat OUTSIDE the "transaction". Fixed: callback form opens
+  ONE libSQL write transaction and rolls back on throw; the array form now
+  throws; the primary writes moved inside. Added atomic `{ increment }` and
+  `updateMany().count`. 13 new tests on a real file DB prove commit, rollback,
+  CHECK-violation abort, array rejection and nested rejection.
+- Money flow: `packages/core/src/feesFlow.ts` (one flow, 9-method port) with
+  `fees.ts` (libsql) and `feesPrisma.ts` (ORM) as thin adapters; web's fees
+  actions use the ORM dialect and hold no raw client. `postLedgerEntry` gained
+  optional `invoiceId`, an explicit `updatedAt` (it relied on Prisma-only
+  `@updatedAt`), and a tenant-scoped, row-counted balance write (F5).
+- `feesDialectParity.test.ts` (8 tests) runs BOTH dialects over the same schema
+  on a fresh real DB per iteration and asserts identical invoices, numbers,
+  statuses, ledger rows, balances, tamper hashes and outbox/audit rows. It
+  caught two real defects while being written: the ORM ledger dialect's
+  Prisma-only assumptions above, and the shim silently IGNORING `orderBy`/
+  `select` in `findFirst` (which returned a stale chain tip → wrong running
+  balance and a broken hash chain on the ORM payment path).
+- Two test doubles were upgraded to honour the contract their production handle
+  honours (`cas.test.ts` fake `transaction()`; `fees-actions.test.ts` now runs
+  the REAL shim instead of a stub) — a double that lies about the contract
+  proves nothing about it.
+- AGENTS.md gained §3.5 (one money flow, two I/O dialects, parity test is the
+  gate), §3.6 (the web shim is a contract: what it guarantees, what it throws)
+  and §3.7 (retrieval: index first, memory second, grep last, write back what
+  you learned, never trust memory over the tree).
+
+Stage Summary:
+
+- State: COMPLETED.
+- Files touched: `packages/core/src/{feesFlow,fees,feesPrisma,feesDialectParity.test,ledger}.ts`,
+  `packages/core/package.json` (exports), `apps/web/src/lib/libsql-proxy.ts`
+  (+ `.transactions.test.ts`), `apps/web/src/server/actions/{fees,settings,students,attendance}.ts`,
+  `apps/web/src/server/actions/cas.test.ts`,
+  `apps/web/src/components/fees/fees-actions.test.ts`,
+  `scripts/principle-lints.mjs` (LEDGER-4 allowlist widened to `tx.`),
+  `AGENTS.md` §3.5-§3.7, this entry.
+- Commits: `c00260e` (shim transactions), `f413ecb` (one flow, two dialects).
+- Gates: core 192/192, web 225/225, root 728/728 (the known gateway p95 flake,
+  green solo), principle-lints 6/6, `tsc` 0 (web + core), eslint 0 (web + core).
+- Resume point: (1) N1 human reviews — this adds two §8#1 (ledger posting path)
+  chunks to the queue; (2) file the unified payment-dialect RFC: the gateway's
+  own `POST /api/v1/ledger/payment` route still implements payment posting
+  OUTSIDE `feesFlow.ts` (no invoice attribution, no receipts tamper_hash on the
+  core path, no auto-invoice), so a gateway payment and a web payment for the
+  same tutor still differ — the flow unification is done, the gateway route
+  migration is not; (3) `apps/web/src/server/actions/dashboard.ts` still wraps
+  the raw client via `getAuthenticatedDb` + `createLibsqlProxy` — same
+  migration, low priority; (4) user: gateway redeploy from main, `vercel login`.
+- Blocker: human review (§8#1 ledger-crypto, §8#6 constitution for AGENTS.md).
