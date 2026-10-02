@@ -1,8 +1,17 @@
 import type { RouteHandler } from "./students.ts";
-import { ok, fail, failZod } from "../lib/errors.ts";
+import { ok, fail, failZod, failValidation } from "../lib/errors.ts";
 import { recordAudit, recordOutbox } from "./students.ts";
-import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
+import { getCached, setCache, invalidateTenant, REFERENCE_TTL_MS } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
+import { withWriteTransaction } from "../lib/tx.ts";
+import {
+  idempotencyRoute,
+  okEnvelope,
+  replayIfDuplicate,
+  requireIdempotencyKey,
+  storeIdempotentResponse,
+} from "../lib/idempotency.ts";
+import { CasConflictError, casConflictResponse, readCasBase } from "../lib/cas.ts";
 import { z } from "zod";
 
 // P0 SECURITY FIX, kept Zod-first (AGENTS.md §6.1): the original spread
@@ -51,13 +60,29 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
     if (cached) return ok(cached);
 
     const setting = await orm.setting.findFirst({ where: {} });
-    setCache(settingsCacheKey, setting, 120_000);
-    return ok(setting);
+    // 10_Security.md §1/§3.4 (tenant_secret + pin_hash never leave the DB in
+    // plaintext) — the row is projected BEFORE it is cached or returned, so
+    // neither the edge cache nor any caller can echo secrets (anti-tamper
+    // parity). Mirrors the graphql `settings` resolver projection.
+    const safe = toSafeSettings(setting);
+    setCache(settingsCacheKey, safe, REFERENCE_TTL_MS);
+    return ok(safe);
   }
 
   // PATCH /api/v1/settings
   if (path === "/api/v1/settings" && method === "PATCH") {
+    // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
+    // RFC-004 C4 — the CAS base is read from the RAW body: it must never enter
+    // the Zod allowlist below (which becomes the DB update), or clients could
+    // write `base_updated_at` as a settings column.
+    const casBase = readCasBase(body);
+    if (casBase === "INVALID") {
+      return failValidation("base_updated_at must be an ISO timestamp string (RFC-004 C4)");
+    }
     if (Object.keys(body).length === 0) return fail("no_valid_fields", 400);
 
     const parsed = SETTINGS_PATCH_SCHEMA.safeParse(body);
@@ -68,26 +93,54 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
       return fail("no_valid_fields", 400);
     }
 
-    const updated = await orm.setting.upsert({
-      where: { tenantId },
-      create: {
-        instituteName: filteredBody.instituteName ?? filteredBody.institute_name ?? "My Tuition",
-        ...filteredBody,
-      },
-      update: filteredBody,
-    });
+    let updated: Record<string, unknown> | null;
+    try {
+      updated = await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        // RFC-004 C4 — compare-and-swap on the settings singleton, read in the
+        // SAME transaction that writes (no TOCTOU). Absent base = documented
+        // legacy last-write-wins; no existing row = creation, nothing to
+        // conflict with.
+        const current = await txOrm.setting.findFirst({ where: {} });
+        if (current && casBase && casBase !== String(current.updatedAt ?? "")) {
+          throw new CasConflictError(toSafeSettings(current));
+        }
+        const row = await txOrm.setting.upsert({
+          where: { tenantId },
+          create: {
+            instituteName: filteredBody.instituteName ?? filteredBody.institute_name ?? "My Tuition",
+            ...filteredBody,
+          },
+          update: filteredBody,
+        });
 
-    // Fail-closed Rule 7 ordering: invalidate first so a thrown
-    // recordOutbox/recordAudit never leaves pre-mutation GETs cached.
+        // Rule 7 (12_Business_Rules.md BR-SYN-01 / BR-SEC-03) — the settings
+        // upsert writes sync_outbox alongside audit_log in the SAME write
+        // transaction (fail-closed on any write failure).
+        // Op is "update" (not "upsert"): the migration CHECK on sync_outbox.op
+        // allows only (insert, update, soft_delete), and the audit row below
+        // already records this mutation as "settings.update".
+        await recordOutbox(tx, tenantId, "settings", tenantId, "update", filteredBody);
+        await recordAudit(tx, tenantId, tenantId, "settings.update", "settings", tenantId, filteredBody);
+        // RFC-004 C1 — response bytes commit atomically with the upsert (see
+        // routes/ledger.ts payment path). Never echo the stored row (it carries
+        // pin_hash/tenant_secret): project first, same as the GET path.
+        const payload = toSafeSettings(row);
+        const env = okEnvelope(200, payload);
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return payload;
+      });
+    } catch (err) {
+      if (err instanceof CasConflictError) return casConflictResponse(err.serverRow);
+      // RFC-004 K2/K3 — concurrent-duplicate race (see routes/ledger.ts).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
+
+    // Cache invalidation follows COMMIT (a rolled-back transaction left the
+    // rows untouched, so the cached GET is still correct).
     invalidateTenant(tenantId);
-    // Rule 7 (12_Business_Rules.md BR-SYN-01 / BR-SEC-03) — audit 2026-09-26
-    // "gateway settings PATCH (audit only)": the settings upsert now writes
-    // sync_outbox alongside audit_log in the same logical transaction.
-    // Op is "update" (not "upsert"): the migration CHECK on sync_outbox.op
-    // allows only (insert, update, soft_delete), and the audit row below
-    // already records this mutation as "settings.update".
-    await recordOutbox(db, tenantId, "settings", tenantId, "update", filteredBody);
-    await recordAudit(db, tenantId, tenantId, "settings.update", "settings", tenantId, filteredBody);
     return ok(updated);
   }
 
@@ -99,3 +152,25 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
 
   return null;
 };
+
+/**
+ * 10_Security.md §1 trust model + §3.4 (the pepper + PIN hash live in the DB,
+ * never on the wire): strip every secret-bearing column before a settings row
+ * is cached or returned. The PATCH allowlist already blocks WRITES to these
+ * columns; this blocks READS. Mirrors graphql/resolvers.ts `settings`.
+ */
+function toSafeSettings(row: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!row) return null;
+  const {
+    pinHash: _pinHash,
+    pin_hash: _pinHashSnake,
+    panicPinHash: _panicPinHash,
+    panic_pin_hash: _panicPinHashSnake,
+    tenantSecret: _tenantSecret,
+    tenant_secret: _tenantSecretSnake,
+    backupPassphraseHash: _backupPassphraseHash,
+    backup_passphrase_hash: _backupPassphraseHashSnake,
+    ...safe
+  } = row;
+  return safe;
+}

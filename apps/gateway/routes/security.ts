@@ -1,6 +1,13 @@
 import type { RouteHandler } from "./students.ts";
 import { ok, fail } from "../lib/errors.ts";
 import { invalidateTenant } from "../lib/cache.ts";
+import {
+  idempotencyRoute,
+  okEnvelope,
+  replayIfDuplicate,
+  requireIdempotencyKey,
+  storeIdempotentResponse,
+} from "../lib/idempotency.ts";
 
 // POST /api/v1/security/erase — implements contracts/openapi.yaml
 // operationId `secureErase` ("Securely erase all tutor data").
@@ -11,6 +18,14 @@ import { invalidateTenant } from "../lib/cache.ts";
 // runtime has no argon2 and must never compare raw client-supplied hashes.
 export const handleSecurity: RouteHandler = async (req, db, tenantId, path, method) => {
   if (path === "/api/v1/security/erase" && method === "POST") {
+    // RFC-004 C1 — fail-closed like every mutating route. The erase flow is
+    // not a single `withWriteTransaction` (it cascades via `db.batch`), so the
+    // key+response persist in a standalone INSERT after the cascade: a missed
+    // store only risks REPEATING an erase that is naturally idempotent
+    // (re-deleting nothing), never a duplicate effect.
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
     const { tutorId, confirm } = body as { tutorId?: unknown; confirm?: unknown };
 
@@ -81,6 +96,15 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
     });
 
     invalidateTenant(tenantId);
+    const env = okEnvelope(200, { success: true });
+    try {
+      await storeIdempotentResponse(db, tenantId, idemRoute, idemKey, env.code, env.body);
+    } catch (err) {
+      // RFC-004 K2/K3 — concurrent-duplicate race (see routes/ledger.ts).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
     return ok({ success: true });
   }
 

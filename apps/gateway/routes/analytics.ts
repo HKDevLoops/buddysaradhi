@@ -1,6 +1,5 @@
 import type { RouteHandler } from "./students.ts";
 import { ok } from "../lib/errors.ts";
-import { getCached, setCache } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
 
 export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, method, url) => {
@@ -13,11 +12,13 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
       sp.get("periodStartIso") ?? new Date(new Date().setDate(1)).toISOString().slice(0, 10);
     const now = new Date();
     const periodEnd = sp.get("periodEndIso") ?? now.toISOString().slice(0, 10);
+    void periodStart;
+    void periodEnd;
 
-    const cacheKey = `analytics:dashboard:${tenantId}:${periodStart}:${periodEnd}`;
-    const cached = getCached(cacheKey);
-    if (cached) return ok(cached);
-
+    // No edge cache here by design (workstream E §3 + lib/cache.ts budget
+    // rule): KPIs aggregate balances and ledger money views, so every call
+    // reads through to the tenant DB. Reads stay cheap via batched
+    // Promise.all fan-out (one round trip per table, never N+1).
     const [activeStudents, payments, invs] = await Promise.all([
       orm.student.findMany({
         where: { status: "active", archivedAt: null },
@@ -113,7 +114,6 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     }));
 
     const result = { kpis, activity, dueToday, dataOrigin: "live" };
-    setCache(cacheKey, result, 15_000);
     return ok(result);
   }
 
