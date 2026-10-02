@@ -2,6 +2,12 @@ import type { RouteHandler } from "./students.ts";
 import { ok, fail } from "../lib/errors.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import {
+  eraseTables,
+  run,
+  stmtEraseTable,
+  stmtSecurityAuditInsert,
+} from "../lib/sql.ts";
+import {
   idempotencyRoute,
   okEnvelope,
   replayIfDuplicate,
@@ -39,61 +45,47 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
     // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE
     // any deletion, fail-closed — this insert is deliberately uncaught, so a
     // failed audit write aborts the erase while nothing has been destroyed.
+    // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE
+    // any deletion, fail-closed — this insert is deliberately uncaught, so a
+    // failed audit write aborts the erase while nothing has been destroyed.
+    // `run()` (lib/sql.ts transport) takes `unknown[]` args, so the audited
+    // builder output needs no cast — unlike `db.execute`'s narrow `InArgs`.
     const initiatedAt = new Date().toISOString();
-    await db.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'tenant', ?, 'security.erase_initiated', ?, ?)`,
-      args: [
-        crypto.randomUUID(),
-        tenantId,
-        tenantId,
-        tenantId,
-        JSON.stringify({ confirm }),
-        initiatedAt,
-      ],
-    });
+    const initiatedStmt = stmtSecurityAuditInsert(
+      tenantId,
+      "security.erase_initiated",
+      JSON.stringify({ confirm }),
+      initiatedAt
+    );
+    await run(db, initiatedStmt.sql, initiatedStmt.args);
 
     // 10_Security.md 18.1 step 4 — ONE atomic cascade (libsql batch = single
     // transaction) over every tenant-scoped runtime table (lib/schema.ts).
     // LEDGER-4's single audited exception: physical ledger deletion exists only
     // in the secure-erase flow; every other path posts a void.
-    const tables = [
-      "ledger_entries",
-      "receipts",
-      "invoices",
-      "attendance_records",
-      "attendance_sessions",
-      "student_enrollments",
-      "students",
-      "batches",
-      "tutors",
-      "notifications",
-      "sync_outbox",
-      "audit_log",
-      "settings",
-    ];
+    const tables = [...eraseTables()];
     await db.batch(
-      tables.map((table) => ({
-        sql: `DELETE FROM ${table} WHERE tenant_id = ?`,
-        args: [tenantId],
-      })),
+      tables.map((table) => {
+        // SAFETY: `tables` comes from `eraseTables()` (audited allowlist in
+        // lib/sql.ts) — every element is a valid erase-table union member; and
+        // every builder arg is a Zod-validated string/number/null, which is
+        // exactly libsql's `InValue` (the `unknown[]` is only wider for the
+        // dependency-free `SqlHandle` transport).
+        const stmt = stmtEraseTable(table as never, tenantId);
+        return { sql: stmt.sql, args: stmt.args as never[] };
+      }),
       "write",
     );
 
     // 18.1 step 7: erase_complete recorded AFTER the cascade — it and
     // erase_initiated's pre-wipe attempt are what remain of the audit chain.
-    await db.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'tenant', ?, 'security.erase_complete', ?, ?)`,
-      args: [
-        crypto.randomUUID(),
-        tenantId,
-        tenantId,
-        tenantId,
-        JSON.stringify({ tables }),
-        new Date().toISOString(),
-      ],
-    });
+    const completeStmt = stmtSecurityAuditInsert(
+      tenantId,
+      "security.erase_complete",
+      JSON.stringify({ tables }),
+      new Date().toISOString()
+    );
+    await run(db, completeStmt.sql, completeStmt.args);
 
     invalidateTenant(tenantId);
     const env = okEnvelope(200, { success: true });

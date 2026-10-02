@@ -3,7 +3,15 @@ import { ok, fail, failZod } from "../lib/errors.ts";
 import { recordOutbox, recordAudit } from "./students.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
-import { oneRow, run, type SqlHandle } from "../lib/sql.ts";
+import {
+  oneRow,
+  run,
+  type SqlHandle,
+  stmtTakeSequence,
+  stmtSyncStudentBalance,
+  stmtFindLiveReceipt,
+  stmtVoidReceipt,
+} from "../lib/sql.ts";
 import {
   computeChainHash,
   ledgerEntryPayload,
@@ -159,13 +167,8 @@ async function takeSequence(
     throw new LedgerRouteError(`tenant_settings_unavailable: ${reason}`, 500);
   }
 
-  const row = await oneRow(
-    tx,
-    `UPDATE settings SET ${seqCol} = COALESCE(${seqCol}, 1) + 1, updated_at = ?
-      WHERE tenant_id = ?
-      RETURNING ${seqCol}, ${prefixCol}`,
-    [now, tenantId],
-  );
+  const seqStmt = stmtTakeSequence(tenantId, kind, now);
+  const row = await oneRow(tx, seqStmt.sql, seqStmt.args);
   if (!row) {
     // Rule 9 — `loadTenantSecret` above proved the row existed, so a missing
     // RETURNING row means it vanished mid-transaction (or the statement never
@@ -210,11 +213,8 @@ async function syncStudentBalance(
   balancePaise: number,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const res = await run(
-    tx,
-    `UPDATE students SET balance_paise = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`,
-    [balancePaise, now, tenantId, studentId],
-  );
+  const balanceStmt = stmtSyncStudentBalance(tenantId, studentId, balancePaise, now);
+  const res = await run(tx, balanceStmt.sql, balanceStmt.args);
   if (!res.rowsAffected) {
     throw new Error(`student ${studentId} not found inside transaction`);
   }
@@ -717,17 +717,11 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         // carry no invoice link, so "which invoice to reopen" is undecidable
         // here — see the handoff notes.)
         if (entry.receiptNo) {
-          const receipt = await oneRow(
-            tx,
-            `SELECT id FROM receipts WHERE tenant_id = ? AND receipt_no = ? AND voided_at IS NULL`,
-            [tenantId, entry.receiptNo],
-          );
+          const findStmt = stmtFindLiveReceipt(tenantId, entry.receiptNo);
+          const receipt = await oneRow(tx, findStmt.sql, findStmt.args);
           if (receipt) {
-            await run(
-              tx,
-              `UPDATE receipts SET voided_at = ?, updated_at = ? WHERE tenant_id = ? AND id = ?`,
-              [createdAt, createdAt, tenantId, receipt.id],
-            );
+            const voidStmt = stmtVoidReceipt(tenantId, String(receipt.id), createdAt);
+            await run(tx, voidStmt.sql, voidStmt.args);
             // Rule 7 / BR-SYN-01 — the EC-F-05 `voided_at` UPDATE above must
             // replicate too, or a reconnected replica shows a receipt as live
             // that the ledger already reversed.

@@ -1,5 +1,12 @@
 import type { DB } from "../lib/db.ts";
 import { oneRow, allRows } from "../lib/db.ts";
+import {
+  stmtGraphqlSettings,
+  stmtGraphqlStudents,
+  stmtGraphqlStudentsCount,
+  stmtGraphqlLedgerEntries,
+  stmtGraphqlLedgerCount,
+} from "../lib/sql.ts";
 
 interface ResolverContext {
   db: DB;
@@ -19,7 +26,8 @@ export const resolvers: Record<string, ResolverFn> = {
 
   settings: async (args, ctx) => {
     if (args.tenantId !== ctx.tenantId) throw new Error("forbidden: tenant mismatch");
-    const row = await oneRow(ctx.db, "SELECT * FROM settings WHERE tenant_id = ?", [ctx.tenantId]);
+    const settingsStmt = stmtGraphqlSettings(String(ctx.tenantId));
+    const row = await oneRow(ctx.db, settingsStmt.sql, settingsStmt.args);
     if (!row) return null;
     return {
       id: row.tenant_id,
@@ -59,27 +67,11 @@ export const resolvers: Record<string, ResolverFn> = {
   students: async (args, ctx) => {
     if (args.tenantId !== ctx.tenantId) throw new Error("forbidden: tenant mismatch");
     const { p, ps, from } = clampPage(args.page, args.pageSize);
-    const where = ["tenant_id = ?", "archived_at IS NULL"];
-    const a: unknown[] = [ctx.tenantId];
-    if (args.search) {
-      const searchTerm = String(args.search).toLowerCase();
-      where.push("(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR code LIKE ?)");
-      a.push(
-        `%${searchTerm}%`,
-        `%${searchTerm}%`,
-        `%${searchTerm}%`,
-      );
-    }
-    const rows = await allRows(
-      ctx.db,
-      `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name LIMIT ? OFFSET ?`,
-      [...a, ps, from],
-    );
-    const cnt = await oneRow(
-      ctx.db,
-      `SELECT COUNT(*) AS c FROM students WHERE ${where.join(" AND ")}`,
-      a,
-    );
+    const search = typeof args.search === "string" ? args.search : null;
+    const studentsStmt = stmtGraphqlStudents(String(ctx.tenantId), search, ps, from);
+    const rows = await allRows(ctx.db, studentsStmt.sql, studentsStmt.args);
+    const countStmt = stmtGraphqlStudentsCount(String(ctx.tenantId), search);
+    const cnt = await oneRow(ctx.db, countStmt.sql, countStmt.args);
     return {
       items: rows.map((s) => ({
         id: s.id,
@@ -108,16 +100,10 @@ export const resolvers: Record<string, ResolverFn> = {
   ledgerEntries: async (args, ctx) => {
     if (args.tenantId !== ctx.tenantId) throw new Error("forbidden: tenant mismatch");
     const { p, ps, from } = clampPage(args.page, args.pageSize);
-    const rows = await allRows(
-      ctx.db,
-      "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC LIMIT ? OFFSET ?",
-      [ctx.tenantId, ps, from],
-    );
-    const cnt = await oneRow(
-      ctx.db,
-      "SELECT COUNT(*) AS c FROM ledger_entries WHERE tenant_id = ?",
-      [ctx.tenantId],
-    );
+    const ledgerStmt = stmtGraphqlLedgerEntries(String(ctx.tenantId), ps, from);
+    const rows = await allRows(ctx.db, ledgerStmt.sql, ledgerStmt.args);
+    const ledgerCountStmt = stmtGraphqlLedgerCount(String(ctx.tenantId));
+    const cnt = await oneRow(ctx.db, ledgerCountStmt.sql, ledgerCountStmt.args);
     return {
       items: rows.map((e) => ({
         id: e.id,

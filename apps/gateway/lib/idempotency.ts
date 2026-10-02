@@ -11,7 +11,15 @@
 // every mutation pre-check — no cron (Supabase Free has no scheduler
 // guarantee, RFC-004 §3 gateway duties).
 import { failValidation } from "./errors.ts";
-import { oneRow, run, type SqlHandle } from "./sql.ts";
+import {
+  oneRow,
+  run,
+  type SqlHandle,
+  stmtIdempotencyFind,
+  stmtIdempotencyDeleteOne,
+  stmtInsertIdempotencyKey,
+  stmtIdempotencyPurge,
+} from "./sql.ts";
 
 /** RFC-004 C1 — the server persists a duplicate key's response for 24h. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -70,20 +78,13 @@ export async function findStoredIdempotentResponse(
   route: string,
   key: string,
 ): Promise<StoredIdempotentResponse | null> {
-  const row = await oneRow(
-    handle,
-    `SELECT response_code, response_body, created_at FROM idempotency_keys
-      WHERE tenant_id = ? AND route = ? AND "key" = ?`,
-    [tenantId, route, key],
-  );
+  const findStmt = stmtIdempotencyFind(tenantId, route, key);
+  const row = await oneRow(handle, findStmt.sql, findStmt.args);
   if (!row) return null;
   if (typeof row.created_at !== "string" || row.created_at < ttlCutoffIso()) {
     // Lazy TTL sweep: the row outlived its 24h, delete and treat as a miss.
-    await run(
-      handle,
-      `DELETE FROM idempotency_keys WHERE tenant_id = ? AND route = ? AND "key" = ?`,
-      [tenantId, route, key],
-    );
+    const delStmt = stmtIdempotencyDeleteOne(tenantId, route, key);
+    await run(handle, delStmt.sql, delStmt.args);
     return null;
   }
   return {
@@ -107,12 +108,8 @@ export async function storeIdempotentResponse(
   code: number,
   body: string,
 ): Promise<void> {
-  await run(
-    tx,
-    `INSERT INTO idempotency_keys (tenant_id, route, "key", response_code, response_body, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [tenantId, route, key, code, body, new Date().toISOString()],
-  );
+  const stmt = stmtInsertIdempotencyKey(tenantId, route, key, code, body);
+  await run(tx, stmt.sql, stmt.args);
 }
 
 /**
@@ -125,11 +122,8 @@ export async function purgeExpiredIdempotencyKeys(
   handle: SqlHandle,
   tenantId: string,
 ): Promise<void> {
-  await run(
-    handle,
-    `DELETE FROM idempotency_keys WHERE tenant_id = ? AND created_at < ?`,
-    [tenantId, ttlCutoffIso()],
-  );
+  const stmt = stmtIdempotencyPurge(tenantId, ttlCutoffIso());
+  await run(handle, stmt.sql, stmt.args);
 }
 
 /**

@@ -3,7 +3,39 @@
 // The handle type is `SqlHandle` (lib/sql.ts), not `lib/db.ts`'s `Client`:
 // ledger mutations pass an interactive transaction here (BR-SYN-01 / audit
 // 2026-09-26 G2), and integration tests pass a real SQLite handle.
-import { allRows, oneRow, run, type SqlHandle } from "./sql.ts";
+//
+// Security refactor: every statement is built by audited builders in
+// `lib/sql.ts` (Zod-validated, `?`-parameterized, allowlisted identifiers).
+// This module holds zero SQL string literals — it maps rows and delegates.
+import {
+  allRows,
+  oneRow,
+  run,
+  type SqlHandle,
+  stmtSelectWhere,
+  stmtSelectOneWhere,
+  stmtCountWhere,
+  stmtDeleteWhere,
+  stmtUpdateWhere,
+  stmtInsertStudent,
+  stmtInsertBatch,
+  stmtInsertEnrollment,
+  stmtInsertAttendanceSession,
+  stmtInsertAttendanceRecordUpsert,
+  stmtInsertInvoice,
+  stmtInsertLedgerEntry,
+  stmtInsertReceipt,
+  stmtInsertSetting,
+  stmtInsertNotification,
+  stmtInsertAuditLog,
+  stmtInsertSyncOutbox,
+  stmtAuditLogFindMany,
+  stmtSyncOutboxFindMany,
+  STUDENT_SORT,
+  ATTENDANCE_SESSION_SORT,
+  LEDGER_SORT,
+  NOTIFICATION_SORT,
+} from "./sql.ts";
 
 export interface PrismaOrm {
   student: {
@@ -147,10 +179,6 @@ export interface PrismaOrm {
   };
 }
 
-function camelToSnake(str: string): string {
-  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
 function snakeToCamel(str: string): string {
   return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
 }
@@ -167,417 +195,150 @@ function mapRowToCamel(
 }
 
 export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
-  const buildWhere = (where: Record<string, any> = {}) => {
-    const clauses: string[] = ["tenant_id = ?"];
-    const params: any[] = [tenantId];
-    for (const [key, val] of Object.entries(where)) {
-      if (key === "tenantId" || key === "tenant_id") continue;
-      const col = camelToSnake(key);
-      if (val === null) {
-        clauses.push(`${col} IS NULL`);
-      } else if (typeof val === "object" && val !== null && "not" in val) {
-        if (val.not === null) {
-          clauses.push(`${col} IS NOT NULL`);
-        } else {
-          clauses.push(`${col} != ?`);
-          params.push(val.not);
-        }
-      } else if (
-        typeof val === "object" && val !== null && "in" in val &&
-        Array.isArray(val.in)
-      ) {
-        if (val.in.length === 0) {
-          clauses.push("1=0");
-        } else {
-          clauses.push(`${col} IN (${val.in.map(() => "?").join(",")})`);
-          params.push(...val.in);
-        }
-      } else {
-        clauses.push(`${col} = ?`);
-        params.push(val);
-      }
-    }
-    return { clause: clauses.join(" AND "), params };
-  };
-
   return {
     student: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql = `SELECT * FROM students WHERE ${clause}`;
-        if (args.orderBy) {
-          const [col, dir] = Object.entries(args.orderBy)[0] ||
-            ["firstName", "asc"];
-          const ALLOWED_SORT_COLUMNS = new Set([
-            "first_name",
-            "last_name",
-            "created_at",
-            "updated_at",
-            "admission_date",
-            "code",
-            "status",
-            "grade",
-            "balance_paise",
-          ]);
-          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
-          const snakeCol = camelToSnake(col);
-          const upperDir = dir.toUpperCase();
-          if (
-            ALLOWED_SORT_COLUMNS.has(snakeCol) &&
-            ALLOWED_DIRECTIONS.has(upperDir)
-          ) {
-            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
-          }
-        }
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        if (args.skip) sql += ` OFFSET ${args.skip}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSelectWhere("students", tenantId, args.where ?? {}, {
+          orderBy: args.orderBy as Record<string, string> | undefined,
+          take: args.take,
+          skip: args.skip,
+          orderAllowed: STUDENT_SORT,
+        });
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM students WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("students", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const studentId = d.id ?? crypto.randomUUID();
-        const dupKeyVal = d.dupKey ?? d.dup_key ?? d.code ?? studentId;
-        const cols = [
-          "id",
-          "tenant_id",
-          "code",
-          "first_name",
-          "last_name",
-          "dob",
-          "gender",
-          "phone",
-          "email",
-          "address",
-          "school",
-          "grade",
-          "board",
-          "admission_date",
-          "status",
-          "fee_model",
-          "base_fee_paise",
-          "balance_paise",
-          "dup_key",
-          "notes",
-          "created_at",
-          "updated_at",
-        ];
-        const vals = [
-          studentId,
-          tenantId,
-          d.code ?? null,
-          d.firstName ?? d.first_name ?? "Unknown",
-          d.lastName ?? d.last_name ?? null,
-          d.dob ?? null,
-          d.gender ?? null,
-          d.phone ?? null,
-          d.email ?? null,
-          d.address ?? null,
-          d.school ?? null,
-          d.grade ?? null,
-          d.board ?? null,
-          d.admissionDate ?? d.admission_date ?? now.slice(0, 10),
-          d.status ?? "active",
-          d.feeModel ?? d.fee_model ?? "postpaid",
-          d.baseFeePaise ?? d.base_fee_paise ?? 0,
-          d.balancePaise ?? d.balance_paise ?? 0,
-          dupKeyVal,
-          d.notes ?? null,
-          now,
-          now,
-        ];
-        await run(
-          db,
-          `INSERT INTO students (${cols.join(",")}) VALUES (${
-            cols.map(() => "?").join(",")
-          })`,
-          vals,
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM students WHERE tenant_id = ? AND id = ?",
-            [tenantId, studentId],
-          ),
-        )!;
+        const studentId = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertStudent(tenantId, { ...d, id: studentId });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("students", tenantId, { id: studentId });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       update: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const updates: string[] = [];
-        const uParams: any[] = [];
-        for (const [k, v] of Object.entries(args.data)) {
-          updates.push(`${camelToSnake(k)} = ?`);
-          uParams.push(v);
-        }
-        updates.push("updated_at = ?");
-        uParams.push(new Date().toISOString());
-        await run(
-          db,
-          `UPDATE students SET ${updates.join(",")} WHERE ${clause}`,
-          [...uParams, ...params],
-        );
+        const now = new Date().toISOString();
+        const stmt = stmtUpdateWhere("students", tenantId, args.where, {
+          ...args.data,
+          updatedAt: now,
+        });
+        await run(db, stmt.sql, stmt.args);
         if (args.where.id) {
-          return mapRowToCamel(
-            await oneRow(
-              db,
-              "SELECT * FROM students WHERE tenant_id = ? AND id = ?",
-              [tenantId, args.where.id],
-            ),
-          )!;
+          const back = stmtSelectOneWhere("students", tenantId, { id: args.where.id });
+          return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
         }
-        return mapRowToCamel(
-          await oneRow(db, `SELECT * FROM students WHERE ${clause}`, params),
-        )!;
+        const back = stmtSelectWhere("students", tenantId, args.where ?? {});
+        const row = await oneRow(db, back.sql, back.args);
+        return mapRowToCamel(row)!;
       },
       delete: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        await run(db, `DELETE FROM students WHERE ${clause}`, params);
+        const stmt = stmtDeleteWhere("students", tenantId, args.where);
+        await run(db, stmt.sql, stmt.args);
       },
       count: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        const r = await oneRow(
-          db,
-          `SELECT COUNT(*) AS c FROM students WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtCountWhere("students", tenantId, args.where ?? {});
+        const r = await oneRow(db, stmt.sql, stmt.args);
         return Number(r?.c ?? 0);
       },
     },
 
     batch: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        const rows = await allRows(
-          db,
-          `SELECT * FROM batches WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtSelectWhere("batches", tenantId, args.where ?? {});
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM batches WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("batches", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          "INSERT INTO batches (id, tenant_id, name, subject, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            id,
-            tenantId,
-            d.name,
-            d.subject ?? null,
-            now,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM batches WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertBatch(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("batches", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       update: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const updates: string[] = [];
-        const uParams: any[] = [];
-        for (const [k, v] of Object.entries(args.data)) {
-          updates.push(`${camelToSnake(k)} = ?`);
-          uParams.push(v);
-        }
-        await run(
-          db,
-          `UPDATE batches SET ${updates.join(",")} WHERE ${clause}`,
-          [...uParams, ...params],
-        );
-        return mapRowToCamel(
-          await oneRow(db, `SELECT * FROM batches WHERE ${clause}`, params),
-        )!;
+        const stmt = stmtUpdateWhere("batches", tenantId, args.where, args.data);
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectWhere("batches", tenantId, args.where ?? {});
+        const row = await oneRow(db, back.sql, back.args);
+        return mapRowToCamel(row)!;
       },
     },
 
     studentEnrollment: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        const rows = await allRows(
-          db,
-          `SELECT * FROM student_enrollments WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtSelectWhere("student_enrollments", tenantId, args.where ?? {});
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          "INSERT INTO student_enrollments (id, tenant_id, student_id, batch_id, joined_on, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [
-            id,
-            tenantId,
-            d.studentId,
-            d.batchId,
-            d.joinedOn ?? now.slice(0, 10),
-            now,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM student_enrollments WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertEnrollment(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("student_enrollments", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       deleteMany: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const res = await run(
-          db,
-          `DELETE FROM student_enrollments WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtDeleteWhere("student_enrollments", tenantId, args.where);
+        const res = await run(db, stmt.sql, stmt.args);
         return res.rowsAffected ?? 0;
       },
     },
 
     attendanceSession: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql = `SELECT * FROM attendance_sessions WHERE ${clause}`;
-        if (args.orderBy) {
-          const [col, dir] = Object.entries(args.orderBy)[0] ||
-            ["sessionDate", "desc"];
-          const ALLOWED_SORT_COLUMNS = new Set([
-            "session_date",
-            "batch_name",
-            "created_at",
-          ]);
-          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
-          const snakeCol = camelToSnake(col);
-          const upperDir = dir.toUpperCase();
-          if (
-            ALLOWED_SORT_COLUMNS.has(snakeCol) &&
-            ALLOWED_DIRECTIONS.has(upperDir)
-          ) {
-            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
-          }
-        }
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSelectWhere("attendance_sessions", tenantId, args.where ?? {}, {
+          orderBy: args.orderBy as Record<string, string> | undefined,
+          take: args.take,
+          orderAllowed: ATTENDANCE_SESSION_SORT,
+        });
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM attendance_sessions WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("attendance_sessions", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          "INSERT INTO attendance_sessions (id, tenant_id, batch_id, session_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            id,
-            tenantId,
-            d.batchId ?? null,
-            d.sessionDate,
-            now,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM attendance_sessions WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertAttendanceSession(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("attendance_sessions", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       update: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const updates: string[] = [];
-        const uParams: any[] = [];
-        for (const [k, v] of Object.entries(args.data)) {
-          updates.push(`${camelToSnake(k)} = ?`);
-          uParams.push(v);
-        }
-        await run(
-          db,
-          `UPDATE attendance_sessions SET ${updates.join(",")} WHERE ${clause}`,
-          [...uParams, ...params],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            `SELECT * FROM attendance_sessions WHERE ${clause}`,
-            params,
-          ),
-        )!;
+        const stmt = stmtUpdateWhere("attendance_sessions", tenantId, args.where, args.data);
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectWhere("attendance_sessions", tenantId, args.where ?? {});
+        const row = await oneRow(db, back.sql, back.args);
+        return mapRowToCamel(row)!;
       },
     },
 
     attendanceRecord: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        const rows = await allRows(
-          db,
-          `SELECT * FROM attendance_records WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtSelectWhere("attendance_records", tenantId, args.where ?? {});
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       createMany: async (args) => {
-        const now = new Date().toISOString();
         let count = 0;
         for (const d of args.data) {
-          const id = d.id ?? crypto.randomUUID();
-          // The gateway DDL (lib/schema.ts CORE_DDL_STATEMENTS) carries no
-          // `marked_at` column on attendance_records — `created_at` is the
-          // mark timestamp. Listing a non-existent column aborts the whole
-          // batch, so only spec columns are written.
-          await run(
-            db,
-            `INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                         ON CONFLICT(session_id, student_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
-            [
-              id,
-              tenantId,
-              d.sessionId,
-              d.studentId,
-              d.status,
-              now,
-              now,
-            ],
-          );
+          const id = (d.id as string | undefined) ?? crypto.randomUUID();
+          const stmt = stmtInsertAttendanceRecordUpsert(tenantId, { ...d, id });
+          await run(db, stmt.sql, stmt.args);
           count++;
         }
         return count;
@@ -586,54 +347,33 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
 
     invoice: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql = `SELECT * FROM invoices WHERE ${clause}`;
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSelectWhere("invoices", tenantId, args.where ?? {}, {
+          take: args.take,
+        });
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM invoices WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("invoices", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       create: async (args) => {
-        // 11_Data_Model.md §4.12 — the gateway writes the SPEC column shape
-        // (whitespace-normalised twin of `migrations/0001_init.sql:237` and of
-        // `CORE_DDL_STATEMENTS` in lib/schema.ts; `invoices-ddl-parity.test.ts`
-        // keeps the three honest). The previous INSERT targeted
-        // `invoice_number`/`*_paise`, columns that do not exist on a
-        // spec-built DB, so every gateway invoice failed at the SQL layer.
         const d = args.data;
         if (typeof d.number !== "string" || d.number.length === 0) {
-          // Rule 9: `number` is NOT NULL and UNIQUE(tenant_id, number) — a
-          // missing number would abort deep in SQLite with a bare constraint
-          // message instead of naming the caller's mistake.
           throw new Error(
-            `invoices.number is required (11_Data_Model.md §4.12) for student ${String(d.studentId)}`,
+            `invoices.number is required (11_Data_Model.md §4.12) for student ${String(d.studentId)}`
           );
         }
         if (typeof d.tamperHash !== "string" || d.tamperHash.length === 0) {
-          // Rule 9 + 10_Security.md §10: `tamper_hash` is NOT NULL and is the
-          // evidence a tutor's Diagnostics screen recomputes — defaulting it
-          // would make every gateway invoice read as tampered (and would break
-          // `ledgerEntry`'s sibling guard discipline). Fail loud instead.
           throw new Error(
-            `invoices.tamper_hash is required (10_Security.md §10) for invoice ${d.number}`,
+            `invoices.tamper_hash is required (10_Security.md §10) for invoice ${d.number}`
           );
         }
-        // Rule 6 / BR-M-01: `discount`/`extra_charges` default to 0 per §4.12,
-        // but every amount reaching SQLite must be integer paise — a
-        // fractional or NaN `total` would commit as a REAL and never format
-        // with `formatINR`.
-        const subtotal = d.subtotal ?? 0;
-        const discount = d.discount ?? 0;
-        const extraCharges = d.extraCharges ?? 0;
-        const total = d.total ?? subtotal;
+        const subtotal = (d.subtotal as number | undefined) ?? 0;
+        const discount = (d.discount as number | undefined) ?? 0;
+        const extraCharges = (d.extraCharges as number | undefined) ?? 0;
+        const total = (d.total as number | undefined) ?? subtotal;
         if (
           !Number.isSafeInteger(subtotal) ||
           !Number.isSafeInteger(discount) ||
@@ -641,387 +381,137 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
           !Number.isSafeInteger(total)
         ) {
           throw new Error(
-            `invoices money columns must be integer paise (12_Business_Rules.md BR-M-01) for invoice ${d.number}`,
+            `invoices money columns must be integer paise (12_Business_Rules.md BR-M-01) for invoice ${d.number}`
           );
         }
-        const now = new Date().toISOString();
-        const issueDate = typeof d.issueDate === "string" ? d.issueDate : now.slice(0, 10);
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          `INSERT INTO invoices (id, tenant_id, number, student_id, fee_schedule_item_id, issue_date, due_date, subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.number,
-            d.studentId,
-            d.feeScheduleItemId ?? null,
-            issueDate,
-            d.dueDate ?? null,
-            subtotal,
-            discount,
-            extraCharges,
-            total,
-            d.status ?? "unpaid",
-            d.tamperHash,
-            now,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM invoices WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertInvoice(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("invoices", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       update: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const updates: string[] = [];
-        const uParams: any[] = [];
-        for (const [k, v] of Object.entries(args.data)) {
-          updates.push(`${camelToSnake(k)} = ?`);
-          uParams.push(v);
-        }
-        await run(
-          db,
-          `UPDATE invoices SET ${updates.join(",")} WHERE ${clause}`,
-          [...uParams, ...params],
-        );
-        return mapRowToCamel(
-          await oneRow(db, `SELECT * FROM invoices WHERE ${clause}`, params),
-        )!;
+        const stmt = stmtUpdateWhere("invoices", tenantId, args.where, args.data);
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectWhere("invoices", tenantId, args.where ?? {});
+        const row = await oneRow(db, back.sql, back.args);
+        return mapRowToCamel(row)!;
       },
     },
 
     ledgerEntry: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql = `SELECT * FROM ledger_entries WHERE ${clause}`;
-        if (args.orderBy) {
-          const [col, dir] = Object.entries(args.orderBy)[0] ||
-            ["occurredOn", "desc"];
-          const ALLOWED_SORT_COLUMNS = new Set([
-            "occurred_on",
-            "type",
-            "created_at",
-          ]);
-          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
-          const snakeCol = camelToSnake(col);
-          const upperDir = dir.toUpperCase();
-          if (
-            ALLOWED_SORT_COLUMNS.has(snakeCol) &&
-            ALLOWED_DIRECTIONS.has(upperDir)
-          ) {
-            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
-          }
-        }
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSelectWhere("ledger_entries", tenantId, args.where ?? {}, {
+          orderBy: args.orderBy as Record<string, string> | undefined,
+          take: args.take,
+          orderAllowed: LEDGER_SORT,
+        });
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       create: async (args) => {
-        // Enforces Rule 1 (Append-only immutable ledger) + BR-LED-06 (chain).
         const d = args.data;
         if (typeof d.thisHash !== "string" || d.thisHash.length === 0) {
-          // Rule 9 + BR-LED-06: a ledger row without a chain hash is an audit
-          // break. The old `d.thisHash ?? "hash"` default silently disabled the
-          // tamper chain for every gateway-posted entry — hard-fail instead.
           throw new Error(
-            `ledger_entries.this_hash is required (BR-LED-06) for ${d.type} entry`,
+            `ledger_entries.this_hash is required (BR-LED-06) for ${d.type} entry`
           );
         }
-        const now = new Date().toISOString();
-        // The hashed `created_at` must be byte-identical to the stored column
-        // (packages/core/src/ledger.ts:107 hashes `now`, then stores it), so
-        // callers pass the same string they hashed — never a fresh clock read.
-        const createdAt = typeof d.createdAt === "string" ? d.createdAt : now;
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, receipt_no, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.studentId,
-            d.batchId ?? null,
-            d.invoiceId ?? null,
-            d.type,
-            d.debitPaise ?? 0,
-            d.creditPaise ?? 0,
-            d.balanceAfterPaise ?? 0,
-            d.description ?? null,
-            d.receiptNo ?? null,
-            d.paymentMethod ?? null,
-            d.paymentRef ?? null,
-            d.prevHash ?? null,
-            d.thisHash,
-            d.voidOfId ?? null,
-            d.occurredOn ?? createdAt.slice(0, 10),
-            d.source ?? "manual",
-            createdAt,
-            createdAt,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM ledger_entries WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertLedgerEntry(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("ledger_entries", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
     },
 
     receipt: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        const rows = await allRows(
-          db,
-          `SELECT * FROM receipts WHERE ${clause}`,
-          params,
-        );
+        const stmt = stmtSelectWhere("receipts", tenantId, args.where ?? {});
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM receipts WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("receipts", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          `INSERT INTO receipts (id, tenant_id, receipt_no, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.receiptNo ?? d.number,
-            d.studentId,
-            d.invoiceId ?? null,
-            d.amount,
-            d.paymentMethod ?? "cash",
-            d.paymentRef ?? null,
-            d.receivedOn ?? now.slice(0, 10),
-            d.tamperHash ?? "hash",
-            now,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM receipts WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertReceipt(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("receipts", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
     },
 
     setting: {
       findFirst: async (args) => {
-        const { clause, params } = buildWhere(args.where);
-        const row = await oneRow(
-          db,
-          `SELECT * FROM settings WHERE ${clause} LIMIT 1`,
-          params,
-        );
+        const stmt = stmtSelectOneWhere("settings", tenantId, args.where);
+        const row = await oneRow(db, stmt.sql, stmt.args);
         return mapRowToCamel(row);
       },
       upsert: async (args) => {
-        const existing = await oneRow(
-          db,
-          "SELECT * FROM settings WHERE tenant_id = ?",
-          [tenantId],
-        );
+        const existingStmt = stmtSelectOneWhere("settings", tenantId, {});
+        const existing = await oneRow(db, existingStmt.sql, existingStmt.args);
         const now = new Date().toISOString();
         if (!existing) {
-          const d = args.create;
-          const cols: string[] = [
-            "tenant_id",
-            "institute_name",
-            "currency_code",
-            "default_fee_model",
-            "palette",
-            "theme",
-            "density",
-            "tenant_secret",
-            "created_at",
-            "updated_at",
-          ];
-          const vals: any[] = [
-            tenantId,
-            d.instituteName ?? d.institute_name ?? "My Tuition",
-            d.currencyCode ?? d.currency_code ?? "INR",
-            d.defaultFeeModel ?? d.default_fee_model ?? "postpaid",
-            d.palette ?? "aurora-cosmic",
-            d.theme ?? "system",
-            d.density ?? "comfortable",
-            d.tenantSecret ?? d.tenant_secret ?? crypto.randomUUID(),
-            now,
-            now,
-          ];
-          for (const [k, v] of Object.entries(d)) {
-            const col = camelToSnake(k);
-            if (!cols.includes(col)) {
-              cols.push(col);
-              vals.push(v);
-            }
-          }
-          const placeholders = cols.map(() => "?").join(", ");
-          await run(
-            db,
-            `INSERT INTO settings (${
-              cols.join(", ")
-            }) VALUES (${placeholders})`,
-            vals,
-          );
+          const stmt = stmtInsertSetting(tenantId, args.create);
+          await run(db, stmt.sql, stmt.args);
         } else {
-          const u = args.update;
-          const sets: string[] = [];
-          const params: any[] = [];
-          for (const [k, v] of Object.entries(u)) {
-            sets.push(`${camelToSnake(k)} = ?`);
-            params.push(v);
-          }
-          sets.push("updated_at = ?");
-          params.push(now);
-          await run(
-            db,
-            `UPDATE settings SET ${sets.join(",")} WHERE tenant_id = ?`,
-            [...params, tenantId],
-          );
+          const stmt = stmtUpdateWhere("settings", tenantId, {}, {
+            ...args.update,
+            updatedAt: now,
+          });
+          await run(db, stmt.sql, stmt.args);
         }
-        return mapRowToCamel(
-          await oneRow(db, "SELECT * FROM settings WHERE tenant_id = ?", [
-            tenantId,
-          ]),
-        )!;
+        const back = stmtSelectOneWhere("settings", tenantId, {});
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       update: async (args) => {
-        const u = args.data;
         const now = new Date().toISOString();
-        const sets: string[] = [];
-        const params: any[] = [];
-        for (const [k, v] of Object.entries(u)) {
-          sets.push(`${camelToSnake(k)} = ?`);
-          params.push(v);
-        }
-        sets.push("updated_at = ?");
-        params.push(now);
-        await run(
-          db,
-          `UPDATE settings SET ${sets.join(",")} WHERE tenant_id = ?`,
-          [...params, tenantId],
-        );
-        return mapRowToCamel(
-          await oneRow(db, "SELECT * FROM settings WHERE tenant_id = ?", [
-            tenantId,
-          ]),
-        )!;
+        const stmt = stmtUpdateWhere("settings", tenantId, {}, {
+          ...args.data,
+          updatedAt: now,
+        });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("settings", tenantId, {});
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
     },
 
     notification: {
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql = `SELECT * FROM notifications WHERE ${clause}`;
-        if (args.orderBy) {
-          const [col, dir] = Object.entries(args.orderBy)[0] ||
-            ["createdAt", "desc"];
-          const ALLOWED_SORT_COLUMNS = new Set([
-            "category",
-            "created_at",
-            "read",
-          ]);
-          const ALLOWED_DIRECTIONS = new Set(["ASC", "DESC"]);
-          const snakeCol = camelToSnake(col);
-          const upperDir = dir.toUpperCase();
-          if (
-            ALLOWED_SORT_COLUMNS.has(snakeCol) &&
-            ALLOWED_DIRECTIONS.has(upperDir)
-          ) {
-            sql += ` ORDER BY ${snakeCol} ${upperDir}`;
-          }
-        }
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSelectWhere("notifications", tenantId, args.where ?? {}, {
+          orderBy: args.orderBy as Record<string, string> | undefined,
+          take: args.take,
+          orderAllowed: NOTIFICATION_SORT,
+        });
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        await run(
-          db,
-          `INSERT INTO notifications (id, tenant_id, category, title, body, ref_type, ref_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.category ?? "general",
-            d.title,
-            d.body ?? null,
-            d.refType ?? null,
-            d.refId ?? null,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM notifications WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertNotification(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("notifications", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
     },
 
     auditLog: {
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        const meta = typeof d.metadata === "object"
-          ? JSON.stringify(d.metadata)
-          : d.metadata;
-        await run(
-          db,
-          `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.actor ?? tenantId,
-            d.action,
-            d.refType ?? null,
-            d.refId ?? null,
-            meta ?? null,
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM audit_log WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertAuditLog(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("audit_log", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql =
-          `SELECT * FROM audit_log WHERE ${clause} ORDER BY created_at DESC`;
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtAuditLogFindMany(tenantId, args.where ?? {}, args.take);
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
     },
@@ -1029,39 +519,15 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
     syncOutbox: {
       create: async (args) => {
         const d = args.data;
-        const now = new Date().toISOString();
-        const id = d.id ?? crypto.randomUUID();
-        const payload = typeof d.payload === "object"
-          ? JSON.stringify(d.payload)
-          : d.payload;
-        await run(
-          db,
-          `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            tenantId,
-            d.tableName ?? d.table_name,
-            d.rowId ?? d.row_id,
-            d.op,
-            payload ?? "{}",
-            d.status ?? "pending",
-            now,
-          ],
-        );
-        return mapRowToCamel(
-          await oneRow(
-            db,
-            "SELECT * FROM sync_outbox WHERE tenant_id = ? AND id = ?",
-            [tenantId, id],
-          ),
-        )!;
+        const id = (d.id as string | undefined) ?? crypto.randomUUID();
+        const stmt = stmtInsertSyncOutbox(tenantId, { ...d, id });
+        await run(db, stmt.sql, stmt.args);
+        const back = stmtSelectOneWhere("sync_outbox", tenantId, { id });
+        return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
       },
       findMany: async (args = {}) => {
-        const { clause, params } = buildWhere(args.where);
-        let sql =
-          `SELECT * FROM sync_outbox WHERE ${clause} ORDER BY created_at ASC`;
-        if (args.take) sql += ` LIMIT ${args.take}`;
-        const rows = await allRows(db, sql, params);
+        const stmt = stmtSyncOutboxFindMany(tenantId, args.where ?? {}, args.take);
+        const rows = await allRows(db, stmt.sql, stmt.args);
         return rows.map(mapRowToCamel) as Record<string, any>[];
       },
     },

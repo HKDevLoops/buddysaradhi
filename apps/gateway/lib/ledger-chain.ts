@@ -5,7 +5,7 @@
 // unification, approved). Every function here mirrors core's `computeHash`,
 // `postLedgerEntry` tip read and payload serialisation exactly.
 import { createHash } from "node:crypto";
-import { oneRow, type SqlHandle } from "./sql.ts";
+import { oneRow, type SqlHandle, stmtTenantSecret, stmtChainTip } from "./sql.ts";
 
 /** The chain head for one (tenant, student) — the only inputs a new row needs. */
 export interface ChainTip {
@@ -91,11 +91,8 @@ export async function loadTenantSecret(
   db: SqlHandle,
   tenantId: string
 ): Promise<string> {
-  const row = await oneRow(
-    db,
-    "SELECT tenant_secret FROM settings WHERE tenant_id = ?",
-    [tenantId]
-  );
+  const stmt = stmtTenantSecret(tenantId);
+  const row = await oneRow(db, stmt.sql, stmt.args);
   if (!row || typeof row.tenant_secret !== "string" || row.tenant_secret.length === 0) {
     throw new Error(`Tenant settings not found for ${tenantId} (BR-LED-06)`);
   }
@@ -115,14 +112,8 @@ export async function loadChainTip(
   tenantId: string,
   studentId: string
 ): Promise<ChainTip> {
-  const row = await oneRow(
-    db,
-    `SELECT this_hash, balance_after_paise FROM ledger_entries
-      WHERE tenant_id = ? AND student_id = ?
-      ORDER BY created_at DESC, rowid DESC
-      LIMIT 1`,
-    [tenantId, studentId]
-  );
+  const stmt = stmtChainTip(tenantId, studentId);
+  const row = await oneRow(db, stmt.sql, stmt.args);
   if (!row) return { prevHash: null, balanceAfterPaise: 0 };
   if (typeof row.this_hash !== "string" || row.this_hash.length === 0) {
     // Rule 9: a chain head without `this_hash` is a broken chain, never a
