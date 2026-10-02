@@ -3,24 +3,44 @@
 export const dynamic = "force-static";
 
 // Implements: 18_Microservice_Architecture.md — provision-db client
+// + web/03_Auth_and_Provisioning.md §3.4 (manual retry) & §8.3 (expired
+// token recovery); RFC-003 §1 G-AUTH (one actionable state per failure).
 // This page is shown when a user needs their database provisioned.
 // It calls /api/provision which creates a real Turso DB and stores
 // credentials in Supabase user_metadata, then refreshes the session.
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle2, AlertCircle, KeyRound } from "lucide-react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { getCredentialHealthAction } from "@/server/actions/auth";
+import { assertSafeRedirectPath } from "@/server/auth-errors";
 import { Button } from "@/components/ui/button";
 import { log } from "@/lib/logger";
 
-type ProvisionStatus = "checking" | "creating" | "done" | "error";
+type ProvisionStatus = "checking" | "creating" | "done" | "error" | "expired";
+
+// Redirect-back intent (?next=) without useSearchParams — this page is
+// force-static, and useSearchParams would require a Suspense boundary at
+// prerender. Guarded for SSR (window undefined at prerender → default).
+function readIntentNext(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  try {
+    return assertSafeRedirectPath(new URLSearchParams(window.location.search).get("next"), "/dashboard");
+  } catch {
+    return "/dashboard";
+  }
+}
 
 export default function ProvisionPage() {
   const [status, setStatus] = useState<ProvisionStatus>("checking");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const router = useRouter();
   const supabase = createSupabaseBrowser();
+
+  // Redirect-back intent: expired/missing credentials route here with
+  // ?next=<safe-path>; validated same-origin, never off-site.
+  const [safeNext] = useState(readIntentNext);
 
   const provision = async () => {
     setStatus("checking");
@@ -43,13 +63,27 @@ export default function ProvisionPage() {
         !dbUrl.includes("dummy-local-dev-url") &&
         !dbUrl.includes("file:")
       ) {
-      // Already provisioned — just refresh session and hard-redirect
-      // so the middleware reads the fresh session token from the cookie.
-      await supabase.auth.refreshSession();
-      setStatus("done");
-      setTimeout(() => { window.location.href = '/dashboard'; }, 800);
-      return;
-
+        // Already provisioned — but a PRESENT db_url may hold an EXPIRED
+        // token (RFC-003 §0 incident: this exact fall-through produced the
+        // opaque "Could not load student"). Probe before redirecting.
+        const health = await getCredentialHealthAction(safeNext);
+        if (health.status === "healthy" || health.skipped) {
+          await supabase.auth.refreshSession();
+          setStatus("done");
+          setTimeout(() => { window.location.href = safeNext; }, 800);
+          return;
+        }
+        if (health.status === "expired-invalid") {
+          // Token rejected: refresh cannot mint Turso tokens (web/03 §3.1),
+          // so show the actionable expired state — never loop to /dashboard.
+          setStatus("expired");
+          return;
+        }
+        if (health.status === "unreachable") {
+          throw new Error("UPSTREAM: Database unreachable — check your connection and retry.");
+        }
+        // missing-unprovisioned with a stale db_url marker: fall through to
+        // the provision call below (idempotent — already_provisioned short-circuits).
       }
 
       setStatus("creating");
@@ -83,7 +117,8 @@ export default function ProvisionPage() {
       setStatus("done");
       // Hard navigation so the browser sends a fresh request with the
       // updated Supabase session cookie (which now contains db_url/db_token).
-      setTimeout(() => { window.location.href = '/dashboard'; }, 1200);
+      // Redirect-back intent preserved (?next=).
+      setTimeout(() => { window.location.href = safeNext; }, 1200);
 
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown provisioning error";
@@ -116,6 +151,12 @@ export default function ProvisionPage() {
       color: "bg-[var(--accent-emerald)]/20 text-[var(--accent-emerald)]",
       title: "Ready to go!",
       desc: "Redirecting you to your dashboard...",
+    },
+    expired: {
+      icon: <KeyRound className="w-12 h-12" />,
+      color: "bg-[var(--accent-amber)]/20 text-[var(--accent-amber)]",
+      title: "Credentials expired",
+      desc: "Your database credentials have expired and could not be refreshed automatically. Re-provision below — you will return to where you were.",
     },
     error: {
       icon: <AlertCircle className="w-12 h-12" />,
@@ -171,6 +212,23 @@ export default function ProvisionPage() {
             className="rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20 px-6"
           >
             Try Again
+          </Button>
+          <a
+            href="mailto:support@buddysaradhi.app"
+            className="text-xs text-gray-400 hover:text-gray-300 underline underline-offset-2"
+          >
+            Contact support
+          </a>
+        </div>
+      )}
+
+      {status === "expired" && (
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            onClick={provision}
+            className="rounded-xl neumo-raised bg-[var(--accent-amber)]/10 text-[var(--accent-amber)] hover:bg-[var(--accent-amber)]/20 px-6"
+          >
+            Re-provision workspace
           </Button>
           <a
             href="mailto:support@buddysaradhi.app"

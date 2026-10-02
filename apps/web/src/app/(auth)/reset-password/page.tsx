@@ -2,12 +2,21 @@
 
 export const dynamic = "force-static";
 
+// Implements: web/03_Auth_and_Provisioning.md §1 (recovery session owned by
+// Supabase; token expiry per Supabase defaults — this page sets no custom
+// expiry); 10_Security.md §8 (reset_completed audited); RFC-003 §1 G-AUTH.
+
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { auditAction } from "@/lib/logger";
 import { Loader2, ArrowLeft } from "lucide-react";
+
+// Client-side attempt friction (Supabase enforces the real token-attempt
+// limits server-side; this only slows a casual retry loop).
+const MAX_ATTEMPTS = 5;
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("");
@@ -15,6 +24,7 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [attempts, setAttempts] = useState(0);
   const router = useRouter();
 
   const handlePasswordReset = async (e: React.FormEvent) => {
@@ -41,13 +51,22 @@ export default function ResetPasswordPage() {
       return;
     }
 
+    if (attempts >= MAX_ATTEMPTS) {
+      setError("Too many attempts — request a fresh reset link and try again.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const supabase = createSupabaseBrowser();
       const { error: resetError } = await supabase.auth.updateUser({ password });
 
       if (resetError) {
+        setAttempts((n) => n + 1);
         setError(resetError.message);
       } else {
+        // Audited without PII (the logger never carries the password/token).
+        auditAction("reset_completed");
         setSuccessMsg("Password successfully reset! Redirecting to login...");
         setTimeout(() => {
           router.push("/login");

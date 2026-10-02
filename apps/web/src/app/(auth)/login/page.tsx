@@ -2,13 +2,21 @@
 
 export const dynamic = "force-static";
 
+// Implements: web/03_Auth_and_Provisioning.md §1 (Supabase-owned identity);
+// 10_Security.md §8 (login_failed audited without PII); RFC-003 §1 G-AUTH.
+
 import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { auditAction } from "@/lib/logger";
 import { Loader2 } from "lucide-react";
 import { GoogleIcon } from "@/components/ui/google-icon";
+
+// Client-side attempt friction (Supabase enforces the real account
+// rate limits server-side; this only slows a casual retry loop).
+const MAX_ATTEMPTS = 5;
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -17,6 +25,7 @@ export default function LoginPage() {
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [attempts, setAttempts] = useState(0);
   const router = useRouter();
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
@@ -36,6 +45,12 @@ export default function LoginPage() {
         return;
       }
 
+      if (attempts >= MAX_ATTEMPTS) {
+        setError("Too many attempts — wait a few minutes and try again.");
+        setLoading(false);
+        return;
+      }
+
       const supabase = createSupabaseBrowser();
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: formEmail,
@@ -43,6 +58,10 @@ export default function LoginPage() {
       });
 
       if (signInError) {
+        // Audited without PII: no email, no credential, no error payload
+        // (Supabase messages can echo identifiers). Abuse signal only.
+        auditAction("login_failed");
+        setAttempts((n) => n + 1);
         setError(signInError.message);
         setLoading(false);
       } else {

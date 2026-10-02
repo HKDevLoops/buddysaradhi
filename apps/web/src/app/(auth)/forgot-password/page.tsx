@@ -2,17 +2,25 @@
 
 export const dynamic = "force-static";
 
+// Implements: web/03_Auth_and_Provisioning.md §1 (Supabase-owned reset);
+// 10_Security.md §11 (rate-limited reset requests); RFC-003 §1 G-AUTH.
+
 import React, { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { requestPasswordResetAction } from "@/server/actions/auth";
+
+// Client-side resend friction (the server action enforces the real
+// 5-per-15min throttle per IP+email; this only stops double-clicks).
+const RESEND_COOLDOWN_MS = 60_000;
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [cooldownUntil, setCooldownUntil] = useState(0);
 
   const handleResetRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,16 +34,23 @@ export default function ForgotPasswordPage() {
       return;
     }
 
-    try {
-      const supabase = createSupabaseBrowser();
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+    if (Date.now() < cooldownUntil) {
+      setError("Please wait a minute before requesting another reset link.");
+      setLoading(false);
+      return;
+    }
 
-      if (resetError) {
-        setError(resetError.message);
+    try {
+      const res = await requestPasswordResetAction({ email, redirectTo: "/reset-password" });
+      if (!res.success) {
+        setError(res.error || "Could not send the reset link. Try again later.");
+        if (res.code === "RATE_LIMITED") {
+          setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
+        }
       } else {
+        // Generic either way — no account enumeration (10_Security.md §2).
         setSuccessMsg("Check your email for the password reset link.");
+        setCooldownUntil(Date.now() + RESEND_COOLDOWN_MS);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred.");
@@ -73,7 +88,7 @@ export default function ForgotPasswordPage() {
           <div className="pt-2">
             <Button 
               type="submit" 
-              disabled={loading || !email}
+              disabled={loading || !email || Date.now() < cooldownUntil}
               className="w-full py-6 rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/25 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Send Reset Link"}
