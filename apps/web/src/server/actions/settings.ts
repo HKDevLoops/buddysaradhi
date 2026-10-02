@@ -161,7 +161,10 @@ export async function verifyPinWithLadder(
   };
 }
 
-export function pinGateMessage(gate: PinGateResult): string {
+// Module-private (NOT exported): "use server" files may only export async
+// functions. PIN user copy for the 4 verify gates below; UI-facing copy also
+// lives in lib/app-errors.ts (CONFLICT/PIN states).
+function pinGateMessage(gate: PinGateResult): string {
   if (gate.code === "PIN_WIPE_REQUIRED") {
     return "Too many wrong PIN attempts. Sign out and sign back in to continue.";
   }
