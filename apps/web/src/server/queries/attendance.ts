@@ -1,8 +1,18 @@
 // Implements: 06_Attendance.md §3 — attendance for date view
 // All reads go through the API Gateway → attendance-svc. Falls back to direct DB.
+// web/02_State_and_Data_Flow.md §3.2 (today grid: staleTime 0 — never tenant-cached);
+// 12_Business_Rules.md BR-SYN-01 (cheap reads protect the sync contract);
+// 02_Core_Logic.md §9 (batch + cache as budget control);
+// docs/rfc/003-saas-overhaul.md workstream C + §0 (concurrent reads, 12s bounds).
 "use server";
 import { cache } from "react";
-import { gatewayGet, getAuthenticatedDb, createLibsqlProxy } from "@/server/get-db";
+import { gatewayGet, getAuthenticatedDb, createLibsqlProxy, getGatewayHeaders } from "@/server/get-db";
+import {
+  QUERY_TIMEOUT_MS,
+  getCached,
+  toTypedQueryError,
+  withQueryTimeout,
+} from "@/server/cache";
 import { log } from "@/lib/logger";
 
 interface AttendanceSession {
@@ -49,25 +59,35 @@ export const getAttendanceForDate = cache(
       const { client, tenantId } = await getAuthenticatedDb();
       const proxy = createLibsqlProxy(client);
 
-      // 1. Find session for this date
+      // BEFORE: 3 sequential round trips (session → roster → records).
+      // AFTER: 2 waves — session + roster concurrently (independent), then records
+      // (depends on session.id). Same rows, one fewer sequential wait; every wave
+      // bounded by QUERY_TIMEOUT_MS so a stalled DB never hangs the invocation.
       const sessionWhere: Record<string, unknown> = { tenantId, sessionDate: dateIso };
       if (batchId && batchId !== "all") sessionWhere.batchId = batchId;
-      const session = await proxy.attendanceSession.findFirst({
-        where: sessionWhere,
-      });
-
-      // 2. Active student roster
-      const roster = await proxy.student.findMany({
-        where: { tenantId, status: "active" },
-        orderBy: { firstName: "asc" },
-      });
+      const [session, roster] = await Promise.all([
+        withQueryTimeout(
+          proxy.attendanceSession.findFirst({ where: sessionWhere }),
+          QUERY_TIMEOUT_MS,
+        ),
+        withQueryTimeout(
+          proxy.student.findMany({
+            where: { tenantId, status: "active" },
+            orderBy: { firstName: "asc" },
+          }),
+          QUERY_TIMEOUT_MS,
+        ),
+      ]);
 
       // 3. Attendance records if session exists
       let records: StudentAttendanceRow[];
       if (session) {
-        const recs = await proxy.attendanceRecord.findMany({
-          where: { tenantId, sessionId: session.id },
-        });
+        const recs = await withQueryTimeout(
+          proxy.attendanceRecord.findMany({
+            where: { tenantId, sessionId: session.id },
+          }),
+          QUERY_TIMEOUT_MS,
+        );
         const byStu = new Map<string, any>(recs.map((r: any) => [r.studentId, r]));
         records = roster.map((s: any) => ({
           student_id: s.id,
@@ -98,17 +118,36 @@ export const getAttendanceForDate = cache(
 
       return { success: true, data: { session: mappedSession, records } };
     } catch (dbError) {
-      log.error("attendance_direct_db_failed", dbError instanceof Error ? dbError.message : String(dbError));
-      return {
-        success: false,
-        error: dbError instanceof Error ? dbError.message : "Failed to fetch attendance",
-      };
+      const typed = toTypedQueryError(dbError);
+      log.error("attendance_direct_db_failed", typed);
+      return { success: false, error: typed };
     }
   }
 );
 
 export const getBatches = cache(async () => {
-  return gatewayGet<Array<{ id: string; name: string; subject: string | null }>>(
-    "/api/v1/attendance/batches"
-  );
+  // Reference data (batch list changes rarely) → 63s tenant-scoped cache
+  // (web/02 §5; RFC-003 workstream C + §0 free-tier budgets).
+  try {
+    const { tenantId } = await getGatewayHeaders();
+    const data = await getCached<Array<{ id: string; name: string; subject: string | null }>>(
+      tenantId,
+      "attendance:batches",
+      async () => {
+        const res = await withQueryTimeout(
+          gatewayGet<Array<{ id: string; name: string; subject: string | null }>>(
+            "/api/v1/attendance/batches",
+          ),
+          QUERY_TIMEOUT_MS,
+        );
+        if (!res.success) throw new Error(res.error);
+        return res.data;
+      },
+    );
+    return { success: true as const, data };
+  } catch (err) {
+    const typed = toTypedQueryError(err);
+    log.error("batches_read_failed", typed);
+    return { success: false as const, error: typed };
+  }
 });

@@ -3,6 +3,7 @@ import { Student, StudentListRow } from "@buddysaradhi/shared";
 import { StudentFilters, SortCol } from "@/types/students";
 import { cache } from "react";
 import { getAuthenticatedDb, createLibsqlProxy, gatewayGet } from "@/server/get-db";
+import { QUERY_TIMEOUT_MS, toTypedQueryError, withQueryTimeout } from "@/server/cache";
 import { log } from "@/lib/logger";
 
 export const getStudents = cache(async (
@@ -13,21 +14,24 @@ export const getStudents = cache(async (
   sort: { col: SortCol; dir: 'asc' | 'desc' }
 ): Promise<{ success: boolean; data?: { students: StudentListRow[]; total: number }; error?: string }> => {
   try {
-    const res = await gatewayGet<{ students: StudentListRow[]; total: number }>(
-      "/api/v1/students",
-      {
-        search: searchQuery,
-        page: String(page),
-        pageSize: String(pageSize),
-        status: filters.status.join(","),
-        feeModels: filters.feeModels.join(","),
-        batchIds: filters.batchIds.join(","),
-        tagIds: filters.tagIds.join(","),
-        balanceRange: filters.balanceRange,
-        admittedInLast: filters.admittedInLast,
-        sortCol: sort.col,
-        sortDir: sort.dir,
-      }
+    const res = await withQueryTimeout(
+      gatewayGet<{ students: StudentListRow[]; total: number }>(
+        "/api/v1/students",
+        {
+          search: searchQuery,
+          page: String(page),
+          pageSize: String(pageSize),
+          status: filters.status.join(","),
+          feeModels: filters.feeModels.join(","),
+          batchIds: filters.batchIds.join(","),
+          tagIds: filters.tagIds.join(","),
+          balanceRange: filters.balanceRange,
+          admittedInLast: filters.admittedInLast,
+          sortCol: sort.col,
+          sortDir: sort.dir,
+        }
+      ),
+      QUERY_TIMEOUT_MS,
     );
 
     if (res.success) {
@@ -37,7 +41,18 @@ export const getStudents = cache(async (
     log.warn('get_students_gateway_failed_using_direct_db', res.error);
     const { client, tenantId } = await getAuthenticatedDb();
     const proxy = createLibsqlProxy(client);
-    const rawStudents = await proxy.student.findMany({ where: { tenantId } });
+    // Single-query fallback (no fan-out here): still bounded + typed.
+    // Student rows are NOT tenant-cached — roster churn is high (web/02 §3.2);
+    // per-request dedup comes from React cache() above.
+    // RFC-004 C4 note: list rows intentionally omit `updated_at` (the shared
+    // StudentListRowSchema contract has no timestamp field). Edit forms must
+    // capture the CAS base from the detail read below (`getStudent` maps
+    // `updated_at` in both the gateway and fallback branches), never from a
+    // list row.
+    const rawStudents = await withQueryTimeout(
+      proxy.student.findMany({ where: { tenantId } }),
+      QUERY_TIMEOUT_MS,
+    );
     const mapped = rawStudents.map((s: any) => ({
       id: s.id,
       code: s.code,
@@ -50,8 +65,9 @@ export const getStudents = cache(async (
     }));
     return { success: true, data: { students: mapped, total: mapped.length } };
   } catch (error) {
-    log.error('students_list_failed', error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch students" };
+    const typed = toTypedQueryError(error);
+    log.error('students_list_failed', typed);
+    return { success: false, error: typed };
   }
 });
 
@@ -59,7 +75,10 @@ export const getStudent = cache(async (
   studentId: string
 ): Promise<{ success: boolean; data?: Student; error?: string }> => {
   try {
-    const res = await gatewayGet<Record<string, unknown>>(`/api/v1/students/${studentId}`);
+    const res = await withQueryTimeout(
+      gatewayGet<Record<string, unknown>>(`/api/v1/students/${studentId}`),
+      QUERY_TIMEOUT_MS,
+    );
     if (res.success) {
       // Gateway returns raw ORM output (camelCase). Map to Student schema (mixed snake/camel).
       const g = res.data;
@@ -95,7 +114,10 @@ export const getStudent = cache(async (
     log.warn('get_student_gateway_failed_using_direct_db', res.error, { studentId });
     const { client, tenantId } = await getAuthenticatedDb();
     const proxy = createLibsqlProxy(client);
-    const raw = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+    const raw = await withQueryTimeout(
+      proxy.student.findFirst({ where: { tenantId, id: studentId } }),
+      QUERY_TIMEOUT_MS,
+    );
     if (!raw) {
       return { success: false, error: "Student not found" };
     }
@@ -127,7 +149,8 @@ export const getStudent = cache(async (
     };
     return { success: true, data: mapped };
   } catch (error) {
-    log.error('student_get_failed', error instanceof Error ? error.message : String(error), { studentId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch student" };
+    const typed = toTypedQueryError(error);
+    log.error('student_get_failed', typed, { studentId });
+    return { success: false, error: typed };
   }
 });
