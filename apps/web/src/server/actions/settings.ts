@@ -1,13 +1,13 @@
 "use server";
 
-import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlProxy } from "@/server/get-db";
+import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch } from "@/server/get-db";
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { z } from "zod";
 import { verifyPin, encryptBackup } from "@/lib/crypto";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
-import type { Client } from "@libsql/client";
+import type { LibsqlProxy } from "@/lib/libsql-proxy";
 import {
   evaluatePinLockout,
   isPinLockoutActive,
@@ -33,16 +33,23 @@ interface PinFailState {
   lockedUntilIso: string | null;
 }
 
-async function readPinFailState(client: Client, tenantId: string): Promise<PinFailState> {
-  const res = await client.execute({
-    sql: `SELECT action, metadata, created_at FROM audit_log
-          WHERE tenant_id = ? AND action IN ('pin_failed','pin_unlocked','pin_changed','pin_lockout')
-          ORDER BY created_at DESC LIMIT 16`,
-    args: [tenantId],
+// Implements: 11_Data_Model.md §4.17 (audit_log) via the Prisma model surface
+// (AGENTS.md §3.4 — no runtime raw SQL in apps/web). The proxy has no
+// ORDER BY + LIMIT + IN raw path for callers to use; `findMany` with
+// `action: { in: [...] }` + `orderBy` + `take` is the ORM spelling of the
+// previous SELECT.
+async function readPinFailState(db: LibsqlProxy, tenantId: string): Promise<PinFailState> {
+  const rows = await db.auditLog.findMany({
+    where: {
+      tenantId,
+      action: { in: ["pin_failed", "pin_unlocked", "pin_changed", "pin_lockout"] },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 16,
   });
   let consecutiveFails = 0;
   let lockedUntilIso: string | null = null;
-  for (const row of res.rows) {
+  for (const row of rows) {
     const action = row.action as string | undefined;
     if (action === "pin_lockout" && lockedUntilIso === null) {
       try {
@@ -62,17 +69,24 @@ async function readPinFailState(client: Client, tenantId: string): Promise<PinFa
 }
 
 async function writePinAudit(
-  client: Client,
+  db: LibsqlProxy,
   tenantId: string,
   action: string,
   metadata: Record<string, unknown>,
   actor?: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  await client.execute({
-    sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
-          VALUES (?, ?, ?, ?, 'settings', ?, ?, ?)`,
-    args: [crypto.randomUUID(), tenantId, actor ?? tenantId, action, tenantId, JSON.stringify(metadata), now],
+  await db.auditLog.create({
+    data: {
+      id: crypto.randomUUID(),
+      tenantId,
+      actor: actor ?? tenantId,
+      action,
+      refType: "settings",
+      refId: tenantId,
+      metadata: JSON.stringify(metadata),
+      createdAt: now,
+    },
   });
 }
 
@@ -91,16 +105,16 @@ export interface PinGateResult {
  * rows, and returns STABLE codes (UI mapping is workstream D's job).
  */
 export async function verifyPinWithLadder(
-  client: Client,
+  db: LibsqlProxy,
   tenantId: string,
   pin: string,
   pinHash: string,
 ): Promise<PinGateResult> {
   const nowIso = new Date().toISOString();
-  const state = await readPinFailState(client, tenantId);
+  const state = await readPinFailState(db, tenantId);
   const ladder = evaluatePinLockout(state.consecutiveFails);
   if (ladder.wipeRequired) {
-    await writePinAudit(client, tenantId, "pin_lockout_wipe", { fail_count: state.consecutiveFails }, "system");
+    await writePinAudit(db, tenantId, "pin_lockout_wipe", { fail_count: state.consecutiveFails }, "system");
     return { ok: false, code: "PIN_WIPE_REQUIRED", failCount: state.consecutiveFails };
   }
   if (ladder.locked) {
@@ -115,21 +129,21 @@ export async function verifyPinWithLadder(
   }
   const valid = await verifyPin(pin, pinHash);
   if (valid) {
-    await writePinAudit(client, tenantId, "pin_unlocked", {});
+    await writePinAudit(db, tenantId, "pin_unlocked", {});
     return { ok: true, failCount: 0 };
   }
   const failCount = state.consecutiveFails + 1;
   const next: PinLockoutState = evaluatePinLockout(failCount);
   if (next.wipeRequired) {
-    await writePinAudit(client, tenantId, "pin_failed", { fail_count: failCount });
-    await writePinAudit(client, tenantId, "pin_lockout_wipe", { fail_count: failCount }, "system");
+    await writePinAudit(db, tenantId, "pin_failed", { fail_count: failCount });
+    await writePinAudit(db, tenantId, "pin_lockout_wipe", { fail_count: failCount }, "system");
     return { ok: false, code: "PIN_WIPE_REQUIRED", failCount };
   }
   let retryInSeconds: number | undefined;
   if (next.locked) {
     const lockedUntilIso = new Date(Date.now() + next.lockoutMs).toISOString();
     await writePinAudit(
-      client,
+      db,
       tenantId,
       "pin_lockout",
       { fail_count: failCount, locked_until: lockedUntilIso },
@@ -137,7 +151,7 @@ export async function verifyPinWithLadder(
     );
     retryInSeconds = Math.ceil(next.lockoutMs / 1000);
   }
-  await writePinAudit(client, tenantId, "pin_failed", { fail_count: failCount });
+  await writePinAudit(db, tenantId, "pin_failed", { fail_count: failCount });
   return {
     ok: false,
     code: pinLockoutCode(next) ?? "PIN_INVALID",
@@ -166,22 +180,22 @@ export async function createBackupAction(passphrase: string) {
       return { success: false, error: "Passphrase must be at least 8 characters" };
     }
 
-    const { client, tenantId } = await getAuthenticatedDb();
+    const { db, tenantId } = await getAuthenticatedPrisma();
     // Rule 9 + AGENTS §3.4: a failed/missing-table read throws and is caught
     // below (typed failure). Never emit an empty-but-"successful" backup.
-    const [settingsRes, studentsRes, ledgerRes] = await Promise.all([
-      client.execute({ sql: "SELECT * FROM settings WHERE tenant_id = ?", args: [tenantId] }),
-      client.execute({ sql: "SELECT * FROM students WHERE tenant_id = ?", args: [tenantId] }),
-      client.execute({ sql: "SELECT * FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] }),
+    const [settingsRows, studentsRows, ledgerRows] = await Promise.all([
+      db.setting.findMany({ where: { tenantId } }),
+      db.student.findMany({ where: { tenantId } }),
+      db.ledgerEntry.findMany({ where: { tenantId } }),
     ]);
 
     const backupPayload = JSON.stringify({
       version: 1,
       tenantId,
       exportedAt: new Date().toISOString(),
-      settings: settingsRes.rows,
-      students: studentsRes.rows,
-      ledger: ledgerRes.rows,
+      settings: settingsRows,
+      students: studentsRows,
+      ledger: ledgerRows,
     });
 
     // Rule 8: the passphrase is the KDF input (Argon2id), not just a check —
@@ -206,40 +220,51 @@ export async function createBackupAction(passphrase: string) {
 
 export async function deleteTenantDataAction(pin: string) {
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
-    const settingsRow = await client.execute({
-      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
-      args: [tenantId],
-    });
-    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
-    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    const gate = await verifyPinWithLadder(db, tenantId, pin, pinHash);
     if (!gate.ok) {
       return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
     }
     const now = new Date().toISOString();
 
-    // Rule 7: archive + audit + sync_outbox in one batch
-    await client.batch(
-      [
-        {
-          sql: `UPDATE students SET status = 'archived', archived_at = ?, updated_at = ? WHERE tenant_id = ?`,
-          args: [now, now, tenantId],
+    // Rule 7: archive + audit + sync_outbox in one transaction.
+    // 11_Data_Model.md §4.18 CHECKs `op IN ('insert','update','soft_delete')` —
+    // the previous 'batch_archive' literal is normalised to 'update' (same
+    // tenant-wide archive payload, CHECK-valid op).
+    await db.$transaction([
+      db.student.update({
+        where: { tenantId },
+        data: { status: "archived", archivedAt: now, updatedAt: now },
+      }),
+      db.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "students",
+          rowId: tenantId,
+          op: "update",
+          payload: JSON.stringify({ archived_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'batch_archive', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, JSON.stringify({ archived_at: now }), now],
+      }),
+      db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "tenant",
+          refId: tenantId,
+          action: "tenant_data_deleted",
+          metadata: JSON.stringify({ deleted_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-                VALUES (?, ?, ?, 'tenant', ?, 'tenant_data_deleted', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ deleted_at: now }), now],
-        },
-      ],
-      "write",
-    );
+      }),
+    ]);
 
     invalidateTenant(tenantId); // workstream C wiring: full tenant wipe (data delete)
     return { success: true };
@@ -399,9 +424,8 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
     // Defensive pre-check (gateway CAS pending): re-read inside the action and
     // compare `updated_at`. Mismatch → typed CONFLICT, no write below runs.
     if (base.ms !== null) {
-      const { client, tenantId } = await getAuthenticatedDb();
-      const proxy = createLibsqlProxy(client);
-      const current = await proxy.setting.findFirst({ where: { tenantId } });
+      const { db, tenantId } = await getAuthenticatedPrisma();
+      const current = await db.setting.findFirst({ where: { tenantId } });
       const currentMs = settingsRowMs(current);
       if (current && currentMs !== null && currentMs !== base.ms) {
         return settingsConflict(current);
@@ -433,37 +457,49 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
       // Server-side CAS won a race after our pre-check: surface its 409 with
       // a fresh safe-projected row; nothing is written locally.
       if (isGatewayConflict(res.error)) {
-        const { client, tenantId } = await getAuthenticatedDb();
-        const proxy = createLibsqlProxy(client);
-        return settingsConflict(await proxy.setting.findFirst({ where: { tenantId } }));
+        const { db, tenantId } = await getAuthenticatedPrisma();
+        return settingsConflict(await db.setting.findFirst({ where: { tenantId } }));
       }
       log.warn('settings_gateway_update_failed_using_direct_db', res.error);
-      const { client, tenantId } = await getAuthenticatedDb();
-      const proxy = createLibsqlProxy(client);
+      const { db, tenantId } = await getAuthenticatedPrisma();
       const now = new Date().toISOString();
-      // The libsql proxy is raw SQL (no Prisma `@updatedAt` bump), so the
-      // fallback write stamps `updated_at` itself — otherwise the CAS base
-      // would never advance and every later write would falsely conflict.
-      await proxy.setting.upsert({
+      // The ORM surface does not auto-bump `updated_at` on this path, so the
+      // fallback write stamps it itself — otherwise the CAS base would never
+      // advance and every later write would falsely conflict.
+      await db.setting.upsert({
         where: { tenantId },
         create: { tenantId, updatedAt: now, ...updateData },
         update: { ...updateData, updatedAt: now },
       });
-      // Rule 7: every mutation writes sync_outbox + audit_log in same logical transaction
+      // Rule 7: every mutation writes sync_outbox + audit_log in the same
+      // transaction as the mutation (AGENTS.md §2; 11_Data_Model.md §4.18
+      // CHECK-valid op 'update'; audit action 'settings.update' preserved).
       const payload = JSON.stringify(updateData);
-      await client.batch(
-        [
-          {
-            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
-            args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
+      await db.$transaction([
+        db.syncOutbox.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            tableName: "settings",
+            rowId: tenantId,
+            op: "update",
+            payload,
+            createdAt: now,
           },
-          {
-            sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'settings.update', 'settings', ?, ?, ?)`,
-            args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ field, value }), now],
+        }),
+        db.auditLog.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            actor: tenantId,
+            action: "settings.update",
+            refType: "settings",
+            refId: tenantId,
+            metadata: JSON.stringify({ field, value }),
+            createdAt: now,
           },
-        ],
-        "write",
-      );
+        }),
+      ]);
     }
 
     revalidatePath("/settings");
@@ -509,9 +545,8 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
       return { success: false, error: base.error, code: "VALIDATION" as const };
     }
     if (base.ms !== null) {
-      const { client, tenantId } = await getAuthenticatedDb();
-      const proxy = createLibsqlProxy(client);
-      const current = await proxy.setting.findFirst({ where: { tenantId } });
+      const { db, tenantId } = await getAuthenticatedPrisma();
+      const current = await db.setting.findFirst({ where: { tenantId } });
       const currentMs = settingsRowMs(current);
       if (current && currentMs !== null && currentMs !== base.ms) {
         return settingsConflict(current);
@@ -523,35 +558,47 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
     const res = await gatewayPatch("/api/v1/settings", gatewayBody);
     if (!res.success) {
       if (isGatewayConflict(res.error)) {
-        const { client, tenantId } = await getAuthenticatedDb();
-        const proxy = createLibsqlProxy(client);
-        return settingsConflict(await proxy.setting.findFirst({ where: { tenantId } }));
+        const { db, tenantId } = await getAuthenticatedPrisma();
+        return settingsConflict(await db.setting.findFirst({ where: { tenantId } }));
       }
       log.warn('settings_batch_gateway_patch_failed_using_direct_db', res.error);
-      const { client, tenantId } = await getAuthenticatedDb();
-      const proxy = createLibsqlProxy(client);
+      const { db, tenantId } = await getAuthenticatedPrisma();
       const now = new Date().toISOString();
       // See updateSettingAction: stamp `updated_at` so the CAS base advances.
-      await proxy.setting.upsert({
+      await db.setting.upsert({
         where: { tenantId },
         create: { tenantId, updatedAt: now, ...updateData },
         update: { ...updateData, updatedAt: now },
       });
-      // Rule 7: batch sync_outbox + audit_log alongside settings mutation
+      // Rule 7: batch sync_outbox + audit_log alongside settings mutation —
+      // same transaction, CHECK-valid op 'update', audit action
+      // 'settings.batch_update' preserved.
       const payload = JSON.stringify(updateData);
-      await client.batch(
-        [
-          {
-            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
-            args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
+      await db.$transaction([
+        db.syncOutbox.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            tableName: "settings",
+            rowId: tenantId,
+            op: "update",
+            payload,
+            createdAt: now,
           },
-          {
-            sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'settings.batch_update', 'settings', ?, ?, ?)`,
-            args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ fields: Object.keys(updateData) }), now],
+        }),
+        db.auditLog.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            actor: tenantId,
+            action: "settings.batch_update",
+            refType: "settings",
+            refId: tenantId,
+            metadata: JSON.stringify({ fields: Object.keys(updateData) }),
+            createdAt: now,
           },
-        ],
-        "write",
-      );
+        }),
+      ]);
     }
 
     revalidatePath("/settings");
@@ -577,19 +624,16 @@ export async function deleteAccountAction(pin: string) {
     }
     const userId = user.id;
 
-    const { client, tenantId } = await getAuthenticatedDb();
+    const { db, tenantId } = await getAuthenticatedPrisma();
 
     // BR-SEC-04: re-confirm with PIN before the destructive erase — same gate
     // as deleteTenantDataAction. 10_Security.md §18.1 step 1.
-    const settingsRow = await client.execute({
-      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
-      args: [tenantId],
-    });
-    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
-    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    const gate = await verifyPinWithLadder(db, tenantId, pin, pinHash);
     if (!gate.ok) {
       return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
     }
@@ -599,14 +643,21 @@ export async function deleteAccountAction(pin: string) {
     // 10_Security.md §18.1 step 2: erase_initiated MUST be recorded before any
     // row is deleted (BR-SEC-03). Fail-closed: a thrown error here aborts the
     // erase before anything is destroyed.
-    await client.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'tenant', ?, 'erase_initiated', ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ scope: "account" }), now],
+    await db.auditLog.create({
+      data: {
+        id: crypto.randomUUID(),
+        tenantId,
+        actor: tenantId,
+        refType: "tenant",
+        refId: tenantId,
+        action: "erase_initiated",
+        metadata: JSON.stringify({ scope: "account" }),
+        createdAt: now,
+      },
     });
 
-    // 10_Security.md §18.1 step 4 — ONE atomic cascade (libsql batch = single
-    // transaction). The previous five sequential executes could half-erase an
+    // 10_Security.md §18.1 step 4 — ONE atomic cascade (a single $transaction).
+    // The previous five sequential executes could half-erase an
     // account (settings+students deleted, then a failure on the non-existent
     // `attendance` table aborted the rest).
     //
@@ -617,35 +668,32 @@ export async function deleteAccountAction(pin: string) {
     // app_state carries tenant_secret + audit_chain_head — removing them
     // crypto-shreds every tamper hash (§9.3) and orphans the audit chain
     // (§18.1 step 3). audit_log rows SURVIVE as the erase record (§18.1 step 7).
-    await client.batch(
-      [
-        { sql: "DELETE FROM ledger_entries WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM receipts WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM invoices WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM fee_schedule_items WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM fee_plans WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM attendance_records WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM attendance_sessions WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM student_documents WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM student_notes WHERE tenant_id = ?", args: [tenantId] },
-        // student_tags is a join table with no tenant_id column (single-tenant
-        // DB): unfiltered delete is the only valid form.
-        { sql: "DELETE FROM student_tags", args: [] },
-        { sql: "DELETE FROM tags WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM student_enrollments WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM guardians WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM students WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM batches WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM reminders WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM notifications WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM sync_outbox WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM backup_manifest WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM app_state WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM settings WHERE tenant_id = ?", args: [tenantId] },
-        { sql: "DELETE FROM tutors WHERE tenant_id = ?", args: [tenantId] },
-      ],
-      "write",
-    );
+    await db.$transaction([
+      db.ledgerEntry.deleteMany({ where: { tenantId } }),
+      db.receipt.deleteMany({ where: { tenantId } }),
+      db.invoice.deleteMany({ where: { tenantId } }),
+      db.feeScheduleItem.deleteMany({ where: { tenantId } }),
+      db.feePlan.deleteMany({ where: { tenantId } }),
+      db.attendanceRecord.deleteMany({ where: { tenantId } }),
+      db.attendanceSession.deleteMany({ where: { tenantId } }),
+      db.studentDocument.deleteMany({ where: { tenantId } }),
+      db.studentNote.deleteMany({ where: { tenantId } }),
+      // student_tags is a join table with no tenant_id column (single-tenant
+      // DB): unfiltered delete is the only valid form.
+      db.studentTag.deleteMany({}),
+      db.tag.deleteMany({ where: { tenantId } }),
+      db.studentEnrollment.deleteMany({ where: { tenantId } }),
+      db.guardian.deleteMany({ where: { tenantId } }),
+      db.student.deleteMany({ where: { tenantId } }),
+      db.batch.deleteMany({ where: { tenantId } }),
+      db.reminder.deleteMany({ where: { tenantId } }),
+      db.notification.deleteMany({ where: { tenantId } }),
+      db.syncOutbox.deleteMany({ where: { tenantId } }),
+      db.backupManifest.deleteMany({ where: { tenantId } }),
+      db.appState.deleteMany({ where: { tenantId } }),
+      db.setting.deleteMany({ where: { tenantId } }),
+      db.tutor.deleteMany({ where: { tenantId } }),
+    ]);
 
     const supabaseAdmin = await createSupabaseAdmin();
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
@@ -655,10 +703,17 @@ export async function deleteAccountAction(pin: string) {
 
     // §18.1 step 7: erase_complete recorded AFTER the cascade — this row and
     // erase_initiated are all that remain, the audit chain severed with them.
-    await client.execute({
-      sql: `INSERT INTO audit_log (id, tenant_id, actor, ref_type, ref_id, action, metadata, created_at)
-            VALUES (?, ?, ?, 'tenant', ?, 'erase_complete', ?, ?)`,
-      args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ scope: "account" }), now],
+    await db.auditLog.create({
+      data: {
+        id: crypto.randomUUID(),
+        tenantId,
+        actor: tenantId,
+        refType: "tenant",
+        refId: tenantId,
+        action: "erase_complete",
+        metadata: JSON.stringify({ scope: "account" }),
+        createdAt: now,
+      },
     });
 
     invalidateTenant(tenantId); // workstream C wiring: full tenant wipe (account erase)
@@ -678,16 +733,13 @@ export async function setPinAction(newPin: string, currentPin?: string) {
       return { success: false, error: "PIN must contain only digits" };
     }
 
-    const { client, tenantId } = await getAuthenticatedDb();
+    const { db, tenantId } = await getAuthenticatedPrisma();
 
     if (currentPin) {
-      const settingsRow = await client.execute({
-        sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
-        args: [tenantId],
-      });
-      const existingHash = settingsRow.rows[0]?.pin_hash as string | null;
+      const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+      const existingHash = (settingsRow?.pinHash ?? null) as string | null;
       if (existingHash) {
-        const gate = await verifyPinWithLadder(client, tenantId, currentPin, existingHash);
+        const gate = await verifyPinWithLadder(db, tenantId, currentPin, existingHash);
         if (!gate.ok) {
           return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
         }
@@ -698,27 +750,45 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     const newHash = await hashPin(newPin);
     const now = new Date().toISOString();
 
-    // Rule 7: pin update must also write sync_outbox + audit_log atomically
-    await client.batch(
-      [
-        {
-          sql: `INSERT INTO settings (tenant_id, institute_name, tenant_secret, pin_hash, created_at, updated_at)
-                VALUES (?, 'My Tuition', ?, ?, ?, ?)
-                ON CONFLICT (tenant_id) DO UPDATE SET pin_hash = excluded.pin_hash, updated_at = excluded.updated_at`,
-          args: [tenantId, crypto.randomUUID(), newHash, now, now],
+    // Rule 7: pin update must also write sync_outbox + audit_log atomically —
+    // the settings upsert plus both replication rows in one transaction.
+    await db.setting.upsert({
+      where: { tenantId },
+      create: {
+        tenantId,
+        instituteName: "My Tuition",
+        tenantSecret: crypto.randomUUID(),
+        pinHash: newHash,
+        createdAt: now,
+        updatedAt: now,
+      },
+      update: { pinHash: newHash, updatedAt: now },
+    });
+    await db.$transaction([
+      db.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "settings",
+          rowId: tenantId,
+          op: "update",
+          payload: JSON.stringify({ pin_updated_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, JSON.stringify({ pin_updated_at: now }), now],
+      }),
+      db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "pin.update",
+          refType: "settings",
+          refId: tenantId,
+          metadata: JSON.stringify({ updated_at: now }),
+          createdAt: now,
         },
-        {
-          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
-                VALUES (?, ?, ?, 'pin.update', 'settings', ?, ?, ?)`,
-          args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ updated_at: now }), now],
-        },
-      ],
-      "write",
-    );
+      }),
+    ]);
 
     invalidateTenant(tenantId, "settings:"); // workstream C wiring: pin change may insert settings row
     return { success: true };
@@ -730,16 +800,13 @@ export async function setPinAction(newPin: string, currentPin?: string) {
 
 export async function verifyPinAction(pin: string) {
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
-    const settingsRow = await client.execute({
-      sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
-      args: [tenantId],
-    });
-    const pinHash = settingsRow.rows[0]?.pin_hash as string | null;
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
     if (!pinHash) {
       return { success: false, error: "No PIN configured", configured: false };
     }
-    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    const gate = await verifyPinWithLadder(db, tenantId, pin, pinHash);
     if (!gate.ok) {
       return {
         success: false,
