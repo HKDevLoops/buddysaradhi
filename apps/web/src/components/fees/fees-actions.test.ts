@@ -4,16 +4,17 @@
 // 10_Security.md §9, 14_Edge_Cases.md EC-F-02/EC-L-07.
 //
 // Boundary strategy (AGENTS §7.3 — never mock the ledger): the LEDGER path
-// (`@buddysaradhi/core` + a real file-backed libSQL DB) is REAL. Only the
-// session seam (`getAuthenticatedDb`/`getAuthenticatedPrisma`) and the
-// NETWORK (`gatewayPost`, `next/cache`) are stubbed. DDL below is test setup
-// only — never runtime (AGENTS §3.4).
+// (`@buddysaradhi/core` + the ORM surface over a real file-backed libSQL DB) is
+// REAL. Only the session seam (`getAuthenticatedDb`/`getAuthenticatedPrisma`)
+// and the NETWORK (`gatewayPost`, `next/cache`) are stubbed. DDL below is test
+// setup only — never runtime (AGENTS §3.4).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createClient, type Client } from "@libsql/client";
 import { randomUUID } from "crypto";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createLibsqlProxy } from "@/lib/libsql-proxy";
 
 const mocks = vi.hoisted(() => ({
   getAuthenticatedDb: vi.fn(),
@@ -51,7 +52,7 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
     "CREATE TABLE audit_log (id TEXT PRIMARY KEY, tenant_id TEXT, actor TEXT, action TEXT, ref_type TEXT, ref_id TEXT, metadata TEXT, created_at TEXT)"
   );
   await client.execute(
-    "CREATE TABLE sync_outbox (id TEXT PRIMARY KEY, tenant_id TEXT, table_name TEXT, row_id TEXT, op TEXT, payload TEXT, created_at TEXT)"
+    "CREATE TABLE sync_outbox (id TEXT PRIMARY KEY, tenant_id TEXT, table_name TEXT, row_id TEXT, op TEXT, payload TEXT, status TEXT DEFAULT 'pending', created_at TEXT)"
   );
   await client.execute(
     "CREATE TABLE invoices (id TEXT PRIMARY KEY, tenant_id TEXT, number TEXT, student_id TEXT, issue_date TEXT, due_date TEXT, subtotal INTEGER, discount INTEGER, extra_charges INTEGER, total INTEGER, status TEXT, voided_at TEXT, tamper_hash TEXT, created_at TEXT, updated_at TEXT)"
@@ -163,7 +164,10 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
     await seedTenant(client, studentId, 300000);
     mocks.getAuthenticatedDb.mockResolvedValue({ client, userId: TENANT, tenantId: TENANT });
     mocks.getAuthenticatedPrisma.mockResolvedValue({
-      db: { student: { findUnique: async () => ({ balancePaise: 300000 }) } },
+      // The REAL ORM surface over the REAL test DB: the payment now runs
+      // through the ORM dialect (AGENTS.md §3.4), so the shim - not a stub -
+      // is what writes the rows this file then asserts on.
+      db: createLibsqlProxy(client),
       userId: TENANT,
       tenantId: TENANT,
     });
@@ -196,7 +200,10 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
     await seedTenant(client, studentId, 300000);
     mocks.getAuthenticatedDb.mockResolvedValue({ client, userId: TENANT, tenantId: TENANT });
     mocks.getAuthenticatedPrisma.mockResolvedValue({
-      db: { student: { findUnique: async () => ({ balancePaise: 300000 }) } },
+      // The REAL ORM surface over the REAL test DB: the payment now runs
+      // through the ORM dialect (AGENTS.md §3.4), so the shim - not a stub -
+      // is what writes the rows this file then asserts on.
+      db: createLibsqlProxy(client),
       userId: TENANT,
       tenantId: TENANT,
     });
@@ -219,7 +226,10 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
     await seedInvoice(client, invoiceId, studentId, 300000);
     mocks.getAuthenticatedDb.mockResolvedValue({ client, userId: TENANT, tenantId: TENANT });
     mocks.getAuthenticatedPrisma.mockResolvedValue({
-      db: { student: { findUnique: async () => ({ balancePaise: 300000 }) } },
+      // The REAL ORM surface over the REAL test DB: the payment now runs
+      // through the ORM dialect (AGENTS.md §3.4), so the shim - not a stub -
+      // is what writes the rows this file then asserts on.
+      db: createLibsqlProxy(client),
       userId: TENANT,
       tenantId: TENANT,
     });

@@ -169,6 +169,38 @@ function isAtomicNumberOp(value: unknown): value is AtomicNumberOp {
 }
 
 /**
+ * `ORDER BY` for the first key of an `orderBy` argument (Prisma parity: the
+ * shim supports the single-key form every caller in this repo uses).
+ */
+function buildOrderClause(orderBy: Record<string, unknown> | undefined): string {
+  if (!orderBy) return "";
+  const keys = Object.keys(orderBy);
+  if (keys.length === 0) return "";
+  const colKey = keys[0];
+  if (!colKey) return "";
+  const dir = String(orderBy[colKey]).toUpperCase() === "DESC" ? "DESC" : "ASC";
+  return `ORDER BY "${toDbCol(colKey)}" ${dir}`;
+}
+
+/**
+ * Apply a `select` projection to a camelCased row. Prisma returns only the
+ * requested columns; projecting here keeps callers that read a projected row
+ * (e.g. the ledger chain tip) behaving the same on either model surface.
+ */
+function projectRow(
+  row: Record<string, any>,
+  select: Record<string, unknown> | undefined,
+): Record<string, any> {
+  if (!select || Object.keys(select).length === 0) return row;
+  const out: Record<string, any> = {};
+  for (const key of Object.keys(select)) {
+    if (select[key] === false) continue;
+    if (key in row) out[key] = row[key];
+  }
+  return out;
+}
+
+/**
  * Implements: AGENTS.md §3.4 (all runtime DB access goes through the Prisma
  * model surface; no `$queryRaw` / `$executeRaw` / raw SQL at runtime).
  *
@@ -179,13 +211,18 @@ function isAtomicNumberOp(value: unknown): value is AtomicNumberOp {
  * (audit: reviews/overhaul-audit-report-2026-09-26.md, "libsql-proxy").
  */
 export interface ProxyModel {
-  findUnique(args: { where: ProxyWhere }): Promise<Record<string, any> | null>;
-  findFirst(args?: { where?: ProxyWhere }): Promise<Record<string, any> | null>;
+  findUnique(args: { where: ProxyWhere; select?: ProxyWhere }): Promise<Record<string, any> | null>;
+  findFirst(args?: {
+    where?: ProxyWhere;
+    orderBy?: ProxyWhere;
+    select?: ProxyWhere;
+  }): Promise<Record<string, any> | null>;
   findMany(args?: {
     where?: ProxyWhere;
     orderBy?: ProxyWhere;
     skip?: number;
     take?: number;
+    select?: ProxyWhere;
   }): Promise<Record<string, any>[]>;
   count(args?: { where?: ProxyWhere }): Promise<number>;
   aggregate(args?: Record<string, unknown>): Promise<Record<string, any>>;
@@ -219,9 +256,27 @@ export interface ProxyTransaction {
   (tasks: Promise<unknown>[]): Promise<never>;
 }
 
-export type LibsqlProxy = Record<string, ProxyModel> & {
-  $transaction: ProxyTransaction;
-};
+/**
+ * The models this surface names explicitly. Declaring them (rather than
+ * relying only on the catch-all index signature) is what lets a caller pass
+ * the proxy to a package that types the model surface structurally — e.g.
+ * `packages/core/src/feesPrisma.ts` (the invoice/payment ORM dialect), whose
+ * `$transaction` callback must accept a transaction handle typed as its own
+ * `OrmTx`. Everything else resolves through the index signature below.
+ */
+export interface ProxyModels {
+  setting: ProxyModel;
+  student: ProxyModel;
+  invoice: ProxyModel;
+  ledgerEntry: ProxyModel;
+  syncOutbox: ProxyModel;
+  auditLog: ProxyModel;
+}
+
+export type LibsqlProxy = ProxyModels &
+  Record<string, ProxyModel> & {
+    $transaction: ProxyTransaction;
+  };
 
 export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
   const modelProxy = (modelName: string) => {
@@ -254,31 +309,37 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
     const tableName = tableMap[modelName] || modelName;
 
     return {
-      findUnique: async ({ where }: any) => {
+      findUnique: async ({ where, select }: any) => {
         const { whereClause, vals } = buildWhereClause(where);
         const res = await execSafe(client, `SELECT * FROM "${tableName}" ${whereClause} LIMIT 1`, vals);
-        return res.rows[0] ? toJsRow(res.rows[0]) : null;
+        return res.rows[0] ? projectRow(toJsRow(res.rows[0]), select) : null;
       },
-      findFirst: async ({ where }: any = {}) => {
+      // `orderBy` + `select` are honoured here (they were silently ignored):
+      // "the latest ledger row for this student" is read with
+      // `orderBy: { createdAt: "desc" }`, and without it SQLite returns an
+      // arbitrary row — which produced a wrong chain tip and a wrong running
+      // balance on the ORM payment path (caught by
+      // packages/core/src/feesDialectParity.test.ts).
+      findFirst: async ({ where, orderBy, select }: any = {}) => {
         const { whereClause, vals } = buildWhereClause(where);
-        const res = await execSafe(client, `SELECT * FROM "${tableName}" ${whereClause} LIMIT 1`, vals);
-        return res.rows[0] ? toJsRow(res.rows[0]) : null;
+        const orderClause = buildOrderClause(orderBy);
+        const res = await execSafe(
+          client,
+          `SELECT * FROM "${tableName}" ${whereClause} ${orderClause} LIMIT 1`.trim(),
+          vals,
+        );
+        return res.rows[0] ? projectRow(toJsRow(res.rows[0]), select) : null;
       },
-      findMany: async ({ where, orderBy, skip, take }: any = {}) => {
+      findMany: async ({ where, orderBy, skip, take, select }: any = {}) => {
         const { whereClause, vals } = buildWhereClause(where);
-        let orderClause = "";
-        if (orderBy) {
-          const colKey = Object.keys(orderBy)[0];
-          const dir = String(orderBy[colKey]).toUpperCase() === "DESC" ? "DESC" : "ASC";
-          orderClause = `ORDER BY "${toDbCol(colKey)}" ${dir}`;
-        }
+        const orderClause = buildOrderClause(orderBy);
         let limitClause = "";
         if (take !== undefined) {
           limitClause = `LIMIT ${Number(take)} OFFSET ${Number(skip || 0)}`;
         }
         const sql = `SELECT * FROM "${tableName}" ${whereClause} ${orderClause} ${limitClause}`.trim();
         const res = await execSafe(client, sql, vals);
-        return res.rows.map(toJsRow);
+        return res.rows.map((row) => projectRow(toJsRow(row), select));
       },
       count: async ({ where }: any = {}) => {
         const { whereClause, vals } = buildWhereClause(where);

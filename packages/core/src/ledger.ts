@@ -23,6 +23,14 @@ export interface LedgerEntryInput {
   creditPaise: number;
   description?: string;
   voidOfId?: string;
+  /**
+   * Links the row to the invoice it settles. Additive so the invoice/payment
+   * flows (`feesFlow.ts`) can attribute a payment to an invoice through the
+   * ORM dialect exactly as the libsql dialect does (`postLedgerEntrySql`
+   * already carried it) — 07 §9.6 step 5 sums credits per `invoice_id`.
+   * Omitted (null) for rows that settle nothing.
+   */
+  invoiceId?: string | null;
   occurredOn: string;
   source?: string;
 }
@@ -274,6 +282,7 @@ export async function postLedgerEntry(
           id: entryId,
           tenantId: input.tenantId,
           studentId: input.studentId,
+          invoiceId: input.invoiceId ?? null,
           type: input.type,
           debitPaise: input.debitPaise,
           creditPaise: input.creditPaise,
@@ -285,14 +294,31 @@ export async function postLedgerEntry(
           occurredOn: input.occurredOn,
           source: source,
           createdAt: new Date(now),
+          // Dialect parity (feesDialectParity.test.ts): the libsql writer sets
+          // `updated_at` explicitly because it is NOT NULL, and the generated
+          // Prisma client only auto-fills `@updatedAt` on its own surface. Any
+          // other ORM implementation of the model surface (the web shim, the
+          // gateway's orm) would leave the column unset and abort the INSERT.
+          updatedAt: new Date(now),
         },
       });
 
-      // 4b. Sync balance to Student
-      await tx.student.update({
-        where: { id: input.studentId },
-        data: { balancePaise: newBalance },
+      // 4b. Sync balance to Student, scoped by tenant and proved by row count.
+      // The libsql dialect does exactly this (`ledgerSql.ts` step 4b, including
+      // the `updated_at` stamp): a 0-row write means the student does not exist
+      // for THIS tenant and must abort — otherwise a mismatched (tenant,
+      // student) pair would silently clobber another tutor's balance (F5,
+      // defence-in-depth P-DM1). The stamp also advances the CAS base that
+      // `updateStudentAction` compares against (RFC-004 C4).
+      const balanceWrite = await tx.student.updateMany({
+        where: { id: input.studentId, tenantId: input.tenantId },
+        data: { balancePaise: newBalance, updatedAt: new Date(now) },
       });
+      if (balanceWrite.count === 0) {
+        throw new Error(
+          `STUDENT_NOT_FOUND: no student ${input.studentId} in tenant ${input.tenantId}`,
+        );
+      }
 
       // 4c. Rule 7 / BR-SYN-01: the derived student balance is a local write
       // too — queue its replication row in the same transaction (both dialects:

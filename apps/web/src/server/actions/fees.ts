@@ -2,14 +2,16 @@
 
 import { z } from "zod";
 import {
-  getAuthenticatedDb,
   getAuthenticatedPrisma,
   gatewayPost,
 } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { paiseSub } from "@buddysaradhi/shared";
-import { createInvoiceSql, recordPaymentSql } from "@buddysaradhi/core/fees";
+import {
+  createInvoicePrisma,
+  recordPaymentPrisma,
+} from "@buddysaradhi/core/feesPrisma";
 import {
   buildLedgerDescription,
   CreateInvoicePayloadSchema,
@@ -44,6 +46,11 @@ import {
 // values — amount, method, reference, date and description are never
 // re-derived here. Description enrichment is the deterministic,
 // contract-tested `buildLedgerDescription`, not a silent recompute.
+//
+// ORM-ONLY (AGENTS.md §3.4): the invoice/payment flows are the ORM dialect
+// (`feesPrisma.ts`) over the sanctioned model surface, so this action no longer
+// needs a raw libSQL client at all. Both dialects delegate to ONE money flow
+// (`feesFlow.ts`), so the web and gateway books cannot diverge.
 //
 // Free-tier budgets (RFC-003 §0): one DB read (indexed student PK) + one
 // core write transaction per payment; one 12s-timeout gateway POST per void;
@@ -82,12 +89,11 @@ export async function recordPaymentAction(
   }
   const payload = parsed.data;
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
+    const { db, tenantId } = await getAuthenticatedPrisma();
     // BR-M-04 soft guard, server-enforced (G-HARDEN: never trust client
     // state): when the known balance is covered, an excess requires the
     // tutor's explicit advance acknowledgement from the preview. One indexed
     // PK read — the write itself stays a single core transaction.
-    const { db } = await getAuthenticatedPrisma();
     const student = await db.student.findUnique({
       where: { id: payload.studentId, tenantId },
     });
@@ -117,7 +123,7 @@ export async function recordPaymentAction(
     // under a monotonic number (F3). The posted values are EXACTLY the
     // previewed ones; only the description gains the deterministic
     // method/reference tag (contract-tested, preserved into audit metadata).
-    const result = await recordPaymentSql(client, {
+    const result = await recordPaymentPrisma(db, {
       tenantId,
       studentId: payload.studentId,
       amountPaise: payload.amountPaise,
@@ -247,10 +253,10 @@ export async function createInvoiceAction(
     return { success: false as const, error: parsed.error.message };
   }
   try {
-    const { client, tenantId } = await getAuthenticatedDb();
+    const { db, tenantId } = await getAuthenticatedPrisma();
     // 07 §9 line 419: seq increment → invoice row with tamper_hash →
     // FEE_CHARGED → audit_log → sync_outbox, in ONE transaction.
-    const result = await createInvoiceSql(client, {
+    const result = await createInvoicePrisma(db, {
       tenantId,
       studentId: parsed.data.studentId,
       amountPaise: parsed.data.amountPaise,

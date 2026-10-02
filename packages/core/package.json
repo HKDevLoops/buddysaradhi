@@ -12,6 +12,14 @@
       "types": "./dist/fees.d.ts",
       "default": "./dist/fees.js"
     },
+    "./feesFlow": {
+      "types": "./dist/feesFlow.d.ts",
+      "default": "./dist/feesFlow.js"
+    },
+    "./feesPrisma": {
+      "types": "./dist/feesPrisma.d.ts",
+      "default": "./dist/feesPrisma.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
