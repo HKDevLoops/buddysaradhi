@@ -6,6 +6,13 @@ import { createInvoiceAction } from "@/server/actions/fees";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X, FileText } from "lucide-react";
 import { format } from "date-fns";
+import { paiseAdd } from "@buddysaradhi/shared";
+import type { getLedgerForStudent } from "@/server/queries/fees";
+import type { getStudentsForFees } from "@/server/queries/fees";
+import { rupeesStringToPaise } from "./payment-contract";
+
+type LedgerQueryData = Awaited<ReturnType<typeof getLedgerForStudent>>;
+type FeesStudentsQueryData = Awaited<ReturnType<typeof getStudentsForFees>>;
 
 
 interface GenerateInvoiceSheetProps {
@@ -22,22 +29,34 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
   const [dateIso, setDateIso] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const mutation = useMutation({
-    mutationFn: (amountMinor: number) => 
+    mutationFn: (amountMinor: number) =>
       createInvoiceAction(studentId!, amountMinor, description, dateIso),
     onMutate: async (amountMinor) => {
       await queryClient.cancelQueries({ queryKey: ['ledger'] });
       await queryClient.cancelQueries({ queryKey: ['fees-students'] });
 
-      const prevLedger = queryClient.getQueryData(['ledger', studentId]);
-      const prevStudents = queryClient.getQueryData(['fees-students', ]);
+      const prevLedger = queryClient.getQueryData<LedgerQueryData>(['ledger', studentId]);
+      const prevStudents = queryClient.getQueryData<FeesStudentsQueryData>(['fees-students', ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      queryClient.setQueryData(['fees-ledger', studentId], (old: { data: any[] } | undefined) => {
-        if (!old?.data) return old;
-        const newEntry = {
+      // Optimistic row in PAISE (paise feed — never rupees here).
+      queryClient.setQueryData<LedgerQueryData>(['ledger', studentId], (old) => {
+        if (!old || old.success === false || !Array.isArray(old.data)) return old;
+        const template = old.data[0];
+        const optimistic = {
+          ...(template ?? {
+            id: "",
+            type: "FEE_CHARGED",
+            debit: 0,
+            credit: 0,
+            occurred_on: dateIso,
+            receipt_no: null,
+            description: null,
+            isVoid: false,
+            this_hash: null,
+          }),
           id: 'temp-' + Date.now(),
           type: 'FEE_CHARGED',
-          debit: amountMinor / 100,
+          debit: amountMinor,
           credit: 0,
           occurred_on: dateIso,
           receipt_no: null,
@@ -45,21 +64,15 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
           isVoid: false,
           this_hash: 'calculating...'
         };
-        const newData = [newEntry, ...old.data].sort((a, b) => {
-           if (a.occurred_on > b.occurred_on) return -1;
-           if (a.occurred_on < b.occurred_on) return 1;
-           return 0;
-        });
-        return { ...old, data: newData };
+        return { ...old, data: [optimistic, ...old.data] };
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      queryClient.setQueryData(['fees-students', ""], (old: { data: any[] } | undefined) => {
-        if (!old?.data) return old;
+      queryClient.setQueryData<FeesStudentsQueryData>(['fees-students', ""], (old) => {
+        if (!old || old.success === false || !Array.isArray(old.data)) return old;
         return {
           ...old,
-          data: old.data.map((s: { id: string; balance_due: number; [key: string]: unknown }) => 
-            s.id === studentId ? { ...s, balance_due: s.balance_due + (amountMinor / 100) } : s
+          data: old.data.map((s) =>
+            s.id === studentId ? { ...s, balance_due: paiseAdd(s.balance_due, amountMinor) } : s
           )
         };
       });
@@ -68,9 +81,12 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
 
       return { prevLedger, prevStudents };
     },
-    onError: (err, newAmount, context) => {
-      queryClient.setQueryData(['ledger', studentId], context?.prevLedger);
-      queryClient.setQueryData(['fees-students', ], context?.prevStudents);
+    onError: (_err, _newAmount, context) => {
+      const ctx = context as
+        | { prevLedger?: LedgerQueryData; prevStudents?: FeesStudentsQueryData }
+        | undefined;
+      if (ctx?.prevLedger) queryClient.setQueryData(['ledger', studentId], ctx.prevLedger);
+      if (ctx?.prevStudents) queryClient.setQueryData(['fees-students', ], ctx.prevStudents);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['ledger'] });
@@ -88,11 +104,9 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentId || !amount) return;
-    // BR-M-01: convert display rupees → integer paise safely (no float drift).
-    const rupees = Number(amount);
-    if (!Number.isFinite(rupees) || rupees <= 0) return;
-    const amountMinor = Math.round(rupees * 100);
-    if (!Number.isInteger(amountMinor) || amountMinor <= 0) return;
+    // BR-M-01: rupee string → integer paise with integer math only (no float).
+    const amountMinor = rupeesStringToPaise(amount);
+    if (amountMinor === null) return;
     mutation.mutate(amountMinor);
   };
 
@@ -113,9 +127,10 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
             <FileText className="w-5 h-5 text-[var(--accent-cyan)]" />
             Generate Invoice
           </h2>
-          <button 
+          <button
             onClick={closeSheet}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            aria-label="Close generate invoice sheet"
+            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -139,11 +154,10 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                 <label htmlFor="invoice-amount" className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Amount (₹)</label>
                 <div className="relative">
                   <span className="absolute left-4 top-3 text-[var(--text-muted)] font-medium">₹</span>
-                  <input 
+                  <input
                     id="invoice-amount"
-                    type="number" 
-                    step="0.01"
-                    min="1"
+                    type="text"
+                    inputMode="decimal"
                     required
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -187,11 +201,11 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
         </div>
 
         <div className="p-6 border-t border-[var(--border-default)] bg-[var(--bg-surface-raised)]/30">
-          <button 
+          <button
             type="submit"
             form="invoice-form"
             disabled={!studentId || !amount || mutation.isPending}
-            className="w-full neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--text-on-accent)] bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-violet)] shadow-[0_0_15px_rgba(0,255,157,0.3)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
+            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--text-on-accent)] bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-violet)] shadow-[0_0_15px_rgba(0,255,157,0.3)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
           >
             {mutation.isPending ? "Generating..." : "Generate Invoice"}
           </button>

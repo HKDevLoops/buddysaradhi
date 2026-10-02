@@ -1,15 +1,30 @@
 "use client";
 
 // Implements: UI/web/06_Fees_and_Payments.md — LedgerTable (TutorOS ledger feed)
-// Renders the chronological transaction feed for a student with type-badged rows.
-// Append-only ledger: this component only renders + voids (via existing action).
+// 07_Fees_and_Payments.md §6.3 (immutable per-student ledger with VOID rows +
+// void linkage) + §9.10 (void receipt with PIN + typed reason) + §10.2
+// BR-LED-02/BR-LED-03 (append-only, void linkage); 12_Business_Rules.md
+// BR-LED-04/BR-LED-05 (reversing entry, never void-a-void), BR-M-01 (paise);
+// 10_Security.md §4 (void = sensitive mutation, PIN) + §9 (void is a new row);
+// 02_Core_Logic.md §13.6 (voidLedgerEntry); 14_Edge_Cases.md EC-F-05 (invoice
+// reverts), EC-L-02 (void-of-void blocked), EC-L-07 (receipt gap intentional).
+//
+// Audit trail per student: every row shows entry type (chip + icon + word),
+// business date, receipt number, the VOID linkage (`reverses_entry_id` —
+// "↺ reverses …"), and the derived running balance. The gateway already
+// ships `reverses_entry_id` in this payload (no extra bytes — free-tier
+// minimal); the local row type below declares it because the query's inline
+// type omits it (queries are another workstream's scope — not widened here).
+// Actor/`created_at` are NOT in this payload (gateway parity gap — reported).
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getLedgerForStudent } from "@/server/queries/fees";
 import { voidReceiptAction } from "@/server/actions/fees";
 import { useFeesStore } from "@/stores/fees-store";
-import { formatINR } from "@buddysaradhi/shared";
+import { formatINR, paiseAdd, paiseSub } from "@buddysaradhi/shared";
+import { VoidReasonSchema } from "./payment-contract";
+import { mintIntentKey } from "@/lib/intent-key";
 import { format, parseISO } from "date-fns";
 import { Loader2, Plus, Ban, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,18 +39,17 @@ import {
   ArrowDownToLine,
 } from "lucide-react";
 
-interface LedgerEntry {
-  id: string;
-  type: string;
-  occurred_on: string;
-  description: string | null;
-  receipt_no?: string | null;
-  this_hash?: string | null;
-  debit: number;
-  credit: number;
-  isVoid?: boolean;
-  balance: number;
-}
+type LedgerQueryData = Awaited<ReturnType<typeof getLedgerForStudent>>;
+type LedgerQueryRow = LedgerQueryData["data"][number];
+
+// The gateway GET /api/v1/ledger payload carries these fields even though
+// the query's inline type omits them (free-tier: already in the payload, so
+// declaring them costs zero extra bytes). No cast — an intersection over the
+// inferred row type.
+type LedgerEntry = LedgerQueryRow & {
+  reverses_entry_id?: string | null;
+  balance_after?: number | null;
+};
 
 interface LedgerTableProps {
   studentId: string;
@@ -72,35 +86,75 @@ function entryMeta(type: string): EntryMeta {
 export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
   const { setPaymentSheetOpen, setInvoiceSheetOpen } = useFeesStore();
   const queryClient = useQueryClient();
-  const [voidEntryId, setVoidEntryId] = useState<string | null>(null);
-  const [voidPin, setVoidPin] = useState("");
+const [voidEntryId, setVoidEntryId] = useState<string | null>(null);
+const [voidPin, setVoidPin] = useState("");
+const [voidReason, setVoidReason] = useState("");
+const [voidError, setVoidError] = useState<string | null>(null);
+// RFC-004 C1: one intent key per modal open — double-click confirm, aborted
+// POST retried, or the same void echoed from another device all replay
+// instead of double-voiding (gateway idempotency store is the enforcer).
+const [voidKey, setVoidKey] = useState<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["ledger", studentId],
     queryFn: () => getLedgerForStudent(studentId),
   });
 
-  const voidMutation = useMutation({
-    mutationFn: () => voidReceiptAction(voidEntryId!, voidPin),
-    onSuccess: (res) => {
-      if (res.success) {
-        queryClient.invalidateQueries({ queryKey: ["ledger"] });
-        queryClient.invalidateQueries({ queryKey: ["fees-students"] });
-        setVoidEntryId(null);
-        setVoidPin("");
-      }
+const voidMutation = useMutation({
+  mutationFn: () => voidReceiptAction(voidEntryId ?? "", voidPin, voidReason, { intentKey: voidKey }),
+  onSuccess: (res) => {
+    if (res.success) {
+      queryClient.invalidateQueries({ queryKey: ["ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["fees-students"] });
+      setVoidEntryId(null);
+      setVoidPin("");
+      setVoidReason("");
+      setVoidError(null);
+      setVoidKey("");
+    } else {
+      setVoidError(res.error);
+    }
+  },
+    onError: (err) => {
+      setVoidError(err instanceof Error ? err.message : "Failed to void receipt");
     },
   });
 
-  const rawEntries = (data?.data ?? []) as LedgerEntry[];
-  const entries: LedgerEntry[] = [];
+  // No cast: LedgerEntry only ADDS optional members over the inferred row, so
+  // the query array assigns directly (Rule 9 — no silent `as` forcing).
+  const queryRows: LedgerEntry[] =
+    data?.success === false ? [] : (data?.data ?? []);
+  const rawEntries = queryRows;
+  // Derived running balance, oldest → newest (Rule 6: paise helpers only —
+  // no `+`/`-` on money per AGENTS §14 checklist #3).
+  const entries: Array<LedgerEntry & { balance: number }> = [];
   let runningBalance = 0;
   for (let i = rawEntries.length - 1; i >= 0; i--) {
     const e = rawEntries[i];
-    runningBalance += e.debit ?? 0;
-    runningBalance -= e.credit ?? 0;
+    if (!e) continue;
+    runningBalance = paiseSub(paiseAdd(runningBalance, e.debit ?? 0), e.credit ?? 0);
     entries.unshift({ ...e, balance: runningBalance });
   }
+
+  const voidTarget = voidEntryId ? entries.find((e) => e.id === voidEntryId) : undefined;
+  const reasonError = (() => {
+    const r = VoidReasonSchema.safeParse(voidReason);
+    return r.success ? null : r.error.issues[0]?.message ?? "Invalid reason";
+  })();
+  const canConfirmVoid =
+    voidTarget !== undefined &&
+    voidTarget.type !== "VOID" &&
+    voidPin.trim().length >= 6 &&
+    reasonError === null &&
+    !voidMutation.isPending;
+
+  const openVoid = (id: string) => {
+    setVoidEntryId(id);
+    setVoidPin("");
+    setVoidReason("");
+    setVoidError(null);
+    setVoidKey(mintIntentKey());
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -136,7 +190,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setInvoiceSheetOpen(true)}
-            className="btn-glass neumo-raised px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
+            className="btn-glass neumo-raised min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
             style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-cyan)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
@@ -145,7 +199,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
           </button>
           <button
             onClick={() => setPaymentSheetOpen(true)}
-            className="btn-glass neumo-raised px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
+            className="btn-glass neumo-raised min-h-[44px] px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
             style={{ background: "linear-gradient(135deg, var(--accent-emerald), var(--accent-cyan))", color: "var(--text-on-accent)", border: "none" }}
           >
             <ArrowDownToLine className="w-4 h-4" /> Record Payment
@@ -171,6 +225,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
               const amount = isInflow ? entry.credit : entry.debit;
               const amountColor = isInflow ? "var(--accent-emerald)" : "var(--accent-flare)";
               const sign = isInflow ? "+" : "−";
+              const reverses = entry.reverses_entry_id ?? null;
               return (
                 <li
                   key={entry.id}
@@ -224,6 +279,11 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                           Bal {formatINR(Math.abs(entry.balance))} {entry.balance > 0 ? "Dr" : entry.balance < 0 ? "Cr" : ""}
                         </span>
                       )}
+                      {reverses && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded font-mono" style={{ color: "var(--accent-flare)", border: "1px solid var(--accent-flare)" }}>
+                          ↺ reverses {reverses.slice(0, 8)}
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -234,8 +294,8 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                     </p>
                     {entry.type === "PAYMENT_RECEIVED" && !entry.isVoid && (
                       <button
-                        onClick={() => setVoidEntryId(entry.id)}
-                        className="mt-1 flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        onClick={() => openVoid(entry.id)}
+                        className="mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors opacity-0 group-hover:opacity-100"
                         style={{ color: "var(--text-muted)", border: "1px solid var(--border-glass)" }}
                         aria-label={`Void receipt for ${entry.description || "payment"}`}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-danger)"; e.currentTarget.style.borderColor = "var(--accent-danger)"; }}
@@ -265,6 +325,9 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
               border: "1px solid var(--accent-danger)",
               boxShadow: "0 12px 40px var(--shadow-color)",
             }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Void receipt"
           >
             <div className="text-center space-y-4">
               <AlertTriangle className="w-12 h-12 mx-auto opacity-80" style={{ color: "var(--accent-danger)" }} />
@@ -272,27 +335,53 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                 Void Receipt
               </h3>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                This will append a reversing entry to the ledger. This action cannot be undone.
+                {voidTarget?.receipt_no ? `Receipt ${voidTarget.receipt_no} · ` : ""}
+                {voidTarget ? formatINR(voidTarget.credit ?? 0) : ""} — this posts a
+                reversing entry linked to the original (Rule 1). The receipt
+                number is consumed forever (BR-RC-01). This cannot be undone.
               </p>
-              <div className="pt-4">
-                <input
-                  type="password"
-                  value={voidPin}
-                  onChange={(e) => setVoidPin(e.target.value)}
-                  maxLength={4}
-                  autoFocus
-                  placeholder="PIN"
-                  className="neumo-inset w-full px-4 py-3 text-xl text-center tracking-[1em] font-mono focus:outline-none"
-                  style={{ background: "var(--bg-surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-                />
-                {voidMutation.error && (
-                  <p className="text-xs mt-2" style={{ color: "var(--accent-danger)" }}>{voidMutation.error.message}</p>
+              <div className="pt-2 text-left space-y-3">
+                <div>
+                  <label htmlFor="void-reason" className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                    Reason (required)
+                  </label>
+                  <textarea
+                    id="void-reason"
+                    value={voidReason}
+                    onChange={(e) => setVoidReason(e.target.value)}
+                    placeholder="e.g. Wrong student — should be Ananya STU-0011"
+                    rows={3}
+                    className="neumo-inset w-full px-4 py-3 text-sm focus:outline-none resize-none"
+                    style={{ background: "var(--bg-surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  />
+                  {voidReason.length > 0 && reasonError && (
+                    <p className="text-xs mt-1" style={{ color: "var(--accent-danger)" }}>{reasonError}</p>
+                  )}
+                </div>
+                <div>
+                  <label htmlFor="void-pin" className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">
+                    PIN (6+ digits)
+                  </label>
+                  <input
+                    id="void-pin"
+                    type="password"
+                    value={voidPin}
+                    onChange={(e) => setVoidPin(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="••••••"
+                    className="neumo-inset w-full px-4 py-3 text-xl text-center tracking-[0.5em] font-mono focus:outline-none"
+                    style={{ background: "var(--bg-surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  />
+                </div>
+                {voidError && (
+                  <p role="alert" className="text-xs" style={{ color: "var(--accent-danger)" }}>{voidError}</p>
                 )}
               </div>
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={() => { setVoidEntryId(null); setVoidPin(""); }}
-                  className="flex-1 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  onClick={() => { setVoidEntryId(null); setVoidPin(""); setVoidReason(""); setVoidError(null); setVoidKey(""); }}
+                  className="flex-1 min-h-[44px] py-2 rounded-lg text-sm font-semibold transition-colors"
                   style={{ color: "var(--text-secondary)" }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-secondary)"; }}
@@ -301,8 +390,8 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                 </button>
                 <button
                   onClick={() => voidMutation.mutate()}
-                  disabled={voidPin.length < 4 || voidMutation.isPending}
-                  className="flex-1 neumo-raised py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                  disabled={!canConfirmVoid}
+                  className="flex-1 min-h-[44px] neumo-raised py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
                   style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-danger)"; e.currentTarget.style.borderColor = "var(--accent-danger)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.borderColor = "var(--border-default)"; }}

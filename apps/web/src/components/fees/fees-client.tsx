@@ -14,7 +14,7 @@ import { ExtraFeeSheet } from "./extra-fee-sheet";
 import { LedgerImport } from "./ledger-import";
 import { RecordPaymentSheet } from "./record-payment-sheet";
 import { GenerateInvoiceSheet } from "./generate-invoice-sheet";
-import { formatINR } from "@buddysaradhi/shared";
+import { formatINR, paiseAdd, paiseSub } from "@buddysaradhi/shared";
 import { cn } from "@/lib/utils";
 import {
   Receipt,
@@ -81,7 +81,8 @@ export function FeesClient() {
     queryKey: ["fees-students", ""],
     queryFn: () => getStudentsForFees(""),
   });
-  const students = (studentsData?.data ?? []) as StudentRow[];
+  // No cast: the query's element already carries grade?/batch? (Rule 9).
+  const students: StudentRow[] = studentsData?.data ?? [];
   const activeStudentId = selectedStudentId ?? students[0]?.id ?? null;
   const activeStudent = students.find((s) => s.id === activeStudentId);
 
@@ -201,7 +202,7 @@ export function FeesClient() {
                       ) : credit ? (
                         <span className="chip chip-info num shrink-0 text-[10px] px-2 py-0.5" title="Credit balance">
                           <span className="chip-dot" aria-hidden="true" />
-                          Credit {formatINR(Math.abs(s.balance_due))}
+                           Credit {formatINR(paiseSub(0, s.balance_due))}
                         </span>
                       ) : (
                         <span className="chip chip-success shrink-0 text-[10px] px-2 py-0.5" title="No dues">
@@ -240,7 +241,7 @@ export function FeesClient() {
         {tab === "import" && <LedgerImport />}
       </div>
 
-      <RecordPaymentSheet studentId={activeStudentId} studentName={activeStudent?.name} />
+      <RecordPaymentSheet studentId={activeStudentId} studentName={activeStudent?.name} balanceDuePaise={activeStudent?.balance_due} />
       <GenerateInvoiceSheet studentId={activeStudentId} studentName={activeStudent?.name} />
     </div>
   );
@@ -259,14 +260,21 @@ function CollectionsTab({ students }: { students: StudentRow[] }) {
         { periodStartIso: startIso, periodEndIso: endIso }
       );
       if (!res.success) return { success: false, data: [] };
-      return { success: true, data: (res.data as any)?.financial ?? [] };
+      return { success: true, data: res.data.financial ?? [] };
     },
   });
 
-  const collected = students.reduce((acc, s) => acc + (s.balance_due < 0 ? Math.abs(s.balance_due) : 0), 0);
-  const dueTillDate = students.reduce((acc, s) => acc + (s.balance_due > 0 ? s.balance_due : 0), 0);
+  // Rule 6 / BR-M-01: paise helpers only — no `+`/`-` on money (§14 #3).
+  const collected = students.reduce(
+    (acc, s) => (s.balance_due < 0 ? paiseAdd(acc, paiseSub(0, s.balance_due)) : acc),
+    0
+  );
+  const dueTillDate = students.reduce(
+    (acc, s) => (s.balance_due > 0 ? paiseAdd(acc, s.balance_due) : acc),
+    0
+  );
 
-  const financial = (heat && "data" in heat && heat.data ? heat.data : []) as unknown[];
+  const financial: unknown[] = heat && "data" in heat && heat.data ? heat.data : [];
 
   return (
     <div className="space-y-6">
@@ -316,6 +324,9 @@ function CollectionsTab({ students }: { students: StudentRow[] }) {
 
 function Heatmap({ data }: { data: unknown[] }) {
   type Row = { student_name: string; week_start: string; cell_status: string; due_minor: number };
+  // SAFETY: gateway analytics rows are shaped { student_name, week_start,
+  // cell_status, due_minor }; a malformed row yields no cell match and renders
+  // the neutral tile — never a crash, never money.
   const rows = data as Row[];
   const studentNames = Array.from(new Set(rows.map((d) => d.student_name))).sort();
   const weeks = Array.from(new Set(rows.map((d) => d.week_start))).sort();

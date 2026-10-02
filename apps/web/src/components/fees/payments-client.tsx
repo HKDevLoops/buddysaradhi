@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getStudentsForFees } from "@/server/queries/fees";
 import { useFeesStore } from "@/stores/fees-store";
-import { formatINR } from "@buddysaradhi/shared";
+import { formatINR, paiseAdd } from "@buddysaradhi/shared";
 import { Loader2, Search, Wallet, CircleDollarSign } from "lucide-react";
 
 interface StudentRow {
@@ -31,7 +31,8 @@ export function PendingTab() {
     queryFn: () => getStudentsForFees(""),
   });
 
-  const students = useMemo(() => (data?.data ?? []) as StudentRow[], [data]);
+  // No cast: the query element already matches StudentRow (Rule 9).
+  const students: StudentRow[] = useMemo(() => data?.data ?? [], [data]);
   const due = useMemo(
     () => students.filter((s) => s.balance_due > 0),
     [students]
@@ -40,7 +41,8 @@ export function PendingTab() {
     () => due.filter((s) => s.name.toLowerCase().includes(query.toLowerCase())),
     [due, query]
   );
-  const totalDue = due.reduce((acc, s) => acc + s.balance_due, 0);
+  // Rule 6 / BR-M-01: paise helpers only — no `+` on money (§14 #3).
+  const totalDue = due.reduce((acc, s) => paiseAdd(acc, s.balance_due), 0);
 
   const recordFor = (id: string) => {
     setSelectedStudentId(id);
