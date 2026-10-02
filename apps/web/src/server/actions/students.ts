@@ -1,12 +1,13 @@
 "use server";
 
 import { Student } from "@buddysaradhi/shared";
-import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayDelete, gatewayPost } from "@/server/get-db";
+import { getAuthenticatedDb, createLibsqlProxy, getAuthenticatedPrisma, gatewayDelete, gatewayPatch, gatewayPost } from "@/server/get-db";
 import { StudentFilters, SortCol } from "@/types/students";
 import { revalidatePath } from "next/cache";
 import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "../queries/students";
 import { log } from "@/lib/logger";
 import { z } from "zod";
+import { invalidateTenant } from "@/server/cache"; // workstream C wiring
 
 export async function fetchStudentsAction(
   filters: StudentFilters,
@@ -106,6 +107,11 @@ function generateStudentCode(): string {
 }
 
 export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
+  // RFC-004 C4: POST inserts mint fresh UUID PKs — two devices creating
+  // "the same" student produce two rows (deduped later via `dup_key`,
+  // BR-STU-03), never a lost update. Inserts cannot conflict, so no CAS base
+  // is needed here. CAS applies to PATCH (updateStudentAction below), where a
+  // stale base could silently overwrite another device's edit.
   try {
     const parsed = CreateStudentInputSchema.safeParse(data);
     if (!parsed.success) {
@@ -228,6 +234,7 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           updatedAt: new Date(),
         },
       });
+      invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch auto-create
     }
 
     revalidatePath("/students");
@@ -275,5 +282,254 @@ export async function deleteStudentAction(studentId: string): Promise<{ success:
   } catch (error) {
     log.error('student_delete_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: error instanceof Error ? error.message : "Failed to delete student" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RFC-004 C4 compare-and-swap for the student profile PATCH path.
+// Implements: docs/rfc/004-multi-device-network-contract.md C4 + K4;
+// 12_Business_Rules.md BR-SYN-03 (LWW on `updated_at` for non-ledger rows);
+// 05_Students.md E20 (concurrent edits — the loser must not silently win).
+// Same defensive contract as the settings PATCH paths: an optional
+// `base_updated_at`; a stale base returns a typed CONFLICT + the fresh server
+// row with NO write and NO outbox/audit row (nothing happened — boundary
+// logged via `log.warn` for forensics); a fresh base writes + outbox + audit
+// as today. `base_updated_at` is forwarded to the gateway for the parallel
+// server-side CAS workstream (its Zod schema strips unknown keys until CAS
+// lands — the pre-check below is the live guard).
+// ---------------------------------------------------------------------------
+
+const StudentCasOptionsSchema = z.object({
+  base_updated_at: z.string().min(1).optional(),
+});
+
+export type StudentCasOptions = z.infer<typeof StudentCasOptionsSchema>;
+
+export interface StudentConflictResult {
+  success: false;
+  error: string;
+  code: "CONFLICT";
+  serverRow: Student | null;
+}
+
+/**
+ * Profile fields a client may PATCH. Unknown keys (id, tenant_id,
+ * `updated_at`, balancePaise — money moves only via ledger flows, Rule 6)
+ * are stripped by Zod's default strip mode; the CAS base travels via `opts`,
+ * never the body. Money spellings mirror CreateStudentInputSchema (integer
+ * paise only, Rule 6 / BR-M-01).
+ */
+const UpdateStudentInputSchema = z.object({
+  code: z.string().max(64).nullable(),
+  first_name: z.string().trim().min(1).max(200),
+  last_name: z.string().max(200).nullable(),
+  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dob must be YYYY-MM-DD").nullable(),
+  gender: z.enum(["M", "F", "O"]).nullable(),
+  phone: z.string().max(32).nullable(),
+  email: z.string().max(254).nullable(),
+  address: z.string().max(1000).nullable(),
+  school: z.string().max(300).nullable(),
+  grade: z.string().max(64).nullable(),
+  board: z.string().max(64).nullable(),
+  admission_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "admission_date must be YYYY-MM-DD"),
+  status: z.enum(["active", "inactive", "graduated", "archived"]),
+  fee_model: z.enum(["postpaid", "prepaid", "mixed"]),
+  baseFeePaise: z.number().int().nonnegative(),
+  base_fee_paise: z.number().int().nonnegative(),
+  baseFee: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/, "baseFee must be a non-negative rupee amount"),
+  notes: z.string().max(5000).nullable(),
+  custom_fields: z.string().max(10000).nullable(),
+}).partial();
+
+/** snake_case body keys → proxy camelCase (proxy converts camel → snake SQL). */
+const STUDENT_PATCH_FIELD_MAP: Record<string, string> = {
+  first_name: "firstName",
+  last_name: "lastName",
+  admission_date: "admissionDate",
+  fee_model: "feeModel",
+  base_fee_paise: "baseFeePaise",
+  custom_fields: "customFields",
+};
+
+function studentRowMs(value: unknown): number | null {
+  if (typeof value === "string") {
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  if (value instanceof Date) return value.getTime();
+  return null;
+}
+
+function isoOrNow(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  return new Date().toISOString();
+}
+
+function isoOrNull(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  return null;
+}
+
+/** Proxy (camelCase) row → shared `Student` shape (student rows carry no secrets). */
+function toStudentRow(row: Record<string, unknown>, tenantId: string): Student {
+  const status = row.status;
+  const feeModel = row.feeModel;
+  const gender = row.gender;
+  const code = typeof row.code === "string" ? row.code : null;
+  return {
+    id: typeof row.id === "string" ? row.id : "",
+    tenant_id: tenantId,
+    first_name: typeof row.firstName === "string" ? row.firstName : "",
+    last_name: typeof row.lastName === "string" ? row.lastName : null,
+    code,
+    phone: typeof row.phone === "string" ? row.phone : null,
+    email: typeof row.email === "string" ? row.email : null,
+    address: typeof row.address === "string" ? row.address : null,
+    school: typeof row.school === "string" ? row.school : null,
+    grade: typeof row.grade === "string" ? row.grade : null,
+    board: typeof row.board === "string" ? row.board : null,
+    dob: typeof row.dob === "string" ? row.dob : null,
+    gender: gender === "M" || gender === "F" || gender === "O" ? gender : null,
+    admission_date:
+      typeof row.admissionDate === "string" ? row.admissionDate : new Date().toISOString().slice(0, 10),
+    status:
+      status === "active" || status === "inactive" || status === "graduated" || status === "archived"
+        ? status
+        : "active",
+    fee_model: feeModel === "postpaid" || feeModel === "prepaid" || feeModel === "mixed" ? feeModel : "postpaid",
+    baseFeePaise: typeof row.baseFeePaise === "number" ? row.baseFeePaise : 0,
+    dup_key: typeof row.dupKey === "string" ? row.dupKey : (code ?? ""),
+    merged_into_id: null,
+    custom_fields: typeof row.customFields === "string" ? row.customFields : null,
+    notes: typeof row.notes === "string" ? row.notes : null,
+    archived_at: isoOrNull(row.archivedAt),
+    created_at: isoOrNow(row.createdAt),
+    updated_at: isoOrNow(row.updatedAt),
+  };
+}
+
+export async function updateStudentAction(
+  studentId: string,
+  patch: unknown,
+  opts?: StudentCasOptions,
+): Promise<{ success: boolean; data?: Student; error?: string; code?: "CONFLICT" | "VALIDATION"; serverRow?: Student | null }> {
+  try {
+    if (!z.string().uuid().safeParse(studentId).success) {
+      return { success: false, error: "Invalid student id", code: "VALIDATION" };
+    }
+    const parsed = UpdateStudentInputSchema.safeParse(patch);
+    if (!parsed.success) {
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      log.error("update_student_invalid_input", detail);
+      return { success: false, error: `Invalid student data — ${detail}`, code: "VALIDATION" };
+    }
+    const casParsed = StudentCasOptionsSchema.safeParse(opts ?? {});
+    if (!casParsed.success) {
+      return { success: false, error: "Invalid CAS options", code: "VALIDATION" };
+    }
+    const baseRaw = casParsed.data.base_updated_at;
+    const baseMs = baseRaw === undefined ? null : Date.parse(baseRaw);
+    if (baseMs !== null && Number.isNaN(baseMs)) {
+      return { success: false, error: "Invalid base_updated_at — must be an ISO-8601 timestamp", code: "VALIDATION" };
+    }
+
+    const p = parsed.data;
+    // Canonical camelCase write-map (proxy converts to snake_case SQL).
+    // Money precedence mirrors createStudent: explicit paise wins over the
+    // rupee string (integer arithmetic only, Rule 6 / BR-M-01).
+    const camel: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(p)) {
+      if (val === undefined || key === "baseFeePaise" || key === "base_fee_paise" || key === "baseFee") continue;
+      camel[STUDENT_PATCH_FIELD_MAP[key] ?? key] = val;
+    }
+    if (p.baseFeePaise !== undefined) camel.baseFeePaise = p.baseFeePaise;
+    else if (p.base_fee_paise !== undefined) camel.baseFeePaise = p.base_fee_paise;
+    else if (p.baseFee !== undefined) camel.baseFeePaise = rupeesToPaise(p.baseFee);
+    if (Object.keys(camel).length === 0) {
+      return { success: false, error: "No valid student fields", code: "VALIDATION" };
+    }
+    // snake_case body for the gateway (it accepts both spellings).
+    const snake: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(p)) {
+      if (val !== undefined) snake[key] = val;
+    }
+
+    // Defensive pre-check (gateway CAS pending): re-read inside the action.
+    // Stale base → typed CONFLICT; the writes below never run.
+    const { client, tenantId } = await getAuthenticatedDb();
+    const proxy = createLibsqlProxy(client);
+    const current = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+    if (!current) {
+      return { success: false, error: "Student not found" };
+    }
+    if (baseMs !== null) {
+      const currentMs = studentRowMs(current.updatedAt ?? current.updated_at);
+      if (currentMs !== null && currentMs !== baseMs) {
+        log.warn("cas_conflict_student", "Student CAS mismatch — rejected stale write");
+        return {
+          success: false,
+          error: "CONFLICT: student changed elsewhere",
+          code: "CONFLICT",
+          serverRow: toStudentRow(current, tenantId),
+        };
+      }
+    }
+
+    const gatewayBody =
+      baseRaw !== undefined ? { ...snake, base_updated_at: baseRaw } : snake;
+    const gatewayRes = await gatewayPatch<Student>(
+      `/api/v1/students/${encodeURIComponent(studentId)}`,
+      gatewayBody,
+    );
+    if (gatewayRes.success) {
+      revalidatePath("/students");
+      revalidatePath("/dashboard");
+      return { success: true, data: gatewayRes.data };
+    }
+
+    // Server-side CAS won a race after our pre-check: surface its 409 with a
+    // fresh row; nothing is written locally.
+    if (/Gateway 409\b/.test(gatewayRes.error)) {
+      const fresh = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+      log.warn("cas_conflict_student", "Student CAS mismatch — gateway 409");
+      return {
+        success: false,
+        error: "CONFLICT: student changed elsewhere",
+        code: "CONFLICT",
+        serverRow: fresh ? toStudentRow(fresh, tenantId) : null,
+      };
+    }
+
+    // Local fallback (offline-first, Rule 7): update + outbox + audit.
+    log.warn("update_student_gateway_failed_using_direct_db", gatewayRes.error);
+    const now = new Date().toISOString();
+    // Stamp `updated_at`: the proxy is raw SQL (no Prisma `@updatedAt`), so
+    // without this the CAS base would never advance.
+    await proxy.student.update({ where: { tenantId, id: studentId }, data: { ...camel, updatedAt: now } });
+    await client.batch(
+      [
+        {
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'students', ?, 'update', ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, studentId, JSON.stringify(snake), now],
+        },
+        {
+          sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at) VALUES (?, ?, ?, 'student.edit', 'student', ?, ?, ?)`,
+          args: [crypto.randomUUID(), tenantId, tenantId, studentId, JSON.stringify({ fields: Object.keys(camel) }), now],
+        },
+      ],
+      "write",
+    );
+
+    revalidatePath("/students");
+    revalidatePath("/dashboard");
+    const updated = await proxy.student.findFirst({ where: { tenantId, id: studentId } });
+    return { success: true, data: updated ? toStudentRow(updated, tenantId) : undefined };
+  } catch (error) {
+    log.error("update_student_action_failed", error instanceof Error ? error.message : String(error));
+    return { success: false, error: error instanceof Error ? error.message : "Failed to update student" };
   }
 }

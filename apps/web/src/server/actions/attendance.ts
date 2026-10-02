@@ -5,6 +5,7 @@ import { getAuthenticatedDb } from "@/server/get-db";
 import { UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
+import { invalidateTenant } from "@/server/cache"; // workstream C wiring
 
 export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
   try {
@@ -77,6 +78,7 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       });
     }
 
+    invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch may auto-create above
     return { success: true };
   } catch (error) {
     log.error('attendance_update_failed', error instanceof Error ? error.message : String(error));
