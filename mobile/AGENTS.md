@@ -725,3 +725,12 @@ The mockups and the handoff primitives in this file synthesise practices from th
 ---
 
 *End of AGENTS.md — mobile supplement. Read `../AGENTS.md` first; read this file second; read `mobile/README.md` third.*
+
+---
+
+## Multi-device + network contract (LOCKED platforms — user directive 2026-09-30)
+
+- Read `mobile/08_Multi_Device_Network_Contract.md` FIRST on unlock (before any
+  code). It binds RFC-004 C1–C6 to Expo APIs. Implement verbatim; run K1–K6.
+- `mobile/04_Offline_Sync_and_Conflict_Resolution.md` still governs sync
+  semantics; `08` governs network mechanics. On conflict: `04` wins for sync.

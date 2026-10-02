@@ -3,6 +3,24 @@ info:
   title: Buddysaradhi Gateway API
   version: 1.0.0
   description: The single source of truth contract for Buddysaradhi API Gateway.
+# RFC-004 additive conventions (no path/method changes — minor only).
+# The gateway emits typed `CODE: detail` error bodies (e.g.
+# `CREDENTIALS_EXPIRED: ...re-provision required`, `VALIDATION: ...`,
+# `CONFLICT: ...`, `DB_NOT_PROVISIONED: ...`, `RATE_LIMITED: ...`,
+# `UNAUTHENTICATED: ...`, `INTERNAL: internal server error`) with the HTTP
+# status matching the code family (401/400/409/503/429/401/500). The
+# `ApiError.code` enum below is the legacy lowercase set; both shapes carry
+# `message` + request correlation (`requestId` header echoed as
+# `x-request-id`). A future contract minor will unify the enums.
+x-error-convention: CODE_COLON_DETAIL
+# RFC-004 C1: every mutating op (POST/PATCH/PUT/DELETE) requires
+# `Idempotency-Key: <uuid>` (400 VALIDATION when missing/malformed).
+# Duplicate key (same tenant + route) replays the stored response
+# byte-identically with `X-Idempotent-Replayed: true`; no re-execution.
+# RFC-004 C4: PATCH on shared rows accepts optional `base_updated_at`;
+# mismatch yields 409 CONFLICT + safe `server_row` (absent base = legacy LWW).
+x-idempotency: REQUIRED_ON_MUTATIONS
+x-concurrency: CAS_OPT_IN_409
 servers:
   - url: /api/v1
 paths:

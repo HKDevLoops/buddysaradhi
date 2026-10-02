@@ -640,3 +640,11 @@ The spec is the contract. The code is the implementation. The worklog is the aud
 | State matrix | (n/a — AGENTS.md has no interactive controls) |
 
 > Both mockups above sit inside fenced code blocks per §20.3 rule 1. Box widths 80–112 chars (within the 80–120 desktop window range per §20.3 rule 2). Character set per §20.2 (┌┐└┘├┤┬┴─│▌░▒▓█●○◉◐✕✓▲▼›»←→↑↓⌘⌥⇧₹·). Glass tiers annotated (`.glass`, `.glass-strong`, `.glass-faint`) per §5.5; neumorphic recipes referenced in the design-system callout above. Accent colours named (emerald / cyan / amber / flare / violet), never hexed in mockup notes per §20.3 rule 6. Cross-references use canonical IDs only (`§5.4`, `§5.5`, `§6.4`, `§6.6`, `§8`, `§10.3`, `§12`, `BR-LED-01`, `BR-SYN-02`, `BR-SEC-04`, `P6`, `P11`).
+
+---
+
+## Multi-device + network contract (LOCKED platforms — user directive 2026-09-30)
+
+- Read `desktop/07_Multi_Device_Network_Contract.md` FIRST on unlock (before
+  any code). It binds RFC-004 C1–C6 to Tauri/Rust APIs. Implement verbatim;
+  run K1–K6 (incl. sleep/wake + network-switch).
