@@ -143,9 +143,9 @@ const L1_ALLOW = [
   },
   {
     file: "apps/web/src/server/actions/settings.ts",
-    re: /DELETE\s+FROM\s+ledger_entries\s+WHERE\s+tenant_id/,
+    re: /db\.ledgerEntry\s*\.\s*deleteMany/,
     reason:
-      "secure-erase per 10_Security.md §18.1 (LEDGER-4 exception), cited in the surrounding code comment",
+      "secure-erase cascade per 10_Security.md §18.1 (LEDGER-4 exception), cited in the surrounding code comment — ORM form after the raw-SQL removal",
   },
   {
     file: "packages/core/src/engines/security.ts",
@@ -251,6 +251,98 @@ const L5_PATTERNS = [
   },
 ];
 
+// L6 — AGENTS.md §3.4 ORM-ONLY: only ORM methods touch the DB at runtime.
+// Any SQL text outside the audited authorities is a P0 CI failure. Uppercase
+// verbs only (repo SQL convention is UPPERCASE; UI sentence-case copy such as
+// "Delete entry" never matches). Test files are excluded (§7.3 requires real
+// DDL in tests). New raw SQL must remove the SQL, not grow this allowlist.
+const L6_PREFIXES = [
+  "apps/web/src/",
+  "packages/shared/src/",
+  "packages/core/src/",
+  "apps/gateway/routes/",
+  "apps/gateway/graphql/",
+  "apps/gateway/lib/",
+];
+const L6_PATTERNS = [
+  {
+    re: /\$(queryRaw|executeRaw)(Unsafe)?\s*\(/,
+    msg: "Prisma $queryRaw/$executeRaw — §3.4 ORM-ONLY: use findMany/create/update/$transaction",
+  },
+  {
+    re: /\bsql\s*:\s*[`'"]/,
+    msg: "`sql:` string literal — §3.4 ORM-ONLY: use ORM methods, never SQL strings",
+  },
+  {
+    re: /\.(execute|batch)\s*\(\s*[`'"]/,
+    msg: ".execute()/.batch() with a string literal — §3.4 ORM-ONLY: use db.$transaction([...])",
+  },
+  {
+    re: /`[^`]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^`]*\b(FROM|INTO|SET|TABLE|WHERE|VALUES)\b[^`]*/,
+    msg: "backtick SQL statement — §3.4 ORM-ONLY: use ORM methods or the audited builder module",
+  },
+  {
+    re: /"[^"]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"]*\b(FROM|INTO|SET|TABLE|WHERE|VALUES)\b[^"]*"/,
+    msg: 'double-quoted SQL statement — §3.4 ORM-ONLY: use ORM methods or the audited builder module',
+  },
+  {
+    re: /'[^']*\b(SELECT|INSERT|UPDATE|DELETE)\b[^']*\b(FROM|INTO|SET|TABLE|WHERE|VALUES)\b[^']*'/,
+    msg: "single-quoted SQL statement — §3.4 ORM-ONLY: use ORM methods or the audited builder module",
+  },
+];
+const L6_ALLOW = [
+  {
+    file: "apps/web/src/lib/libsql-proxy.ts",
+    re: /[\s\S]/,
+    reason:
+      "audited ORM→SQL shim internals (AGENTS §3.4): SQL text stays inside the translator; all callers use db.<model>.* — never import SQL out of this file",
+  },
+  {
+    file: "apps/gateway/lib/sql.ts",
+    re: /[\s\S]/,
+    reason:
+      "single audited statement-builder authority (parameterized, Zod-validated inputs); routes hold zero literals — enforced by this rule",
+  },
+  {
+    file: "apps/gateway/lib/schema.ts",
+    re: /[\s\S]/,
+    reason: "runtime DDL authority (AGENTS §3.4): idempotent CREATE TABLE/INDEX/TRIGGER only",
+  },
+  {
+    file: "apps/gateway/graphql/index.ts",
+    re: /[\s\S]/,
+    reason:
+      "standalone Edge Function deployment unit (own deno.json, cannot import lib/sql.ts); statements already parameterized (?); unification follow-up filed — migrate to shared builders when the import map unifies",
+  },
+  {
+    file: "apps/web/src/lib/db/admin.ts",
+    re: /[\s\S]/,
+    reason: "one-time SQLite admin commands with no ORM equivalent (SQLCipher PRAGMA, WAL checkpoint) — never called from a screen/action/route (AGENTS §3.4)",
+  },
+  {
+    file: "apps/web/src/lib/search/searchStudentsFts.ts",
+    re: /\bsql\s*:/,
+    reason: "FTS5 MATCH with bound args + quote-strip; no Prisma model exists (11_Data_Model.md §10.5)",
+  },
+  {
+    file: "apps/web/src/server/get-db.ts",
+    re: /execute\("SELECT 1"\)/,
+    reason: "credential-liveness probe, zero user input (VACUUM precedent, AGENTS §3.4)",
+  },
+  {
+    file: "packages/core/src/fees.ts",
+    re: /\bsql\s*:/,
+    reason:
+      "legacy SQL dialect (recordPaymentSql/createInvoiceSql take a raw client); core Prisma-overload RFC filed — no NEW raw SQL without updating this entry",
+  },
+  {
+    file: "packages/core/src/ledgerSql.ts",
+    re: /\bsql\s*:/,
+    reason:
+      "legacy SQL dialect (postLedgerEntrySql); core Prisma-overload RFC filed — no NEW raw SQL without updating this entry",
+  },
+];
+
 const RULES = [
   {
     id: "L1",
@@ -259,6 +351,16 @@ const RULES = [
     exts: [...CODE_EXTS, ".sql"],
     patterns: L1_PATTERNS,
     allow: L1_ALLOW,
+  },
+  {
+    id: "L6",
+    name: "no-raw-sql",
+    spec: "AGENTS.md §3.4 ORM-ONLY · 11_Data_Model.md",
+    exts: CODE_EXTS,
+    prefixes: L6_PREFIXES,
+    exclude: [/\.test\.tsx?$/, /\.spec\.tsx?$/],
+    patterns: L6_PATTERNS,
+    allow: L6_ALLOW,
   },
   {
     id: "L2",
@@ -471,6 +573,8 @@ function main() {
     const ruleFindings = [];
     for (const file of ALL_FILES) {
       if (!hasExt(file, rule.exts)) continue;
+      if (rule.prefixes && !rule.prefixes.some((p) => file.startsWith(p))) continue;
+      if (rule.exclude && rule.exclude.some((rx) => rx.test(file))) continue;
       if (rule.id === "L5" && /(^|\/)eslint\.config\.[cm]?[jt]s$/.test(file))
         continue; // rule definitions cite the banned tokens by design
       if (rule.id === "L3" && !file.endsWith("package.json")) continue;
@@ -543,7 +647,7 @@ function main() {
   for (const rule of RULES) {
     console.log(`PASS ${rule.id} ${rule.name}`);
   }
-  console.log(`principle-lints: OK — 5 rules clean, ${allowlisted} allowlisted hit(s).`);
+  console.log(`principle-lints: OK — ${RULES.length} rules clean, ${allowlisted} allowlisted hit(s).`);
   process.exit(0);
 }
 

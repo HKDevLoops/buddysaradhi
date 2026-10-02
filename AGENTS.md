@@ -417,17 +417,29 @@ DB file.
   route. A table missing at runtime is a loud typed error naming the table and
   the two authorities above (Rule 9) — never a silently self-created table and
   never a fabricated empty result set.
-- **All runtime DB access goes through Prisma ORM methods** —
-  `import { db } from '@/lib/db'`. Allowed: `findMany`, `findUnique`,
-  `findUniqueOrThrow`, `create`, `createMany`, `update`, `updateMany`, `upsert`,
-  `delete`, `deleteMany`, `count`, `aggregate`, `groupBy`,
+- **ORM-ONLY — hard rule, CI-enforced (P0).** All runtime DB access goes
+  through ORM methods — `import { db } from '@/lib/db'` (web/Prisma) or the
+  audited gateway builders (`apps/gateway/lib/sql.ts`) / ORM shim
+  (`apps/web/src/lib/libsql-proxy.ts`, callers use `db.<model>.*` only).
+  **Allowed, and only these:** `findMany`, `findUnique`,
+  `findUniqueOrThrow`, `findFirst`, `create`, `createMany`, `update`,
+  `updateMany`, `upsert`, `delete`, `deleteMany` (the ledger exception below
+  excepted — `ledgerEntry.update/delete/deleteMany` remain forbidden by
+  Rule 1 everywhere), `count`, `aggregate`, `groupBy`,
   `db.$transaction([...])` or `db.$transaction(async (tx) => { ... })`,
-  `include`, `select`. **Forbidden at runtime:** `$queryRaw`, `$executeRaw`, raw
-  SQL strings, `PRAGMA`, `sqlite_*` functions.
-- The only exceptions are (a) the two runtime schema authorities above —
-  idempotent DDL confined to `apps/gateway/lib/schema.ts` — and (b) SQLite-level
-  admin commands with no Prisma ORM equivalent (e.g. `PRAGMA key` for SQLCipher
-  encryption,
+  `include`, `select`. **Forbidden at runtime, auto-blocked by CI
+  (`scripts/principle-lints.mjs` L6 `no-raw-sql`, P0 — a tripped build fails,
+  no override without a spec citation + security reviewer + expiry):**
+  `$queryRaw`, `$executeRaw` (+ `Unsafe` variants), `client.execute` /
+  `client.batch` with SQL strings, `` sql: ` `` template literals, backtick /
+  quoted SQL statements, string-interpolated queries, `PRAGMA`, `sqlite_*`
+  functions in request paths. A PR tripping L6 removes the SQL — it does not
+  grow the allowlist.
+- The ONLY places SQL text may exist (audited authorities, each pinned by an
+  L6 allowlist entry with owner + reason — no new statements without updating
+  the entry): (a) the two runtime schema authorities above — idempotent DDL
+  confined to `apps/gateway/lib/schema.ts`; (b) SQLite-level admin commands
+  with no Prisma ORM equivalent (e.g. `PRAGMA key` for SQLCipher encryption,
   `PRAGMA wal_checkpoint(TRUNCATE)` before a backup snapshot,
   `PRAGMA foreign_keys=ON` / `journal_mode=WAL` at connection init). These are
   SQLite-level admin commands with no Prisma ORM equivalent; they run ONCE
