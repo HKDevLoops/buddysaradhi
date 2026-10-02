@@ -186,16 +186,14 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       updatedAt: new Date(),
     };
 
-    await db.student.create({ data: studentData });
-
-    // Rule 7 (AGENTS.md §2) / BR-SYN-01: the mutation is followed in the same
-    // transaction by its sync_outbox row (replication) and its
-    // audit_log row (BR-SEC-03) — CHECK-valid op 'insert', action
-    // 'student.create', same payload as before.
-    // Pattern: actions/settings.ts:152-167.
+    // Rule 7 (AGENTS.md §2) / BR-SYN-01: the mutation, its sync_outbox row
+    // (replication) and its audit_log row (BR-SEC-03) land in ONE write
+    // transaction — CHECK-valid op 'insert', action 'student.create', same
+    // payload as before. Pattern: actions/settings.ts.
     const now = new Date().toISOString();
-    await db.$transaction([
-      db.syncOutbox.create({
+    await db.$transaction(async (tx) => {
+      await tx.student.create({ data: studentData });
+      await tx.syncOutbox.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -205,8 +203,8 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           payload: JSON.stringify(payload),
           createdAt: now,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -217,8 +215,8 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           metadata: JSON.stringify({ code, base_fee_paise: baseFeePaise }),
           createdAt: now,
         },
-      }),
-    ]);
+      });
+    });
 
     if (batchName) {
       let batch = await db.batch.findFirst({ where: { tenantId, name: batchName } });
@@ -520,11 +518,21 @@ export async function updateStudentAction(
     // payload as before.
     log.warn("update_student_gateway_failed_using_direct_db", gatewayRes.error);
     const now = new Date().toISOString();
+    // Rule 7: the UPDATE, its sync_outbox row and its audit_log row share ONE
+    // write transaction. `updateMany` (not `update`) so a 0-row write is
+    // visible — the student row is proved to exist inside the transaction
+    // (F5: no phantom writes).
     // Stamp `updated_at`: the ORM surface does not auto-bump it on this path,
     // so without this the CAS base would never advance.
-    await db.student.update({ where: { tenantId, id: studentId }, data: { ...camel, updatedAt: now } });
-    await db.$transaction([
-      db.syncOutbox.create({
+    await db.$transaction(async (tx) => {
+      const updated = await tx.student.updateMany({
+        where: { tenantId, id: studentId },
+        data: { ...camel, updatedAt: now },
+      });
+      if (updated.count === 0) {
+        throw new Error(`STUDENT_NOT_FOUND: no student ${studentId} in tenant ${tenantId}`);
+      }
+      await tx.syncOutbox.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -534,8 +542,8 @@ export async function updateStudentAction(
           payload: JSON.stringify(snake),
           createdAt: now,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -546,8 +554,8 @@ export async function updateStudentAction(
           metadata: JSON.stringify({ fields: Object.keys(camel) }),
           createdAt: now,
         },
-      }),
-    ]);
+      });
+    });
 
     revalidatePath("/students");
     revalidatePath("/dashboard");

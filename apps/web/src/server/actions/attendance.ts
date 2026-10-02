@@ -75,9 +75,9 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
       const recordId = crypto.randomUUID();
       const outboxId = crypto.randomUUID();
 
-      // Rule 7: record write + outbox row land in one logical transaction.
-      await db.$transaction([
-        db.attendanceRecord.upsert({
+      // Rule 7: record write + outbox row land in one write transaction.
+      await db.$transaction(async (tx) => {
+        await tx.attendanceRecord.upsert({
           where: { sessionId, studentId: update.student_id },
           create: {
             id: recordId,
@@ -93,8 +93,8 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
             status: update.status,
             updatedAt: now,
           },
-        }),
-        db.syncOutbox.create({
+        });
+        await tx.syncOutbox.create({
           data: {
             id: outboxId,
             tenantId,
@@ -104,8 +104,8 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
             payload: JSON.stringify(update),
             createdAt: now,
           },
-        }),
-      ]);
+        });
+      });
     }
 
     invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch may auto-create above
@@ -137,12 +137,12 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     // Rule 7 (AGENTS §2) / BR-SYN-01 require the outbox row in the same
     // transaction as the mutation, so a locked session can never exist
     // locally without a queued replication row.
-    await db.$transaction([
-      db.attendanceSession.update({
+    await db.$transaction(async (tx) => {
+      await tx.attendanceSession.update({
         where: { id: sessionId, tenantId },
         data: { lockedAt: now, updatedAt: now },
-      }),
-      db.syncOutbox.create({
+      });
+      await tx.syncOutbox.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -152,8 +152,8 @@ export async function lockSessionAction(sessionId: string, pin: string) {
           payload: JSON.stringify({ locked_at: now }),
           createdAt: now,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -164,8 +164,8 @@ export async function lockSessionAction(sessionId: string, pin: string) {
           metadata: JSON.stringify({ locked_at: now }),
           createdAt: now,
         },
-      }),
-    ]);
+      });
+    });
 
     return { success: true };
   } catch (error) {

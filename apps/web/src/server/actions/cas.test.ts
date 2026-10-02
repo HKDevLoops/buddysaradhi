@@ -148,7 +148,21 @@ function createFakeClient(seed: Record<string, Row[]>) {
     return out;
   }
 
-  return { client: { execute, batch } as unknown as Client, tables };
+  // The proxy's `$transaction` opens a real libSQL write transaction on the
+  // production handle; the fake must honour the same contract or every write
+  // path in this file would fail with ORM_TX_UNSUPPORTED_HANDLE. Atomicity
+  // itself is asserted against a real database in
+  // `src/lib/libsql-proxy.transactions.test.ts`; here the transaction only has
+  // to hand back an execute-capable handle.
+  async function transaction() {
+    return {
+      execute,
+      commit: async () => undefined,
+      rollback: async () => undefined,
+    };
+  }
+
+  return { client: { execute, batch, transaction } as unknown as Client, tables };
 }
 
 let fake: ReturnType<typeof createFakeClient>;

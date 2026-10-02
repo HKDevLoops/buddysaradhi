@@ -15,6 +15,14 @@ function toJsRow(row: any): any {
 }
 
 /**
+ * The minimum handle this proxy needs. Structural on purpose: a libSQL
+ * `Client` (autocommit) and an interactive `Transaction` (from
+ * `client.transaction("write")`) both satisfy it, which is how the same model
+ * surface is reused inside a transaction.
+ */
+type SqlHandle = Pick<Client, "execute"> & Partial<Pick<Client, "transaction">>;
+
+/**
  * Implements: AGENTS.md §3.4 (runtime schema authority is `bun run db:push` or
  * the gateway self-heal `ensureSelfRepairingSchema` — `apps/web` runtime code
  * never executes DDL) and §2 Rule 9 (a query error throws a typed error, it is
@@ -25,7 +33,11 @@ function toJsRow(row: any): any {
  * §3.4 and a silent-wrong-UI path. Both are removed (audit:
  * reviews/overhaul-audit-report-2026-09-26.md "execSafe" / STOP-AND-ASK #7).
  */
-async function execSafe(client: Client, sql: string, args: InValue[] = []): Promise<ResultSet> {
+async function execSafe(
+  client: SqlHandle,
+  sql: string,
+  args: InValue[] = [],
+): Promise<ResultSet> {
   try {
     return await client.execute({ sql, args });
   } catch (err) {
@@ -83,7 +95,78 @@ function buildWhereClause(where: Record<string, any> | undefined): { whereClause
   };
 }
 
+/** Column value normalisation: `Date` → ISO string, everything else verbatim. */
+function toSqlValue(value: unknown): InValue {
+  if (value instanceof Date) return value.toISOString();
+  if (value === undefined) return null;
+  if (typeof value === "boolean" || typeof value === "number" || typeof value === "bigint") return value;
+  if (typeof value === "string" || value === null) return value;
+  // Objects/arrays are serialised rather than silently bound as "[object Object]"
+  // — a caller that meant a scalar gets a legible, deterministic failure.
+  return JSON.stringify(value);
+}
+
+/**
+ * Build `col = ?` (or `col = col + ?` for an atomic operator) assignments from
+ * a `data` object. `undefined` keys are dropped (Prisma's "leave unchanged");
+ * `null` is an explicit NULL.
+ */
+function buildSetClause(
+  data: Record<string, unknown> | undefined,
+): { setStr: string; setVals: InValue[] } {
+  const assignments: string[] = [];
+  const setVals: InValue[] = [];
+  for (const key of Object.keys(data ?? {})) {
+    const raw = (data as Record<string, unknown>)[key];
+    if (raw === undefined) continue;
+    const col = toDbCol(key);
+    if (isAtomicNumberOp(raw)) {
+      if (raw.set !== undefined) {
+        assignments.push(`"${col}" = ?`);
+        setVals.push(raw.set);
+        continue;
+      }
+      const delta = raw.increment !== undefined ? raw.increment : -(raw.decrement ?? 0);
+      // Atomic in the database: the read-modify-write never happens in JS, so
+      // two concurrent sequence consumers cannot both read N and both write
+      // N+1 (BR-LED-03 / EC-05).
+      assignments.push(`"${col}" = "${col}" + ?`);
+      setVals.push(delta);
+      continue;
+    }
+    assignments.push(`"${col}" = ?`);
+    setVals.push(toSqlValue(raw));
+  }
+  if (assignments.length === 0) {
+    throw new Error("ORM_UPDATE_EMPTY: update called with no assignable fields");
+  }
+  return { setStr: assignments.join(","), setVals };
+}
+
+
 export type ProxyWhere = Record<string, unknown>;
+
+/**
+ * An atomic numeric operator, matching the generated Prisma client:
+ * `{ nextInvoiceSeq: { increment: 1 } }` → `next_invoice_seq = next_invoice_seq + 1`.
+ * Counting a sequence through the ORM needs the operator, not a read-modify-write
+ * in JS (BR-LED-03: the increment is atomic or two writers collide).
+ */
+export interface AtomicNumberOp {
+  increment?: number;
+  decrement?: number;
+  set?: number;
+}
+
+/** A value in `data` is either a plain column value or an atomic operator. */
+export type ProxyValue = unknown | AtomicNumberOp;
+
+function isAtomicNumberOp(value: unknown): value is AtomicNumberOp {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return false;
+  return keys.every((k) => k === "increment" || k === "decrement" || k === "set");
+}
 
 /**
  * Implements: AGENTS.md §3.4 (all runtime DB access goes through the Prisma
@@ -109,15 +192,38 @@ export interface ProxyModel {
   groupBy(args?: Record<string, unknown>): Promise<Record<string, any>[]>;
   create(args: { data: ProxyWhere }): Promise<Record<string, any>>;
   update(args: { where: ProxyWhere; data: ProxyWhere }): Promise<Record<string, any>>;
+  updateMany(args: { where?: ProxyWhere; data: ProxyWhere }): Promise<{ count: number }>;
   upsert(args: { where: ProxyWhere; create: ProxyWhere; update: ProxyWhere }): Promise<Record<string, any>>;
   deleteMany(args?: { where?: ProxyWhere }): Promise<{ count: number }>;
 }
 
+/**
+ * `$transaction` — ONE libSQL write transaction (BEGIN IMMEDIATE) around the
+ * callback, committed on return and rolled back on any throw.
+ *
+ * Rule 7 / BR-SYN-01: a mutation, its `sync_outbox` row and its `audit_log` row
+ * must land together or not at all. The callback receives a proxy bound to the
+ * open transaction, so every `tx.<model>.*` call inside it joins that
+ * transaction.
+ *
+ * The array form is REMOVED on purpose. Prisma's `db.$transaction([p1, p2])`
+ * takes *thunks*; here the array held already-started promises, so each
+ * statement had already auto-committed on the outer client before
+ * `$transaction` was even called — the "transaction" was a sequential await
+ * with no atomicity, silently. Passing an array now throws
+ * (Rule 9: never report an operation as atomic when it was not).
+ */
+export interface ProxyTransaction {
+  <T>(fn: (tx: LibsqlProxy) => Promise<T>): Promise<T>;
+  /** @deprecated Throws — use the callback form so the writes are atomic. */
+  (tasks: Promise<unknown>[]): Promise<never>;
+}
+
 export type LibsqlProxy = Record<string, ProxyModel> & {
-  $transaction<T>(tasks: Promise<T>[]): Promise<T[]>;
+  $transaction: ProxyTransaction;
 };
 
-export function createLibsqlProxy(client: Client): LibsqlProxy {
+export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
   const modelProxy = (modelName: string) => {
     const tableMap: Record<string, string> = {
       setting: "settings",
@@ -373,22 +479,42 @@ export function createLibsqlProxy(client: Client): LibsqlProxy {
         });
       },
       create: async ({ data }: any) => {
-        const rawCols = Object.keys(data).filter(k => data[k] !== undefined);
+        const rawCols = Object.keys(data).filter((k) => {
+          const v = data[k];
+          if (v === undefined) return false;
+          if (isAtomicNumberOp(v)) {
+            throw new Error(
+              `ORM_CREATE_ATOMIC_OP: \`${k}\` uses an atomic operator, which only applies to update (Prisma parity)`,
+            );
+          }
+          return true;
+        });
         const dbCols = rawCols.map(toDbCol);
-        const vals = rawCols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
-        const sql = `INSERT INTO "${tableName}" (${dbCols.map(c => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`;
+        const vals = rawCols.map((k) => toSqlValue(data[k]));
+        const sql = `INSERT INTO "${tableName}" (${dbCols.map((c) => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`;
         await execSafe(client, sql, vals);
         return data;
       },
       update: async ({ where, data }: any) => {
         const { whereClause, vals: whereVals } = buildWhereClause(where);
-        const rawCols = Object.keys(data).filter(k => data[k] !== undefined);
-        const dbCols = rawCols.map(toDbCol);
-        const setVals = rawCols.map(k => data[k] instanceof Date ? data[k].toISOString() : data[k]);
-        const setStr = dbCols.map(c => `"${c}" = ?`).join(",");
+        const { setStr, setVals } = buildSetClause(data);
         const sql = `UPDATE "${tableName}" SET ${setStr} ${whereClause}`;
         await execSafe(client, sql, [...setVals, ...whereVals]);
         return data;
+      },
+      // `update` cannot report a row count on this surface (it returns the
+      // payload). `updateMany` can — callers that must prove the row existed
+      // (`STUDENT_NOT_FOUND`, F5) use it to read `{ count }` instead of
+      // silently writing nothing.
+      updateMany: async ({ where, data }: any) => {
+        const { whereClause, vals: whereVals } = buildWhereClause(where);
+        const { setStr, setVals } = buildSetClause(data);
+        const res = await execSafe(
+          client,
+          `UPDATE "${tableName}" SET ${setStr} ${whereClause}`.trim(),
+          [...setVals, ...whereVals],
+        );
+        return { count: Number(res.rowsAffected || 0) };
       },
       upsert: async ({ where, create, update }: any) => {
         const { whereClause, vals: whereVals } = buildWhereClause(where);
@@ -421,15 +547,42 @@ export function createLibsqlProxy(client: Client): LibsqlProxy {
   return new Proxy({} as LibsqlProxy, {
     get: (_, prop: string) => {
       if (prop === "$transaction") {
-        return async (tasks: Promise<unknown>[]) => {
-          const results = [];
-          for (const t of tasks) results.push(await t);
-          return results;
+        return async (arg: unknown) => {
+          if (typeof arg !== "function") {
+            throw new Error(
+              "ORM_TX_ARRAY_FORM_REMOVED: db.$transaction([...]) cannot be atomic — its entries are already-started promises that auto-committed before this call. Use db.$transaction(async (tx) => { ... }) so the write, its sync_outbox row and its audit_log row share one write transaction (AGENTS.md §2 Rule 7, BR-SYN-01).",
+            );
+          }
+          if (typeof client.transaction !== "function") {
+            throw new Error(
+              "ORM_TX_UNSUPPORTED_HANDLE: this proxy is already bound to an open transaction; nested $transaction is not supported (open the outer transaction once).",
+            );
+          }
+          const txHandle = await client.transaction("write");
+          const txProxy = createLibsqlProxy(txHandle);
+          try {
+            const value = await (arg as (tx: LibsqlProxy) => Promise<unknown>)(txProxy);
+            await txHandle.commit();
+            return value;
+          } catch (error) {
+            // Rule 9 / BR-SEC-03 fail-closed: a failed transaction leaves NOTHING
+            // half-written. A rollback failure is reported, never swallowed.
+            try {
+              await txHandle.rollback();
+            } catch (rollbackError) {
+              throw new Error(
+                `${error instanceof Error ? error.message : String(error)}; rollback also failed: ${
+                  rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+                }`,
+              );
+            }
+            throw error;
+          }
         };
       }
       // No `$executeRaw` / `$queryRaw` (raw or unsafe) surface: raw SQL at
       // runtime is forbidden by AGENTS.md §3.4 (audit line: "raw SQL exposure").
       return modelProxy(prop);
-    }
+    },
   });
 }

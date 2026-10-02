@@ -143,9 +143,9 @@ const L1_ALLOW = [
   },
   {
     file: "apps/web/src/server/actions/settings.ts",
-    re: /db\.ledgerEntry\s*\.\s*deleteMany/,
+    re: /(?:db|tx)\.ledgerEntry\s*\.\s*deleteMany/,
     reason:
-      "secure-erase cascade per 10_Security.md §18.1 (LEDGER-4 exception), cited in the surrounding code comment — ORM form after the raw-SQL removal",
+      "secure-erase cascade per 10_Security.md §18.1 (LEDGER-4 exception), cited in the surrounding code comment — ORM form after the raw-SQL removal; `db.` is the outer proxy and `tx.` the transaction-scoped handle inside the erase $transaction (Rule 7 atomic cascade)",
   },
   {
     file: "packages/core/src/engines/security.ts",

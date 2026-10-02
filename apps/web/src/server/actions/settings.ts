@@ -239,12 +239,12 @@ export async function deleteTenantDataAction(pin: string) {
     // 11_Data_Model.md §4.18 CHECKs `op IN ('insert','update','soft_delete')` —
     // the previous 'batch_archive' literal is normalised to 'update' (same
     // tenant-wide archive payload, CHECK-valid op).
-    await db.$transaction([
-      db.student.update({
+    await db.$transaction(async (tx) => {
+      await tx.student.updateMany({
         where: { tenantId },
         data: { status: "archived", archivedAt: now, updatedAt: now },
-      }),
-      db.syncOutbox.create({
+      });
+      await tx.syncOutbox.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -254,8 +254,8 @@ export async function deleteTenantDataAction(pin: string) {
           payload: JSON.stringify({ archived_at: now }),
           createdAt: now,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -266,8 +266,8 @@ export async function deleteTenantDataAction(pin: string) {
           metadata: JSON.stringify({ deleted_at: now }),
           createdAt: now,
         },
-      }),
-    ]);
+      });
+    });
 
     invalidateTenant(tenantId); // workstream C wiring: full tenant wipe (data delete)
     return { success: true };
@@ -466,20 +466,20 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
       log.warn('settings_gateway_update_failed_using_direct_db', res.error);
       const { db, tenantId } = await getAuthenticatedPrisma();
       const now = new Date().toISOString();
+      // Rule 7: the settings write, its sync_outbox row and its audit_log row
+      // land in ONE write transaction (AGENTS.md §2; 11_Data_Model.md §4.18
+      // CHECK-valid op 'update'; audit action 'settings.update' preserved).
       // The ORM surface does not auto-bump `updated_at` on this path, so the
       // fallback write stamps it itself — otherwise the CAS base would never
       // advance and every later write would falsely conflict.
-      await db.setting.upsert({
-        where: { tenantId },
-        create: { tenantId, updatedAt: now, ...updateData },
-        update: { ...updateData, updatedAt: now },
-      });
-      // Rule 7: every mutation writes sync_outbox + audit_log in the same
-      // transaction as the mutation (AGENTS.md §2; 11_Data_Model.md §4.18
-      // CHECK-valid op 'update'; audit action 'settings.update' preserved).
       const payload = JSON.stringify(updateData);
-      await db.$transaction([
-        db.syncOutbox.create({
+      await db.$transaction(async (tx) => {
+        await tx.setting.upsert({
+          where: { tenantId },
+          create: { tenantId, updatedAt: now, ...updateData },
+          update: { ...updateData, updatedAt: now },
+        });
+        await tx.syncOutbox.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
@@ -489,8 +489,8 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
             payload,
             createdAt: now,
           },
-        }),
-        db.auditLog.create({
+        });
+        await tx.auditLog.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
@@ -501,8 +501,8 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
             metadata: JSON.stringify({ field, value }),
             createdAt: now,
           },
-        }),
-      ]);
+        });
+      });
     }
 
     revalidatePath("/settings");
@@ -567,18 +567,18 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
       log.warn('settings_batch_gateway_patch_failed_using_direct_db', res.error);
       const { db, tenantId } = await getAuthenticatedPrisma();
       const now = new Date().toISOString();
-      // See updateSettingAction: stamp `updated_at` so the CAS base advances.
-      await db.setting.upsert({
-        where: { tenantId },
-        create: { tenantId, updatedAt: now, ...updateData },
-        update: { ...updateData, updatedAt: now },
-      });
-      // Rule 7: batch sync_outbox + audit_log alongside settings mutation —
-      // same transaction, CHECK-valid op 'update', audit action
+      // Rule 7: batch settings write, its sync_outbox row and its audit_log row
+      // share ONE write transaction — CHECK-valid op 'update', audit action
       // 'settings.batch_update' preserved.
       const payload = JSON.stringify(updateData);
-      await db.$transaction([
-        db.syncOutbox.create({
+      await db.$transaction(async (tx) => {
+        // See updateSettingAction: stamp `updated_at` so the CAS base advances.
+        await tx.setting.upsert({
+          where: { tenantId },
+          create: { tenantId, updatedAt: now, ...updateData },
+          update: { ...updateData, updatedAt: now },
+        });
+        await tx.syncOutbox.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
@@ -588,8 +588,8 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
             payload,
             createdAt: now,
           },
-        }),
-        db.auditLog.create({
+        });
+        await tx.auditLog.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
@@ -600,8 +600,8 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
             metadata: JSON.stringify({ fields: Object.keys(updateData) }),
             createdAt: now,
           },
-        }),
-      ]);
+        });
+      });
     }
 
     revalidatePath("/settings");
@@ -671,32 +671,35 @@ export async function deleteAccountAction(pin: string) {
     // app_state carries tenant_secret + audit_chain_head — removing them
     // crypto-shreds every tamper hash (§9.3) and orphans the audit chain
     // (§18.1 step 3). audit_log rows SURVIVE as the erase record (§18.1 step 7).
-    await db.$transaction([
-      db.ledgerEntry.deleteMany({ where: { tenantId } }),
-      db.receipt.deleteMany({ where: { tenantId } }),
-      db.invoice.deleteMany({ where: { tenantId } }),
-      db.feeScheduleItem.deleteMany({ where: { tenantId } }),
-      db.feePlan.deleteMany({ where: { tenantId } }),
-      db.attendanceRecord.deleteMany({ where: { tenantId } }),
-      db.attendanceSession.deleteMany({ where: { tenantId } }),
-      db.studentDocument.deleteMany({ where: { tenantId } }),
-      db.studentNote.deleteMany({ where: { tenantId } }),
+    // Child-before-parent order is load-bearing (SQLite FK constraints): a
+    // failure anywhere rolls the whole cascade back, so an account is never
+    // half-erased.
+    await db.$transaction(async (tx) => {
+      await tx.ledgerEntry.deleteMany({ where: { tenantId } });
+      await tx.receipt.deleteMany({ where: { tenantId } });
+      await tx.invoice.deleteMany({ where: { tenantId } });
+      await tx.feeScheduleItem.deleteMany({ where: { tenantId } });
+      await tx.feePlan.deleteMany({ where: { tenantId } });
+      await tx.attendanceRecord.deleteMany({ where: { tenantId } });
+      await tx.attendanceSession.deleteMany({ where: { tenantId } });
+      await tx.studentDocument.deleteMany({ where: { tenantId } });
+      await tx.studentNote.deleteMany({ where: { tenantId } });
       // student_tags is a join table with no tenant_id column (single-tenant
       // DB): unfiltered delete is the only valid form.
-      db.studentTag.deleteMany({}),
-      db.tag.deleteMany({ where: { tenantId } }),
-      db.studentEnrollment.deleteMany({ where: { tenantId } }),
-      db.guardian.deleteMany({ where: { tenantId } }),
-      db.student.deleteMany({ where: { tenantId } }),
-      db.batch.deleteMany({ where: { tenantId } }),
-      db.reminder.deleteMany({ where: { tenantId } }),
-      db.notification.deleteMany({ where: { tenantId } }),
-      db.syncOutbox.deleteMany({ where: { tenantId } }),
-      db.backupManifest.deleteMany({ where: { tenantId } }),
-      db.appState.deleteMany({ where: { tenantId } }),
-      db.setting.deleteMany({ where: { tenantId } }),
-      db.tutor.deleteMany({ where: { tenantId } }),
-    ]);
+      await tx.studentTag.deleteMany({});
+      await tx.tag.deleteMany({ where: { tenantId } });
+      await tx.studentEnrollment.deleteMany({ where: { tenantId } });
+      await tx.guardian.deleteMany({ where: { tenantId } });
+      await tx.student.deleteMany({ where: { tenantId } });
+      await tx.batch.deleteMany({ where: { tenantId } });
+      await tx.reminder.deleteMany({ where: { tenantId } });
+      await tx.notification.deleteMany({ where: { tenantId } });
+      await tx.syncOutbox.deleteMany({ where: { tenantId } });
+      await tx.backupManifest.deleteMany({ where: { tenantId } });
+      await tx.appState.deleteMany({ where: { tenantId } });
+      await tx.setting.deleteMany({ where: { tenantId } });
+      await tx.tutor.deleteMany({ where: { tenantId } });
+    });
 
     const supabaseAdmin = await createSupabaseAdmin();
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
@@ -754,21 +757,21 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     const now = new Date().toISOString();
 
     // Rule 7: pin update must also write sync_outbox + audit_log atomically —
-    // the settings upsert plus both replication rows in one transaction.
-    await db.setting.upsert({
-      where: { tenantId },
-      create: {
-        tenantId,
-        instituteName: "My Tuition",
-        tenantSecret: crypto.randomUUID(),
-        pinHash: newHash,
-        createdAt: now,
-        updatedAt: now,
-      },
-      update: { pinHash: newHash, updatedAt: now },
-    });
-    await db.$transaction([
-      db.syncOutbox.create({
+    // the settings upsert plus both replication rows in ONE write transaction.
+    await db.$transaction(async (tx) => {
+      await tx.setting.upsert({
+        where: { tenantId },
+        create: {
+          tenantId,
+          instituteName: "My Tuition",
+          tenantSecret: crypto.randomUUID(),
+          pinHash: newHash,
+          createdAt: now,
+          updatedAt: now,
+        },
+        update: { pinHash: newHash, updatedAt: now },
+      });
+      await tx.syncOutbox.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -778,8 +781,8 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           payload: JSON.stringify({ pin_updated_at: now }),
           createdAt: now,
         },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           id: crypto.randomUUID(),
           tenantId,
@@ -790,8 +793,8 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           metadata: JSON.stringify({ updated_at: now }),
           createdAt: now,
         },
-      }),
-    ]);
+      });
+    });
 
     invalidateTenant(tenantId, "settings:"); // workstream C wiring: pin change may insert settings row
     return { success: true };
