@@ -131,6 +131,41 @@ completion, all pushed to `main` (`b60adb3..610c73e`):
   queue. Ops: no infinite servers — every run bounded
   start→poll→use→kill; ports verified free.
 
+## 5. SAAS-OVERHAUL-01 session update (same day, later)
+
+SaaS overhaul (RFC-003) + multi-device contract (RFC-004) + SQL removal,
+all pushed to `main`:
+
+- **Student-crash root cause**: expired/invalid Turso creds → gateway reject
+  + direct-DB throw → action rethrow → production-masked message. Fixed at
+  root (credential health + refresh/re-provision + typed codes) and UI
+  (4-way error split, no digest echo).
+- **Gateway**: verified live (old code — user must redeploy from main for
+  public marketing/stats + idempotency + CAS). Overhaul landed: typed 401s,
+  fee strictness, 63s reference cache, secret-strip, idempotency_keys +
+  replay, CAS 409s, K1–K4/K6 proven, takeSequence verified atomic.
+- **Web**: auth hardening, payment contract + receipt preview + void chain
+  (intent keys end-to-end on voids), TTL cache + batched fan-outs, error
+  taxonomy, event-driven sync badge, offline queue infra, CAS bases.
+- **SQL removal** (user directive): web → Prisma ORM; gateway → centralized
+  builders (Kysely rejected with libsql evidence, zero new deps); **L6
+  `no-raw-sql` CI rule (P0)** + **AGENTS §3.4 ORM-ONLY law** with explicit
+  method allowlist — future implementations trip the build, not review.
+- **Kill-test status**: K1–K4/K6 gateway-green; K5 queue infra built +
+  unit-tested, drain e2e pending wiring; payment cross-device dedup awaits
+  the unified payment-dialect RFC (gateway vs core overpayment semantics
+  still diverge — documented, no silent behavior).
+- **Build/e2e**: `next build` 0 (fixed server-action export violation);
+  e2e **24/24** (chromium+webkit); full gates green (unit 719, web 203,
+  gateway 271, integration 270/271 with known p95 flake).
+- **Free-tier honored**: no polling (shell events), bounded retries/queues,
+  small payloads, short timeouts — per user constraint.
+- **Deferred (spec decisions)**: G1/G2/G4 amendments, models `generate_zod`
+  RFC, display tension, unified payment dialect, graphql/index.ts import-map
+  unification, batch_id-null DDL, contract enum unification.
+- **Action needed**: (1) human reviews (§8#1/#5/#6 queue is long — see
+  worklog); (2) redeploy gateway from main; (3) `vercel login` for S4.
+
 ### Explicitly out of scope (do not start)
 - `apps/mobile/`, `apps/desktop/` code or spec edits (§9.3 platform lock).
 - Rounding implementation before the N2 ruling (would pick a side in a live
