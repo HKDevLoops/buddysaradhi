@@ -85,10 +85,19 @@ function isDummyUrl(url: string): boolean {
  *   2. TURSO_DATABASE_URL + TURSO_AUTH_TOKEN environment variables
  *      (shared DB for dev, staging, or Vercel preview deployments)
  *
+ * RFC-003 workstream A (web/03_Auth_and_Provisioning.md §8.3): falling
+ * through to env vars while a USER session exists is the silent-wrong-DB
+ * class behind the "Could not load student" incident — on Vercel the env
+ * vars do not exist (→ opaque failure) or point at the wrong DB. Callers
+ * with a session pass `{ allowEnvFallback: false }` in production so a
+ * missing/unprovisioned credential throws typed DB_NOT_PROVISIONED instead.
+ * The default preserves local-dev ergonomics (no session → env fallback).
+ *
  * Throws a typed DB_NOT_PROVISIONED error if no valid credentials are found.
  */
 export function getDbCredentials(
-  userMetadata: Record<string, unknown> | undefined
+  userMetadata: Record<string, unknown> | undefined,
+  opts?: { allowEnvFallback?: boolean },
 ): { dbUrl: string; dbToken: string } {
   const metaUrl = userMetadata?.db_url as string | undefined;
   const metaToken = userMetadata?.db_token as string | undefined;
@@ -96,6 +105,11 @@ export function getDbCredentials(
   // Use user's real Turso DB credentials if they look valid
   if (metaUrl && metaToken && !isDummyUrl(metaUrl)) {
     return { dbUrl: metaUrl, dbToken: metaToken };
+  }
+
+  const allowEnvFallback = opts?.allowEnvFallback ?? process.env.NODE_ENV !== "production";
+  if (!allowEnvFallback) {
+    throw new Error("DB_NOT_PROVISIONED: User database is not yet provisioned.");
   }
 
   const envUrl = process.env.TURSO_DATABASE_URL;
@@ -106,4 +120,19 @@ export function getDbCredentials(
   }
 
   return { dbUrl: envUrl, dbToken: envToken };
+}
+
+/**
+ * Evicts a tenant's cached clients (RFC-003 workstream A, session hygiene).
+ * Called by `signOutAction` AFTER the Supabase global revoke so a signed-out
+ * tenant's libSQL handle cannot serve a later request from this process.
+ * Never throws — eviction is best-effort hygiene, not a correctness gate.
+ */
+export function evictDbClient(dbUrl: string): void {
+  try {
+    clientCache.delete(normalizeLocalDbUrl(dbUrl));
+    prismaCache.delete(dbUrl);
+  } catch {
+    // best-effort only
+  }
 }
