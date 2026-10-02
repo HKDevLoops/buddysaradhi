@@ -1,5 +1,16 @@
+// Implements: RFC-003 §0/G-DB + workstream E (cache-first reads are budget
+// controls on Supabase Free: every cache hit saves an Edge invocation slice +
+// Turso rows-read; 17_API_Gateway_System.md §6.3 reference-data TTLs).
+//
+// Budget rule: REFERENCE ROWS ONLY. Ledger entries, invoices with derived
+// paid-amounts, balances, and analytics aggregates are money views — they are
+// never cached beyond request scope (a stale balance is a livelihood bug,
+// BR-M-01). `isCacheablePath` is the allowlist index.ts consults; anything
+// not listed falls through to Turso on every request.
 const MAX_ENTRIES = 512;
-const DEFAULT_TTL_MS = 30_000;
+/** RFC-003 G-DB reference-data TTL: 63s, tenant-scoped keys. */
+export const REFERENCE_TTL_MS = 63_000;
+const DEFAULT_TTL_MS = REFERENCE_TTL_MS;
 const STALE_GRACE_MS = 10_000;
 
 interface LRUNode {
@@ -113,6 +124,26 @@ export function setCacheResponse(
 
 export function cacheStats() {
   return { size: nodeMap.size, max: MAX_ENTRIES };
+}
+
+/**
+ * Edge-cache allowlist (RFC-003 workstream E §3 + Rule 4 — no new paths, so
+ * this list only names contracted GETs). Reference reads: students list +
+ * detail, attendance batch reference, settings, notification feed. Money
+ * views (`/api/v1/ledger*`, `/api/v1/analytics/*`, `/api/v1/sync/*`) are
+ * deliberately absent — they always read through to the tenant DB.
+ */
+const CACHEABLE_GET_PREFIXES = [
+  "/api/v1/students",
+  "/api/v1/attendance/batches",
+  "/api/v1/settings",
+  "/api/v1/notifications",
+] as const;
+
+export function isCacheablePath(path: string): boolean {
+  return CACHEABLE_GET_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(prefix + "/"),
+  );
 }
 
 // Backward-compatible aliases used by route handlers.

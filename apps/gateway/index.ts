@@ -1,10 +1,19 @@
 import { getTurso, type DB } from "./lib/db.ts";
 import { ensureSelfRepairingSchema } from "./lib/schema.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
-import { ok, json, securityFail } from "./lib/errors.ts";
+import { ok, json, fail, securityFail, isTursoAuthFailure } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
+import {
+  enforceIdempotencyPrecondition,
+  idempotencyRoute,
+} from "./lib/idempotency.ts";
 import { execLocal } from "./graphql/executor.ts";
-import { getCachedResponse, setCacheResponse } from "./lib/cache.ts";
+import {
+  getCachedResponse,
+  setCacheResponse,
+  isCacheablePath,
+  REFERENCE_TTL_MS,
+} from "./lib/cache.ts";
 import {
   runSecurityChecks,
   validatePath,
@@ -49,8 +58,10 @@ function getCorsOrigin(req: Request): string {
 function getCorsHeaders(req: Request): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": getCorsOrigin(req),
+    // RFC-004 C1 — browsers must be allowed to SEND Idempotency-Key, or every
+    // mutating call fails preflight before reaching the gateway.
     "Access-Control-Allow-Headers":
-      "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce, x-tenant-id",
+      "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce, x-tenant-id, idempotency-key",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Max-Age": "86400",
     "Access-Control-Allow-Credentials": "true",
@@ -180,7 +191,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("TURSO_AUTH_TOKEN") ||
       Deno.env.get("TURSO_TOKEN") ||
       "";
-    if (!dbUrl || !dbToken) return addSecurityHeaders(req, securityFail(400, requestId), requestId);
+    if (!dbUrl || !dbToken) return addSecurityHeaders(req, fail("DB_NOT_PROVISIONED: tenant database not provisioned", 401), requestId);
 
     const { tenantId } = await authenticateRequest(req);
     logCtx.tenantId = tenantId;
@@ -206,7 +217,11 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    if (method === "GET" && path !== "/health") {
+    // RFC-003 G-DB: edge-cache is reference-rows-only (lib/cache.ts
+    // `isCacheablePath`). Money views (ledger / invoices / analytics) always
+    // read through — a stale balance on Supabase Free would still cost a tutor
+    // real money, while a cached settings row only saves invocations.
+    if (method === "GET" && path !== "/health" && isCacheablePath(path)) {
       const cKey = cacheKey(req, path, tenantId);
       if (cKey) {
         const cached = getCachedResponse(cKey);
@@ -222,6 +237,33 @@ Deno.serve(async (req: Request) => {
 
     const db: DB = getTurso(dbUrl, dbToken);
     await ensureSelfRepairingSchema(db, tenantId, dbUrl, dbToken);
+
+    // RFC-004 C1 (17_API_Gateway_System.md §3 stage 4→5 — contract validation
+    // before SERVICE dispatch): every mutating REST route requires an
+    // Idempotency-Key (fail-closed 400) and replays stored bytes on duplicate.
+    // Runs AFTER the schema heal so `idempotency_keys` exists. Reads never
+    // need keys. POST /graphql is exempt: the executor serves read-only
+    // queries (no mutation operations exist in graphql/) — it cannot mint an
+    // effect worth deduplicating.
+    if (MUTATION_METHODS.has(method) && path !== "/graphql") {
+      const idemPre = await enforceIdempotencyPrecondition(
+        req,
+        db,
+        tenantId,
+        idempotencyRoute(method, path),
+      );
+      if (idemPre) {
+        const dt = performance.now() - t0;
+        logInfo("gateway.request", {
+          ...logCtx,
+          status: idemPre.status,
+          durationMs: dt,
+          idempotent: true,
+        });
+        idemPre.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
+        return addSecurityHeaders(req, idemPre, requestId);
+      }
+    }
 
     if (path === "/graphql" && method === "POST") {
       const body = await req.json().catch(() => ({}));
@@ -261,7 +303,7 @@ Deno.serve(async (req: Request) => {
         const dt = performance.now() - t0;
         logInfo("gateway.request", { ...logCtx, status: res.status, durationMs: dt });
 
-        if (method === "GET" && res.status === 200) {
+        if (method === "GET" && res.status === 200 && isCacheablePath(path)) {
           const cKey = cacheKey(req, path, tenantId);
           if (cKey) {
             const body = await res.text();
@@ -270,6 +312,7 @@ Deno.serve(async (req: Request) => {
               body,
               res.status,
               res.headers.get("Content-Type") || "application/json",
+              REFERENCE_TTL_MS,
             );
             const cachedResp = new Response(body, {
               status: res.status,
@@ -294,19 +337,44 @@ Deno.serve(async (req: Request) => {
     return addSecurityHeaders(req, securityFail(404, requestId), requestId);
   } catch (err) {
     const dt = performance.now() - t0;
-    const status = err instanceof AuthError ? err.status : 500;
+    // F-1 audit: typed `{ success: false, error: CODE }` with the matching
+    // status — never a 500 for a credential problem (RFC-003 G-AUTH).
+    if (err instanceof AuthError) {
+      logError("gateway.error", {
+        ...logCtx,
+        status: err.status,
+        durationMs: dt,
+        errorCode: err.code,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return addSecurityHeaders(req, fail(err.message, err.status), requestId);
+    }
+    // Expired/invalid tenant DB token (Turso rejects the credential):
+    // CREDENTIALS_EXPIRED names re-provision instead of masking as 500
+    // (RFC-003 trigger incident — the "Could not load student" chain).
+    if (isTursoAuthFailure(err)) {
+      logWarn("gateway.credentials_expired", { ...logCtx, durationMs: dt });
+      return addSecurityHeaders(
+        req,
+        fail(
+          "CREDENTIALS_EXPIRED: tenant database credential rejected; re-provision required",
+          401,
+        ),
+        requestId,
+      );
+    }
+    const status = 500;
     logError("gateway.error", {
       ...logCtx,
       status,
       durationMs: dt,
-      errorCode: err instanceof AuthError ? "auth_fail" : "internal_error",
+      errorCode: "internal_error",
       message: err instanceof Error ? err.message : String(err),
     });
-    const errMsg = err instanceof Error ? err.message : String(err);
-    // Rule 9: never leak internal error details to the client.
-    // Server-side log already has the full message. Client gets a generic error.
-    const safeMessage = err instanceof AuthError ? errMsg : "internal server error";
-    const body = JSON.stringify({ success: false, error: safeMessage, requestId });
+    // Rule 9: never leak internal error details (stacks, SQL, DSNs) to the
+    // client. Server-side log above already has the full message; the client
+    // gets the generic typed 500 (10_Security.md §8).
+    const body = JSON.stringify({ success: false, error: "INTERNAL: internal server error", requestId });
     return addSecurityHeaders(
       req,
       new Response(body, { status, headers: { "Content-Type": "application/json" } }),

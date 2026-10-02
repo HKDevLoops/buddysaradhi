@@ -559,10 +559,14 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
         let count = 0;
         for (const d of args.data) {
           const id = d.id ?? crypto.randomUUID();
+          // The gateway DDL (lib/schema.ts CORE_DDL_STATEMENTS) carries no
+          // `marked_at` column on attendance_records — `created_at` is the
+          // mark timestamp. Listing a non-existent column aborts the whole
+          // batch, so only spec columns are written.
           await run(
             db,
-            `INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, marked_at, created_at, updated_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, created_at, updated_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)
                          ON CONFLICT(session_id, student_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
             [
               id,
@@ -570,7 +574,6 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
               d.sessionId,
               d.studentId,
               d.status,
-              d.markedAt ?? now,
               now,
               now,
             ],

@@ -3,7 +3,7 @@
 // Statement execution comes from lib/sql.ts (dependency-free) and `DB` is a
 // type-only import, so the DDL itself stays importable by the integration
 // tests that assert on it — see apps/gateway/__tests__/ledger-routes.test.ts.
-import { batchExecute } from "./sql.ts";
+import { batchExecute, oneRow, run, type SqlHandle } from "./sql.ts";
 import type { DB } from "./db.ts";
 import { logError } from "./log.ts";
 
@@ -277,6 +277,8 @@ export const CORE_DDL_STATEMENTS = [
     session_date TEXT NOT NULL,
     topic TEXT,
     notes TEXT,
+    locked_at TEXT,
+    locked_by TEXT,
     created_by TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -293,17 +295,44 @@ export const CORE_DDL_STATEMENTS = [
     updated_at TEXT NOT NULL
   )`,
 
+  // Parity with migrations/0001_init.sql:263 (`UNIQUE (session_id,
+  // student_id)`): the ORM's record upsert (`ON CONFLICT(session_id,
+  // student_id) DO UPDATE`) aborts at prepare time when no matching unique
+  // constraint exists — gateway attendance marking could never succeed
+  // without this. A standalone idempotent index (not an inline table UNIQUE)
+  // so tenant DBs created before this line still heal on next boot
+  // (ensureSelfRepairingSchema runs every statement every time).
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_records_session_student ON attendance_records(session_id, student_id)`,
+  `CREATE INDEX IF NOT EXISTS att_rec_student ON attendance_records (student_id, session_id)`,
+
   `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_update
    BEFORE UPDATE ON ledger_entries
    BEGIN
-     SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. UPDATE forbidden.');
-   END`,
+      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. UPDATE forbidden.');
+    END`,
 
   `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_delete
    BEFORE DELETE ON ledger_entries
    BEGIN
-     SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. DELETE forbidden.');
-   END`,
+      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. DELETE forbidden.');
+    END`,
+
+  // RFC-004 C1 — the idempotency store. Composite PRIMARY KEY enforces the
+  // contract scope tenant+route+key: the same UUID on two routes (or two
+  // tenants) is two intents and can never shadow each other. `"key"` is quoted
+  // (KEY is reserved in MySQL-family dialects). No UPDATE/DELETE triggers: the
+  // TTL sweep (lazy delete-on-read + opportunistic purge in
+  // lib/idempotency.ts) legitimately deletes expired rows.
+  `CREATE TABLE IF NOT EXISTS idempotency_keys (
+    tenant_id TEXT NOT NULL,
+    route TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    response_code INTEGER NOT NULL,
+    response_body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (tenant_id, route, "key")
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_idempotency_ttl ON idempotency_keys(tenant_id, created_at)`,
 ];
 
 export async function ensureSelfRepairingSchema(
@@ -326,6 +355,13 @@ export async function ensureSelfRepairingSchema(
 
   try {
     await batchExecute(CORE_DDL_STATEMENTS, dbUrl, dbToken);
+    // `CREATE TABLE IF NOT EXISTS` cannot add columns to a table a previous
+    // boot already created: tenant DBs healed before the lock columns existed
+    // still lack them, and the lock route 500s on the missing column. Heal
+    // those two columns idempotently (parity with migrations/0001_init.sql,
+    // which carries locked_at/locked_by on attendance_sessions).
+    await ensureColumn(_db, "attendance_sessions", "locked_at", "TEXT");
+    await ensureColumn(_db, "attendance_sessions", "locked_by", "TEXT");
     healedTenants.add(tenantId);
   } catch (err) {
     logError("schema.heal_failed", {
@@ -333,4 +369,25 @@ export async function ensureSelfRepairingSchema(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+/**
+ * Idempotent single-column heal for tables predating a DDL addition. Reads
+ * `sqlite_master` (portable across the fixture SQLite and libSQL) and only
+ * ALTERs when the column is absent — a second boot is a no-op. Confined to
+ * this audited schema authority (AGENTS.md §3.4); never called from a route.
+ */
+async function ensureColumn(
+  db: DB,
+  table: string,
+  column: string,
+  decl: string,
+): Promise<void> {
+  const handle = db as unknown as SqlHandle;
+  const row = await oneRow(handle, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", [
+    table,
+  ]);
+  const ddl = typeof row?.sql === "string" ? row.sql : "";
+  if (ddl.toLowerCase().includes(column.toLowerCase())) return;
+  await run(handle, `ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`, []);
 }
