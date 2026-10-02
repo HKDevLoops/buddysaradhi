@@ -4,7 +4,161 @@ import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, createLibsqlP
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import { z } from "zod";
 import { verifyPin, encryptBackup } from "@/lib/crypto";
+import { invalidateTenant } from "@/server/cache"; // workstream C wiring
+import type { Client } from "@libsql/client";
+import {
+  evaluatePinLockout,
+  isPinLockoutActive,
+  pinLockoutCode,
+  type PinLockoutState,
+} from "@/server/pin-lockout";
+
+// ---------------------------------------------------------------------------
+// PIN ladder wiring (RFC-003 workstream A, deliverable 4).
+// Implements: 02_Core_Logic.md §12.4; BR-SEC-03; EC-SEC-01; 08_Settings.md
+// EC-03. The ladder thresholds live ONLY in `server/pin-lockout.ts` — this
+// file counts consecutive failures from `audit_log` and enforces the state.
+//
+// Per-device note (EC-SEC-01): `pin_failed` / `pin_unlocked` / `pin_lockout`
+// rows are device-local paper trail for the ladder and are deliberately NOT
+// mirrored to `sync_outbox` — syncing brute-force counters across devices
+// would merge independent devices' counts and break ladder semantics.
+// Sensitive MUTATIONS below (pin change, delete) keep their outbox rows.
+// ---------------------------------------------------------------------------
+
+interface PinFailState {
+  consecutiveFails: number;
+  lockedUntilIso: string | null;
+}
+
+async function readPinFailState(client: Client, tenantId: string): Promise<PinFailState> {
+  const res = await client.execute({
+    sql: `SELECT action, metadata, created_at FROM audit_log
+          WHERE tenant_id = ? AND action IN ('pin_failed','pin_unlocked','pin_changed','pin_lockout')
+          ORDER BY created_at DESC LIMIT 16`,
+    args: [tenantId],
+  });
+  let consecutiveFails = 0;
+  let lockedUntilIso: string | null = null;
+  for (const row of res.rows) {
+    const action = row.action as string | undefined;
+    if (action === "pin_lockout" && lockedUntilIso === null) {
+      try {
+        const meta = JSON.parse((row.metadata as string | null) ?? "{}") as { locked_until?: unknown };
+        if (typeof meta.locked_until === "string") lockedUntilIso = meta.locked_until;
+      } catch {
+        // malformed metadata — ignore, ladder still counts the failure
+      }
+    }
+    if (action === "pin_failed") {
+      consecutiveFails += 1;
+      continue;
+    }
+    break;
+  }
+  return { consecutiveFails, lockedUntilIso };
+}
+
+async function writePinAudit(
+  client: Client,
+  tenantId: string,
+  action: string,
+  metadata: Record<string, unknown>,
+  actor?: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await client.execute({
+    sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+          VALUES (?, ?, ?, ?, 'settings', ?, ?, ?)`,
+    args: [crypto.randomUUID(), tenantId, actor ?? tenantId, action, tenantId, JSON.stringify(metadata), now],
+  });
+}
+
+export interface PinGateResult {
+  ok: boolean;
+  code?: "PIN_INVALID" | "PIN_LOCKED" | "PIN_WIPE_REQUIRED";
+  retryInSeconds?: number;
+  attemptsLeft?: number;
+  failCount?: number;
+}
+
+/**
+ * Single PIN verification gate for every server-side PIN check. Counts
+ * consecutive `pin_failed` audit rows, enforces the 02 §12.4 ladder, writes
+ * `pin_failed` / `pin_unlocked` / `pin_lockout` / `pin_lockout_wipe` audit
+ * rows, and returns STABLE codes (UI mapping is workstream D's job).
+ */
+export async function verifyPinWithLadder(
+  client: Client,
+  tenantId: string,
+  pin: string,
+  pinHash: string,
+): Promise<PinGateResult> {
+  const nowIso = new Date().toISOString();
+  const state = await readPinFailState(client, tenantId);
+  const ladder = evaluatePinLockout(state.consecutiveFails);
+  if (ladder.wipeRequired) {
+    await writePinAudit(client, tenantId, "pin_lockout_wipe", { fail_count: state.consecutiveFails }, "system");
+    return { ok: false, code: "PIN_WIPE_REQUIRED", failCount: state.consecutiveFails };
+  }
+  if (ladder.locked) {
+    if (isPinLockoutActive(state.lockedUntilIso, nowIso)) {
+      const retryInSeconds = state.lockedUntilIso
+        ? Math.max(1, Math.ceil((Date.parse(state.lockedUntilIso) - Date.now()) / 1000))
+        : Math.ceil(ladder.lockoutMs / 1000);
+      return { ok: false, code: "PIN_LOCKED", retryInSeconds, failCount: state.consecutiveFails };
+    }
+    // Lockout window elapsed — allow the attempt; the count keeps
+    // accumulating toward the next rung (02 §12.4: 6–9 extends, 11–14 extends).
+  }
+  const valid = await verifyPin(pin, pinHash);
+  if (valid) {
+    await writePinAudit(client, tenantId, "pin_unlocked", {});
+    return { ok: true, failCount: 0 };
+  }
+  const failCount = state.consecutiveFails + 1;
+  const next: PinLockoutState = evaluatePinLockout(failCount);
+  if (next.wipeRequired) {
+    await writePinAudit(client, tenantId, "pin_failed", { fail_count: failCount });
+    await writePinAudit(client, tenantId, "pin_lockout_wipe", { fail_count: failCount }, "system");
+    return { ok: false, code: "PIN_WIPE_REQUIRED", failCount };
+  }
+  let retryInSeconds: number | undefined;
+  if (next.locked) {
+    const lockedUntilIso = new Date(Date.now() + next.lockoutMs).toISOString();
+    await writePinAudit(
+      client,
+      tenantId,
+      "pin_lockout",
+      { fail_count: failCount, locked_until: lockedUntilIso },
+      "system",
+    );
+    retryInSeconds = Math.ceil(next.lockoutMs / 1000);
+  }
+  await writePinAudit(client, tenantId, "pin_failed", { fail_count: failCount });
+  return {
+    ok: false,
+    code: pinLockoutCode(next) ?? "PIN_INVALID",
+    retryInSeconds,
+    attemptsLeft: next.attemptsLeft,
+    failCount,
+  };
+}
+
+export function pinGateMessage(gate: PinGateResult): string {
+  if (gate.code === "PIN_WIPE_REQUIRED") {
+    return "Too many wrong PIN attempts. Sign out and sign back in to continue.";
+  }
+  if (gate.code === "PIN_LOCKED") {
+    return `Too many wrong PIN attempts — try again in ${gate.retryInSeconds ?? 30}s.`;
+  }
+  if (typeof gate.attemptsLeft === "number" && gate.attemptsLeft > 0) {
+    return `Incorrect PIN — ${gate.attemptsLeft} attempt${gate.attemptsLeft === 1 ? "" : "s"} left before lockout.`;
+  }
+  return "Invalid PIN";
+}
 
 export async function createBackupAction(passphrase: string) {
   try {
@@ -61,9 +215,9 @@ export async function deleteTenantDataAction(pin: string) {
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
-    const pinValid = await verifyPin(pin, pinHash);
-    if (!pinValid) {
-      return { success: false, error: "Invalid PIN" };
+    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    if (!gate.ok) {
+      return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
     }
     const now = new Date().toISOString();
 
@@ -87,6 +241,7 @@ export async function deleteTenantDataAction(pin: string) {
       "write",
     );
 
+    invalidateTenant(tenantId); // workstream C wiring: full tenant wipe (data delete)
     return { success: true };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (error) {
@@ -116,9 +271,112 @@ const SETTING_WRITE_FIELDS: Record<string, boolean> = {
   reducedMotion: true, palette: true,
 };
 
-export async function updateSettingAction(field: string, value: unknown) {
+// ---------------------------------------------------------------------------
+// RFC-004 C4 compare-and-swap (defensive web side).
+// Implements: docs/rfc/004-multi-device-network-contract.md C4 + K4;
+// 12_Business_Rules.md BR-SYN-03 (LWW on `updated_at` for non-ledger rows —
+// CAS is the enforcement: a stale base never silently wins, the loser gets a
+// typed 409 + the fresh row instead of an LWW overwrite).
+//
+// The gateway workstream (parallel) owns server-side CAS (`base_updated_at`
+// → 409 + server row). Until it lands, this action enforces CAS
+// client-side-of-server: it re-reads the row inside the action, compares
+// `updated_at`, and returns a typed CONFLICT instead of overwriting — and it
+// forwards `base_updated_at` to the gateway so the server enforces the same
+// contract once deployed. Either way a stale base never blind-overwrites.
+// ---------------------------------------------------------------------------
+
+/** Optional CAS base for the settings PATCH paths (RFC-004 C4). */
+const SettingsCasOptionsSchema = z.object({
+  base_updated_at: z.string().min(1).optional(),
+});
+
+export type SettingsCasOptions = z.infer<typeof SettingsCasOptionsSchema>;
+
+export interface SettingsConflictResult {
+  success: false;
+  error: string;
+  code: "CONFLICT";
+  serverRow: Record<string, unknown> | null;
+}
+
+/**
+ * Secret-bearing settings columns that must never echo in a 409 server row
+ * (10_Security.md §1 trust model + §3.4 — pepper + hashes live in the DB,
+ * never on the wire). Mirrors the gateway `toSafeSettings` projection
+ * (apps/gateway/routes/settings.ts) in both snake_case and camelCase.
+ */
+const SETTINGS_SECRET_KEYS: ReadonlySet<string> = new Set([
+  "pin_hash", "pinHash",
+  "panic_pin_hash", "panicPinHash",
+  "tenant_secret", "tenantSecret",
+  "backup_passphrase_hash", "backupPassphraseHash",
+]);
+
+function toSafeSettingsRow(row: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!row) return null;
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!SETTINGS_SECRET_KEYS.has(key)) safe[key] = value;
+  }
+  return safe;
+}
+
+/** ISO-8601 base → epoch ms. `null` ms = legacy caller with no base (no CAS). */
+function parseBaseMs(base: string | undefined): { ok: true; ms: number | null } | { ok: false; error: string } {
+  if (base === undefined) return { ok: true, ms: null };
+  const ms = Date.parse(base);
+  if (Number.isNaN(ms)) {
+    return { ok: false, error: "Invalid base_updated_at — must be an ISO-8601 timestamp" };
+  }
+  return { ok: true, ms };
+}
+
+/** Epoch ms of a settings row's `updated_at` (camelCase or snake_case, string or Date). */
+function settingsRowMs(row: Record<string, unknown> | null): number | null {
+  if (!row) return null;
+  const raw: unknown = row.updatedAt ?? row.updated_at;
+  if (typeof raw === "string") {
+    const ms = Date.parse(raw);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  if (raw instanceof Date) return raw.getTime();
+  return null;
+}
+
+/** The gateway surfaces server-side CAS as HTTP 409 (RFC-004 C4, parallel workstream). */
+function isGatewayConflict(error: string): boolean {
+  return /Gateway 409\b/.test(error);
+}
+
+/**
+ * Typed 409 envelope. The rejected attempt writes NOTHING — no settings
+ * write, no `sync_outbox` row, no `audit_log` row (nothing happened) — but
+ * the boundary is logged for forensics (Rule 9: no silent failures).
+ */
+function settingsConflict(serverRow: Record<string, unknown> | null): SettingsConflictResult {
+  log.warn("cas_conflict_settings", "Settings CAS mismatch — rejected stale write");
+  return {
+    success: false,
+    error: "CONFLICT: settings changed elsewhere",
+    code: "CONFLICT",
+    serverRow: toSafeSettingsRow(serverRow),
+  };
+}
+
+export async function updateSettingAction(field: string, value: unknown, opts?: SettingsCasOptions) {
   try {
     await getAuthenticatedPrisma();
+
+    // Workstream C wiring: resolve the tenant once for cache invalidation.
+    // Best-effort by design — a successful write must never fail because
+    // invalidation could not resolve the tenant (getDb handles are cached).
+    let cacheTenantId: string | null = null;
+    try {
+      ({ tenantId: cacheTenantId } = await getAuthenticatedDb());
+    } catch {
+      cacheTenantId = null;
+    }
 
     // Map UI camelCase field names to DB model fields
     // Prisma uses camelCase so we don't need to manually map to snake_case.
@@ -126,6 +384,28 @@ export async function updateSettingAction(field: string, value: unknown) {
 
     if (!allowedFields[field]) {
       return { success: false, error: "Invalid setting field: " + field };
+    }
+
+    // RFC-004 C4: Zod-parse the CAS base before any DB touch (AGENTS §6.1).
+    const casParsed = SettingsCasOptionsSchema.safeParse(opts ?? {});
+    if (!casParsed.success) {
+      return { success: false, error: "Invalid CAS options", code: "VALIDATION" as const };
+    }
+    const base = parseBaseMs(casParsed.data.base_updated_at);
+    if (!base.ok) {
+      return { success: false, error: base.error, code: "VALIDATION" as const };
+    }
+
+    // Defensive pre-check (gateway CAS pending): re-read inside the action and
+    // compare `updated_at`. Mismatch → typed CONFLICT, no write below runs.
+    if (base.ms !== null) {
+      const { client, tenantId } = await getAuthenticatedDb();
+      const proxy = createLibsqlProxy(client);
+      const current = await proxy.setting.findFirst({ where: { tenantId } });
+      const currentMs = settingsRowMs(current);
+      if (current && currentMs !== null && currentMs !== base.ms) {
+        return settingsConflict(current);
+      }
     }
 
     // Check if new email is provided and update Supabase auth if so
@@ -142,24 +422,39 @@ export async function updateSettingAction(field: string, value: unknown) {
     }
 
     const updateData = { [field]: value };
-    const res = await gatewayPatch("/api/v1/settings", updateData);
+    // Forward-compat: the gateway CAS (parallel workstream) reads this key.
+    // The gateway Zod schema strips unknown keys today, so this is a no-op
+    // until server-side CAS lands — the pre-check above is the live guard.
+    const gatewayBody =
+      base.ms !== null ? { ...updateData, base_updated_at: casParsed.data.base_updated_at } : updateData;
+    const res = await gatewayPatch("/api/v1/settings", gatewayBody);
 
     if (!res.success) {
+      // Server-side CAS won a race after our pre-check: surface its 409 with
+      // a fresh safe-projected row; nothing is written locally.
+      if (isGatewayConflict(res.error)) {
+        const { client, tenantId } = await getAuthenticatedDb();
+        const proxy = createLibsqlProxy(client);
+        return settingsConflict(await proxy.setting.findFirst({ where: { tenantId } }));
+      }
       log.warn('settings_gateway_update_failed_using_direct_db', res.error);
       const { client, tenantId } = await getAuthenticatedDb();
       const proxy = createLibsqlProxy(client);
+      const now = new Date().toISOString();
+      // The libsql proxy is raw SQL (no Prisma `@updatedAt` bump), so the
+      // fallback write stamps `updated_at` itself — otherwise the CAS base
+      // would never advance and every later write would falsely conflict.
       await proxy.setting.upsert({
         where: { tenantId },
-        create: { tenantId, ...updateData },
-        update: updateData,
+        create: { tenantId, updatedAt: now, ...updateData },
+        update: { ...updateData, updatedAt: now },
       });
       // Rule 7: every mutation writes sync_outbox + audit_log in same logical transaction
-      const now = new Date().toISOString();
       const payload = JSON.stringify(updateData);
       await client.batch(
         [
           {
-            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
             args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
           },
           {
@@ -173,6 +468,7 @@ export async function updateSettingAction(field: string, value: unknown) {
 
     revalidatePath("/settings");
     revalidatePath("/dashboard");
+    if (cacheTenantId) invalidateTenant(cacheTenantId, "settings:"); // workstream C: single setting write
     return { success: true };
   } catch (error) {
     log.error('settings_update_failed', error instanceof Error ? error.message : String(error), { field });
@@ -180,8 +476,16 @@ export async function updateSettingAction(field: string, value: unknown) {
   }
 }
 
-export async function updateSettingsBatchAction(settingsObj: Record<string, unknown>) {
+export async function updateSettingsBatchAction(settingsObj: Record<string, unknown>, opts?: SettingsCasOptions) {
   try {
+    // Workstream C wiring: best-effort tenant for cache invalidation (see
+    // updateSettingAction — a successful write never fails on this lookup).
+    let cacheTenantId: string | null = null;
+    try {
+      ({ tenantId: cacheTenantId } = await getAuthenticatedDb());
+    } catch {
+      cacheTenantId = null;
+    }
     // Same allowlist as updateSettingAction — a batch payload must not be an
     // end-run around the single-field guard (pinHash/plan stay server-managed).
     const updateData: Record<string, unknown> = {};
@@ -194,23 +498,51 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
       return { success: false, error: "No valid settings fields" };
     }
 
-    const res = await gatewayPatch("/api/v1/settings", updateData);
+    // RFC-004 C4: same CAS contract as the single-field path (parsed before
+    // any DB touch; stale base → typed CONFLICT with no write).
+    const casParsed = SettingsCasOptionsSchema.safeParse(opts ?? {});
+    if (!casParsed.success) {
+      return { success: false, error: "Invalid CAS options", code: "VALIDATION" as const };
+    }
+    const base = parseBaseMs(casParsed.data.base_updated_at);
+    if (!base.ok) {
+      return { success: false, error: base.error, code: "VALIDATION" as const };
+    }
+    if (base.ms !== null) {
+      const { client, tenantId } = await getAuthenticatedDb();
+      const proxy = createLibsqlProxy(client);
+      const current = await proxy.setting.findFirst({ where: { tenantId } });
+      const currentMs = settingsRowMs(current);
+      if (current && currentMs !== null && currentMs !== base.ms) {
+        return settingsConflict(current);
+      }
+    }
+
+    const gatewayBody =
+      base.ms !== null ? { ...updateData, base_updated_at: casParsed.data.base_updated_at } : updateData;
+    const res = await gatewayPatch("/api/v1/settings", gatewayBody);
     if (!res.success) {
+      if (isGatewayConflict(res.error)) {
+        const { client, tenantId } = await getAuthenticatedDb();
+        const proxy = createLibsqlProxy(client);
+        return settingsConflict(await proxy.setting.findFirst({ where: { tenantId } }));
+      }
       log.warn('settings_batch_gateway_patch_failed_using_direct_db', res.error);
       const { client, tenantId } = await getAuthenticatedDb();
       const proxy = createLibsqlProxy(client);
+      const now = new Date().toISOString();
+      // See updateSettingAction: stamp `updated_at` so the CAS base advances.
       await proxy.setting.upsert({
         where: { tenantId },
-        create: { tenantId, ...updateData },
-        update: updateData,
+        create: { tenantId, updatedAt: now, ...updateData },
+        update: { ...updateData, updatedAt: now },
       });
       // Rule 7: batch sync_outbox + audit_log alongside settings mutation
-      const now = new Date().toISOString();
       const payload = JSON.stringify(updateData);
       await client.batch(
         [
           {
-            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+            sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
             args: [crypto.randomUUID(), tenantId, tenantId, payload, now],
           },
           {
@@ -224,6 +556,7 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
 
     revalidatePath("/settings");
     revalidatePath("/dashboard");
+    if (cacheTenantId) invalidateTenant(cacheTenantId, "settings:"); // workstream C wiring: batch settings write
     return { success: true };
   } catch (error) {
     log.error('settings_batch_update_error', error instanceof Error ? error.message : String(error));
@@ -231,8 +564,8 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
   }
 }
 
-export async function updateThemeAction(theme: string) {
-  return updateSettingAction("theme", theme);
+export async function updateThemeAction(theme: string, opts?: SettingsCasOptions) {
+  return updateSettingAction("theme", theme, opts);
 }
 
 export async function deleteAccountAction(pin: string) {
@@ -256,9 +589,9 @@ export async function deleteAccountAction(pin: string) {
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
-    const pinValid = await verifyPin(pin, pinHash);
-    if (!pinValid) {
-      return { success: false, error: "Invalid PIN" };
+    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    if (!gate.ok) {
+      return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
     }
 
     const now = new Date().toISOString();
@@ -328,6 +661,7 @@ export async function deleteAccountAction(pin: string) {
       args: [crypto.randomUUID(), tenantId, tenantId, tenantId, JSON.stringify({ scope: "account" }), now],
     });
 
+    invalidateTenant(tenantId); // workstream C wiring: full tenant wipe (account erase)
     return { success: true };
   } catch (error) {
     log.error('delete_account_action_failed', error instanceof Error ? error.message : String(error));
@@ -353,10 +687,9 @@ export async function setPinAction(newPin: string, currentPin?: string) {
       });
       const existingHash = settingsRow.rows[0]?.pin_hash as string | null;
       if (existingHash) {
-        const { verifyPin: verifyPinFn } = await import("@/lib/crypto");
-        const valid = await verifyPinFn(currentPin, existingHash);
-        if (!valid) {
-          return { success: false, error: "Current PIN is incorrect" };
+        const gate = await verifyPinWithLadder(client, tenantId, currentPin, existingHash);
+        if (!gate.ok) {
+          return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
         }
       }
     }
@@ -375,7 +708,7 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           args: [tenantId, crypto.randomUUID(), newHash, now, now],
         },
         {
-          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'upsert', ?, ?)`,
+          sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at) VALUES (?, ?, 'settings', ?, 'update', ?, ?)`,
           args: [crypto.randomUUID(), tenantId, tenantId, JSON.stringify({ pin_updated_at: now }), now],
         },
         {
@@ -387,6 +720,7 @@ export async function setPinAction(newPin: string, currentPin?: string) {
       "write",
     );
 
+    invalidateTenant(tenantId, "settings:"); // workstream C wiring: pin change may insert settings row
     return { success: true };
   } catch (error) {
     log.error('set_pin_action_failed', error instanceof Error ? error.message : String(error));
@@ -405,9 +739,19 @@ export async function verifyPinAction(pin: string) {
     if (!pinHash) {
       return { success: false, error: "No PIN configured", configured: false };
     }
-    const { verifyPin: verifyPinFn } = await import("@/lib/crypto");
-    const valid = await verifyPinFn(pin, pinHash);
-    return { success: valid, error: valid ? undefined : "Invalid PIN", configured: true };
+    const gate = await verifyPinWithLadder(client, tenantId, pin, pinHash);
+    if (!gate.ok) {
+      return {
+        success: false,
+        error: pinGateMessage(gate),
+        code: gate.code,
+        configured: true,
+        retryInSeconds: gate.retryInSeconds,
+        attemptsLeft: gate.attemptsLeft,
+      };
+    }
+    invalidateTenant(tenantId, "settings:"); // workstream C wiring: pin change may insert settings row
+    return { success: true, configured: true };
   } catch (error) {
     log.error('verify_pin_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to verify PIN" };
