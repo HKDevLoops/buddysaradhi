@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction, updateSettingsBatchAction } from "@/server/actions/settings";
 import { Store, Loader2, Save, X } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { toAppErrorState } from "@/lib/app-errors";
 
 import type { Settings } from "@/types/settings";
 
@@ -80,10 +81,19 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
   const updateMutation = useMutation({
     mutationFn: async (data: ProfileFormValues) => {
       if (data.plan !== "free" && data.plan !== settings?.plan) {
+        // FM-06: never hardcode an origin. Billing base comes from env;
+        // fail closed with an actionable error when unconfigured.
+        const billingBase = process.env.NEXT_PUBLIC_BILLING_URL;
+        if (!billingBase) {
+          throw new Error("BILLING_UNCONFIGURED: set NEXT_PUBLIC_BILLING_URL to enable plan checkout");
+        }
         const tenantId = settings?.tenantId || "local-dev";
-        window.location.href = `http://localhost:3010/checkout?plan=${data.plan}&tenantId=${tenantId}`;
+        window.location.href = `${billingBase}/checkout?plan=${data.plan}&tenantId=${tenantId}`;
         return;
       }
+      // RFC-004 C4: send the base this form rendered from; a stale base gets
+      // CONFLICT + server row instead of silently overwriting another device.
+      const base = (settings as { updatedAt?: string } | undefined)?.updatedAt ?? null;
       const res = await updateSettingsBatchAction({
         instituteName: data.instituteName,
         instituteAddress: data.instituteAddress || null,
@@ -92,7 +102,7 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
         currencyCode: data.currencyCode,
         locale: data.locale,
         plan: data.plan,
-      });
+      }, base ? { base_updated_at: base } : undefined);
       if (!res.success) {
         throw new Error(res.error || "Failed to update settings");
       }
@@ -101,6 +111,11 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       markClean("profile");
       reset(variables);
+    },
+    onError: () => {
+      // CONFLICT path: refresh to the server row so the form shows current
+      // truth; the mapped copy below tells the tutor what happened.
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
@@ -192,6 +207,11 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
           </div>
         </div>
 
+        {updateMutation.isError && (
+          <p role="alert" className="w-full text-xs rounded-lg px-3 py-2 border border-[var(--border-glass)] text-[var(--text-primary)]">
+            {toAppErrorState(updateMutation.error).message}
+          </p>
+        )}
         <div className="flex gap-3 pt-4">
           <button
             type="button"

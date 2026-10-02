@@ -43,6 +43,15 @@ function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: un
   if (msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("connect ECONNREFUSED")) {
     return { ok: false, status: 502, body: { success: false, error: msg } };
   }
+  // Workstream A gap: gateway-relayed credential/provision states arrive as
+  // "Gateway 401: CREDENTIALS_EXPIRED: ..." / "Gateway 401: DB_NOT_PROVISIONED".
+  // The regex below would keep the 401; expired credentials stay 401 (typed,
+  // UI routes to re-provision), but an unprovisioned DB must surface 503 +
+  // needs_provision like the direct branch above (web/04 §9 catalogue).
+  if (msg.includes("CREDENTIALS_EXPIRED")) return { ok: false, status: 401, body: { success: false, error: msg } };
+  if (msg.includes("DB_NOT_PROVISIONED") || msg.includes("NEEDS_PROVISION")) {
+    return { ok: false, status: 503, body: { success: false, error: msg, needs_provision: true } };
+  }
   const m = /^Gateway (\d{3}):/.exec(msg);
   if (m) return { ok: false, status: Number(m[1]) || 500, body: { success: false, error: msg } };
   return { ok: false, status: 500, body: { success: false, error: msg } };
@@ -56,6 +65,13 @@ async function dispatchGateway(
   try {
     let r: GatewayResult<unknown>;
     const gatewayPath = `/api/v1${path}`;
+    // RFC-004 C1: forward client intent headers to the gateway on every
+    // mutating method (void POST today, PATCH/DELETE tomorrow).
+    const extra: Record<string, string> = {};
+    const xbn = req.headers.get("x-batch-name");
+    if (xbn) extra["X-Batch-Name"] = xbn;
+    const ikey = req.headers.get("idempotency-key");
+    if (ikey) extra["Idempotency-Key"] = ikey;
     if (method === "GET") {
       const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
       r = await gatewayGet<unknown>(gatewayPath, qp as Record<string, string>);
@@ -66,14 +82,11 @@ async function dispatchGateway(
       } catch {
         body = {};
       }
-      const extra: Record<string, string> = {};
-      const xbn = req.headers.get("x-batch-name");
-      if (xbn) extra["X-Batch-Name"] = xbn;
       if (method === "POST") r = await gatewayPost<unknown>(gatewayPath, body, extra);
       else if (method === "PUT") r = await gatewayPost<unknown>(gatewayPath, body, extra);
-      else r = await gatewayPatch<unknown>(gatewayPath, body);
+      else r = await gatewayPatch<unknown>(gatewayPath, body, extra);
     } else if (method === "DELETE") {
-      r = await gatewayDelete<unknown>(gatewayPath);
+      r = await gatewayDelete<unknown>(gatewayPath, extra);
     } else {
       return NextResponse.json(
         { success: false, error: "Method not allowed" },

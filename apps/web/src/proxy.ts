@@ -87,6 +87,10 @@ export default function proxy(req: NextRequest) {
   if (url.searchParams.has('code') && !pathname.startsWith('/callback') && !pathname.startsWith('/api/')) {
     const codeUrl = new URL('/callback', req.url);
     codeUrl.searchParams.set('code', url.searchParams.get('code')!);
+    // Preserve redirect-back intent across the PKCE bounce (workstream A gap:
+    // dropping ?next= breaks OAuth redirect-back to the pre-login screen).
+    const next = url.searchParams.get('next');
+    if (next) codeUrl.searchParams.set('next', next);
     return NextResponse.redirect(codeUrl);
   }
 

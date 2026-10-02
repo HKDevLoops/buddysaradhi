@@ -24,6 +24,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings } from "@/server/queries/settings";
 import { getPendingSyncCount } from "@/server/queries/sync";
 import { signOutAction } from "@/server/actions/signout";
+import { clearAllQueues } from "@/lib/offline-queue";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -44,6 +45,9 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
     setIsSigningOut(true);
     setMenuOpen(false);
     queryClient.clear();
+    // RFC-004 C3: queued intents are per-tenant; a shared-device sign-out
+    // must not leave another tenant's intents to replay after logout.
+    clearAllQueues();
     try {
       await signOutAction();
     } catch (err) {
@@ -52,14 +56,44 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const { data: syncData } = useQuery({
+  const { data: syncData, refetch: refetchSync } = useQuery({
     queryKey: ["pendingSyncCount"],
     queryFn: () => getPendingSyncCount(),
-    refetchInterval: 10000, // Sync outbox query polling interval (10s)
+    // RFC-003 §0 + RFC-004 C6: no polling on metered tiers. Refresh on
+    // network transitions, visibility, and focus instead of a 10s interval.
+    refetchInterval: false,
+    refetchOnWindowFocus: true,
   });
-  
+
+  // Re-check the outbox count when connectivity or visibility changes —
+  // the event-driven replacement for the old 10s poll.
+  useEffect(() => {
+    const refresh = () => { void refetchSync(); };
+    window.addEventListener("online", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("online", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [refetchSync]);
+
   const pendingSyncCount = syncData?.count ?? 0;
-  const isOffline = false;
+  // Real connectivity state (was hardcoded `false`): drives the offline badge
+  // and gates queue-vs-direct mutation paths (RFC-004 C3).
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine !== false,
+  );
+  useEffect(() => {
+    const up = () => setIsOnline(true);
+    const down = () => setIsOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  const isOffline = !isOnline;
 
   const { data: settingsData } = useQuery({
     queryKey: ["settings"],

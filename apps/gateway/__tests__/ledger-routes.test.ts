@@ -33,7 +33,9 @@ async function post(
 ): Promise<{ status: number; body: ApiBody }> {
   const req = new Request(`https://api.buddysaradhi.app${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // RFC-004 C1 — the gateway is fail-closed on keyless mutations, so every
+    // test intent mints a FRESH key (reusing one would replay, not re-execute).
+    headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify(body),
   });
   const res = await handleLedger(
