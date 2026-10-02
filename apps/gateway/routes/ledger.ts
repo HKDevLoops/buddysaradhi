@@ -12,6 +12,13 @@ import {
   nextCreatedAtIso,
 } from "../lib/ledger-chain.ts";
 import { withWriteTransaction } from "../lib/tx.ts";
+import {
+  idempotencyRoute,
+  okEnvelope,
+  replayIfDuplicate,
+  requireIdempotencyKey,
+  storeIdempotentResponse,
+} from "../lib/idempotency.ts";
 import { z } from "zod";
 import { paiseAdd, paiseSub } from "../../../packages/shared/src/utils/format.ts";
 import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
@@ -58,7 +65,14 @@ const descriptionSchema = z.string().trim().max(500, "must be 500 characters or 
 const LedgerPaymentSchema = z.object({
   studentId: uuidSchema,
   amount: paiseSchema,
-  method: z.string().trim().max(32).optional(),
+  // 07_Fees_and_Payments.md §9 + 11_Data_Model.md CHECK
+  // (payment_method IN ('cash','upi','card','bank','cheque','other')): the
+  // collection method is a closed enum, never free text (G-HARDEN — the API
+  // rejects forged amount-adjacent fields; a method outside the enum is a
+  // typed 400). NOTE for packages/shared: models.ts/ledger.ts still type
+  // paymentMethod as z.string() — the enum should be promoted there (report
+  // only; this tree may not edit packages/shared per task scope).
+  method: z.enum(["cash", "upi", "card", "bank", "cheque", "other"]).optional(),
   occurredOn: isoDateSchema.optional(),
   description: descriptionSchema.optional(),
 });
@@ -74,10 +88,12 @@ const LedgerInvoiceSchema = z.object({
 });
 
 // BR-LED-04/05 + 07_Fees_and_Payments.md §9.10 — a void carries the reason
-// that ends up in `audit_log.metadata` (the empty-metadata defect G4).
+// that ends up in `audit_log.metadata` (the empty-metadata defect G4). The
+// reason is REQUIRED: an unexplained reversal is an audit hole (BR-SEC-03),
+// so a missing/blank reason is a typed 400 VALIDATION, never a default.
 const LedgerVoidSchema = z.object({
   entryId: uuidSchema,
-  reason: descriptionSchema.optional(),
+  reason: z.string().trim().min(1, "reason is required").max(500, "must be 500 characters or fewer"),
 });
 
 /** Zero-pad a sequence to 6 digits — BR-LED-03 / 07 §9.7. */
@@ -314,6 +330,11 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
 
   // POST /api/v1/ledger/payment
   if (path === "/api/v1/ledger/payment" && method === "POST") {
+    // RFC-004 C1 — fail-closed behind the index.ts middleware (the key is also
+    // needed below for the in-transaction store).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
     // amountPaise is the contracts/openapi.yaml name; amount / amount_minor are
     // the historical spellings this route already accepted.
@@ -423,21 +444,35 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
           credit,
           receiptNo,
         });
-        return { receiptNo, newBalance };
+        // RFC-004 C1 — the response bytes commit in the SAME transaction as the
+        // payment (BR-SYN-01 atomicity): a duplicate key replays these bytes
+        // without minting a second receipt.
+        const payload = { ok: true, receiptNo, newBalance };
+        const env = okEnvelope(200, payload);
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return payload;
       });
       // Cache invalidation follows COMMIT (BR-SYN-01): a rolled-back
       // transaction left the rows untouched, so the cached GET is still
       // correct, while a committed one must never keep serving the
       // pre-mutation response.
       invalidateTenant(tenantId);
-      return ok({ ok: true, receiptNo: result.receiptNo, newBalance: result.newBalance });
+      return ok(result);
     } catch (err) {
+      // RFC-004 K2/K3 — a concurrent duplicate committed first: this
+      // transaction rolled back, so replay the winner's stored bytes.
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
       return mapLedgerRouteError(err);
     }
   }
 
   // POST /api/v1/ledger/invoice
   if (path === "/api/v1/ledger/invoice" && method === "POST") {
+    // RFC-004 C1 — fail-closed (see the payment path).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
     // amountPaise is the contracts/openapi.yaml name; amount / amount_minor are
     // the historical spellings this route already accepted.
@@ -563,18 +598,30 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
           amount,
           invoiceNo: invNo,
         });
-        return { invoiceId: inv.id, newBalance };
+        // RFC-004 C1 — response bytes commit atomically with the invoice (see
+        // the payment path).
+        const payload = { ok: true, invoiceId: inv.id, newBalance };
+        const env = okEnvelope(200, payload);
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return payload;
       });
       // Cache invalidation follows COMMIT — see the payment path.
       invalidateTenant(tenantId);
-      return ok({ ok: true, invoiceId: result.invoiceId, newBalance: result.newBalance });
+      return ok(result);
     } catch (err) {
+      // RFC-004 K2/K3 — concurrent-duplicate race (see the payment path).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
       return mapLedgerRouteError(err);
     }
   }
 
   // POST /api/v1/ledger/void
   if (path === "/api/v1/ledger/void" && method === "POST") {
+    // RFC-004 C1 — fail-closed (see the payment path).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
     const parsed = LedgerVoidSchema.safeParse({
       entryId: body.entryId ?? body.entryIdToVoid,
@@ -582,7 +629,7 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
     });
     if (!parsed.success) return failZod(parsed.error);
     const entryId = parsed.data.entryId;
-    const reason = parsed.data.reason ?? "Voided via Gateway";
+    const reason = parsed.data.reason;
 
     try {
       const result = await withWriteTransaction(db, async (tx) => {
@@ -697,12 +744,21 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         await recordOutbox(tx, tenantId, "ledger_entries", voidRow.id, "create", encodeOutboxPayload("ledger_entries", "create", {
           void_of: entryId,
         }).payload);
-        return { voidId: voidRow.id, newBalance };
+        // RFC-004 C1 — response bytes commit atomically with the void (see the
+        // payment path). Business rejections above (404/409) abort WITHOUT
+        // storing, so a retry with the same key re-executes.
+        const payload = { ok: true, voidId: voidRow.id, newBalance };
+        const env = okEnvelope(200, payload);
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return payload;
       });
       // Cache invalidation follows COMMIT — see the payment path.
       invalidateTenant(tenantId);
-      return ok({ ok: true, voidId: result.voidId, newBalance: result.newBalance });
+      return ok(result);
     } catch (err) {
+      // RFC-004 K2/K3 — concurrent-duplicate race (see the payment path).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
       return mapLedgerRouteError(err);
     }
   }

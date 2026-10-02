@@ -1,8 +1,17 @@
 import type { DB } from "../lib/db.ts";
 import type { SqlHandle } from "../lib/sql.ts";
-import { ok, fail, failZod } from "../lib/errors.ts";
+import { ok, fail, failZod, failValidation } from "../lib/errors.ts";
 import { logInfo, logError } from "../lib/log.ts";
-import { getCached, setCache, invalidateTenant } from "../lib/cache.ts";
+import { getCached, setCache, invalidateTenant, REFERENCE_TTL_MS } from "../lib/cache.ts";
+import { withWriteTransaction } from "../lib/tx.ts";
+import {
+  idempotencyRoute,
+  okEnvelope,
+  replayIfDuplicate,
+  requireIdempotencyKey,
+  storeIdempotentResponse,
+} from "../lib/idempotency.ts";
+import { CasConflictError, casConflictResponse, readCasBase } from "../lib/cas.ts";
 import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
 import { z } from "zod";
 
@@ -123,6 +132,21 @@ const STUDENT_PATCH_SCHEMA = z.object({
 }).partial();
 
 
+/**
+ * Rule 9 (no silent failures): a rejection with a defined HTTP status is
+ * carried out of the write transaction as a typed error; anything else keeps
+ * propagating to index.ts as a typed 500. Mirrors `LedgerRouteError` in
+ * routes/ledger.ts.
+ */
+class StudentRouteError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "StudentRouteError";
+    this.status = status;
+  }
+}
+
 export const handleStudents: RouteHandler = async (
   req,
   db,
@@ -182,7 +206,7 @@ export const handleStudents: RouteHandler = async (
     }));
 
     const result = { students, total };
-    setCache(cacheKey, result);
+    setCache(cacheKey, result, REFERENCE_TTL_MS);
     return ok(result);
   }
 
@@ -196,99 +220,180 @@ export const handleStudents: RouteHandler = async (
 
   // POST /api/v1/students
   if (path === "/api/v1/students" && method === "POST") {
+    // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
-    if (!body.first_name && !body.firstName) {
-      return fail("first_name is required", 400);
-    }
+    // AGENTS.md §6.1 — Zod before any DB touch (RFC-003 G-FEES strictness
+    // parity for all mutating routes): a missing/blank name is typed 400
+    // VALIDATION, never an implicit "Unknown".
+    const nameParsed = z.object({
+      firstName: z.string().trim().min(1, "first name is required").max(200),
+    }).safeParse({ firstName: body.first_name ?? body.firstName });
+    if (!nameParsed.success) return failZod(nameParsed.error);
     const id = body.id ?? crypto.randomUUID();
 
-    const created = await orm.student.create({
-      data: {
-        id,
-        code: body.code ?? null,
-        firstName: body.first_name ?? body.firstName ?? "Unknown",
-        lastName: body.last_name ?? body.lastName ?? null,
-        dob: body.dob ?? null,
-        gender: body.gender ?? null,
-        phone: body.phone ?? null,
-        email: body.email ?? null,
-        address: body.address ?? null,
-        school: body.school ?? null,
-        grade: body.grade ?? null,
-        board: body.board ?? null,
-        admissionDate: body.admission_date ?? body.admissionDate ?? new Date().toISOString().slice(0, 10),
-        status: body.status ?? "active",
-        feeModel: body.fee_model ?? body.feeModel ?? "postpaid",
-        baseFeePaise: body.base_fee_paise ?? body.baseFeePaise ?? 0,
-        balancePaise: 0,
-        dupKey: body.dup_key ?? body.dupKey ?? body.code ?? id,
-        notes: body.notes ?? null,
-      },
-    });
-
-    const batchName = req.headers.get("X-Batch-Name") || body.batchName || body.batch_name || null;
-    if (batchName) {
-      let batch = await orm.batch.findFirst({ where: { name: batchName } });
-      if (!batch) {
-        batch = await orm.batch.create({ data: { name: batchName, subject: "General" } });
-      }
-      await orm.studentEnrollment.create({
+    // Rule 7 / BR-SYN-01 — student + enrollment + outbox + audit commit as
+    // ONE write transaction (fail-closed: a thrown outbox/audit write aborts
+    // the student insert instead of reporting success for a row that will
+    // never replicate).
+    const created = await withWriteTransaction(db, async (tx) => {
+      const txOrm = createPrismaOrm(tx, tenantId);
+      const row = await txOrm.student.create({
         data: {
-          studentId: id,
-          batchId: batch.id,
-          joinedOn: new Date().toISOString().slice(0, 10),
+          id,
+          code: body.code ?? null,
+          firstName: nameParsed.data.firstName,
+          lastName: body.last_name ?? body.lastName ?? null,
+          dob: body.dob ?? null,
+          gender: body.gender ?? null,
+          phone: body.phone ?? null,
+          email: body.email ?? null,
+          address: body.address ?? null,
+          school: body.school ?? null,
+          grade: body.grade ?? null,
+          board: body.board ?? null,
+          admissionDate: body.admission_date ?? body.admissionDate ?? new Date().toISOString().slice(0, 10),
+          status: body.status ?? "active",
+          feeModel: body.fee_model ?? body.feeModel ?? "postpaid",
+          baseFeePaise: body.base_fee_paise ?? body.baseFeePaise ?? 0,
+          balancePaise: 0,
+          dupKey: body.dup_key ?? body.dupKey ?? body.code ?? id,
+          notes: body.notes ?? null,
         },
       });
-    }
 
-    // Cache is invalidated before the outbox/audit writes so that a fail-closed
-    // Rule 7 throw (recordOutbox/recordAudit) never leaves pre-mutation GETs
-    // cached after the row has already changed. Outbox payload via the
-    // canonical shared codec (`packages/shared/src/outboxPayload.ts` — P3-11):
-    // the raw client body may use either key spelling; the stored payload is
-    // always snake_case with sorted keys.
+      const batchName = req.headers.get("X-Batch-Name") || body.batchName || body.batch_name || null;
+      if (batchName) {
+        let batch = await txOrm.batch.findFirst({ where: { name: batchName } });
+        if (!batch) {
+          batch = await txOrm.batch.create({ data: { name: batchName, subject: "General" } });
+        }
+        await txOrm.studentEnrollment.create({
+          data: {
+            studentId: id,
+            batchId: batch.id,
+            joinedOn: new Date().toISOString().slice(0, 10),
+          },
+        });
+      }
+
+      // Outbox payload via the canonical shared codec
+      // (`packages/shared/src/outboxPayload.ts` — P3-11): the raw client body
+      // may use either key spelling; the stored payload is always snake_case
+      // with sorted keys.
+      await recordOutbox(tx, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", body).payload);
+      await recordAudit(tx, tenantId, tenantId, "student.create", "student", id, body);
+      // RFC-004 C1 — response bytes commit atomically with the create (see
+      // routes/ledger.ts payment path). A concurrent duplicate rolls back
+      // here and replays the winner (K2/K3) via the catch below.
+      const env = okEnvelope(201, row);
+      await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+      return row;
+    });
+
+    // Cache invalidation follows COMMIT: a rolled-back transaction left the
+    // rows untouched, so the cached GET is still correct.
     invalidateTenant(tenantId);
-    await recordOutbox(db, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", body).payload);
-    await recordAudit(db, tenantId, tenantId, "student.create", "student", id, body);
     return ok(created, 201);
   }
 
   // PATCH /api/v1/students/:id
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "PATCH") {
+    // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const id = path.split("/").pop()!;
     const body = await req.json().catch(() => ({}));
+    // RFC-004 C4 — the CAS base is read from the RAW body, never from the Zod
+    // allowlist below (which becomes the DB update).
+    const casBase = readCasBase(body);
+    if (casBase === "INVALID") {
+      return failValidation("base_updated_at must be an ISO timestamp string (RFC-004 C4)");
+    }
 
     const parsed = STUDENT_PATCH_SCHEMA.safeParse(body);
     if (!parsed.success) return failZod(parsed.error);
     const patch = parsed.data;
     if (Object.keys(patch).length === 0) return fail("no_valid_fields", 400);
 
-    const updated = await orm.student.update({
-      where: { id },
-      data: patch,
-    });
+    // Rule 7 / BR-SYN-01 — the profile update and its outbox+audit rows share
+    // one write transaction (fail-closed on any write failure).
+    let updated: Record<string, unknown> | null;
+    try {
+      updated = await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        // RFC-004 C4 — compare-and-swap on the student profile, read in the
+        // SAME transaction that writes (no TOCTOU). Absent base = documented
+        // legacy last-write-wins. The row carries no secrets
+        // (10_Security.md §1), so it is safe to echo as `server_row` on 409.
+        const current = await txOrm.student.findFirst({ where: { id } });
+        if (current && casBase && casBase !== String(current.updatedAt ?? "")) {
+          throw new CasConflictError(current);
+        }
+        const row = await txOrm.student.update({
+          where: { id },
+          data: patch,
+        });
+        await recordOutbox(tx, tenantId, "students", id, "update", encodeOutboxPayload("students", "update", patch).payload);
+        await recordAudit(tx, tenantId, tenantId, "student.edit", "student", id, patch);
+        // RFC-004 C1 — response bytes commit atomically with the update.
+        const env = okEnvelope(200, row);
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return row;
+      });
+    } catch (err) {
+      if (err instanceof CasConflictError) return casConflictResponse(err.serverRow);
+      // RFC-004 K2/K3 — concurrent-duplicate race (see routes/ledger.ts).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
 
     invalidateTenant(tenantId);
-    await recordOutbox(db, tenantId, "students", id, "update", encodeOutboxPayload("students", "update", patch).payload);
-    await recordAudit(db, tenantId, tenantId, "student.edit", "student", id, patch);
     return ok(updated);
   }
 
   // DELETE /api/v1/students/:id
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "DELETE") {
+    // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path). No CAS:
+    // deletes carry no base per RFC-004 C4 (shared MUTABLE rows only).
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
     const id = path.split("/").pop()!;
 
-    const student = await orm.student.findFirst({ where: { id } });
-    if (!student) return fail("not_found", 404);
+    // Rule 7 / BR-SYN-01 — existence check, cascade deletes, outbox and audit
+    // share one write transaction: a failed audit write aborts the delete.
+    try {
+      await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        const student = await txOrm.student.findFirst({ where: { id } });
+        if (!student) throw new StudentRouteError("not_found", 404);
 
-    // Cascade delete via ORM methods
-    await orm.studentEnrollment.deleteMany({ where: { studentId: id } });
-    await orm.student.delete({ where: { id } });
+        // Cascade delete via ORM methods
+        await txOrm.studentEnrollment.deleteMany({ where: { studentId: id } });
+        await txOrm.student.delete({ where: { id } });
+
+        await recordAudit(tx, tenantId, tenantId, "student.delete", "student", id, {});
+        await recordOutbox(tx, tenantId, "students", id, "delete", encodeOutboxPayload("students", "delete", { id }).payload);
+        // RFC-004 C1 — response bytes commit atomically with the delete (see
+        // routes/ledger.ts payment path). The 404 above aborts WITHOUT
+        // storing, so a retry with the same key re-executes.
+        const env = okEnvelope(200, { ok: true });
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+      });
+    } catch (err) {
+      if (err instanceof StudentRouteError) return fail(err.message, err.status);
+      // RFC-004 K2/K3 — concurrent-duplicate race (see routes/ledger.ts).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
 
     invalidateTenant(tenantId);
-    await recordAudit(db, tenantId, tenantId, "student.delete", "student", id, {});
-    await recordOutbox(db, tenantId, "students", id, "delete", encodeOutboxPayload("students", "delete", { id }).payload);
-
     logInfo("mutation.success", { ...logCtx, tenantId, path, method: "DELETE", studentId: id });
     return ok({ ok: true });
   }
