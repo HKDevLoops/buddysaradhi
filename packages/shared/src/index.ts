@@ -4,3 +4,4 @@ export * from "./schemas/attendance";
 export * from "./utils/format";
 export * from "./outboxPayload";
 export * from "./types";
+export * from "./fuzzy";

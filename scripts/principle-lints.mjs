@@ -317,12 +317,7 @@ const L6_ALLOW = [
   {
     file: "apps/web/src/lib/db/admin.ts",
     re: /[\s\S]/,
-    reason: "one-time SQLite admin commands with no ORM equivalent (SQLCipher PRAGMA, WAL checkpoint) — never called from a screen/action/route (AGENTS §3.4)",
-  },
-  {
-    file: "apps/web/src/lib/search/searchStudentsFts.ts",
-    re: /\bsql\s*:/,
-    reason: "FTS5 MATCH with bound args + quote-strip; no Prisma model exists (11_Data_Model.md §10.5)",
+    reason: "one-time SQLite admin commands with no ORM equivalent (SQLCipher PRAGMA, WAL checkpoint) — never called from a screen/action/route (AGENTS §3.4). Its FTS5 virtual-table DDL was removed with lib/search/searchStudentsFts.ts (docs/design/overhaul-plan.md §3), so the entry is reserved, not active.",
   },
   {
     file: "apps/web/src/server/get-db.ts",

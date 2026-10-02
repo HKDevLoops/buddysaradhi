@@ -14,7 +14,9 @@ import { ExtraFeeSheet } from "./extra-fee-sheet";
 import { LedgerImport } from "./ledger-import";
 import { RecordPaymentSheet } from "./record-payment-sheet";
 import { GenerateInvoiceSheet } from "./generate-invoice-sheet";
-import { formatINR, paiseAdd, paiseSub } from "@buddysaradhi/shared";
+import { StudentSearchBox } from "@/components/search/student-search-box";
+import type { SearchCandidate } from "@/components/search/student-search-box";
+import { formatINR, fuzzySearch, paiseAdd, paiseSub } from "@buddysaradhi/shared";
 import { cn } from "@/lib/utils";
 import {
   Receipt,
@@ -86,15 +88,36 @@ export function FeesClient() {
   const activeStudentId = selectedStudentId ?? students[0]?.id ?? null;
   const activeStudent = students.find((s) => s.id === activeStudentId);
 
-  const filteredStudents = useMemo(() => {
-    if (!studentSearch.trim()) return students;
-    const q = studentSearch.toLowerCase();
-    return students.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        (s.code && s.code.toLowerCase().includes(q))
-    );
-  }, [students, studentSearch]);
+  // docs/design/overhaul-plan.md §3: one engine everywhere. The pane already holds the
+  // whole roster, so the filter ranks that list locally through `fuzzySearch` instead of
+  // the old `String.includes` — same component, same keyboard path, no request.
+  const studentCandidates = useMemo<SearchCandidate<string>[]>(
+    () =>
+      students.map((s) => ({
+        item: s.id,
+        text: [s.name, s.code, s.grade ?? "", s.batch ?? ""]
+          .filter((part) => part !== null && part !== "")
+          .join(" "),
+        meta: s.code ?? s.grade ?? s.batch ?? "—",
+      })),
+    [students],
+  );
+
+  const rankedStudents = useMemo(
+    () => fuzzySearch(studentCandidates, studentSearch).map((hit) => hit.item),
+    [studentCandidates, studentSearch],
+  );
+  const rankedOrder = useMemo(
+    () => new Map(rankedStudents.map((id, index) => [id, index])),
+    [rankedStudents],
+  );
+  const filteredStudents = useMemo(
+    () =>
+      [...students]
+        .filter((s) => rankedOrder.has(s.id))
+        .sort((a, b) => (rankedOrder.get(a.id) as number) - (rankedOrder.get(b.id) as number)),
+    [students, rankedOrder],
+  );
 
   return (
     <div className="space-y-6 flex flex-col min-h-[100dvh]">
@@ -135,16 +158,15 @@ export function FeesClient() {
                 <div className="text-xs uppercase tracking-wider font-semibold text-[var(--text-secondary)]">
                   Select Student
                 </div>
-                <div className="relative">
-                  <input
-                    type="search"
-                    placeholder="Filter students..."
-                    aria-label="Filter students by name"
-                    className="w-full px-3 py-2 text-xs bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] rounded-xl focus:border-[var(--accent-cyan)] focus:outline-none transition-all placeholder:text-[var(--text-muted)]"
-                    value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
-                  />
-                </div>
+                <StudentSearchBox
+                  label="Filter students by name"
+                  value={studentSearch}
+                  onValueChange={setStudentSearch}
+                  onSelect={(id) => setSelectedStudentId(id)}
+                  candidates={studentCandidates}
+                  placeholder="Filter students…"
+                  emptyLabel="No student matches that filter"
+                />
               </div>
 
               {/* Scrollable vertical list of students */}

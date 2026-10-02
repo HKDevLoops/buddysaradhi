@@ -41,4 +41,10 @@ describe("shared barrel (src/index.ts)", () => {
     });
     expect(parsed.success).toBe(true);
   });
+
+  it("re-exports the fzf-style search engine (docs/design/overhaul-plan.md §3)", () => {
+    expect(typeof Shared.fuzzyMatch).toBe("function");
+    expect(typeof Shared.fuzzySearch).toBe("function");
+    expect(typeof Shared.splitQueryTerms).toBe("function");
+  });
 });

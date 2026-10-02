@@ -1,0 +1,33 @@
+{
+  "name": "@buddysaradhi/design-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Platform-neutral design tokens: 20 palettes derived from the Figma website colour-scheme library (10 dark + 10 light) x 3 material modes (Minimal, Acrylic, Liquid Glass). See docs/design/overhaul-plan.md.",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tokens.json": "./tokens.json",
+    "./tokens.css": "./tokens.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "tokens.json",
+    "tokens.css"
+  ],
+  "scripts": {
+    "emit": "node scripts/emit.mjs",
+    "verify": "node scripts/emit.mjs",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

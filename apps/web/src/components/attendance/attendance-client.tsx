@@ -1,5 +1,11 @@
 "use client";
 
+// Implements: UI/web/05_Attendance.md — AttendanceClient.
+// docs/design/overhaul-plan.md §3: the roster the day view already holds is handed to the
+// toolbar's shared search box, so the filter ranks locally and nothing is refetched while
+// typing.
+
+import { useMemo } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAttendanceAction } from "@/server/actions/attendance";
@@ -7,6 +13,7 @@ import { AttendanceToolbar } from "./attendance-toolbar";
 import { AttendanceGrid } from "./attendance-grid";
 import { LockSessionSheet } from "./lock-session-sheet";
 import { AttendanceSummary } from "./attendance-summary";
+import type { SearchCandidate } from "@/components/search/student-search-box";
 import { Loader2 } from "lucide-react";
 
 
@@ -22,9 +29,14 @@ export function AttendanceClient() {
   const records = data?.data?.records || [];
   const isLocked = session?.locked_at != null;
 
+  const roster = useMemo<SearchCandidate<string>[]>(
+    () => records.map((r) => ({ item: r.student_id, text: r.name, meta: r.batch ?? undefined })),
+    [records],
+  );
+
   return (
     <div className="space-y-6 flex flex-col h-full min-h-[calc(100vh-140px)]">
-      <AttendanceToolbar session={session} />
+      <AttendanceToolbar session={session} roster={roster} />
 
       <div className="flex-grow min-h-0">
         {isLoading ? (

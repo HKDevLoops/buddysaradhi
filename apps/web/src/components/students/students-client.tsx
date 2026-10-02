@@ -9,12 +9,12 @@ import { useQuery } from "@tanstack/react-query";
 import { StudentMasterList } from "./student-master-list";
 import { StudentDetailDrawer } from "./student-detail-drawer";
 import { AddStudentSheet } from "./add-student-sheet";
-import { Search, Filter, Plus } from "lucide-react";
+import { StudentsToolbar } from "./students-toolbar";
+import { Plus } from "lucide-react";
 import { type StudentListRow } from "@buddysaradhi/shared";
 
 export function StudentsClient() {
-  const { filters, searchQuery, setSearchQuery, page, pageSize, sort, openAddSheet } =
-    useStudentsStore();
+  const { filters, searchQuery, page, pageSize, sort, openAddSheet } = useStudentsStore();
   const selectedStudentId = useStudentsStore((s) => s.selectedStudentId);
 
   const { data, isLoading } = useQuery({
@@ -67,41 +67,8 @@ export function StudentsClient() {
             </button>
           </div>
 
-          {/* Neumorphic inset search + filter button side-by-side */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-                style={{ color: "var(--text-muted)" }}
-                aria-hidden="true"
-              />
-              <input
-                type="search"
-                placeholder="Search by name..."
-                aria-label="Search students"
-                className="neumo-inset w-full pl-9 pr-3 h-11 text-sm"
-                style={{
-                  background: "var(--bg-surface-inset)",
-                  border: "1px solid var(--border-default)",
-                  color: "var(--text-primary)",
-                  borderRadius: "var(--radius-md)",
-                }}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
-            <button
-              type="button"
-              aria-label="Filters"
-              className="neumo-raised w-11 h-11 flex-shrink-0 flex items-center justify-center rounded-xl transition-colors"
-              style={{ color: "var(--text-secondary)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
-            >
-              <Filter className="w-4 h-4" />
-            </button>
-          </div>
+          {/* The one search box for this screen — students-toolbar.tsx owns it */}
+          <StudentsToolbar />
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">

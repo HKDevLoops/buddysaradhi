@@ -1,40 +1,12 @@
-import { getAuthenticatedDb } from "@/server/get-db";
-
-/**
- * ADMIN ONLY: Raw SQL for FTS5 virtual table setup.
- * Must NEVER be called from a screen, server action, or API route.
- * Only called once during DB initialization.
- */
-export async function initializeFtsTables() {
-  const { client } = await getAuthenticatedDb();
-
-  await client.executeMultiple(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS students_fts USING fts5(
-      id UNINDEXED,
-      tenant_id UNINDEXED,
-      first_name,
-      last_name,
-      code,
-      phone,
-      content='students',
-      content_rowid='rowid'
-    );
-
-    CREATE TRIGGER IF NOT EXISTS students_ai AFTER INSERT ON students BEGIN
-      INSERT INTO students_fts(rowid, id, tenant_id, first_name, last_name, code, phone)
-      VALUES (new.rowid, new.id, new.tenant_id, new.first_name, new.last_name, new.code, new.phone);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS students_ad AFTER DELETE ON students BEGIN
-      INSERT INTO students_fts(students_fts, rowid, id, tenant_id, first_name, last_name, code, phone)
-      VALUES ('delete', old.rowid, old.id, old.tenant_id, old.first_name, old.last_name, old.code, old.phone);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS students_au AFTER UPDATE ON students BEGIN
-      INSERT INTO students_fts(students_fts, rowid, id, tenant_id, first_name, last_name, code, phone)
-      VALUES ('delete', old.rowid, old.id, old.tenant_id, old.first_name, old.last_name, old.code, old.phone);
-      INSERT INTO students_fts(rowid, id, tenant_id, first_name, last_name, code, phone)
-      VALUES (new.rowid, new.id, new.tenant_id, new.first_name, new.last_name, new.code, new.phone);
-    END;
-  `);
-}
+// Implements: AGENTS.md §3.4 (the audited home for SQLite-level admin commands that have no
+// ORM equivalent) — currently empty.
+//
+// docs/design/overhaul-plan.md §3 removed this module's only content: the FTS5
+// `students_fts` virtual table and its three sync triggers. Nothing created it, nothing
+// read it, and `lib/search/searchStudentsFts.ts` — the single caller of the FTS5 `MATCH`
+// — is deleted. The L6 raw-SQL allowlist entry in `scripts/principle-lints.mjs` that
+// covered this file stays, because §3.4 reserves this path for the admin commands it
+// names (SQLCipher `PRAGMA key`, `PRAGMA wal_checkpoint` before a backup snapshot); until
+// one of those exists there is simply no SQL here to allow.
+//
+// This module must NEVER be called from a screen, server action, or API route.

@@ -1,95 +1,77 @@
 "use client";
 
-// Implements: UI/03_Component_Library.md §11 Form Input + Toolbar
-// Standard toolbar aligned with the dynamic palette custom properties.
+// Implements: docs/design/overhaul-plan.md §3 — the Students screen's single search box.
+// The duplicate inline input that used to live in `students-client.tsx` is gone; this
+// toolbar owns the one field, and it is the same `StudentSearchBox` the ⌘K palette opens
+// (05_Students.md §Search, one search path).
+// Rules: AGENTS.md §2 Rule 2 (the dropdown ranks the bounded local candidate set; the box
+// never issues a request per keystroke), Rule 10 (44px targets, keyboard parity).
 
 import { useStudentsStore } from "@/stores/students-store";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, Download, MoreHorizontal } from "lucide-react";
+import { StudentSearchBox } from "@/components/search/student-search-box";
+import { useSearchCandidates } from "@/components/search/use-search-candidates";
+import { Download, Filter, MoreHorizontal } from "lucide-react";
 
 export function StudentsToolbar() {
-  const { searchQuery, setSearchQuery, filters, bulkSelectedIds } = useStudentsStore();
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-  };
+  const { searchQuery, setSearchQuery, filters, bulkSelectedIds, openDrawer } = useStudentsStore();
+  const { candidates, isLoading, error } = useSearchCandidates();
 
   return (
-    <div
-      className="flex items-center justify-between gap-4 p-4 rounded-xl"
-      style={{
-        background: "var(--surface-glass)",
-        backdropFilter: "blur(20px) saturate(140%)",
-        border: "1px solid var(--border-glass)",
-      }}
-    >
-      <div className="flex-1 flex items-center gap-3">
-        <div className="relative max-w-sm w-full">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-            style={{ color: "var(--text-muted)" }}
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex-1 min-w-[180px]">
+        <StudentSearchBox
+          label="Search students"
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+          onSelect={(id) => openDrawer(id)}
+          candidates={candidates}
+          placeholder={isLoading ? "Loading roster…" : "Search by name, phone or code…"}
+          emptyLabel="No student matches that search"
+          error={error}
+        />
+      </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-11 gap-2 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] hover:bg-[var(--surface-glass)] rounded-xl cursor-pointer"
+      >
+        <Filter className="w-4 h-4" aria-hidden="true" />
+        Filters
+        {filters.status.length > 0 && filters.status.length !== 4 && (
+          <span
+            className="ml-1 w-2 h-2 rounded-full"
+            style={{ background: "var(--accent-primary)" }}
             aria-hidden="true"
           />
-          <Input
-            placeholder="Search by name, phone or code..."
-            className="pl-9 h-9 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] rounded-xl focus:border-[var(--accent-cyan)] focus:outline-none transition-all placeholder:text-[var(--text-muted)]"
-            value={searchQuery}
-            onChange={handleSearchChange}
-          />
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-9 gap-2 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] hover:bg-[var(--surface-glass)] rounded-xl cursor-pointer"
-        >
-          <Filter className="w-4 h-4" />
-          Filters
-          {filters.status.length > 0 && filters.status.length !== 4 && (
-            <span
-              className="ml-1 w-2 h-2 rounded-full"
-              style={{ background: "var(--accent-primary)" }}
-            />
-          )}
-        </Button>
-      </div>
-
-      <div className="flex items-center gap-3">
-        {bulkSelectedIds.length > 0 && (
-          <div
-            className="flex items-center gap-2 mr-4 text-sm font-medium"
-            style={{ color: "var(--accent-primary)" }}
-          >
-            <span>{bulkSelectedIds.length} selected</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              style={{ color: "var(--text-primary)" }}
-            >
-              Actions
-            </Button>
-          </div>
         )}
+      </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          <Download className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </Button>
-      </div>
+      {bulkSelectedIds.length > 0 && (
+        <span className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
+          {bulkSelectedIds.length} selected
+        </span>
+      )}
+
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="Export roster"
+        className="h-11 w-11"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <Download className="w-4 h-4" aria-hidden="true" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label="More roster actions"
+        className="h-11 w-11"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
+      </Button>
     </div>
   );
 }

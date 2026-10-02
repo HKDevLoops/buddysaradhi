@@ -9,10 +9,11 @@ import { AttendanceStatusToggle } from "./attendance-status-toggle";
 import { updateAttendanceAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, X, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
+import { fuzzySearch } from "@buddysaradhi/shared";
 
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
   { key: "present", label: "Present", accent: "var(--accent-emerald)" },
@@ -83,9 +84,16 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
     });
   };
 
-  const filteredRecords = records.filter((r) =>
-    searchQuery ? r.name.toLowerCase().includes(searchQuery.toLowerCase()) : true
-  );
+  // docs/design/overhaul-plan.md §3: the toolbar's search box ranks with the shared fzf
+  // engine, so the grid must consume the same order — not a second `includes` filter that
+  // would disagree with the dropdown the tutor just picked from.
+  const filteredRecords = useMemo(() => {
+    if (!searchQuery.trim()) return records;
+    return fuzzySearch(
+      records.map((r) => ({ item: r, text: r.name })),
+      searchQuery,
+    ).map((hit) => hit.item);
+  }, [records, searchQuery]);
 
   const isAllPresent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "present");
   const isAllAbsent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "absent");

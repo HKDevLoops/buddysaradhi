@@ -4,7 +4,7 @@
 // GlassShell — the persistent 5-screen layout wrapping all app pages.
 // Sidebar + topbar + main + sticky-footer.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -20,10 +20,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShellStore, ScreenId } from "@/stores/shell-store";
+import { useStudentsStore } from "@/stores/students-store";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings } from "@/server/queries/settings";
 import { getPendingSyncCount } from "@/server/queries/sync";
 import { signOutAction } from "@/server/actions/signout";
+import { StudentSearchBox } from "@/components/search/student-search-box";
+import { useSearchCandidates } from "@/components/search/use-search-candidates";
 import { clearAllQueues } from "@/lib/offline-queue";
 
 const NAV_ITEMS = [
@@ -103,6 +106,36 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
 
   const currentNavItem = NAV_ITEMS.find((item) => item.href === activeScreen);
   const activeLabel = currentNavItem ? currentNavItem.label : "Dashboard";
+
+  // docs/design/overhaul-plan.md §3 — one engine, one candidate source, one keyboard path.
+  // The topbar field IS the ⌘K palette: the shortcut and the sidebar row both focus this
+  // same instance, so there is no second command surface to keep in sync.
+  const { candidates, error: searchError } = useSearchCandidates();
+  const openStudent = useStudentsStore((s) => s.openDrawer);
+  const searchInputRef = useRef<HTMLDivElement>(null);
+  const [paletteQuery, setPaletteQuery] = useState("");
+
+  const focusPalette = () => {
+    const field = searchInputRef.current?.querySelector("input");
+    field?.focus();
+    field?.select();
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "k" && event.key !== "K") return;
+      if (!event.metaKey && !event.ctrlKey) return;
+      event.preventDefault();
+      focusPalette();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const onPickStudent = (studentId: string) => {
+    openStudent(studentId);
+    setActiveScreen("/students");
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -221,13 +254,15 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                 title="Online"
               />
             </div>
-            <div
-              className="mt-2 flex items-center justify-between px-3 py-2 text-sm rounded-lg cursor-pointer transition-all duration-150"
+            <button
+              type="button"
+              onClick={focusPalette}
+              className="mt-2 w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 cursor-pointer"
               style={{ background: "var(--bg-surface-inset)", color: "var(--text-muted)" }}
             >
               <span className="flex items-center gap-2">
                 <Search className="w-4 h-4" aria-hidden="true" />
-                Search...
+                Find a student…
               </span>
               <kbd
                 className="text-xs px-1.5 py-0.5 rounded"
@@ -240,7 +275,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               >
                 ⌘K
               </kbd>
-            </div>
+            </button>
           </div>
         </aside>
 
@@ -256,32 +291,25 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               borderBottom: "1px solid var(--border-glass)",
             }}
           >
-            <div className="flex items-center">
+            <div className="flex items-center gap-2 sm:gap-4">
+              {/* The screen label is redundant with the mobile bottom nav, which already
+                  names the active screen — so the search field owns the small widths. */}
               <h2
-                className="text-base font-semibold truncate max-w-[200px]"
+                className="hidden sm:block text-base font-semibold truncate max-w-[200px]"
                 style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
               >
                 {activeLabel}
               </h2>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="w-full max-w-xs relative hidden md:block">
-                <Search
-                  className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2"
-                  style={{ color: "var(--text-muted)" }}
-                  aria-hidden="true"
-                />
-                <input
-                  type="search"
-                  placeholder="Find a student..."
-                  aria-label="Search students"
-                  className="w-full py-2 pl-9 pr-4 text-sm rounded-full transition-all focus:outline-none"
-                  style={{
-                    background: "var(--bg-surface-inset)",
-                    border: "1px solid var(--border-glass)",
-                    color: "var(--text-primary)",
-                    minHeight: "44px",
-                  }}
+              <div ref={searchInputRef} className="flex-1 min-w-0 max-w-xs">
+                <StudentSearchBox
+                  label="Find a student"
+                  value={paletteQuery}
+                  onValueChange={setPaletteQuery}
+                  onSelect={onPickStudent}
+                  candidates={candidates}
+                  placeholder="Find a student…"
+                  emptyLabel="No student matches that search"
+                  error={searchError}
                 />
               </div>
               {/* Avatar with profile dropdown */}
