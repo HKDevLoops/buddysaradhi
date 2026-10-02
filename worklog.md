@@ -1523,3 +1523,64 @@ Stage Summary:
   section 8#1 incl. NEW P16 ruling + babe8e5); N2 leftovers need spec
   decisions (G1/G2/G4, models RFC, display tension); N4 needs vercel login.
 - Blocker: human review + ratification (P16, ledger chunks); user: vercel login.
+
+---
+
+Task ID: SAAS-OVERHAUL-01 (web+gateway SaaS overhaul + multi-device contract)
+Agent: orchestrator + swarm (web-engineer x8: A/B/C/D/E/G1/W1/W2)
+Task: RFC-003 SaaS overhaul (auth/fees/db/harden) + RFC-004 multi-device
+contract (idempotency/retry/queue/CAS) + SQL removal (user: open-source risk)
++ ORM-ONLY hard law.
+
+Work Log:
+
+- Live bug triaged: drawer isError UI + production-generic Server Component
+  text = fetchStudentDetailAction rethrow (gateway fail + direct-DB fail on
+  expired/invalid Turso creds, no refresh path). Fixed at the root by
+  workstream A (health check + refresh/re-provision + typed codes) and at
+  the UI by D (4-way error split, no digest echo).
+- Deployed gateway VERIFIED LIVE (Supabase Edge, ap-south-1): /health 200,
+  students 401 typed; marketing/stats 401 = deployed box runs OLD code (main
+  serves it publicly) -> user must redeploy gateway from main.
+- Web + product page checked (local 200s, deployed 200s, pp builds clean;
+  pp has one graceful marketing-stats fetch, no changes needed).
+- Swarm A-E: credential health/refresh, PIN ladder wiring, reset hardening,
+  payment contract strictness, receipt preview, void chain, TTL cache +
+  fan-out batching, error taxonomy, gateway auth/fee/cache/secret parity.
+- Swarm G1/W1/W2: gateway idempotency_keys + replay + CAS (K1-K4/K6 proven,
+  takeSequence atomic); web intent/retry/queue infra + CAS bases.
+- SQL removal per user: web actions -> Prisma ORM ($transaction atomicity
+  kept); gateway routes -> centralized builders (Kysely rejected with
+  libsql 0.14/0.15 evidence, zero new deps); L6 no-raw-sql CI rule added
+  (6 rules green); AGENTS section 3.4 rewritten as ORM-ONLY P0 law with
+  explicit method allowlist + L6 enforcement pointer.
+- Integration by orchestrator: invalidateTenant at 8 action sites; BFF
+  CREDENTIALS_EXPIRED 401 / NEEDS_PROVISION 503 (+ Idempotency-Key forward);
+  proxy ?next= preserved; void intentKey end-to-end (modal->action->gateway
+  dedup); profile billing env-gated (FM-06 localhost:3010 removed) + CAS
+  base + CONFLICT notice; shell sync-count event-driven (10s poll removed)
+  + real online state + queue clear on signout; settings op upsert->update
+  (CHECK); openapi.yaml additive conventions.
+- Build break fixed: pinGateMessage de-exported (server-action rule);
+  internal callers kept working. Build 0, e2e 24/24 (chromium+webkit),
+  servers bounded (start->poll->test->kill, ports free).
+- Commits pushed: docs RFCs/contracts, A(auth x3), B(fees x2), C(cache x2),
+  D(ui), W1(x2), settings/students actions, gateway core/routes/tests(x2),
+  integration, SQL wave (web x2, gateway x2, L6+spec), build fix.
+- Gates final: principle-lints 6/6, lint 0, typecheck 0, unit 719/719,
+  integration 270/271 (known p95 flake, solo green), web 203/203, gateway
+  271/271, deno 0, e2e 24/24.
+
+Stage Summary:
+
+- State: COMPLETED.
+- Files touched: ~90 files across apps/web, apps/gateway, packages/shared
+  (feeCalc, codec), contracts, mobile/08, desktop/07, RFC-003/004, scripts,
+  AGENTS.md section 3.4 + this entry.
+- Resume point: (1) N1 human reviews incl. NEW SQL/P16/auth chunks; (2) user
+  redeploys gateway from main (marketing/stats public + idempotency live);
+  (3) spec decisions: G1/G2/G4, models RFC, display tension, unified payment
+  dialect RFC, graphql/index.ts unification, batch_id-null DDL, contract enum
+  unification; (4) N4 needs vercel login.
+- Blocker: human reviews (section 8#1 ledger-crypto, #6 constitution);
+  user: gateway redeploy + vercel login.
