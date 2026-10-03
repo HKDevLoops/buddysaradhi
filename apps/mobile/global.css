@@ -1,25 +1,74 @@
+/* Implements: docs/design/overhaul-plan.md §6 — NativeWind entry stylesheet.
+ *
+ * `tokens.css` is GENERATED from packages/design-system/tokens.json and carries
+ * the same custom-property names as packages/design-system/tokens.css. It is
+ * imported here so expo-web and the NativeWind class surface resolve against the
+ * contract; the palette/material selectors inside it are the web mechanism.
+ */
+@import "./tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer utilities {
-  .glass-faint {
-    background-color: var(--color-surface-glass-faint);
-  }
-  .glass {
-    background-color: var(--color-surface-glass);
-  }
-  .glass-strong {
-    background-color: var(--color-surface-glass-strong);
+/* ---------------------------------------------------------------------------
+   MATERIAL PRIMITIVES.
+
+   Deliberately NOT inside `@layer utilities`: Tailwind tree-shakes that layer,
+   and these primitives are part of the token contract rather than per-component
+   sugar — a material role must never disappear because no screen happened to
+   reference it this week. (Verified: the Tailwind CLI silently dropped them
+   from `@layer utilities` on the first pass.)
+
+   One class, all three modes route through it; the mode only changes the token
+   VALUES behind it (material-modes.md §2.6).
+   --------------------------------------------------------------------------- */
+
+.mat {
+  background-color: var(--surface-overlay);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
+  backdrop-filter: var(--mat-filter);
+}
+
+.mat-nav {
+  background-color: var(--surface-nav);
+  border-top: 1px solid var(--border-default);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
+}
+
+.mat-sheet {
+  background-color: var(--surface-sheet);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--mat-specular), var(--shadow-sheet);
+}
+
+.mat-palette {
+  background-color: var(--surface-palette);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
+}
+
+/* Fallback: a UA that drops backdrop-filter (or a native runtime that never had
+   it) must still be legible, so the paired -solid tokens take over. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .mat-palette {
+    backdrop-filter: none;
+    background-color: var(--surface-overlay-solid);
   }
 
-  .neumo-raised {
-    background-color: var(--color-bg-neumo-light);
+  .mat-nav {
+    background-color: var(--surface-nav-solid);
   }
-  .neumo-inset {
-    background-color: var(--color-bg-neumo-light);
+
+  .mat-sheet {
+    background-color: var(--surface-sheet-solid);
   }
-  .neumo-pressed {
-    background-color: var(--color-bg-neumo-light);
+
+  .mat-palette {
+    background-color: var(--surface-palette-solid);
   }
 }

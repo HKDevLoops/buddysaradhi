@@ -1,41 +1,51 @@
-import { Tabs } from 'expo-router';
-import { BlurView } from 'expo-blur';
-import { View, Platform } from 'react-native';
+// Implements: docs/design/overhaul-plan.md §6 — the tab bar is a floating
+// surface, so it is the one place on mobile allowed a material
+// (material-modes.md §5.2: at most one translucent region, the nav).
+import { Tabs } from "expo-router";
+import { BlurView } from "expo-blur";
+import { Platform, View } from "react-native";
+
+import { useThemeStyles } from "../../src/theme/styles";
 
 function TabBarBackground() {
-  if (Platform.OS === 'ios') {
+  const s = useThemeStyles();
+  if (s.material.translucent && Platform.OS === "ios") {
     return (
       <BlurView
-        intensity={24}
-        tint="dark"
-        className="absolute inset-0 bg-white/6 border-t border-white/8"
+        intensity={s.blur.intensity}
+        tint={s.blur.tint}
+        className="absolute inset-0"
+        style={[s.bg.nav, s.border.hairline]}
       />
     );
   }
-  return <View className="absolute inset-0 bg-black/40 border-t border-white/8" />;
+  // Reduce Transparency, battery saver, Android, and the Minimal mode all land
+  // here: the opaque nav token, never a guess.
+  return <View className="absolute inset-0" style={[s.bg.nav, s.border.hairline]} />;
 }
 
 export default function TabsLayout() {
+  const s = useThemeStyles();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          position: 'absolute',
-          backgroundColor: 'transparent',
+          position: "absolute",
+          backgroundColor: "transparent",
           borderTopWidth: 0,
           elevation: 0,
         },
         tabBarBackground: () => <TabBarBackground />,
-        tabBarActiveTintColor: '#00FF9D',
-        tabBarInactiveTintColor: 'rgba(255,255,255,0.40)',
+        tabBarActiveTintColor: s.color.accentPrimary,
+        tabBarInactiveTintColor: s.color.textMuted,
       }}
     >
-      <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
-      <Tabs.Screen name="students" options={{ title: 'Students' }} />
-      <Tabs.Screen name="attendance" options={{ title: 'Attendance' }} />
-      <Tabs.Screen name="fees" options={{ title: 'Fees' }} />
-      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
+      <Tabs.Screen name="index" options={{ title: "Dashboard" }} />
+      <Tabs.Screen name="students" options={{ title: "Students" }} />
+      <Tabs.Screen name="attendance" options={{ title: "Attendance" }} />
+      <Tabs.Screen name="fees" options={{ title: "Fees" }} />
+      <Tabs.Screen name="settings" options={{ title: "Settings" }} />
     </Tabs>
   );
 }

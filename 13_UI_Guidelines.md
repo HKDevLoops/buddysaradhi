@@ -42,87 +42,126 @@ Enforced at four layers: (a) CSS custom properties in `globals.css` (`:root` tok
 
 ## 2. Color Token System
 
-### 2.1 Full Token Table
+> **Amended 2026-10-02 by owner directive.** Sections 2.1–2.4 previously specified
+> a hand-written bioluminescent palette (emerald/cyan/flare/amber/violet) over a
+> cosmic indigo→violet canvas. That system is retired. It is replaced by the
+> GENERATED token contract in `@buddysaradhi/design-system`. Rationale and research:
+> `docs/design/overhaul-plan.md`, `docs/design/figma-schemes.md`,
+> `docs/design/material-modes.md`. Implementation:
+> `packages/design-system/src/{schemes,tokens,material}.ts`.
 
-Every color in Buddysaradhi is a CSS custom property. Components reference tokens, never hex.
+### 2.1 The token contract (this section is normative)
 
-| Token | Hex / Value | rgba | Usage | Contrast | Semantic role |
-|---|---|---|---|---|---|
-| `--bg-cosmic` | `#0f0c29` | `rgba(15,12,41,1)` | Root gradient top | — canvas | Neutral night-sky floor |
-| `--bg-midnight` | `#24243e` | `rgba(36,36,62,1)` | Root gradient mid (55%) | — canvas | Neutral night-sky mid |
-| `--bg-abyss` | `#0a0a1a` | `rgba(10,10,26,1)` | Root gradient bottom; neumorphic dark shadow | — canvas | Warm-black floor |
-| `--bg-neumo-light` | `#1a1a3a` | `rgba(26,26,58,1)` | Neumorphic light-shadow source; raised knob body | — surface | Tactile extrusion light |
-| `--surface-glass` | `rgba(255,255,255,0.05)` | — | Default glass fill (cards, sheets, drawers) | — translucent | Primary surface tier |
-| `--surface-glass-strong` | `rgba(255,255,255,0.08)` | — | Hover/elevated glass (modal, active nav, sticky header) | — translucent | Elevated surface tier |
-| `--surface-glass-faint` | `rgba(255,255,255,0.02)` | — | Row-zebra, table gridlines, dividers | — translucent | Background tier |
-| `--surface-neumo-raised` | `#1a1a3a` | — | Raised neumo controls (toggles, knobs, buttons) | — tactile | Extruded affordance |
-| `--surface-neumo-inset` | `rgba(0,0,0,0.25)` over `#1a1a3a` | — | Inset wells (input fields, search bar, pressed toggles) | — tactile | Receptacle affordance |
-| `--accent-emerald` | `#00FF9D` | `rgba(0,255,157,1)` | Paid / present / active / positive delta / primary CTA | 12.6:1 | Success & primary action |
-| `--accent-cyan` | `#00F0FF` | `rgba(0,240,255,1)` | Info / links / focus rings / active nav / count-up | 11.9:1 | Focus & selection |
-| `--accent-amber` | `#FFB300` | `rgba(255,179,0,1)` | Partial / late / upcoming-due / pending | 9.4:1 | Cautionary |
-| `--accent-flare` | `#FF5E00` | `rgba(255,94,0,1)` | Overdue / void / destructive-confirm / error | 5.8:1 | Critical & destructive |
-| `--accent-violet` | `#B388FF` | `rgba(179,136,255,1)` | Secondary highlights, tags, inactive/excused badges (sparingly) | 7.2:1 | Neutral informational |
-| `--text-primary` | `rgba(255,255,255,0.95)` | — | Body text, headings, KPI figures | 15.2:1 | Highest-contrast text |
-| `--text-secondary` | `rgba(255,255,255,0.65)` | — | Sub-headings, captions, secondary labels | 10.4:1 | Standard secondary text |
-| `--text-muted` | `rgba(255,255,255,0.40)` | — | Hints, placeholders, table headers, footnotes | 6.4:1 | Low-priority text (still AA) |
-| `--text-on-accent` | `#0a0a1a` | `rgba(10,10,26,1)` | Text on emerald/cyan buttons (dark on bright accent) | 11.2:1 on emerald | Reversed text |
-| `--border-glass` | `rgba(255,255,255,0.08)` | — | Default 1px glass edge | — edge | Panel boundary |
-| `--border-glass-strong` | `rgba(255,255,255,0.14)` | — | Hover/active panel edge, focus-adjacent | — edge | Emphasised boundary |
-| `--border-accent` | `rgba(0,240,255,0.4)` | — | Selected row left-bar, focus trap edge | — edge | Selection marker |
+**There are no colour literals in this product.** Every surface, text, border,
+accent and status value is generated from one of **20 colour schemes** — 10 dark +
+10 light, each derived from a named Figma website colour scheme (schemes 1–53,
+shortlisted and de-duplicated in `docs/design/figma-schemes.md`) — and emitted as
+CSS custom properties by `packages/design-system`.
 
-> **Contrast is verified against the rendered rgba stack**, not the token alone. Glass over cosmic at `0.05` opacity yields an effective background of approximately `#181538`; text-primary reads at 13.8:1 on that composite. The values above are the worst-case (against pure cosmic). All tokens meet WCAG 2.1 AA at 4.5:1 minimum; most exceed AAA at 7:1 (§10).
-
-### 2.2 Root Background Recipe
-
-```css
-:root {
-  --bg-cosmic: #0f0c29;
-  --bg-midnight: #24243e;
-  --bg-abyss: #0a0a1a;
-}
-
-body {
-  background: radial-gradient(ellipse at top, var(--bg-cosmic), var(--bg-midnight) 55%, var(--bg-abyss) 100%);
-  background-attachment: fixed;
-}
+```
+packages/design-system/tokens.json   # the platform contract (all platforms)
+packages/design-system/tokens.css    # the web projection
+apps/web/src/app/globals.css         # @imports tokens.css + the Tailwind bridge
 ```
 
-The gradient is **fixed** so the aurora feels like a sky. Three aurora blobs (emerald, cyan, violet) drift at 3% opacity behind the gradient (§7.3 `aurora-drift`).
+Surfaces are an **OKLCH perceptual ramp**, so "one step lighter" is the same visual
+step in all 20 palettes. Text and accent roles are **solved** for their contrast
+target against each palette's own canvas — never mixed by a constant ratio, which
+is how the previous generation shipped a control border at 1.41:1.
+
+| Role group | Tokens |
+|---|---|
+| Surface | `--canvas`, `--surface-raised`, `--surface-inset`, `--surface-row`, `--surface-sunken`, `--surface-scrim` |
+| Translucent | `--surface-overlay`(+`-solid`), `--surface-nav`(+`-solid`), `--surface-sheet`(+`-solid`), `--surface-palette`(+`-solid`) |
+| Border | `--border-default`, `--border-strong`, `--border-focus` |
+| Text | `--text-primary`, `--text-secondary`, `--text-muted`, `--text-inverse` |
+| Accent | `--accent-primary` (vivid **fill**), `--accent-text` (4.5:1 **text/icon/focus**), `--accent-on-primary` (text on the fill) |
+| Semantic | `--success`, `--warning`, `--danger`, `--info` |
+| Status | `--status-paid`, `--status-partial`, `--status-unpaid`, `--status-overdue` |
+| Data | `--chart-1` … `--chart-6` |
+| Material | `--mat-blur`, `--mat-saturate`, `--mat-brightness`, `--mat-filter`, `--mat-specular`, `--mat-fresnel`, `--shadow-overlay`, `--shadow-sheet` |
+
+Contrast floors, enforced by `pnpm --filter @buddysaradhi/design-system verify`
+(exit 1, writes nothing):
+
+| Role | Target | Why |
+|---|---|---|
+| `--text-primary` | ≥ 10:1 | AAA body text; the first thing that broke in the old system |
+| `--text-secondary` | ≥ 7:1 | AAA large text / strong secondary |
+| `--text-muted` | ≥ 4.5:1 | AA — a muted hint is still read by a tutor in sunlight |
+| `--accent-text`, all semantic + status | ≥ 4.5:1 | AA for text and icons on the palette's own canvas |
+| `--accent-on-primary` on `--accent-primary` | ≥ 4.5:1 | the contrast that governs a filled button |
+| `--border-strong`, `--border-focus`, chart colours | ≥ 3:1 | WCAG 1.4.11 non-text |
+| Two palettes generating the same canvas | forbidden | the picker must not offer twins |
+
+**Why the accent is two tokens.** A bright accent cannot be both a vivid fill and a
+readable on-canvas text colour: a yellow scheme's accent is ~1.4:1 on a near-white
+canvas, so solving it for 4.5:1 turns it olive and the palette stops being itself.
+`--accent-primary` keeps the chroma (buttons, selected chips, active states);
+`--accent-text` is the same hue solved to 4.5:1 (links, icons, focus rings).
+
+### 2.2 Material modes
+
+Three materials, one token set (`docs/design/material-modes.md`):
+
+| Mode | Mechanism | Allowed for |
+|---|---|---|
+| **Minimal** (default) | opaque, `--mat-blur: 0` | everything — the performance and legibility default |
+| **Acrylic** | blur 40px, saturate 125%, WinUI acrylic tint/alpha | overlays, nav, command palette, sheets |
+| **Liquid Glass** | blur 48px, saturate 150%, Fresnel sheen + specular edges | overlays, nav, command palette, sheets |
+
+- **Material may only change the four translucent roles and the shadow ramp.** Text,
+  accents and status colours are mode-invariant by construction, and the verifier
+  fails if a mode ever changes one — so switching material can never change a
+  contrast ratio.
+- Glass is **never** decorative. Translucent: overlays, command palette, sheets,
+  nav, floating controls. Opaque: data tables, ledger rows, forms, dense lists.
+- Fallbacks: `@supports (backdrop-filter)`, plus `prefers-reduced-transparency`
+  (solid `-solid` tokens), `prefers-contrast: more` (stronger borders, muted →
+  secondary), `forced-colors`, and `prefers-reduced-motion`.
 
 ### 2.3 Tinting Recipe (Chips & Badges)
 
-Status chips and badges never use the full-saturation accent. Instead, the accent is **tinted at 8% opacity over the glass surface**, with the full accent reserved for the dot/icon and 1px border.
+Status chips never use a full-saturation fill as their background. The status colour
+tints the surface; the dot/icon and the text carry the meaning (Rule 10 / AP-14:
+colour is never the only signal).
 
 ```css
 .chip-paid {
-  background: rgba(0, 255, 157, 0.08);   /* emerald tint */
-  border: 1px solid rgba(0, 255, 157, 0.25);
-  color: var(--accent-emerald);
+  background: color-mix(in srgb, var(--success) 12%, var(--surface-raised));
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  color: var(--status-paid);
 }
 ```
 
-| Chip state | Tint | Border | Dot/Icon | Text |
-|---|---|---|---|---|
-| Paid | emerald 8% | emerald 25% | emerald ✓ | emerald |
-| Partial | amber 8% | amber 25% | amber ◐ | amber |
-| Overdue | flare 8% | flare 25% | flare ✕ | flare |
-| Excused | violet 8% | violet 25% | violet − | violet |
-| Info | cyan 8% | cyan 25% | cyan • | cyan |
+> **Rule:** a status colour is never used as a chip background above 12% opacity,
+> and every chip ships an icon AND a text label.
 
-> **Rule:** an accent is never used as a chip background above 12% opacity. The eye reads the dot first, the text second, the tint third.
+### 2.4 Status → colour mapping
 
-### 2.4 Status → Accent Mapping
-
-| Status | Icon (lucide) | Accent | Used on |
+| Status | Icon (lucide) | Token | Used on |
 |---|---|---|---|
-| Paid / Present / Active / Locked | `Check` | Emerald | Fee chip, attendance toggle-on, locked-period badge |
-| Partial / Late / Upcoming-due / Pending | `CircleDot` | Amber | Partial-payment chip, due-soon invoice, late attendance |
-| Unpaid / Absent / Overdue / Void / Error | `X` | Flare | Unpaid chip, absent dot, overdue banner, void receipt |
-| Excused / Holiday / Inactive / Archived | `Minus` | Violet | Excused chip, holiday calendar cell, archived student |
-| Info / Focus / Selected / Active-nav | `Info` | Cyan | Tooltips, focus rings, active sidebar item, count-up |
+| Paid / Present / Active / Locked | `Check` | `--status-paid` | fee chip, attendance toggle-on, locked-period badge |
+| Partial / Late / Upcoming-due / Pending | `CircleDot` | `--status-partial` | partial-payment chip, due-soon invoice, late attendance |
+| Unpaid / Absent / Overdue / Void / Error | `X` | `--status-overdue` | unpaid chip, absent dot, overdue banner, void receipt |
+| Unpaid / no charge (neutral) | `Minus` | `--status-unpaid` | an invoice with nothing due |
+| Info / Focus / Selected / Active nav | `Info` | `--info` | tooltips, focus rings, active nav item |
 
-> This is the canonical status table — icon + accent + usage in one place. §9 iconography and §10.6 a11y both build on it.
+> **Superseded names.** Any reference elsewhere in this document to
+> `--accent-emerald`, `--accent-cyan`, `--accent-amber`, `--accent-flare`,
+> `--accent-violet`, `--text-on-accent`, `--border-glass`, `--border-glass-strong`,
+> `--surface-glass`, `--surface-glass-strong`, `--surface-glass-faint`,
+> `--bg-cosmic`, `--bg-midnight`, `--bg-abyss`, `--surface-neumo-*`, the
+> `aurora-*` blobs, or the 8 palettes `aurora-cosmic` / `saffron-marigold` /
+> `emerald-ledger` / `cyan-lagoon` / `rose-petal` / `amber-sunrise` /
+> `violet-nebula` / `midnight-slate` is HISTORICAL. Map it through the role table in
+> §2.1 (emerald→`--success`, cyan→`--info`, amber→`--warning`, flare→`--danger`,
+> violet→`--info`, glass tiers→`--surface-raised` / `--surface-row` /
+> `--surface-overlay`). A prose alignment pass over the remaining sections is
+> tracked in `worklog.md`; until it lands, §2.1 is normative and this mapping is
+> the bridge.
 
+---
 ---
 
 ## 3. Typography Scale

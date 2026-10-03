@@ -121,3 +121,14 @@ export const DENSITY_STORAGE_KEY = "buddysaradhi.density";
  * database. The DB value seeds a device that has never chosen.
  */
 export const REDUCED_MOTION_STORAGE_KEY = "buddysaradhi.reduced-motion";
+
+/**
+ * Recently used palette ids, most-recent first, capped at 6.
+ *
+ * A preference a tutor sets once has to stay reachable: with 20 palettes in
+ * scheme order the picker is a wall, and the palette someone opens the app with
+ * every day lands wherever it sorts alphabetically. Recency is stored per device
+ * rather than per tenant for the same reason as reduced motion — a shared tablet
+ * should not inherit it from the database.
+ */
+export const RECENT_PALETTES_STORAGE_KEY = "buddysaradhi.palette.recent";

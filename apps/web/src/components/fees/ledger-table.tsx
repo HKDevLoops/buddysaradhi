@@ -295,7 +295,14 @@ const voidMutation = useMutation({
                     {entry.type === "PAYMENT_RECEIVED" && !entry.isVoid && (
                       <button
                         onClick={() => openVoid(entry.id)}
-                        className="mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors opacity-0 group-hover:opacity-100"
+                        // The Void action used to be `opacity-0 group-hover:opacity-100`,
+                        // which made it invisible on a touch device (no hover) and
+                        // invisible to a keyboard — on the one action in this table
+                        // that touches the immutable ledger. It now rests at low
+                        // opacity, comes to full on hover AND on keyboard focus, and
+                        // becomes fully opaque on coarse pointers where hover never
+                        // fires.
+                        className="mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 focus-visible:opacity-100 motion-safe:hover:opacity-100"
                         style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
                         aria-label={`Void receipt for ${entry.description || "payment"}`}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)"; }}

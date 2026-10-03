@@ -1,52 +1,47 @@
-import React from 'react';
-import { Pressable, Text, PressableProps } from 'react-native';
-import * as Haptics from 'expo-haptics';
+// Implements: docs/design/overhaul-plan.md §6 — token-backed neumorphic control.
+import { Pressable, Text } from "react-native";
+import type { GestureResponderEvent, PressableProps } from "react-native";
+import * as Haptics from "expo-haptics";
+
+import { useThemeStyles } from "../../theme/styles";
 
 interface NeumoButtonProps extends PressableProps {
   title: string;
-  variant?: 'primary' | 'secondary' | 'danger';
-  size?: 'md' | 'lg';
+  variant?: "primary" | "secondary" | "danger";
+  size?: "md" | "lg";
 }
 
-export function NeumoButton({ 
-  title, 
-  variant = 'primary', 
-  size = 'md',
+export function NeumoButton({
+  title,
+  variant = "primary",
+  size = "md",
   className,
   onPress,
-  ...props 
+  ...props
 }: NeumoButtonProps) {
-  
-  const handlePress = (e: any) => {
-    // AGENTS.md: Haptic on every neumorphic press
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (onPress) {
-      onPress(e);
-    }
+  const s = useThemeStyles();
+
+  // AGENTS.md: haptic on every neumorphic press.
+  const handlePress = (event: GestureResponderEvent) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress?.(event);
   };
 
-  let bgClass = 'bg-white/10';
-  let textClass = 'text-white';
-  
-  if (variant === 'primary') {
-    bgClass = 'bg-[#00FF9D]/20';
-    textClass = 'text-[#00FF9D] font-bold';
-  } else if (variant === 'danger') {
-    bgClass = 'bg-[#FF5E00]/20';
-    textClass = 'text-[#FF5E00] font-bold';
-  }
+  const label =
+    variant === "primary" ? s.accent.primary : variant === "danger" ? s.accent.danger : s.fg.primary;
+  const surface = variant === "secondary" ? s.bg.raised : s.bg.inset;
 
-  // AGENTS.md: 44x44px touch targets minimum
-  const minHeight = size === 'lg' ? 56 : 44;
+  // AGENTS.md Rule 10: 44px minimum touch target.
+  const minHeight = size === "lg" ? 56 : 44;
 
   return (
     <Pressable
       onPress={handlePress}
-      className={`rounded-xl items-center justify-center border border-white/10 active:opacity-70 ${bgClass} ${className || ''}`}
-      style={{ minHeight, minWidth: minHeight }}
+      className={`rounded-xl items-center justify-center border active:opacity-70 ${className ?? ""}`}
+      style={[surface, s.border.hairline, { minHeight, minWidth: minHeight }]}
       {...props}
     >
-      <Text className={`${textClass} tracking-wide`}>
+      <Text className="tracking-wide font-semibold" style={label}>
         {title}
       </Text>
     </Pressable>

@@ -14,7 +14,7 @@
 // combination — the previous design forced single-theme palettes to override the
 // user's mode, which fought the setting instead of honouring it.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction } from "@/server/actions/settings";
 import { Moon, Sun, Smartphone, Palette, Type, EyeOff, Layers, Check } from "lucide-react";
@@ -24,6 +24,7 @@ import {
   DEFAULT_MATERIAL_ID,
   DEFAULT_PALETTE_ID,
   DENSITY_STORAGE_KEY,
+  RECENT_PALETTES_STORAGE_KEY,
   REDUCED_MOTION_STORAGE_KEY,
   MATERIAL_OPTIONS,
   MATERIAL_STORAGE_KEY,
@@ -57,6 +58,9 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
   const [activeMode, setActiveMode] = useState<string>(settings?.theme || "system");
   const [activeDensity, setActiveDensity] = useState<string>("comfortable");
   const [reducedMotion, setReducedMotion] = useState<boolean>(false);
+  // Recently used palettes, most-recent first. A preference a tutor sets once should
+  // stay reachable; 20 tiles in scheme order is a wall, not a picker.
+  const [recentPalettes, setRecentPalettes] = useState<string[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -76,6 +80,15 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
       document.documentElement.getAttribute("data-reduced-motion") === "1" ||
         localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) === "1" ||
         settings?.reducedMotion === 1,
+    );
+    setRecentPalettes(
+      (() => {
+        try {
+          return JSON.parse(localStorage.getItem(RECENT_PALETTES_STORAGE_KEY) ?? "[]") as string[];
+        } catch {
+          return [];
+        }
+      })(),
     );
     setActiveDensity(
       localStorage.getItem(DENSITY_STORAGE_KEY) ??
@@ -111,11 +124,37 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
   const darkPalettes = useMemo(() => PALETTES.filter((p) => p.tier === "dark"), []);
   const lightPalettes = useMemo(() => PALETTES.filter((p) => p.tier === "light"), []);
 
+  // Applying a palette is instant and local; PERSISTING it is debounced. Writing
+  // the database on every click meant a tutor "trying" five palettes produced five
+  // audited mutations and five outbox rows (Rule 7 writes those on purpose), so
+  // exploring a preference generated a queue of sync traffic. One burst of
+  // exploration is now one write, and the screen never waits for it.
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schedulePersist = (field: string, value: unknown): void => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      updateMutation.mutate({ field, value });
+    }, 800);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    };
+  }, []);
+
   const applyPalette = (id: string): void => {
     document.documentElement.setAttribute("data-palette", id);
     localStorage.setItem(PALETTE_STORAGE_KEY, id);
     setSelectedPalette(id);
-    updateMutation.mutate({ field: "palette", value: id });
+    // Recency first: the palette a tutor opens the app with every day should be
+    // the first tile they see, not the one that happens to sort alphabetically.
+    setRecentPalettes((previous) => {
+      const next = [id, ...previous.filter((p) => p !== id)].slice(0, 6);
+      localStorage.setItem(RECENT_PALETTES_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    schedulePersist("palette", id);
   };
 
   const applyMaterial = (id: string): void => {
@@ -133,7 +172,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
     // dark for good: `system` could never be selected again and an OS flip would
     // stop being followed. The provider resolves the preference on every read.
     localStorage.setItem(THEME_STORAGE_KEY, id);
-    updateMutation.mutate({ field: "theme", value: id });
+    schedulePersist("theme", id);
   };
 
   const applyDensity = (id: string): void => {
@@ -145,7 +184,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
     setActiveDensity(id);
     localStorage.setItem(DENSITY_STORAGE_KEY, id);
     document.documentElement.setAttribute("data-density", id);
-    updateMutation.mutate({ field: "density", value: id });
+    schedulePersist("density", id);
   };
 
   const renderPaletteGrid = (title: string, options: typeof PALETTES) => (
@@ -362,6 +401,49 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                   ) : null}
                 </span>
                 <span className="text-xs leading-snug text-[var(--text-muted)]">{option.body}</span>
+                {/* A real preview, not a sentence about one.
+                    Three rows drawn at THIS option's metrics, using the same tokens
+                    the ledger table uses — the difference the copy describes ("shows
+                    more rows on screen") is the row height, so the row height is what
+                    the tutor is shown. The palette tiles already set this precedent;
+                    two of four pickers being label-only was the one real consistency
+                    gap in the surface. */}
+                <span
+                  aria-hidden="true"
+                  className="mt-2 flex w-full flex-col overflow-hidden rounded-md border border-[var(--border-default)]"
+                >
+                  {[0, 1, 2].map((row) => (
+                    <span
+                      key={row}
+                      className="flex items-center gap-2 px-2"
+                      style={{
+                        height: option.id === "compact" ? "18px" : "26px",
+                        background:
+                          row % 2 === 0
+                            ? "var(--surface-row)"
+                            : "var(--surface-inset)",
+                        borderTop:
+                          row === 0 ? "none" : "1px solid var(--border-default)",
+                      }}
+                    >
+                      <span
+                        className="h-2 w-10 rounded-sm"
+                        style={{ background: "var(--text-muted)" }}
+                      />
+                      <span
+                        className="h-2 flex-1 rounded-sm"
+                        style={{ background: "var(--surface-sunken)" }}
+                      />
+                      <span
+                        className="h-2 w-8 rounded-sm"
+                        style={{ background: "var(--accent-text)" }}
+                      />
+                    </span>
+                  ))}
+                </span>
+                <span className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  {option.id === "compact" ? "18px rows" : "26px rows"}
+                </span>
               </button>
             );
           })}

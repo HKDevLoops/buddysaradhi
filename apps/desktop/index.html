@@ -1,10 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-palette="inked" data-material="minimal">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>desktop</title>
+    <title>Buddysaradhi</title>
+    <!--
+      Palette + material are applied BEFORE first paint so the window never
+      flashes the default palette. The ids are validated against tokens.json by
+      src/theme/appearance.tsx after hydration; an unknown id is ignored here
+      rather than throwing during document parse.
+    -->
+    <script>
+      (function () {
+        try {
+          var root = document.documentElement;
+          var palette = localStorage.getItem("buddysaradhi.palette");
+          var material = localStorage.getItem("buddysaradhi.material");
+          if (palette) root.setAttribute("data-palette", palette);
+          if (material) root.setAttribute("data-material", material);
+        } catch (e) {
+          /* AppearanceProvider re-applies after hydration. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

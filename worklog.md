@@ -1654,3 +1654,103 @@ Stage Summary:
   the raw client via `getAuthenticatedDb` + `createLibsqlProxy` — same
   migration, low priority; (4) user: gateway redeploy from main, `vercel login`.
 - Blocker: human review (§8#1 ledger-crypto, §8#6 constitution for AGENTS.md).
+
+---
+
+Task ID: VISUAL-WORLD-01 (20 Figma palettes + 3 materials + search + admin + platform tokens)
+Agent: orchestrator (build mode), 5 subagents, retrieval via code index
+Task: Owner directive 2026-10-02 — replace the theme with 20 Figma-scheme-derived
+palettes (10 dark + 10 light), add Minimal/Acrylic/Liquid Glass materials, unify
+search into one local fzf-style engine, build the product-page admin console, make
+the palette uniform across web/mobile/iOS/desktop, and hold an impeccable bar of
+90+. UI/UX only.
+
+Work Log:
+
+- RESEARCH (3 parallel agents, outputs kept as the bus):
+  `docs/design/figma-schemes.md` extracted all 53 Figma schemes, shortlisted 10+10
+  with a distinctness analysis, and established the honest constraint: **the
+  article ships no hex values**, so every colour is derived and contrast-verified.
+  `docs/design/material-modes.md` ported the three materials from Fluent acrylic /
+  Apple Liquid Glass with real values and named the cross-platform mappings.
+  `docs/design/overhaul-plan.md` is the plan of record.
+- OWNER DECISIONS captured before any code: derive the palettes; full brand
+  replacement with the constitution amended; a real auth-gated admin console on the
+  product site; platform tokens everywhere (lifting the §9.3 lock for a token-only
+  wave). Then the architecture clarification: **the product page is the front door
+  (marketing + access request) and the apps do login** — and since payments are
+  manual, "subscribe" is an access REQUEST, never a fake checkout.
+- FOUNDATION (`packages/design-system`, new package): 20 palettes generated in OKLCH
+  from each scheme's documented hue/chroma/temperature, × 3 material modes, emitted
+  as `tokens.json` (the platform contract) + `tokens.css` (the web projection), with
+  a CI gate that fails and writes nothing on any finding. 31 tests.
+- THE GATE FOUND NINE REAL DEFECTS WHILE BEING BUILT, each now a regression test:
+  `border-strong` at 1.41:1 on all ten light palettes; Ink Wash and Frozen Mist
+  generating an identical canvas; primary/secondary/muted collapsing to one hex; a
+  contrast search with an inverted interval returning pure black; a yellow accent
+  solving to olive `#736300`; and — from the Impeccable evidence pass — the gate
+  measuring text against `--canvas` only (240/640 real pairings failing),
+  `--border-default` at 1.10–2.58:1 while being the border on every button, row and
+  divider, and the status-chip recipe putting status-coloured text on a tint of
+  itself (3.0–3.3:1, arithmetically unavoidable → recipe changed).
+- WEB: the 8 neon-glass palettes are gone. `globals.css` imports the generated
+  tokens and keeps only type/motion/space/radius; 801 var() renames across 54
+  components; Settings → Appearance rebuilt with 20 swatch tiles carrying their
+  Figma provenance, three materials, and density. A dead pre-CSS layer survived the
+  first migration — 5 unreachable `[data-theme-preference]` blocks holding 18 token
+  definitions, which had silently killed the body background, the canvas gradient,
+  the sticky table header and every glass/neumo surface — and is now deleted, with
+  `scripts/audit-dead-css-tokens.mjs` gating any recurrence.
+- SEARCH: one engine. `packages/shared/src/fuzzy.ts` is fzf's actual Smith-Waterman
+  scoring (constants taken from `junegunn/fzf` `algo.go`) with the documented
+  extended syntax; candidates come from the tutor's own DB over the ORM shim with no
+  gateway call while typing; FTS5 and its virtual table are deleted; the duplicate
+  Students search box is gone and the shell palette reuses the same component.
+  30 engine tests + 30 web tests. `05_Students.md` §6.3 amended — the spec said
+  FTS5, the code had FTS5 unused and a gateway LIKE live, i.e. two engines, neither
+  matching the spec.
+- PRODUCT PAGE + ADMIN: marketing restyled on the tokens, plus `/pricing` and
+  `/request-access` (an access REQUEST with no invented prices) and `/platforms`.
+  `/admin` is a real console: env-allowlist auth with an HMAC session, fail-closed at
+  503 with no config, every read and mutation audited, metadata-only tenant rows,
+  and the reminder ladder (gentle → one hard → downgrade → export request).
+  Documented in `docs/design/admin-console.md`.
+- PLATFORM TOKENS: mobile and desktop generate their theme from `tokens.json` (no
+  hand-typed colour), Tauri gets the three window-effect configs per platform, and
+  `docs/design/platform-tokens.md` maps the same tokens to iOS Liquid Glass, WinUI
+  acrylic and macOS vibrancy — including where fidelity is not achievable (Linux
+  has no translucency → the solid fallbacks). AGENTS §9.3 records the token-only
+  exception; Rule 5 and `13_UI_Guidelines.md` §2 were amended to the new world.
+- IMPECCABLE CRITIQUE (W6): Assessment B ran as an isolated sub-agent and found 8
+  defects, all now fixed (dead CSS layer, gate coverage, border floor, chip recipe,
+  System-mode pinning, inert reduced-motion switch, zero material consumers, and
+  the a11y set). Assessment A aborted twice on backend overload and was run inline
+  as a DECLARED degraded pass — score 85.5/100, below the 90 bar — and its three
+  design defects (persist-on-every-click, alphabetical palette wall, label-only
+  pickers) are all closed. See `docs/design/critique-2026-10-03.md`, including the
+  detector's coverage caveat: `[]` on TSX means "no regex antipatterns", not "no
+  antipatterns".
+
+Stage Summary:
+
+- State: COMPLETED (of the UI/UX scope in the directive).
+- Commits: `eb918da` design-system · `16083ff` web tokens · `e12157c` critique fixes.
+- Gates: design-system 31/31 · web 248/248 · root 789/790 (the known gateway p95
+  flake, green solo) · tsc 0 on web, product-page, mobile, desktop · eslint 0 ·
+  principle-lints 6/6 · dead-token audit 0 · impeccable detector 0.
+- Resume point: (1) **human review** — §8#1 (the money/ledger path was untouched
+  this session, but `13_UI_Guidelines.md`, AGENTS Rule 5 and the §9.3 exception are
+  constitution edits) and §8#6; (2) **re-run Impeccable Assessment A in isolation**
+  for an honest score against the 90 bar — the 85.5 above is contaminated by
+  having read B's evidence; (3) **entitlement engine** — the admin console is UI +
+  auth + audit only; `docs/design/entitlements-contract.md` specifies the scheduled
+  reminders, zip packaging, mail delivery and downgrade enforcement, none of which is
+  built; (4) **settings.palette default** is still the retired `aurora-cosmic` in the
+  Prisma schema — the provider validates and falls back, but changing a column
+  default needs a forward migration, which is deferred; (5) `13_UI_Guidelines.md`
+  still has stale prose references beyond §2 (the superseded-name bridge is in §2.4);
+  (6) user: gateway redeploy from main, `vercel login` for the product page.
+- Blocker: human review + a browser-based visual pass. The static detector cannot
+  see computed contrast, glass cascades or layout on this target (documented), and
+  no browser was available in this session, so the palette result is verified by
+  computation rather than by screenshot.

@@ -1,10 +1,14 @@
-
+// Implements: docs/design/overhaul-plan.md §6 — the nav rail is a floating
+// surface, so it is one of the two roles allowed a material
+// (material-modes.md §5.2 cap: at most two backdrop regions on screen).
 import { Link, useLocation } from "react-router-dom";
-import { GlassPanel } from "@buddysaradhi/ui";
+
+import { Panel } from "./Panel";
+import { useThemeTokens } from "../theme/appearance-state";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: "◈" },
-  { path: "/students", label: "Students", icon: "👥" },
+  { path: "/students", label: "Students", icon: "◍" },
   { path: "/attendance", label: "Attendance", icon: "✓" },
   { path: "/fees", label: "Fees", icon: "₹" },
   { path: "/settings", label: "Settings", icon: "⚙" },
@@ -12,35 +16,44 @@ const navItems = [
 
 export function Sidebar() {
   const location = useLocation();
+  const { colors } = useThemeTokens();
 
   return (
-    <GlassPanel tier="glass-strong" className="w-64 h-full flex flex-col pt-16 pb-4 px-4 sticky left-0 z-20 rounded-none border-r border-white/10">
-      <div className="flex flex-col gap-2">
+    <Panel
+      tier="normal"
+      className="mat-nav w-64 h-full flex flex-col pt-16 pb-4 px-4 sticky left-0 z-20 rounded-none border-r border-hairline"
+    >
+      <nav className="flex flex-col gap-2" aria-label="Primary">
         {navItems.map((item) => {
           const isActive = location.pathname.startsWith(item.path);
           return (
             <Link
               key={item.path}
               to={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+              aria-current={isActive ? "page" : undefined}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors duration-200 min-h-[44px] ${
                 isActive
-                  ? "bg-white/10 shadow-[inset_2px_2px_5px_rgba(0,0,0,0.5)] border-l-2 border-[#00F0FF] text-[#00F0FF]"
-                  : "hover:bg-white/5 text-white/70 hover:text-white"
+                  ? "bg-surface-inset border-l-2 border-l-accent-text"
+                  : "border-transparent hover:bg-surface-row"
               }`}
+              style={{ color: isActive ? colors.accentText : colors.textSecondary }}
             >
               <span className="text-xl">{item.icon}</span>
               <span className="font-medium">{item.label}</span>
             </Link>
           );
         })}
-      </div>
+      </nav>
+
       <div className="mt-auto">
-        {/* Sync Status Chip */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10 text-sm text-white/80">
-          <div className="w-2 h-2 rounded-full bg-[#00FF9D] shadow-[0_0_8px_#00FF9D]" />
+        <div
+          className="flex items-center gap-2 px-4 py-2 bg-surface-row rounded-full border border-hairline text-sm"
+          style={{ color: colors.textSecondary }}
+        >
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colors.success }} />
           <span>Synced just now</span>
         </div>
       </div>
-    </GlassPanel>
+    </Panel>
   );
 }

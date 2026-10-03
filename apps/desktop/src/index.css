@@ -1,56 +1,224 @@
+/* Implements: docs/design/overhaul-plan.md §6 — desktop token wiring.
+ *
+ * `styles/tokens.css` is GENERATED from packages/design-system/tokens.json and
+ * carries the same custom-property names as the contract. The `@theme inline`
+ * block below is the bridge onto Tailwind 4's colour scale: every value is a
+ * REFERENCE to a token, never a literal. A literal here is how the previous
+ * system ended up with five overlapping colour families and two platforms that
+ * disagreed about what "canvas" was.
+ *
+ * Palette and material are selected by the `data-palette` / `data-material`
+ * attributes on <html>, written by src/theme/appearance.ts before first paint.
+ */
 @import "tailwindcss";
+@import "./styles/tokens.css";
 
-@theme {
-  --color-canvas-start: #0f0c29;
-  --color-canvas-mid: #24243e;
-  --color-canvas-end: #0a0a1a;
-  
-  --color-accent-emerald: #00FF9D;
-  --color-accent-cyan: #00F0FF;
-  --color-accent-flare: #FF5E00;
-  --color-accent-amber: #FFB300;
-  --color-accent-violet: #B388FF;
+@theme inline {
+  /* Structure — opaque in every material mode (material-modes.md §2.0). */
+  --color-canvas: rgb(var(--canvas-rgb) / <alpha-value>);
+  --color-surface: rgb(var(--surface-raised-rgb) / <alpha-value>);
+  --color-surface-raised: rgb(var(--surface-raised-rgb) / <alpha-value>);
+  --color-surface-inset: rgb(var(--surface-inset-rgb) / <alpha-value>);
+  --color-surface-row: rgb(var(--surface-row-rgb) / <alpha-value>);
+  --color-surface-sunken: rgb(var(--surface-sunken-rgb) / <alpha-value>);
+
+  /* Material — the four floating roles plus their paired solid fallbacks. */
+  --color-surface-overlay: rgb(var(--surface-overlay-rgb) / <alpha-value>);
+  --color-surface-overlay-solid: rgb(var(--surface-overlay-solid-rgb) / <alpha-value>);
+  --color-surface-nav: rgb(var(--surface-nav-rgb) / <alpha-value>);
+  --color-surface-nav-solid: rgb(var(--surface-nav-solid-rgb) / <alpha-value>);
+  --color-surface-sheet: rgb(var(--surface-sheet-rgb) / <alpha-value>);
+  --color-surface-sheet-solid: rgb(var(--surface-sheet-solid-rgb) / <alpha-value>);
+  --color-surface-palette: rgb(var(--surface-palette-rgb) / <alpha-value>);
+  --color-surface-palette-solid: rgb(var(--surface-palette-solid-rgb) / <alpha-value>);
+  --color-surface-scrim: rgb(var(--surface-scrim-rgb) / <alpha-value>);
+
+  /* Borders — the 1px contour that carries depth in Minimal. */
+  --color-hairline: rgb(var(--border-default-rgb) / <alpha-value>);
+  --color-edge: rgb(var(--border-strong-rgb) / <alpha-value>);
+  --color-focus-ring: rgb(var(--border-focus-rgb) / <alpha-value>);
+
+  /* Type. Mode-invariant by law: switching material cannot change contrast. */
+  --color-fg-primary: rgb(var(--text-primary-rgb) / <alpha-value>);
+  --color-fg-secondary: rgb(var(--text-secondary-rgb) / <alpha-value>);
+  --color-fg-muted: rgb(var(--text-muted-rgb) / <alpha-value>);
+  --color-fg-inverse: rgb(var(--text-inverse-rgb) / <alpha-value>);
+
+  /* Accents and semantics — Rule 5: no indigo/blue primary accent. */
+  --color-accent: rgb(var(--accent-primary-rgb) / <alpha-value>);
+  --color-accent-text: rgb(var(--accent-text-rgb) / <alpha-value>);
+  --color-accent-on: rgb(var(--accent-on-primary-rgb) / <alpha-value>);
+  --color-success: rgb(var(--success-rgb) / <alpha-value>);
+  --color-info: rgb(var(--info-rgb) / <alpha-value>);
+  --color-warning: rgb(var(--warning-rgb) / <alpha-value>);
+  --color-danger: rgb(var(--danger-rgb) / <alpha-value>);
+
+  --color-status-paid: rgb(var(--status-paid-rgb) / <alpha-value>);
+  --color-status-partial: rgb(var(--status-partial-rgb) / <alpha-value>);
+  --color-status-unpaid: rgb(var(--status-unpaid-rgb) / <alpha-value>);
+  --color-status-overdue: rgb(var(--status-overdue-rgb) / <alpha-value>);
+
+  --color-chart-1: rgb(var(--chart-1-rgb) / <alpha-value>);
+  --color-chart-2: rgb(var(--chart-2-rgb) / <alpha-value>);
+  --color-chart-3: rgb(var(--chart-3-rgb) / <alpha-value>);
+  --color-chart-4: rgb(var(--chart-4-rgb) / <alpha-value>);
+  --color-chart-5: rgb(var(--chart-5-rgb) / <alpha-value>);
+  --color-chart-6: rgb(var(--chart-6-rgb) / <alpha-value>);
+
+  --border-hairline: var(--border-default);
+  --border-edge: var(--border-strong);
+
+  --shadow-overlay: var(--shadow-overlay);
+  --shadow-sheet: var(--shadow-sheet);
+
+  /* The material blur radius, so `blur-material` follows the active mode. */
+  --blur-material: var(--mat-blur);
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  @apply bg-gradient-to-br from-canvas-start via-canvas-mid to-canvas-end text-white antialiased min-h-screen overflow-hidden;
-  font-family: 'Inter', -apple-system, sans-serif;
+  /* The canvas is opaque: Mica/vibrancy is a WINDOW-level material, so the
+     document paints over it except where a region is explicitly transparent
+     (the title-bar drag strip in src/shell/GlassShell.tsx). */
+  background-color: var(--canvas);
+  color: var(--text-primary);
+  @apply antialiased;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-/* Glass Tiers */
-.glass {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* ---------------------------------------------------------------------------
+   MATERIAL PRIMITIVES — one class, all three modes (material-modes.md §2.6).
+   A window may carry exactly ONE native backdrop; everything below is CSS.
+   --------------------------------------------------------------------------- */
+
+.mat,
+.mat-nav,
+.mat-sheet,
+.mat-palette {
+  border: 1px solid var(--border-default);
+  backdrop-filter: var(--mat-filter);
+  -webkit-backdrop-filter: var(--mat-filter);
 }
 
-.glass-strong {
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+.mat {
+  background-color: var(--surface-overlay);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
 }
 
-.glass-faint {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+.mat-nav {
+  background-color: var(--surface-nav);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
 }
 
-/* Neumorphic Recipes */
-.neumo-raised {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: -2px -2px 6px rgba(255, 255, 255, 0.05), 2px 2px 6px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.mat-sheet {
+  background-color: var(--surface-sheet);
+  box-shadow: var(--mat-specular), var(--shadow-sheet);
 }
 
-.neumo-pressed {
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.3), inset -2px -2px 6px rgba(255, 255, 255, 0.03);
+.mat-palette {
+  background-color: var(--surface-palette);
+  box-shadow: var(--mat-specular), var(--shadow-overlay);
 }
 
-.neumo-inset {
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.4), inset -1px -1px 4px rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+/* Liquid Glass only: the fresnel sheen, painted under the content. */
+.mat-fresnel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--mat-fresnel);
+  pointer-events: none;
+}
+
+/* FALLBACK 1 — no backdrop-filter support (WebView2 without GPU compositing,
+   or a browser that silently drops it). The paired -solid tokens take over, and
+   legibility holds because every text role is mode-invariant. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .mat-palette {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--surface-overlay-solid);
+  }
+
+  .mat-nav {
+    background-color: var(--surface-nav-solid);
+  }
+
+  .mat-sheet {
+    background-color: var(--surface-sheet-solid);
+  }
+
+  .mat-palette {
+    background-color: var(--surface-palette-solid);
+  }
+}
+
+/* FALLBACK 2 — Reduce Transparency (Windows > Personalization > Colors,
+   macOS > Accessibility > Display). Same remap, expressed as a media query. */
+@media (prefers-reduced-transparency: reduce) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .mat-palette {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--surface-overlay-solid);
+  }
+
+  .mat-nav {
+    background-color: var(--surface-nav-solid);
+  }
+
+  .mat-sheet {
+    background-color: var(--surface-sheet-solid);
+  }
+
+  .mat-palette {
+    background-color: var(--surface-palette-solid);
+  }
+}
+
+/* FALLBACK 3 — Windows High Contrast / forced-colors. Mirrors what WinUI does:
+   every acrylic/mica brush becomes a SolidColorBrush on SystemColorWindow. */
+@media (forced-colors: active) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .mat-palette {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+    box-shadow: none;
+    forced-color-adjust: none;
+  }
+}
+
+/* FALLBACK 4 — the user wants more contrast than the palette gives. */
+@media (prefers-contrast: more) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .mat-palette {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--surface-overlay-solid);
+    border-color: var(--border-strong);
+  }
+}
+
+/* Reduced motion: the material may change state, but it does not move. */
+@media (prefers-reduced-motion: reduce) {
+  .mat-fresnel::before {
+    display: none;
+  }
 }
