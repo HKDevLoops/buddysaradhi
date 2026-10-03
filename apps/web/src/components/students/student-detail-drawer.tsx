@@ -128,7 +128,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       <div className="glass-panel rounded-2xl h-full flex flex-col items-center justify-center text-center p-8">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-          style={{ background: "var(--surface-glass-strong)" }}
+          style={{ background: "var(--surface-overlay)" }}
         >
           <User className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
         </div>
@@ -152,8 +152,8 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
         <div
           className="w-8 h-8 border-2 rounded-full animate-spin"
           style={{
-            borderColor: "var(--border-glass)",
-            borderTopColor: "var(--accent-cyan)",
+            borderColor: "var(--border-default)",
+            borderTopColor: "var(--info)",
           }}
           aria-hidden="true"
         />
@@ -173,7 +173,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       <div className="glass-panel rounded-2xl h-full flex flex-col items-center justify-center text-center p-8">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-          style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)" }}
+          style={{ background: "var(--danger)/15", color: "var(--danger)" }}
         >
           <AlertTriangle className="w-8 h-8" aria-hidden="true" />
         </div>
@@ -188,7 +188,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             <a
               href="/login"
               className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px] flex items-center justify-center"
-              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+              style={{ color: "var(--info)", borderColor: "var(--border-default)" }}
             >
               Re-login
             </a>
@@ -197,7 +197,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             <a
               href="/login"
               className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px] flex items-center justify-center"
-              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+              style={{ color: "var(--info)", borderColor: "var(--border-default)" }}
             >
               Re-connect database
             </a>
@@ -207,7 +207,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               type="button"
               onClick={retryDetail}
               className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px]"
-              style={{ color: "var(--accent-cyan)", borderColor: "var(--border-glass)" }}
+              style={{ color: "var(--info)", borderColor: "var(--border-default)" }}
             >
               Retry
             </button>
@@ -216,7 +216,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             type="button"
             onClick={closeDrawer}
             className="px-4 py-2 rounded-xl text-sm font-semibold btn-glass min-h-[44px]"
-            style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
+            style={{ color: "var(--text-secondary)", borderColor: "var(--border-default)" }}
           >
             Close
           </button>
@@ -243,15 +243,15 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       className="glass-panel rounded-2xl h-full flex flex-col overflow-hidden"
     >
       {/* Header */}
-      <div className="flex-none p-6 border-b border-[var(--border-glass)]">
+      <div className="flex-none p-6 border-b border-[var(--border-default)]">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4 min-w-0">
             <div
               className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-xl shrink-0"
               style={{
-                background: `color-mix(in srgb, var(--accent-${accent}) 18%, var(--bg-surface-raised))`,
-                color: `var(--accent-${accent})`,
-                border: `2px solid color-mix(in srgb, var(--accent-${accent}) 40%, transparent)`,
+                background: `color-mix(in srgb, var(--${accent}) 18%, var(--surface-raised))`,
+                color: `var(--${accent})`,
+                border: `2px solid color-mix(in srgb, var(--${accent}) 40%, transparent)`,
               }}
               aria-hidden="true"
             >
@@ -278,8 +278,8 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               }}
               aria-label="Delete student"
               className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-              style={{ color: "var(--accent-flare)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--accent-flare)/10")}
+              style={{ color: "var(--danger)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--danger)/10")}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <Trash2 className="w-5 h-5" />
@@ -326,7 +326,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       </div>
 
       {/* Tabs */}
-      <div className="flex-none px-3 border-b border-[var(--border-glass)] overflow-x-auto no-scrollbar">
+      <div className="flex-none px-3 border-b border-[var(--border-default)] overflow-x-auto no-scrollbar">
         <div className="flex gap-1 min-w-max">
           {TABS.map((tab) => (
             <button
@@ -362,27 +362,27 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                 title="Monthly Fee"
                 value={formatINR(monthlyFee)}
                 icon={<IndianRupee className="w-5 h-5" />}
-                accent="var(--accent-cyan)"
+                accent="var(--info)"
               />
               <MetricCard
                 title="Months Paid"
                 value={paidMonths}
                 icon={<CheckCircle className="w-5 h-5" />}
-                accent="var(--accent-emerald)"
+                accent="var(--success)"
                 trend={{ dir: "up", label: `${paidMonths}/${totalMonths} months` }}
               />
               <MetricCard
                 title="Months Due"
                 value={currentDueMonths}
                 icon={<XCircle className="w-5 h-5" />}
-                accent="var(--accent-flare)"
+                accent="var(--danger)"
                 trend={{ dir: "down", label: `${currentDueMonths} outstanding` }}
               />
               <MetricCard
                 title="Total Collected"
                 value={formatINR(collected)}
                 icon={<IndianRupee className="w-5 h-5" />}
-                accent="var(--accent-emerald)"
+                accent="var(--success)"
               />
             </div>
 
@@ -390,7 +390,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             <div
               className="p-5 rounded-xl border space-y-4"
               style={{
-                background: "var(--surface-glass-faint)",
+                background: "var(--surface-inset)",
                 borderColor: "var(--border-default)",
               }}
             >
@@ -430,7 +430,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
             <div
               className="p-5 rounded-xl border space-y-4"
               style={{
-                background: "var(--surface-glass-faint)",
+                background: "var(--surface-inset)",
                 borderColor: "var(--border-default)",
               }}
             >
@@ -441,10 +441,10 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                 Fee Period Summary
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <StatItem label="Total Periods" value={totalMonths} accent="var(--accent-cyan)" />
-                <StatItem label="Paid" value={paidMonths} accent="var(--accent-emerald)" />
-                <StatItem label="Partial" value={partialMonths} accent="var(--accent-amber)" />
-                <StatItem label="Unpaid" value={unpaidMonths} accent="var(--accent-flare)" />
+                <StatItem label="Total Periods" value={totalMonths} accent="var(--info)" />
+                <StatItem label="Paid" value={paidMonths} accent="var(--success)" />
+                <StatItem label="Partial" value={partialMonths} accent="var(--warning)" />
+                <StatItem label="Unpaid" value={unpaidMonths} accent="var(--danger)" />
               </div>
             </div>
           </div>
@@ -467,7 +467,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               <div
                 className="p-8 rounded-xl text-center border"
                 style={{
-                  background: "var(--bg-surface-inset)",
+                  background: "var(--surface-inset)",
                   borderColor: "var(--border-default)",
                 }}
               >
@@ -497,7 +497,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                       key={inv.id}
                       className="flex items-center justify-between p-4 rounded-xl border"
                       style={{
-                        background: "var(--bg-surface-inset)",
+                        background: "var(--surface-inset)",
                         borderColor: "var(--border-default)",
                       }}
                     >
@@ -555,7 +555,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
           />
           <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)" }}>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: "var(--danger)/15", color: "var(--danger)" }}>
                 <AlertTriangle className="w-6 h-6" />
               </div>
               <h3 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -567,11 +567,11 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               attendance records, fee history, ledger entries, and receipts.
               This action cannot be undone.
             </p>
-            <p className="text-xs mb-6 p-3 rounded-lg" style={{ background: "var(--accent-flare)/10", color: "var(--accent-flare)" }}>
+            <p className="text-xs mb-6 p-3 rounded-lg" style={{ background: "var(--danger)/10", color: "var(--danger)" }}>
               Dashboard totals and fee reports will be recalculated after deletion.
             </p>
             {deleteError && (
-              <p className="text-xs mb-4 text-center" style={{ color: "var(--accent-flare)" }}>
+              <p className="text-xs mb-4 text-center" style={{ color: "var(--danger)" }}>
                 {deleteError}
               </p>
             )}
@@ -579,7 +579,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               <button
                 onClick={() => setShowDeleteConfirm(false)}
                 className="btn-glass px-4 py-2 rounded-xl text-sm font-semibold flex-1"
-                style={{ color: "var(--text-secondary)", borderColor: "var(--border-glass)" }}
+                style={{ color: "var(--text-secondary)", borderColor: "var(--border-default)" }}
               >
                 Cancel
               </button>
@@ -587,7 +587,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                 onClick={handleDelete}
                 disabled={deleteMutation.isPending}
                 className="btn-glass px-4 py-2 rounded-xl text-sm font-semibold flex-1 min-h-[44px]"
-                style={{ background: "var(--accent-flare)/15", color: "var(--accent-flare)", borderColor: "var(--accent-flare)/30" }}
+                style={{ background: "var(--danger)/15", color: "var(--danger)", borderColor: "var(--danger)/30" }}
               >
                 {deleteMutation.isPending ? "Deleting…" : "Delete Permanently"}
               </button>
@@ -614,7 +614,7 @@ function MetricCard({
 }) {
   return (
     <div
-      className="glass p-4 rounded-xl flex flex-col justify-between transition-all hover:bg-[var(--surface-glass)]"
+      className="glass p-4 rounded-xl flex flex-col justify-between transition-all hover:bg-[var(--surface-raised)]"
       style={{ border: `1px solid color-mix(in srgb, ${accent} 25%, transparent)` }}
     >
       <div className="flex items-center justify-between mb-2">
@@ -627,8 +627,8 @@ function MetricCard({
       <p className="text-xl font-bold text-[var(--text-primary)] tracking-tight num">{value}</p>
       {trend && (
         <p className={cn("text-xs mt-1 flex items-center gap-1 num",
-          trend.dir === "up" && "text-[var(--accent-success)]",
-          trend.dir === "down" && "text-[var(--accent-danger)]",
+          trend.dir === "up" && "text-[var(--success)]",
+          trend.dir === "down" && "text-[var(--danger)]",
           trend.dir === "flat" && "text-[var(--text-muted)]")}>
           {trend.dir === "up" && <TrendingUp className="w-3 h-3" />}
           {trend.label}
@@ -656,7 +656,7 @@ function IdentityField({ icon, label, value, block = false }: { icon: React.Reac
 
 function StatItem({ label, value, accent = "var(--text-primary)" }: { label: string; value: number; accent?: string }) {
   return (
-    <div className="p-3 rounded-lg" style={{ background: "var(--bg-surface-inset)" }}>
+    <div className="p-3 rounded-lg" style={{ background: "var(--surface-inset)" }}>
       <div className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>{label}</div>
       <div className="num text-2xl font-bold mt-1" style={{ color: accent }}>{value}</div>
     </div>

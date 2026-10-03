@@ -63,33 +63,33 @@ export default function ForgotPasswordPage() {
     <div className="flex flex-col space-y-6 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Forgot Password</h1>
-        <p className="text-sm text-gray-400 mt-2">Enter your email and we will send a recovery link</p>
+        <p className="text-sm text-text-muted mt-2">Enter your email and we will send a recovery link</p>
       </div>
 
       <div className="space-y-4 text-left">
         <form onSubmit={handleResetRequest} className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="reset-email" className="text-sm font-medium text-gray-300 ml-1">Email Address</label>
+            <label htmlFor="reset-email" className="text-sm font-medium text-text-secondary ml-1">Email Address</label>
             <input 
               id="reset-email" 
               type="email" 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tutor@example.com" 
-              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-gray-500 rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--accent-cyan)]"
+              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-text-muted rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--info)]"
               required
               disabled={loading}
             />
           </div>
 
-          {error && <p className="text-sm text-[var(--accent-flare)] text-left font-semibold">{error}</p>}
-          {successMsg && <p className="text-sm text-[var(--accent-emerald)] text-left font-semibold">{successMsg}</p>}
+          {error && <p className="text-sm text-[var(--danger)] text-left font-semibold">{error}</p>}
+          {successMsg && <p className="text-sm text-[var(--success)] text-left font-semibold">{successMsg}</p>}
 
           <div className="pt-2">
             <Button 
               type="submit" 
               disabled={loading || !email || Date.now() < cooldownUntil}
-              className="w-full py-6 rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/25 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-6 rounded-xl neumo-raised bg-[var(--info)]/10 text-[var(--info)] hover:bg-[var(--info)]/25 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Send Reset Link"}
             </Button>
@@ -97,9 +97,9 @@ export default function ForgotPasswordPage() {
         </form>
       </div>
 
-      <div className="text-sm text-gray-400 flex items-center justify-center gap-2 pt-2">
-        <ArrowLeft className="w-4 h-4 text-gray-400" />
-        <Link href="/login" className="text-[var(--accent-cyan)] underline hover:text-[var(--accent-cyan)]/80">
+      <div className="text-sm text-text-muted flex items-center justify-center gap-2 pt-2">
+        <ArrowLeft className="w-4 h-4 text-text-muted" />
+        <Link href="/login" className="text-[var(--info)] underline hover:text-[var(--info)]/80">
           Back to Login
         </Link>
       </div>

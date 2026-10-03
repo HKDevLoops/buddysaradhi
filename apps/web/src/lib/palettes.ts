@@ -1,107 +1,116 @@
-// Implements: UI/01_Color_Palettes.md — 8 palettes typed manifest
-// Used by PaletteProvider and any code that needs to reference palette metadata.
+// Implements: docs/design/overhaul-plan.md §1 + W2 — the palette manifest the
+// Settings picker renders, sourced from the generated token system rather than
+// hand-listed here.
+//
+// The previous version of this file hardcoded 8 palettes with a `primaryLight` /
+// `primaryDark` hex and an `assignedTo` list, which meant the picker, the CSS and
+// the manifest were three separate descriptions of the same intent and drifted.
+// Now there is exactly one: `@buddysaradhi/design-system` generates the tokens and
+// exports the scheme metadata, and this file only adapts it for the UI.
 
-export type PaletteId =
-  | "aurora-cosmic"
-  | "saffron-marigold"
-  | "emerald-ledger"
-  | "cyan-lagoon"
-  | "rose-petal"
-  | "amber-sunrise"
-  | "violet-nebula"
-  | "midnight-slate";
+import {
+  DARK_SCHEMES,
+  LIGHT_SCHEMES,
+  MATERIALS,
+  buildAllPalettes,
+  type MaterialId,
+} from "@buddysaradhi/design-system";
 
 export type ThemeId = "light" | "dark";
+export type PaletteId = string;
+// Re-exported so the provider and the Settings screen can name the type without
+// importing the design-system package directly (the token CSS is imported by
+// globals.css, the vocabulary by this module).
+export type { MaterialId } from "@buddysaradhi/design-system";
 
-export interface PaletteDefinition {
+export interface PaletteOption {
   id: PaletteId;
   name: string;
-  mood: string;
-  /** Signature primary hex for identification/display */
-  primaryLight: string;
-  primaryDark: string;
-  /** Which theme this palette defaults to per spec */
-  defaultTheme: ThemeId;
-  /** Pages this palette is assigned to */
-  assignedTo: string[];
+  tier: ThemeId;
+  /** The Figma scheme this palette was derived from — shown in the picker so the
+   *  provenance is visible to the user and auditable from the UI. */
+  figmaScheme: number;
+  figmaName: string;
+  /** Why the scheme was shortlisted, in one line. */
+  note: string;
+  /** Live swatches, so the picker previews the real generated values. */
+  swatch: { canvas: string; raised: string; accent: string };
 }
 
-export const PALETTES: Record<PaletteId, PaletteDefinition> = {
-  "aurora-cosmic": {
-    id: "aurora-cosmic",
-    name: "Aurora Cosmic",
-    mood: "Premium · nocturnal · focused",
-    primaryLight: "#00FF9D", // Emerald — light n/a (dark-only palette, pair = midnight-slate)
-    primaryDark: "#00FF9D",
-    defaultTheme: "dark",
-    assignedTo: ["App shell (dark)", "Dashboard", "3D hero", "Command palette"],
-  },
-  "saffron-marigold": {
-    id: "saffron-marigold",
-    name: "Saffron Marigold",
-    mood: "Indian heritage · warm · celebratory",
-    primaryLight: "#FF9933",
-    primaryDark: "#FFB347",
-    defaultTheme: "light",
-    assignedTo: ["Landing hero", "Fees & Payments (mobile)", "Receipts"],
-  },
-  "emerald-ledger": {
-    id: "emerald-ledger",
-    name: "Emerald Ledger",
-    mood: "Trust · growth · financial calm",
-    primaryLight: "#059669",
-    primaryDark: "#34D399",
-    defaultTheme: "light",
-    assignedTo: ["Fees & Payments (web/desktop)", "Reports", "ROI calculator"],
-  },
-  "cyan-lagoon": {
-    id: "cyan-lagoon",
-    name: "Cyan Lagoon",
-    mood: "Clarity · flow · attendance tracking",
-    primaryLight: "#0891B2",
-    primaryDark: "#22D3EE",
-    defaultTheme: "light",
-    assignedTo: ["Attendance", "Calendar", "Timetable"],
-  },
-  "rose-petal": {
-    id: "rose-petal",
-    name: "Rose Petal",
-    mood: "Soft · personal · student-centric",
-    primaryLight: "#E11D48",
-    primaryDark: "#FB7185",
-    defaultTheme: "light",
-    assignedTo: ["Students master list", "Student profile", "Enrolment"],
-  },
-  "amber-sunrise": {
-    id: "amber-sunrise",
-    name: "Amber Sunrise",
-    mood: "Energetic · optimistic · conversion",
-    primaryLight: "#EA580C",
-    primaryDark: "#FB923C",
-    defaultTheme: "light",
-    assignedTo: ["Landing features", "Pricing CTA", "ROI calculator result"],
-  },
-  "violet-nebula": {
-    id: "violet-nebula",
-    name: "Violet Nebula",
-    mood: "Creative · premium · auth/settings",
-    primaryLight: "#7C3AED",
-    primaryDark: "#A78BFA",
-    defaultTheme: "dark",
-    assignedTo: ["Auth (login/signup)", "Settings", "Profile", "Backup & export"],
-  },
-  "midnight-slate": {
-    id: "midnight-slate",
-    name: "Midnight Slate",
-    mood: "Professional · daylight · high-density",
-    primaryLight: "#0F172A",
-    primaryDark: "#0F172A", // same — slate is achromatic-warm
-    defaultTheme: "light",
-    assignedTo: ["Light-mode app shell", "All light-mode screen variants"],
-  },
-} as const;
+const generated = buildAllPalettes([...DARK_SCHEMES, ...LIGHT_SCHEMES]);
 
-// NOTE: Per-page palette assignment is intentionally NOT used. The user's
-// single global palette selection (localStorage, applied app-wide by
-// PaletteProvider in providers.tsx + the FOUC script in layout.tsx) is the
-// only source of truth. See AGENTS.md §13 + the theme-fix work.
+export const PALETTES: readonly PaletteOption[] = generated.map((palette) => ({
+  id: palette.id,
+  name: palette.name,
+  tier: palette.tier,
+  figmaScheme: palette.figmaScheme,
+  figmaName: palette.figmaName,
+  note: palette.note,
+  swatch: {
+    canvas: palette.tokens.canvas,
+    raised: palette.tokens.surfaceRaised,
+    accent: palette.tokens.accentPrimary,
+  },
+}));
+
+export const PALETTES_BY_ID: Readonly<Record<string, PaletteOption>> = Object.fromEntries(
+  PALETTES.map((palette) => [palette.id, palette]),
+);
+
+/**
+ * The default palette is `Inked` (Figma scheme 51: a teal accent on pure gray).
+ * It is the shortest distance from a screen that used to be cosmic-indigo glass,
+ * and its accent is the only colour on the canvas, which is what a dense ledger
+ * wants.
+ */
+export const DEFAULT_PALETTE_ID = "inked";
+
+/** `aurora-cosmic` was the retired default stored in the settings column. */
+export const LEGACY_PALETTE_IDS = [
+  "aurora-cosmic",
+  "saffron-marigold",
+  "emerald-ledger",
+  "cyan-lagoon",
+  "rose-petal",
+  "amber-sunrise",
+  "violet-nebula",
+  "midnight-slate",
+] as const;
+
+/**
+ * Resolve whatever is stored to a palette that exists. A tenant whose settings
+ * row predates this migration holds `aurora-cosmic`, which is now a dead id;
+ * rendering it would silently fall back to the unstyled default, so the value is
+ * validated here and the fallback is explicit.
+ */
+export function resolvePaletteId(value: string | null | undefined): PaletteId {
+  if (value && PALETTES_BY_ID[value]) return value;
+  return DEFAULT_PALETTE_ID;
+}
+
+export interface MaterialOption {
+  id: MaterialId;
+  name: string;
+  blurb: string;
+}
+
+export const MATERIAL_OPTIONS: readonly MaterialOption[] = Object.values(MATERIALS).map(
+  (material) => ({ id: material.id, name: material.name, blurb: material.blurb }),
+);
+
+/**
+ * Material default is `minimal`: opaque surfaces are the fastest to render and the
+ * most legible at the density this app runs at. Acrylic and Liquid Glass are opt-in
+ * presentation choices, which is the right default relationship for a material.
+ */
+export const DEFAULT_MATERIAL_ID: MaterialId = "minimal";
+
+export function resolveMaterialId(value: string | null | undefined): MaterialId {
+  if (value && value in MATERIALS) return value as MaterialId;
+  return DEFAULT_MATERIAL_ID;
+}
+
+export const PALETTE_STORAGE_KEY = "buddysaradhi.palette";
+export const MATERIAL_STORAGE_KEY = "buddysaradhi.material";
+export const THEME_STORAGE_KEY = "buddysaradhi.theme";
+export const DENSITY_STORAGE_KEY = "buddysaradhi.density";

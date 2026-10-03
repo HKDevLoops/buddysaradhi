@@ -65,19 +65,19 @@ type EntryMeta = {
 function entryMeta(type: string): EntryMeta {
   switch (type) {
     case "FEE_CHARGED":
-      return { label: "Fee", accent: "var(--accent-amber)", Icon: Receipt };
+      return { label: "Fee", accent: "var(--warning)", Icon: Receipt };
     case "EXTRA_FEE":
-      return { label: "Extra", accent: "var(--accent-flare)", Icon: Sparkles };
+      return { label: "Extra", accent: "var(--danger)", Icon: Sparkles };
     case "PAYMENT_RECEIVED":
-      return { label: "Payment", accent: "var(--accent-emerald)", Icon: Wallet };
+      return { label: "Payment", accent: "var(--success)", Icon: Wallet };
     case "REFUND":
-      return { label: "Refund", accent: "var(--accent-cyan)", Icon: Undo2 };
+      return { label: "Refund", accent: "var(--info)", Icon: Undo2 };
     case "ADJUSTMENT":
-      return { label: "Adjust", accent: "var(--accent-violet)", Icon: SlidersHorizontal };
+      return { label: "Adjust", accent: "var(--info)", Icon: SlidersHorizontal };
     case "DISCOUNT":
-      return { label: "Discount", accent: "var(--accent-cyan)", Icon: Tag };
+      return { label: "Discount", accent: "var(--info)", Icon: Tag };
     case "VOID":
-      return { label: "Void", accent: "var(--accent-danger)", Icon: Ban };
+      return { label: "Void", accent: "var(--danger)", Icon: Ban };
     default:
       return { label: type || "Entry", accent: "var(--text-muted)", Icon: Circle };
   }
@@ -161,16 +161,16 @@ const voidMutation = useMutation({
       <div
         className="p-4 flex items-center justify-between gap-3 flex-wrap"
         style={{
-          borderBottom: "1px solid var(--border-glass)",
-          background: "var(--surface-glass-faint)",
+          borderBottom: "1px solid var(--border-default)",
+          background: "var(--surface-inset)",
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center font-bold shrink-0"
             style={{
-              background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))",
-              color: "var(--text-on-accent)",
+              background: "linear-gradient(135deg, var(--accent-primary), var(--accent-text))",
+              color: "var(--accent-on-primary)",
             }}
           >
             {studentName.charAt(0).toUpperCase()}
@@ -191,16 +191,16 @@ const voidMutation = useMutation({
           <button
             onClick={() => setInvoiceSheetOpen(true)}
             className="btn-glass neumo-raised min-h-[44px] px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
-            style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-cyan)"; }}
+            style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--info)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
           >
-            <Plus className="w-4 h-4" style={{ color: "var(--accent-cyan)" }} /> Charge Fee
+            <Plus className="w-4 h-4" style={{ color: "var(--info)" }} /> Charge Fee
           </button>
           <button
             onClick={() => setPaymentSheetOpen(true)}
             className="btn-glass neumo-raised min-h-[44px] px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all shadow-[0_4px_12px_rgba(0,0,0,0.1)]"
-            style={{ background: "linear-gradient(135deg, var(--accent-emerald), var(--accent-cyan))", color: "var(--text-on-accent)", border: "none" }}
+            style={{ background: "linear-gradient(135deg, var(--success), var(--info))", color: "var(--accent-on-primary)", border: "none" }}
           >
             <ArrowDownToLine className="w-4 h-4" /> Record Payment
           </button>
@@ -223,7 +223,7 @@ const voidMutation = useMutation({
               const meta = entryMeta(entry.type);
               const isInflow = (entry.credit ?? 0) > 0;
               const amount = isInflow ? entry.credit : entry.debit;
-              const amountColor = isInflow ? "var(--accent-emerald)" : "var(--accent-flare)";
+              const amountColor = isInflow ? "var(--success)" : "var(--danger)";
               const sign = isInflow ? "+" : "−";
               const reverses = entry.reverses_entry_id ?? null;
               return (
@@ -233,9 +233,9 @@ const voidMutation = useMutation({
                     "group flex items-center gap-3 p-3 rounded-xl transition-colors",
                     entry.isVoid && "opacity-50"
                   )}
-                  style={{ background: "var(--surface-glass-faint)", border: "1px solid var(--border-glass)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-glass)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-glass-faint)"; }}
+                  style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-inset)"; }}
                 >
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -267,7 +267,7 @@ const voidMutation = useMutation({
                         {entry.description || meta.label}
                       </p>
                       {entry.receipt_no && (
-                        <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0" style={{ color: "var(--text-muted)", border: "1px solid var(--border-glass)" }}>
+                        <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0" style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}>
                           {entry.receipt_no}
                         </span>
                       )}
@@ -280,7 +280,7 @@ const voidMutation = useMutation({
                         </span>
                       )}
                       {reverses && (
-                        <span className="ml-2 px-1.5 py-0.5 rounded font-mono" style={{ color: "var(--accent-flare)", border: "1px solid var(--accent-flare)" }}>
+                        <span className="ml-2 px-1.5 py-0.5 rounded font-mono" style={{ color: "var(--danger)", border: "1px solid var(--danger)" }}>
                           ↺ reverses {reverses.slice(0, 8)}
                         </span>
                       )}
@@ -296,10 +296,10 @@ const voidMutation = useMutation({
                       <button
                         onClick={() => openVoid(entry.id)}
                         className="mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors opacity-0 group-hover:opacity-100"
-                        style={{ color: "var(--text-muted)", border: "1px solid var(--border-glass)" }}
+                        style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
                         aria-label={`Void receipt for ${entry.description || "payment"}`}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-danger)"; e.currentTarget.style.borderColor = "var(--accent-danger)"; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border-glass)"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.borderColor = "var(--border-default)"; }}
                       >
                         <Ban className="w-3 h-3" /> Void
                       </button>
@@ -315,14 +315,14 @@ const voidMutation = useMutation({
       {voidEntryId && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
-          style={{ background: "color-mix(in srgb, var(--bg-canvas) 80%, transparent)" }}
+          style={{ background: "color-mix(in srgb, var(--canvas) 80%, transparent)" }}
         >
           <div
             className="rounded-2xl w-full max-w-sm p-6"
             style={{
-              background: "var(--surface-glass-strong)",
+              background: "var(--surface-overlay)",
               backdropFilter: "blur(24px) saturate(160%)",
-              border: "1px solid var(--accent-danger)",
+              border: "1px solid var(--danger)",
               boxShadow: "0 12px 40px var(--shadow-color)",
             }}
             role="dialog"
@@ -330,7 +330,7 @@ const voidMutation = useMutation({
             aria-label="Void receipt"
           >
             <div className="text-center space-y-4">
-              <AlertTriangle className="w-12 h-12 mx-auto opacity-80" style={{ color: "var(--accent-danger)" }} />
+              <AlertTriangle className="w-12 h-12 mx-auto opacity-80" style={{ color: "var(--danger)" }} />
               <h3 className="text-lg font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
                 Void Receipt
               </h3>
@@ -352,10 +352,10 @@ const voidMutation = useMutation({
                     placeholder="e.g. Wrong student — should be Ananya STU-0011"
                     rows={3}
                     className="neumo-inset w-full px-4 py-3 text-sm focus:outline-none resize-none"
-                    style={{ background: "var(--bg-surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                    style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
                   />
                   {voidReason.length > 0 && reasonError && (
-                    <p className="text-xs mt-1" style={{ color: "var(--accent-danger)" }}>{reasonError}</p>
+                    <p className="text-xs mt-1" style={{ color: "var(--danger)" }}>{reasonError}</p>
                   )}
                 </div>
                 <div>
@@ -371,11 +371,11 @@ const voidMutation = useMutation({
                     autoComplete="off"
                     placeholder="••••••"
                     className="neumo-inset w-full px-4 py-3 text-xl text-center tracking-[0.5em] font-mono focus:outline-none"
-                    style={{ background: "var(--bg-surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                    style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
                   />
                 </div>
                 {voidError && (
-                  <p role="alert" className="text-xs" style={{ color: "var(--accent-danger)" }}>{voidError}</p>
+                  <p role="alert" className="text-xs" style={{ color: "var(--danger)" }}>{voidError}</p>
                 )}
               </div>
               <div className="flex gap-3 pt-4">
@@ -392,8 +392,8 @@ const voidMutation = useMutation({
                   onClick={() => voidMutation.mutate()}
                   disabled={!canConfirmVoid}
                   className="flex-1 min-h-[44px] neumo-raised py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-                  style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-danger)"; e.currentTarget.style.borderColor = "var(--accent-danger)"; }}
+                  style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; e.currentTarget.style.borderColor = "var(--border-default)"; }}
                 >
                   {voidMutation.isPending ? "Voiding..." : "Confirm Void"}

@@ -52,9 +52,9 @@ export function SettingsClient() {
         <div
           className="fixed top-24 left-1/2 -translate-x-1/2 z-50 border rounded-xl p-4 shadow-2xl animate-in slide-in-from-top-4 flex items-center gap-6"
           style={{
-            background: "color-mix(in srgb, var(--bg-canvas) 90%, transparent)",
+            background: "color-mix(in srgb, var(--canvas) 90%, transparent)",
             backdropFilter: "blur(12px)",
-            borderColor: "color-mix(in srgb, var(--accent-danger) 30%, transparent)",
+            borderColor: "color-mix(in srgb, var(--danger) 30%, transparent)",
           }}
         >
           <div>
@@ -83,14 +83,14 @@ export function SettingsClient() {
               onClick={confirmDiscard}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
               style={{
-                background: "color-mix(in srgb, var(--accent-danger) 15%, transparent)",
-                color: "var(--accent-danger)",
+                background: "color-mix(in srgb, var(--danger) 15%, transparent)",
+                color: "var(--danger)",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "color-mix(in srgb, var(--accent-danger) 25%, transparent)";
+                e.currentTarget.style.background = "color-mix(in srgb, var(--danger) 25%, transparent)";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = "color-mix(in srgb, var(--accent-danger) 15%, transparent)";
+                e.currentTarget.style.background = "color-mix(in srgb, var(--danger) 15%, transparent)";
               }}
             >
               Discard

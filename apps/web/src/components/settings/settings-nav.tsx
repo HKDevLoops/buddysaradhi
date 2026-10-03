@@ -55,7 +55,7 @@ export function SettingsNav() {
                 "flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-150 whitespace-nowrap text-left cursor-pointer border min-h-[44px]",
                 isActive
                   ? "bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] text-[var(--accent-primary)] border-[var(--accent-primary)] shadow-[0_0_16px_color-mix(in_srgb,var(--accent-primary)_20%,transparent)]"
-                  : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[var(--border-glass)]"
+                  : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-raised)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]"
               )}
             >
               <div className="flex items-center gap-3">
@@ -68,7 +68,7 @@ export function SettingsNav() {
               {isDirty && (
                 <span
                   className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: "var(--accent-warning)", boxShadow: "0 0 4px var(--accent-warning)" }}
+                  style={{ background: "var(--warning)", boxShadow: "0 0 4px var(--warning)" }}
                   aria-label="Unsaved changes"
                 />
               )}

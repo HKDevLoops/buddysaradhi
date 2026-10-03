@@ -35,7 +35,7 @@ export function StudentsToolbar() {
       <Button
         variant="outline"
         size="sm"
-        className="h-11 gap-2 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-[var(--text-primary)] hover:bg-[var(--surface-glass)] rounded-xl cursor-pointer"
+        className="h-11 gap-2 bg-[var(--surface-inset)] border border-[var(--border-default)] text-[var(--text-primary)] hover:bg-[var(--surface-raised)] rounded-xl cursor-pointer"
       >
         <Filter className="w-4 h-4" aria-hidden="true" />
         Filters

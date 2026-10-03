@@ -17,12 +17,12 @@ interface ExtraCategory {
 }
 
 const CATEGORIES: ExtraCategory[] = [
-  { key: "exam", label: "Exam Fee", description: "Term / board examination charges", accent: "var(--accent-flare)", Icon: BookOpen },
-  { key: "late", label: "Late Fee", description: "Overdue instalment penalty", accent: "var(--accent-amber)", Icon: Info },
-  { key: "transport", label: "Transport", description: "Bus / van routing charges", accent: "var(--accent-cyan)", Icon: Bus },
-  { key: "lab", label: "Lab / Material", description: "Practical & consumable costs", accent: "var(--accent-violet)", Icon: FlaskConical },
-  { key: "sports", label: "Sports", description: "Coaching & ground fees", accent: "var(--accent-emerald)", Icon: Dumbbell },
-  { key: "activity", label: "Activity", description: "Music, art & events", accent: "var(--accent-cyan)", Icon: Music },
+  { key: "exam", label: "Exam Fee", description: "Term / board examination charges", accent: "var(--danger)", Icon: BookOpen },
+  { key: "late", label: "Late Fee", description: "Overdue instalment penalty", accent: "var(--warning)", Icon: Info },
+  { key: "transport", label: "Transport", description: "Bus / van routing charges", accent: "var(--info)", Icon: Bus },
+  { key: "lab", label: "Lab / Material", description: "Practical & consumable costs", accent: "var(--info)", Icon: FlaskConical },
+  { key: "sports", label: "Sports", description: "Coaching & ground fees", accent: "var(--success)", Icon: Dumbbell },
+  { key: "activity", label: "Activity", description: "Music, art & events", accent: "var(--info)", Icon: Music },
 ];
 
 export function ExtraFeeSheet() {
@@ -43,14 +43,14 @@ export function ExtraFeeSheet() {
         <button
           onClick={() => setNotice((v) => !v)}
           className="btn-glass neumo-raised px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
-          style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+          style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
         >
-          <Plus className="w-4 h-4" style={{ color: "var(--accent-violet)" }} /> Add Category
+          <Plus className="w-4 h-4" style={{ color: "var(--info)" }} /> Add Category
         </button>
       </div>
 
       {notice && (
-        <div className="mb-4 p-3 rounded-lg flex items-center gap-2 text-sm" style={{ background: "color-mix(in srgb, var(--accent-info) 10%, transparent)", color: "var(--accent-info)", border: "1px solid color-mix(in srgb, var(--accent-info) 25%, transparent)" }}>
+        <div className="mb-4 p-3 rounded-lg flex items-center gap-2 text-sm" style={{ background: "color-mix(in srgb, var(--info) 10%, transparent)", color: "var(--info)", border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)" }}>
           <Info className="w-4 h-4 shrink-0" />
           Extra-fee categories are managed in Settings → Fee Rules. Select a category below to charge it to a student.
         </div>
@@ -61,9 +61,9 @@ export function ExtraFeeSheet() {
           <div
             key={c.key}
             className="flex flex-col p-4 rounded-xl transition-colors"
-            style={{ background: "var(--surface-glass-faint)", border: "1px solid var(--border-glass)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-glass)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-glass-faint)"; }}
+            style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-inset)"; }}
           >
             <div className="flex items-center gap-3 mb-2">
               <div
@@ -78,7 +78,7 @@ export function ExtraFeeSheet() {
             <button
               onClick={() => setInvoiceSheetOpen(true)}
               className="btn-glass neumo-raised mt-3 px-3 py-2 rounded-lg text-sm font-semibold transition-all"
-              style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+              style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
               aria-label={`Charge ${c.label} to a student`}
               onMouseEnter={(e) => { e.currentTarget.style.color = c.accent; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}

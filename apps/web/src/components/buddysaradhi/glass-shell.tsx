@@ -146,36 +146,36 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       {/* Liquid Glass Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" style={{ background: "var(--bg-canvas)" }}>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" style={{ background: "var(--canvas)" }}>
         {/* Animated Liquid Blobs */}
         <div className="absolute top-[10%] left-[10%] w-[45vw] h-[45vw] rounded-full filter blur-[65px] opacity-[0.12] animate-blob-1" style={{ background: "var(--accent-primary)" }} />
-        <div className="absolute bottom-[10%] right-[10%] w-[50vw] h-[50vw] rounded-full filter blur-[75px] opacity-[0.12] animate-blob-2" style={{ background: "var(--accent-secondary)" }} />
-        <div className="absolute top-[35%] right-[25%] w-[40vw] h-[40vw] rounded-full filter blur-[70px] opacity-[0.10] animate-blob-3" style={{ background: "var(--accent-tertiary, var(--accent-primary))" }} />
+        <div className="absolute bottom-[10%] right-[10%] w-[50vw] h-[50vw] rounded-full filter blur-[75px] opacity-[0.12] animate-blob-2" style={{ background: "var(--accent-text)" }} />
+        <div className="absolute top-[35%] right-[25%] w-[40vw] h-[40vw] rounded-full filter blur-[70px] opacity-[0.10] animate-blob-3" style={{ background: "var(--accent-text)" }} />
       </div>
 
       <div
-        className="min-h-[100dvh] flex flex-col md:flex-row overflow-hidden selection:bg-emerald/30 relative z-10 w-full"
+        className="min-h-[100dvh] flex flex-col md:flex-row overflow-hidden selection:bg-success/30 relative z-10 w-full"
         style={{ background: "transparent", color: "var(--text-primary)" }}
       >
         {/* Sidebar — glass panel */}
         <aside
           className="hidden md:flex md:w-64 md:flex-col z-20 shrink-0"
           style={{
-            background: "var(--surface-glass)",
+            background: "var(--surface-raised)",
             backdropFilter: "blur(20px)",
-            borderRight: "1px solid var(--border-glass)",
+            borderRight: "1px solid var(--border-default)",
           }}
         >
           {/* Logo */}
           <div
             className="h-16 flex items-center px-6 shrink-0"
-            style={{ borderBottom: "1px solid var(--border-glass)" }}
+            style={{ borderBottom: "1px solid var(--border-default)" }}
           >
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shadow-lg"
               style={{
-                background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))",
-                color: "var(--text-on-accent)",
+                background: "linear-gradient(135deg, var(--accent-primary), var(--accent-text))",
+                color: "var(--accent-on-primary)",
                 fontFamily: "var(--font-heading)",
               }}
             >
@@ -216,7 +216,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                   }
                   onMouseEnter={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.background = "var(--surface-glass)";
+                      e.currentTarget.style.background = "var(--surface-raised)";
                       e.currentTarget.style.color = "var(--text-primary)";
                     }
                   }}
@@ -239,7 +239,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* Sync + search bottom area */}
-          <div className="p-4 shrink-0" style={{ borderTop: "1px solid var(--border-glass)" }}>
+          <div className="p-4 shrink-0" style={{ borderTop: "1px solid var(--border-default)" }}>
             <div
               className="flex items-center justify-between px-3 py-2 text-sm cursor-pointer rounded-lg transition-all duration-150"
               style={{ color: "var(--text-secondary)" }}
@@ -250,7 +250,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               </span>
               <div
                 className="w-2 h-2 rounded-full"
-                style={{ background: "var(--accent-success)", boxShadow: "0 0 6px var(--accent-success)" }}
+                style={{ background: "var(--success)", boxShadow: "0 0 6px var(--success)" }}
                 title="Online"
               />
             </div>
@@ -258,7 +258,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={focusPalette}
               className="mt-2 w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 cursor-pointer"
-              style={{ background: "var(--bg-surface-inset)", color: "var(--text-muted)" }}
+              style={{ background: "var(--surface-inset)", color: "var(--text-muted)" }}
             >
               <span className="flex items-center gap-2">
                 <Search className="w-4 h-4" aria-hidden="true" />
@@ -268,8 +268,8 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                 className="text-xs px-1.5 py-0.5 rounded"
                 style={{
                   fontFamily: "var(--font-mono)",
-                  background: "var(--surface-glass)",
-                  border: "1px solid var(--border-glass)",
+                  background: "var(--surface-raised)",
+                  border: "1px solid var(--border-default)",
                   color: "var(--text-muted)",
                 }}
               >
@@ -286,9 +286,9 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
           <header
             className="h-16 flex items-center justify-between px-4 sm:px-6 md:px-8 shrink-0"
             style={{
-              background: "var(--surface-glass)",
+              background: "var(--surface-raised)",
               backdropFilter: "blur(20px)",
-              borderBottom: "1px solid var(--border-glass)",
+              borderBottom: "1px solid var(--border-default)",
             }}
           >
             <div className="flex items-center gap-2 sm:gap-4">
@@ -317,8 +317,8 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                 <div
                   className="w-9 h-9 min-h-[44px] min-w-[44px] rounded-full flex items-center justify-center text-xs font-semibold cursor-pointer transition-all"
                   style={{
-                    background: `color-mix(in srgb, var(--accent-primary) 15%, var(--bg-surface-raised))`,
-                    border: "2px solid var(--border-glass-strong)",
+                    background: `color-mix(in srgb, var(--accent-primary) 15%, var(--surface-raised))`,
+                    border: "2px solid var(--border-strong)",
                     color: "var(--accent-primary)",
                     fontFamily: "var(--font-mono)",
                   }}
@@ -345,9 +345,9 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                     
                     {/* Dropdown Menu */}
                     <div
-                      className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-glass)] overflow-hidden shadow-2xl"
+                      className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-default)] overflow-hidden shadow-2xl"
                       style={{
-                        background: "var(--surface-glass-strong)",
+                        background: "var(--surface-overlay)",
                         backdropFilter: "blur(24px)",
                       }}
                       role="menu"
@@ -359,19 +359,19 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                           setActiveScreen("/settings");
                           setMenuOpen(false);
                         }}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-glass)] text-left min-h-[44px] cursor-pointer"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--text-primary)] hover:bg-[var(--surface-raised)] text-left min-h-[44px] cursor-pointer"
                       >
                         <User className="w-4 h-4 text-[var(--text-muted)]" />
                         Settings Profile
                       </button>
-                      <div className="h-px bg-[var(--border-glass)] w-full" />
+                      <div className="h-px bg-[var(--border-default)] w-full" />
                       <button
                         type="button"
                         role="menuitem"
                         onClick={onSignOut}
                         disabled={isSigningOut}
                         aria-busy={isSigningOut}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--accent-flare)] hover:bg-[var(--accent-flare)]/10 text-left min-h-[44px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[var(--danger)] hover:bg-[var(--danger)]/10 text-left min-h-[44px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <LogOut className="w-4 h-4" />
                         {isSigningOut ? "Signing out…" : "Log Out"}
@@ -393,9 +393,9 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
             <footer
               className="h-12 flex items-center justify-between px-4 sm:px-6 md:px-8 text-xs shrink-0 mt-auto max-w-7xl mx-auto w-full"
               style={{
-                background: "var(--surface-glass-faint)",
+                background: "var(--surface-inset)",
                 backdropFilter: "blur(8px)",
-                borderTop: "1px solid var(--border-glass)",
+                borderTop: "1px solid var(--border-default)",
                 color: "var(--text-muted)",
                 paddingBottom: "env(safe-area-inset-bottom)",
               }}
@@ -403,7 +403,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               <div className="flex gap-4 items-center">
                 {isOffline
                   ? <><WifiOff className="w-3 h-3" aria-hidden="true" /> <span>Offline · {pendingSyncCount} pending</span></>
-                  : <><Wifi className="w-3 h-3" style={{ color: "var(--accent-success)" }} aria-hidden="true" /> <span>Online · {pendingSyncCount} pending</span></>
+                  : <><Wifi className="w-3 h-3" style={{ color: "var(--success)" }} aria-hidden="true" /> <span>Online · {pendingSyncCount} pending</span></>
                 }
                 <span style={{ fontFamily: "var(--font-mono)" }}>Local DB: 2.1 MB</span>
               </div>
@@ -419,9 +419,9 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
         <nav
           className="md:hidden fixed bottom-0 inset-x-0 z-30 flex items-stretch justify-around"
           style={{
-            background: "var(--surface-glass)",
+            background: "var(--surface-raised)",
             backdropFilter: "blur(20px)",
-            borderTop: "1px solid var(--border-glass)",
+            borderTop: "1px solid var(--border-default)",
             paddingBottom: "env(safe-area-inset-bottom)",
           }}
           aria-label="Primary"

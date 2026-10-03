@@ -38,9 +38,9 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
     <div
       className="rounded-xl p-4 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center"
       style={{
-        background: "var(--surface-glass-strong)",
+        background: "var(--surface-overlay)",
         backdropFilter: "blur(24px) saturate(160%)",
-        border: "1px solid var(--border-glass-strong)",
+        border: "1px solid var(--border-strong)",
       }}
     >
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center w-full md:w-auto">
@@ -58,7 +58,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
 
         <div
           className="w-[1px] h-10 hidden md:block mx-2"
-          style={{ background: "var(--border-glass)" }}
+          style={{ background: "var(--border-default)" }}
         />
 
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -71,7 +71,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
               onChange={handleDateChange}
               className="neumo-inset px-3 py-2 pl-10 text-sm w-full appearance-none focus:outline-none"
               style={{
-                background: "var(--bg-surface-inset)",
+                background: "var(--surface-inset)",
                 border: "1px solid var(--border-default)",
                 color: "var(--text-primary)",
               }}
@@ -102,9 +102,9 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
           onClick={() => setLockSheetOpen(true)}
           className="neumo-raised px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap"
           style={{
-            background: "var(--bg-surface-raised)",
+            background: "var(--surface-raised)",
             border: "1px solid var(--border-default)",
-            color: isLocked ? "var(--accent-warning)" : "var(--text-primary)",
+            color: isLocked ? "var(--warning)" : "var(--text-primary)",
           }}
           onMouseEnter={(e) => {
             if (!isLocked) e.currentTarget.style.color = "var(--accent-primary)";

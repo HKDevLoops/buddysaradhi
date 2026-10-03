@@ -24,7 +24,7 @@ const mockedGetSettings = vi.mocked(getSettings);
 
 type SettingsResult = Awaited<ReturnType<typeof getSettings>>;
 
-function echo(theme: string, palette = "aurora-cosmic", density = "comfortable"): SettingsResult {
+function echo(theme: string, palette = "inked", density = "comfortable"): SettingsResult {
   return {
     success: true,
     data: { theme, palette, density } as InstituteSettings,
@@ -75,7 +75,7 @@ describe("PaletteProvider applied-wins-over-stale-echo", () => {
       }),
     );
     localStorage.setItem("buddysaradhi.theme", "light");
-    localStorage.setItem("buddysaradhi.palette", "aurora-cosmic");
+    localStorage.setItem("buddysaradhi.palette", "inked");
 
     renderProvider();
 
@@ -100,12 +100,12 @@ describe("PaletteProvider applied-wins-over-stale-echo", () => {
 
   it("applied palette still wins over stale server echo (F-2 guard, 512f0e4)", async () => {
     mockedGetSettings.mockResolvedValue(echo("dark"));
-    localStorage.setItem("buddysaradhi.palette", "emerald-ledger");
+    localStorage.setItem("buddysaradhi.palette", "amethyst-mint");
 
     renderProvider();
 
     await waitFor(() => {
-      expect(document.documentElement.getAttribute("data-palette")).toBe("emerald-ledger");
+      expect(document.documentElement.getAttribute("data-palette")).toBe("amethyst-mint");
     });
   });
 

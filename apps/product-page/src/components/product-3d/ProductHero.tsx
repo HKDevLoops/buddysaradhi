@@ -1,14 +1,18 @@
 "use client";
 
 // Implements: 20_3D_Product_Page.md (sticky stage + GSAP scrub proxy, 5 beats,
-// Poster loading veil per FM-10) + product/02 copy (hero words, R-02: no em dash).
+// Poster loading veil per FM-10) + docs/design/overhaul-plan.md §4.1 (front
+// door: one clear action, "Request access") restyled onto the generated tokens.
+// The narrative journey is the product's differentiator, so the five beats and
+// the pinned stage stay exactly as they were; only the surface language changed.
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "./Poster";
-import { useLowEnd, useReducedMotion, useWebGLAvailable } from "./hooks";
+import { useLowEnd, useReducedMotion, useSceneTokens, useWebGLAvailable } from "./hooks";
 import type { ProgressProxy } from "./Journey";
 
 const ProductScene = dynamic(() => import("./ProductScene").then((m) => m.ProductScene), {
@@ -19,7 +23,7 @@ const BEATS = [
   {
     id: "hook",
     pin: "Hook",
-    kicker: "Buddysaradhi. v1.4. Built in India.",
+    kicker: "Buddysaradhi. Built in India.",
     title: "Five screens. Seven engines. One ledger. Zero servers to manage.",
     body: "The operating system for private tutors and small coaching institutes. Scroll to walk through it.",
   },
@@ -41,36 +45,39 @@ const BEATS = [
     id: "climax",
     pin: "Climax",
     kicker: "Beat 3. Climax.",
-    title: "Every tutor on BuddySaradhi.",
-    body: "The staffroom moment. Dues collected, batches scheduled, the month closed without a single dispute.",
+    title: "The month closes without a dispute.",
+    body: "Dues collected, batches scheduled, the register and the ledger finally saying the same thing.",
   },
   {
     id: "reveal",
     pin: "Reveal",
     kicker: "Beat 4. Reveal.",
     title: "Five screens. Zero servers.",
-    body: "Dashboard, Students, Attendance, Fees, Settings. Offline first, yours outright, free for everyone while our infra stays free.",
+    body: "Dashboard, Students, Attendance, Fees, Settings. Offline first, yours outright, and free while our infrastructure stays free.",
   },
 ] as const;
 
-/** Oddy-pattern headline: letters scatter in on every beat change (CSS, cheap). */
+/** Oddy-pattern headline: letters scatter in on every beat change (CSS, cheap).
+ *  The per-character spans are hidden from assistive tech; the sr-only copy is
+ *  the single accessible reading of the headline. */
 function ScatterTitle({ text, beat }: { text: string; beat: number }) {
   return (
     <h1
       key={beat}
-      className="scatter-in text-4xl leading-tight font-bold md:text-6xl"
-      style={{ color: "rgba(255,255,255,0.95)" }}
+      className="scatter-in font-display text-4xl leading-tight font-bold text-balance md:text-6xl"
+      style={{ color: "var(--text-primary)" }}
     >
-      {text.split("").map((ch, i) => (
-        <span
-          key={i}
-          aria-hidden={ch === " " ? undefined : false}
-          className="scatter-char"
-          style={{ animationDelay: `${Math.min(i * 12, 400)}ms` }}
-        >
-          {ch === " " ? " " : ch}
-        </span>
-      ))}
+      <span aria-hidden="true">
+        {text.split("").map((ch, i) => (
+          <span
+            key={i}
+            className="scatter-char"
+            style={{ animationDelay: `${Math.min(i * 12, 400)}ms` }}
+          >
+            {ch === " " ? " " : ch}
+          </span>
+        ))}
+      </span>
       <span className="sr-only">{text}</span>
     </h1>
   );
@@ -80,6 +87,7 @@ export function ProductHero() {
   const webgl = useWebGLAvailable();
   const reduced = useReducedMotion();
   const lowEnd = useLowEnd();
+  const tokens = useSceneTokens();
   const [ready, setReady] = useState(false);
   const [beat, setBeat] = useState(0);
   const [inView, setInView] = useState(true);
@@ -91,7 +99,9 @@ export function ProductHero() {
     typeof navigator !== "undefined" &&
     (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ===
       true;
-  const showPoster = webgl === false || saveData;
+  // The canvas needs real colours, so it cannot mount before the palette has
+  // resolved. Until then the Poster holds the frame.
+  const showPoster = webgl === false || saveData || tokens === null;
 
   // Scrub proxy: section scroll → 0..1. Killed on unmount (FM-15).
   useLayoutEffect(() => {
@@ -145,7 +155,7 @@ export function ProductHero() {
       style={{ height: "500vh" }}
     >
       <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden">
-        {showPoster || webgl === null ? (
+        {showPoster || !tokens ? (
           <Poster />
         ) : (
           // Loading veil (FM-10): canvas mounts immediately, Poster holds
@@ -154,6 +164,7 @@ export function ProductHero() {
             <div className="absolute inset-0">
               <ProductScene
                 progressRef={progressRef.current}
+                tokens={tokens}
                 frozen={reduced}
                 lowEnd={lowEnd}
                 inView={inView}
@@ -168,45 +179,35 @@ export function ProductHero() {
           </div>
         )}
 
-        {/* DOM overlay: the accessible surface (canvas is aria-hidden). */}
+        {/* DOM overlay: the accessible surface (canvas is aria-hidden). This is
+            the one floating region on the page besides the nav, which is what
+            material-modes.md §5.2 cap 2 allows. */}
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-center p-6 md:p-12">
-          <div className="glass max-w-xl rounded-2xl p-6 md:p-8">
-            <p
-              className="text-xs font-semibold tracking-widest uppercase"
-              style={{ color: "#00FF9D" }}
-            >
+          <div className="mat mat-fresnel pointer-events-auto w-full max-w-xl rounded-panel p-6 md:p-8">
+            <p className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
               {current.kicker}
             </p>
             <div className="mt-3">
               <ScatterTitle text={current.title} beat={beat} />
             </div>
-            <p className="mt-4 text-base md:text-lg" style={{ color: "rgba(255,255,255,0.7)" }}>
+            <p className="mt-4 text-base text-pretty md:text-lg" style={{ color: "var(--text-secondary)" }}>
               {current.body}
             </p>
-            <div className="pointer-events-auto mt-6 flex flex-wrap gap-4">
-              <a
-                href="https://buddysaradhi.vercel.app/signup"
-                aria-label="Start free. No credit card needed."
-                className="neumo-raised inline-flex min-h-[44px] min-w-[44px] items-center rounded-xl px-6 py-4 text-base font-semibold"
-                style={{
-                  background: "#00FF9D",
-                  color: "#0a0a1a",
-                  boxShadow: "0 8px 32px rgba(0,255,157,0.25)",
-                }}
-              >
-                Start free. No card needed.
-              </a>
+            <div className="mt-6 flex flex-wrap gap-4">
+              <Link href="/request-access" className="btn btn-primary text-base">
+                Request access
+              </Link>
               <button
                 type="button"
                 onClick={() => scrollToBeat(BEATS.length - 1)}
-                className="neumo-raised inline-flex min-h-[44px] min-w-[44px] items-center rounded-xl border px-6 py-4 text-base font-semibold"
-                style={{ borderColor: "rgba(0,240,255,0.4)", color: "#00F0FF" }}
+                className="btn btn-secondary text-base"
               >
                 See the journey
               </button>
             </div>
-            <p className="mt-4 text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
-              No card. Free for everyone. Free while our infra stays free.
+            <p className="mt-4 text-sm" style={{ color: "var(--text-muted)" }}>
+              Nothing is charged on this site. We contract the plan, then an administrator provisions
+              your account.
             </p>
           </div>
         </div>
@@ -214,24 +215,27 @@ export function ProductHero() {
         {/* Pins: jump points as DOM buttons (keyboard-safe). */}
         <nav
           aria-label="Story beats"
-          className="absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-2"
+          className="absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-wrap justify-center gap-2 px-6"
         >
-          {BEATS.map((b, i) => (
-            <button
-              key={b.id}
-              type="button"
-              onClick={() => scrollToBeat(i)}
-              aria-current={i === beat ? "true" : undefined}
-              className="min-h-[44px] rounded-full px-4 text-sm font-medium"
-              style={{
-                background: i === beat ? "rgba(0,255,157,0.2)" : "rgba(255,255,255,0.05)",
-                color: i === beat ? "#00FF9D" : "rgba(255,255,255,0.7)",
-                border: `1px solid ${i === beat ? "rgba(0,255,157,0.5)" : "rgba(255,255,255,0.15)"}`,
-              }}
-            >
-              {b.pin}
-            </button>
-          ))}
+          {BEATS.map((b, i) => {
+            const active = i === beat;
+            return (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => scrollToBeat(i)}
+                aria-current={active ? "step" : undefined}
+                className="min-h-[44px] rounded-full px-4 text-sm font-medium"
+                style={{
+                  background: active ? "var(--surface-sheet)" : "transparent",
+                  color: active ? "var(--accent-primary)" : "var(--text-secondary)",
+                  border: `1px solid ${active ? "var(--accent-primary)" : "var(--border-default)"}`,
+                }}
+              >
+                {b.pin}
+              </button>
+            );
+          })}
         </nav>
       </div>
 

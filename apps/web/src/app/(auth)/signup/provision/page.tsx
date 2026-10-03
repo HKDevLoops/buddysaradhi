@@ -136,31 +136,31 @@ export default function ProvisionPage() {
   const statusConfig = {
     checking: {
       icon: <Loader2 className="w-12 h-12 animate-spin" />,
-      color: "bg-[var(--accent-cyan)]/20 text-[var(--accent-cyan)]",
+      color: "bg-[var(--info)]/20 text-[var(--info)]",
       title: "Checking your workspace...",
       desc: "Just a moment while we verify your account.",
     },
     creating: {
       icon: <Loader2 className="w-12 h-12 animate-spin" />,
-      color: "bg-[var(--accent-violet)]/20 text-[var(--accent-violet)]",
+      color: "bg-[var(--info)]/20 text-[var(--info)]",
       title: "Provisioning your database...",
       desc: "We are spinning up an isolated edge database for your tuition center. This usually takes a few seconds.",
     },
     done: {
       icon: <CheckCircle2 className="w-12 h-12" />,
-      color: "bg-[var(--accent-emerald)]/20 text-[var(--accent-emerald)]",
+      color: "bg-[var(--success)]/20 text-[var(--success)]",
       title: "Ready to go!",
       desc: "Redirecting you to your dashboard...",
     },
     expired: {
       icon: <KeyRound className="w-12 h-12" />,
-      color: "bg-[var(--accent-amber)]/20 text-[var(--accent-amber)]",
+      color: "bg-[var(--warning)]/20 text-[var(--warning)]",
       title: "Credentials expired",
       desc: "Your database credentials have expired and could not be refreshed automatically. Re-provision below — you will return to where you were.",
     },
     error: {
       icon: <AlertCircle className="w-12 h-12" />,
-      color: "bg-[var(--accent-flare)]/20 text-[var(--accent-flare)]",
+      color: "bg-[var(--danger)]/20 text-[var(--danger)]",
       title: "Provisioning failed",
       desc:
         errorMessage ||
@@ -179,7 +179,7 @@ export default function ProvisionPage() {
           {cfg.icon}
         </div>
         {status === "creating" && (
-          <div className="absolute inset-0 rounded-full border-2 border-[var(--accent-violet)]/30 animate-ping" />
+          <div className="absolute inset-0 rounded-full border-2 border-[var(--info)]/30 animate-ping" />
         )}
       </div>
 
@@ -187,16 +187,16 @@ export default function ProvisionPage() {
         <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
           {cfg.title}
         </h1>
-        <p className="text-sm text-gray-400">{cfg.desc}</p>
+        <p className="text-sm text-text-muted">{cfg.desc}</p>
       </div>
 
       {status === "creating" && (
-        <div className="flex flex-col items-center gap-2 text-xs text-gray-400">
+        <div className="flex flex-col items-center gap-2 text-xs text-text-muted">
           <div className="flex gap-1">
             {[...Array(3)].map((_, i) => (
               <div
                 key={i}
-                className="w-2 h-2 rounded-full bg-[var(--accent-violet)]/60 animate-pulse"
+                className="w-2 h-2 rounded-full bg-[var(--info)]/60 animate-pulse"
                 style={{ animationDelay: `${i * 150}ms` }}
               />
             ))}
@@ -209,13 +209,13 @@ export default function ProvisionPage() {
         <div className="flex flex-col items-center gap-3">
           <Button
             onClick={provision}
-            className="rounded-xl neumo-raised bg-[var(--accent-cyan)]/10 text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20 px-6"
+            className="rounded-xl neumo-raised bg-[var(--info)]/10 text-[var(--info)] hover:bg-[var(--info)]/20 px-6"
           >
             Try Again
           </Button>
           <a
             href="mailto:support@buddysaradhi.app"
-            className="text-xs text-gray-400 hover:text-gray-300 underline underline-offset-2"
+            className="text-xs text-text-muted hover:text-text-secondary underline underline-offset-2"
           >
             Contact support
           </a>
@@ -226,13 +226,13 @@ export default function ProvisionPage() {
         <div className="flex flex-col items-center gap-3">
           <Button
             onClick={provision}
-            className="rounded-xl neumo-raised bg-[var(--accent-amber)]/10 text-[var(--accent-amber)] hover:bg-[var(--accent-amber)]/20 px-6"
+            className="rounded-xl neumo-raised bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20 px-6"
           >
             Re-provision workspace
           </Button>
           <a
             href="mailto:support@buddysaradhi.app"
-            className="text-xs text-gray-400 hover:text-gray-300 underline underline-offset-2"
+            className="text-xs text-text-muted hover:text-text-secondary underline underline-offset-2"
           >
             Contact support
           </a>
@@ -240,7 +240,7 @@ export default function ProvisionPage() {
       )}
 
       {status === "done" && (
-        <div className="flex items-center gap-2 text-sm text-[var(--accent-emerald)]">
+        <div className="flex items-center gap-2 text-sm text-[var(--success)]">
           <CheckCircle2 className="w-4 h-4" />
           <span>Database ready</span>
         </div>

@@ -11,10 +11,10 @@ const STATUS_META: Record<
   AttendanceStatus,
   { label: string; short: string; accent: string; glow: string; Icon: React.ComponentType<{ className?: string }> }
 > = {
-  present: { label: "Present", short: "P", accent: "var(--accent-emerald)", glow: "rgba(0,255,157,0.55)", Icon: Check },
-  absent: { label: "Absent", short: "A", accent: "var(--accent-flare)", glow: "rgba(255,94,0,0.55)", Icon: X },
-  late: { label: "Late", short: "L", accent: "var(--accent-amber)", glow: "rgba(255,179,0,0.55)", Icon: Clock },
-  excused: { label: "Leave", short: "Lv", accent: "var(--accent-cyan)", glow: "rgba(0,240,255,0.55)", Icon: Plane },
+  present: { label: "Present", short: "P", accent: "var(--success)", glow: "color-mix(in srgb, var(--success) 0.55, transparent)", Icon: Check },
+  absent: { label: "Absent", short: "A", accent: "var(--danger)", glow: "color-mix(in srgb, var(--danger) 0.55, transparent)", Icon: X },
+  late: { label: "Late", short: "L", accent: "var(--warning)", glow: "color-mix(in srgb, var(--warning) 0.55, transparent)", Icon: Clock },
+  excused: { label: "Leave", short: "Lv", accent: "var(--info)", glow: "color-mix(in srgb, var(--info) 0.55, transparent)", Icon: Plane },
 };
 
 interface AttendanceStatusToggleProps {
@@ -31,8 +31,8 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
       <div
         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold"
         style={{
-          background: meta ? `color-mix(in srgb, ${meta.accent} 14%, transparent)` : "var(--surface-glass-faint)",
-          border: `1px solid ${meta ? `color-mix(in srgb, ${meta.accent} 40%, transparent)` : "var(--border-glass)"}`,
+          background: meta ? `color-mix(in srgb, ${meta.accent} 14%, transparent)` : "var(--surface-inset)",
+          border: `1px solid ${meta ? `color-mix(in srgb, ${meta.accent} 40%, transparent)` : "var(--border-default)"}`,
           color: meta ? meta.accent : "var(--text-muted)",
         }}
         title={meta ? `${studentName}: ${meta.label}` : `${studentName}: Unmarked`}

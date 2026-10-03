@@ -265,7 +265,7 @@ export function StudentSearchBox<T>({
             className ?? "neumo-inset h-11",
           )}
           style={{
-            background: "var(--surface-inset, var(--bg-surface-inset))",
+            background: "var(--surface-inset)",
             border: "1px solid var(--border-default)",
             borderRadius: "var(--radius-md)",
             color: "var(--text-primary)",
@@ -302,7 +302,7 @@ export function StudentSearchBox<T>({
       </p>
 
       {error !== null && (
-        <p role="alert" className="mt-2 text-xs" style={{ color: "var(--accent-danger, var(--accent-flare))" }}>
+        <p role="alert" className="mt-2 text-xs" style={{ color: "var(--danger)" }}>
           {error}
         </p>
       )}
@@ -314,7 +314,7 @@ export function StudentSearchBox<T>({
           aria-label={label}
           className="absolute z-30 mt-1 w-full max-h-80 overflow-y-auto rounded-xl py-1"
           style={{
-            background: "var(--surface-overlay, var(--surface-glass-strong))",
+            background: "var(--surface-overlay)",
             backdropFilter: "blur(24px) saturate(160%)",
             border: "1px solid var(--border-default)",
             boxShadow: "var(--shadow-overlay, 0 18px 40px rgba(0,0,0,0.28))",

@@ -11,29 +11,29 @@ export function PlatformDetectChip({ detectedPlatform }: { detectedPlatform: Pla
     case 'macos':
       message = "Looks like you're on macOS — download for Mac ↓";
       href = '/download#macos';
-      colorClass = 'border-[var(--accent-cyan)] text-[var(--accent-cyan)]';
+      colorClass = 'border-[var(--info)] text-[var(--info)]';
       break;
     case 'windows':
       message = "Looks like you're on Windows — download for Windows ↓";
       href = '/download#windows';
-      colorClass = 'border-[var(--accent-cyan)] text-[var(--accent-cyan)]';
+      colorClass = 'border-[var(--info)] text-[var(--info)]';
       break;
     case 'android':
       message = "Looks like you're on Android — get it on Play Store ↓";
       href = '/download#android';
-      colorClass = 'border-[var(--accent-emerald)] text-[var(--accent-emerald)]';
+      colorClass = 'border-[var(--success)] text-[var(--success)]';
       break;
     case 'ios':
       message = "Looks like you're on iOS — get it on the App Store ↓";
       href = '/download#ios';
-      colorClass = 'border-[var(--accent-emerald)] text-[var(--accent-emerald)]';
+      colorClass = 'border-[var(--success)] text-[var(--success)]';
       break;
     case 'linux':
     case 'web':
     default:
       message = 'Open the web version →';
       href = '/app';
-      colorClass = 'border-[var(--accent-emerald)] text-[var(--accent-emerald)]';
+      colorClass = 'border-[var(--success)] text-[var(--success)]';
       break;
   }
 
@@ -43,8 +43,8 @@ export function PlatformDetectChip({ detectedPlatform }: { detectedPlatform: Pla
         <Link
           href={href}
           className={`flex items-center justify-center h-[36px] px-4 rounded-full
-                     bg-[var(--bg-surface-inset)] backdrop-blur-[24px] saturate-140 border border-opacity-30
-                     text-sm font-medium transition-all duration-200 hover:bg-[var(--surface-glass-strong)]
+                     bg-[var(--surface-inset)] backdrop-blur-[24px] saturate-140 border border-opacity-30
+                     text-sm font-medium transition-all duration-200 hover:bg-[var(--surface-overlay)]
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
                      ${colorClass}`}
         >

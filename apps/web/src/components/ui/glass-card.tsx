@@ -42,10 +42,10 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
     const cssVars =
       variant === "strong"
         ? {
-            background: "var(--surface-glass-strong)",
+            background: "var(--surface-overlay)",
             backdropFilter: "blur(48px) saturate(150%)",
             WebkitBackdropFilter: "blur(48px) saturate(150%)",
-            border: "1px solid var(--border-glass-strong)",
+            border: "1px solid var(--border-strong)",
             boxShadow: [
               "0 1px 1px 0 rgba(255,255,255,0.20) inset",
               "0 0 24px 0 rgba(255,255,255,0.05) inset",
@@ -56,20 +56,20 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
           }
         : variant === "faint"
           ? {
-              background: "var(--surface-glass-faint)",
+              background: "var(--surface-inset)",
               backdropFilter: "blur(20px)",
               WebkitBackdropFilter: "blur(20px)",
-              border: "1px solid var(--border-glass)",
+              border: "1px solid var(--border-default)",
               boxShadow: [
                 "0 1px 1px 0 rgba(255,255,255,0.10) inset",
                 "0 6px 20px 0 rgba(0,0,0,0.12)",
               ].join(", "),
             }
           : {
-              background: "var(--surface-glass)",
+              background: "var(--surface-raised)",
               backdropFilter: "blur(36px) saturate(130%)",
               WebkitBackdropFilter: "blur(36px) saturate(130%)",
-              border: "1px solid var(--border-glass)",
+              border: "1px solid var(--border-default)",
               boxShadow: [
                 "0 1px 1px 0 rgba(255,255,255,0.16) inset",
                 "0 0 20px 0 rgba(255,255,255,0.03) inset",
@@ -102,7 +102,7 @@ GlassCard.displayName = "GlassCard";
 //   position: absolute; inset: 0;
 //   border-radius: inherit;
 //   padding: 1px;
-//   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-emerald));
+//   background: linear-gradient(135deg, var(--info), var(--success));
 //   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
 //   -webkit-mask-composite: xor;
 //   mask-composite: exclude;

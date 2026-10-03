@@ -1,8 +1,13 @@
-// Implements: web/07_Landing_Page.md §2.1 (force-static + 1h ISR) + product/02–05.
-// v2: stats-driven proof strip (gateway facts only, R-17), 4 cards + Settings
-// strip (R-14 variation), no em dashes (R-02), no hardcoded numbers.
+// Implements: docs/design/overhaul-plan.md §4.1 (front door) on web/07_Landing_Page.md
+// §2.1 (force-static + 1h ISR) + product/02–05 copy.
+// v3: restyled onto the generated tokens (material-modes.md §2). The stats
+// strip still reads gateway facts only (R-17, no hardcoded numbers); the price
+// claim that used to live here is gone because this surface no longer states
+// prices (overhaul-plan.md §4.1: prices are set on the owner's replacement
+// list, and /pricing owns the plan matrix).
 
 import { ProductHero } from "@/components/product-3d/ProductHero";
+import Link from "next/link";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -10,7 +15,6 @@ export const revalidate = 3600;
 interface MarketingStats {
   screens: number;
   engines: number;
-  pricing: { inrPaisePerMonth: number; note: string };
   guarantees: string[];
   platforms: string[];
 }
@@ -28,23 +32,35 @@ async function getStats(): Promise<MarketingStats | null> {
   }
 }
 
-const SCREEN_CARDS = [
+const SCREENS = [
   {
     name: "Dashboard",
-    line: "The month at a glance. Collected, due, and today.",
-    accent: "#00FF9D",
+    line: "The month at a glance. Collected, due, and what is due today.",
   },
-  { name: "Students", line: "Every student, every batch, one roster.", accent: "#00F0FF" },
-  { name: "Attendance", line: "Thirty eight present in twenty seconds.", accent: "#FFB300" },
-  { name: "Fees", line: "Every fee recorded, every receipt numbered.", accent: "#00FF9D" },
-];
+  {
+    name: "Students",
+    line: "Every student, every batch, one roster you can search without leaving the screen.",
+  },
+  {
+    name: "Attendance",
+    line: "Thirty eight present in twenty seconds, not thirty eight paper registers.",
+  },
+  {
+    name: "Fees",
+    line: "Every fee recorded, every receipt numbered, nothing editable after the fact.",
+  },
+  {
+    name: "Settings",
+    line: "Backup, PIN, and your data under your control. The screen that keeps the other four honest.",
+  },
+] as const;
 
 export default async function ProductPage() {
   const stats = await getStats();
-  const strip: string[] = ["Built in India", "No telemetry, ever", "Offline first"];
+  const facts: string[] = ["Built in India", "No telemetry, ever", "Offline first"];
   if (stats) {
-    strip.push(`${stats.screens} screens`, `${stats.engines} engines`);
-    for (const g of stats.guarantees) strip.push(g.replace(/-/g, " "));
+    facts.push(`${stats.screens} screens`, `${stats.engines} engines`);
+    for (const g of stats.guarantees) facts.push(g.replace(/-/g, " "));
   }
 
   return (
@@ -53,85 +69,68 @@ export default async function ProductPage() {
 
       <ul
         aria-label="Product facts"
-        className="glass-faint flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-6 py-4 text-sm"
-        style={{ color: "rgba(255,255,255,0.7)" }}
+        className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-6 py-5 text-sm"
+        style={{ color: "var(--text-muted)" }}
       >
-        {strip.map((s) => (
-          <li key={s}>{s}</li>
+        {facts.map((f) => (
+          <li key={f}>{f}</li>
         ))}
       </ul>
 
-      <section id="screens" aria-label="Five screens" className="px-6 py-16 md:px-12">
-        <h2
-          className="text-3xl font-bold md:text-4xl"
-          style={{ color: "rgba(255,255,255,0.95)", fontFamily: "var(--font-heading)" }}
-        >
+      <section id="screens" aria-label="Five screens" className="mx-auto w-full max-w-6xl px-6 py-16">
+        <h2 className="font-display text-3xl font-bold text-balance md:text-4xl">
           Five screens. Nothing else to learn.
         </h2>
-        <div className="mt-8 grid gap-4 md:grid-cols-4">
-          {SCREEN_CARDS.map((s) => (
-            <article key={s.name} className="glass rounded-2xl p-5">
-              <div
-                aria-hidden="true"
-                className="mb-3 h-1 w-10 rounded"
-                style={{ background: s.accent }}
-              />
-              <h3 className="text-lg font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
-                {s.name}
-              </h3>
-              <p className="mt-2 text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
-                {s.line}
-              </p>
-            </article>
-          ))}
-        </div>
-        <article
-          aria-label="Settings"
-          className="glass mt-4 flex flex-col gap-2 rounded-2xl p-5 md:flex-row md:items-center md:justify-between"
-        >
-          <div className="flex items-center gap-4">
+        <p className="mt-4 max-w-[68ch] text-pretty text-[var(--text-secondary)]">
+          A tutor opens one screen to mark the day, one screen to take a fee, and one screen at
+          month end to see what is still owed. There is no sixth screen to learn.
+        </p>
+
+        {/* A definition list, not four identical cards: the sequence is the
+            claim, so the names are the structure. */}
+        <dl className="mt-10 overflow-hidden rounded-panel border border-[var(--border-default)]">
+          {SCREENS.map((s, i) => (
             <div
-              aria-hidden="true"
-              className="h-10 w-1 rounded"
-              style={{ background: "#B388FF" }}
-            />
-            <div>
-              <h3 className="text-lg font-semibold" style={{ color: "rgba(255,255,255,0.95)" }}>
-                Settings
-              </h3>
-              <p className="mt-1 text-sm" style={{ color: "rgba(255,255,255,0.7)" }}>
-                Backup, PIN, and your data under your control. The screen that keeps the other four
-                honest.
-              </p>
+              key={s.name}
+              className="row grid gap-1 px-5 py-5 md:grid-cols-[12rem_1fr] md:gap-6"
+            >
+              <dt className="font-display text-lg font-semibold">
+                {s.name}
+                {i === SCREENS.length - 1 && (
+                  <span className="ml-3 text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
+                    Screen 5 of 5
+                  </span>
+                )}
+              </dt>
+              <dd className="text-pretty text-[var(--text-secondary)]">{s.line}</dd>
             </div>
-          </div>
-          <p className="shrink-0 text-sm font-semibold" style={{ color: "#B388FF" }}>
-            Screen 5 of 5
-          </p>
-        </article>
+          ))}
+        </dl>
       </section>
 
-      <section id="pricing" aria-label="Pricing" className="px-6 py-16 md:px-12">
-        <div className="glass mx-auto max-w-2xl rounded-2xl p-8 text-center">
-          <h2
-            className="text-3xl font-bold"
-            style={{ color: "rgba(255,255,255,0.95)", fontFamily: "var(--font-heading)" }}
-          >
-            {stats
-              ? `₹${stats.pricing.inrPaisePerMonth / 100}/mo. Free for everyone.`
-              : "Free for everyone."}
-          </h2>
-          <p className="mt-3" style={{ color: "rgba(255,255,255,0.7)" }}>
-            {stats ? stats.pricing.note : "Free while our infra stays free"}. No card, no trial
-            clock, no lock-in.
-          </p>
-          <a
-            href="https://buddysaradhi.vercel.app/signup"
-            className="mt-6 inline-flex min-h-[44px] items-center rounded-xl px-8 py-4 text-base font-semibold"
-            style={{ background: "#00FF9D", color: "#0a0a1a" }}
-          >
-            Start free. No card needed.
-          </a>
+      <section id="access" aria-label="Getting access" className="mx-auto w-full max-w-6xl px-6 pb-20">
+        <div className="panel grid gap-8 p-8 md:grid-cols-[1.2fr_1fr] md:p-10">
+          <div>
+            <h2 className="font-display text-3xl font-bold text-balance md:text-4xl">
+              Free while our infrastructure stays free.
+            </h2>
+            <p className="mt-4 max-w-[60ch] text-pretty text-[var(--text-secondary)]">
+              Sign up yourself and start today. If you need an institute plan, with staff accounts
+              and institute-wide reporting, we contract it with you directly. Either way nothing is
+              charged on this site and no card is ever asked for.
+            </p>
+          </div>
+          <div className="flex flex-col items-start justify-center gap-3 md:items-stretch">
+            <Link href="/request-access" className="btn btn-primary w-full text-base">
+              Request access
+            </Link>
+            <Link href="/pricing" className="btn btn-secondary w-full text-base">
+              See plans and billing periods
+            </Link>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Already have access? Sign in to the app.
+            </p>
+          </div>
         </div>
       </section>
     </>

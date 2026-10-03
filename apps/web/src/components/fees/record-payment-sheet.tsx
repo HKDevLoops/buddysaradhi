@@ -221,13 +221,13 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       <div className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] shadow-2xl flex flex-col transform transition-transform duration-300">
         <div className="p-6 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-            <Wallet className="w-5 h-5 text-[var(--accent-emerald)]" />
+            <Wallet className="w-5 h-5 text-[var(--success)]" />
             Record Payment
           </h2>
           <button
             onClick={closeSheet}
             aria-label="Close record payment sheet"
-            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -242,7 +242,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
             <form id="payment-form" onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Student</label>
-                <div className="neumo-inset bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-[var(--text-primary)]">
+                <div className="neumo-inset bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-[var(--text-primary)]">
                   {studentName}
                 </div>
               </div>
@@ -260,7 +260,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
                     aria-describedby="payment-preview"
-                    className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-emerald)]"
+                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
                   />
                 </div>
               </div>
@@ -276,8 +276,8 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       onClick={() => setMethod(m)}
                       className={`min-h-[44px] px-3 rounded-lg text-sm font-semibold border transition-colors ${
                         method === m
-                          ? "bg-[var(--accent-emerald)]/20 border-[var(--accent-emerald)]/40 text-[var(--accent-emerald)]"
-                          : "bg-[var(--bg-surface-inset)] border-[var(--border-default)] text-[var(--text-secondary)]"
+                          ? "bg-[var(--success)]/20 border-[var(--success)]/40 text-[var(--success)]"
+                          : "bg-[var(--surface-inset)] border-[var(--border-default)] text-[var(--text-secondary)]"
                       }`}
                     >
                       {PAYMENT_METHOD_LABELS[m]}
@@ -296,10 +296,10 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
                   placeholder={method === "cheque" ? "6-digit cheque no." : method === "cash" ? "Optional" : "10–22 character UTR"}
-                  className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-emerald)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
                 />
                 {preview.refError && (
-                  <p className="text-xs mt-1 text-[var(--accent-flare)]">{preview.refError}</p>
+                  <p className="text-xs mt-1 text-[var(--danger)]">{preview.refError}</p>
                 )}
               </div>
 
@@ -311,10 +311,10 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   required
                   value={dateIso}
                   onChange={(e) => setDateIso(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-emerald)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--success)]"
                 />
                 {preview.backdated && (
-                  <div className="mt-2 p-3 rounded-lg bg-[var(--accent-amber)]/10 border border-[var(--accent-amber)]/25 text-sm text-[var(--accent-amber)]">
+                  <div className="mt-2 p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-sm text-[var(--warning)]">
                     <p className="flex items-center gap-2 font-semibold">
                       <AlertTriangle className="w-4 h-4" /> Backdated payment — fresh PIN required
                     </p>
@@ -325,7 +325,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       onChange={(e) => setBackdatePin(e.target.value)}
                       placeholder="Enter PIN"
                       aria-label="Fresh PIN for backdated payment"
-                      className="neumo-inset mt-2 w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none"
+                      className="neumo-inset mt-2 w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none"
                     />
                   </div>
                 )}
@@ -339,17 +339,17 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-emerald)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
                 />
               </div>
 
               {preview.excess && (
-                <label className="flex items-start gap-3 p-3 rounded-lg bg-[var(--accent-emerald)]/10 border border-[var(--accent-emerald)]/25 text-sm cursor-pointer">
+                <label className="flex items-start gap-3 p-3 rounded-lg bg-[var(--success)]/10 border border-[var(--success)]/25 text-sm cursor-pointer">
                   <input
                     type="checkbox"
                     checked={advanceAck}
                     onChange={(e) => setAdvanceAck(e.target.checked)}
-                    className="mt-1 w-5 h-5 accent-[var(--accent-emerald)]"
+                    className="mt-1 w-5 h-5 accent-[var(--success)]"
                   />
                   <span className="text-[var(--text-primary)]">
                     Mark as advance payment
@@ -361,7 +361,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
               )}
 
               {/* Receipt preview — exactly what will be posted (07 §6.4). */}
-              <div id="payment-preview" aria-live="polite" className="p-4 rounded-xl bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] text-sm space-y-1.5">
+              <div id="payment-preview" aria-live="polite" className="p-4 rounded-xl bg-[var(--surface-inset)] border border-[var(--border-default)] text-sm space-y-1.5">
                 <p className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Receipt preview</p>
                 {preview.amountPaise !== null ? (
                   <>
@@ -392,12 +392,12 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
               </div>
 
               {mutation.error && (
-                <div role="alert" className="p-3 rounded-lg bg-[var(--accent-flare)]/10 border border-[var(--accent-flare)]/20 text-[var(--accent-flare)] text-sm">
+                <div role="alert" className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
                   {mutation.error.message}
                 </div>
               )}
               {preview.errors.length > 0 && preview.amountPaise !== null && (
-                <div role="alert" className="p-3 rounded-lg bg-[var(--accent-amber)]/10 border border-[var(--accent-amber)]/25 text-[var(--accent-amber)] text-sm">
+                <div role="alert" className="p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-[var(--warning)] text-sm">
                   {preview.errors.join(" ")}
                 </div>
               )}
@@ -405,12 +405,12 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
           )}
         </div>
 
-        <div className="p-6 border-t border-[var(--border-default)] bg-[var(--bg-surface-raised)]/30">
+        <div className="p-6 border-t border-[var(--border-default)] bg-[var(--surface-raised)]/30">
           <button
             type="submit"
             form="payment-form"
             disabled={!canSubmit}
-            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--text-on-accent)] bg-gradient-to-r from-[var(--accent-emerald)] to-[var(--accent-cyan)] shadow-[0_0_15px_rgba(0,255,157,0.3)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
+            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.3, transparent)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
           >
             {mutation.isPending ? "Recording..." : "Save Payment"}
           </button>

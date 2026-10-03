@@ -63,7 +63,7 @@ export function PendingTab() {
           </h2>
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             {due.length} students owe{" "}
-            <span className="num font-semibold" style={{ color: "var(--accent-flare)" }}>{formatINR(totalDue)}</span>
+            <span className="num font-semibold" style={{ color: "var(--danger)" }}>{formatINR(totalDue)}</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -73,7 +73,7 @@ export function PendingTab() {
               placeholder="Search dues..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="neumo-inset w-full md:w-56 bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-3 py-2 pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
+              className="neumo-inset w-full md:w-56 bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-3 py-2 pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
             />
             <Search className="w-4 h-4 absolute left-3 top-2.5 pointer-events-none" style={{ color: "var(--text-muted)" }} />
           </div>
@@ -81,7 +81,7 @@ export function PendingTab() {
             onClick={bulkRecord}
             disabled={due.length === 0}
             className="btn-glass neumo-raised px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50"
-            style={{ background: "linear-gradient(135deg, var(--accent-emerald), var(--accent-cyan))", color: "var(--text-on-accent)", border: "none" }}
+            style={{ background: "linear-gradient(135deg, var(--success), var(--info))", color: "var(--accent-on-primary)", border: "none" }}
           >
             <Wallet className="w-4 h-4" /> Record Payment
           </button>
@@ -94,7 +94,7 @@ export function PendingTab() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-10">
-          <CircleDollarSign className="w-8 h-8 opacity-40 mb-3" style={{ color: "var(--accent-success)" }} />
+          <CircleDollarSign className="w-8 h-8 opacity-40 mb-3" style={{ color: "var(--success)" }} />
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             {due.length === 0 ? "All dues collected. Clean slate." : "No matches for your search."}
           </p>
@@ -105,13 +105,13 @@ export function PendingTab() {
             <li
               key={s.id}
               className="flex items-center gap-3 p-3 rounded-xl transition-colors"
-              style={{ background: "var(--surface-glass-faint)", border: "1px solid var(--border-glass)" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-glass)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-glass-faint)"; }}
+              style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-inset)"; }}
             >
               <div
                 className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
-                style={{ background: "color-mix(in srgb, var(--accent-flare) 15%, transparent)", color: "var(--accent-flare)" }}
+                style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}
               >
                 {initials(s.name)}
               </div>
@@ -123,18 +123,18 @@ export function PendingTab() {
                 </div>
               </div>
               <div className="text-right shrink-0 mr-2">
-                <p className="text-sm font-bold num" style={{ color: "var(--accent-flare)" }}>{formatINR(s.balance_due)}</p>
+                <p className="text-sm font-bold num" style={{ color: "var(--danger)" }}>{formatINR(s.balance_due)}</p>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>outstanding</p>
               </div>
               <button
                 onClick={() => recordFor(s.id)}
                 className="btn-glass neumo-raised px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
-                style={{ background: "var(--bg-surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
+                style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-primary)" }}
                 aria-label={`Record payment for ${s.name}`}
-                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent-emerald)"; }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--success)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-primary)"; }}
               >
-                <Wallet className="w-4 h-4" style={{ color: "var(--accent-emerald)" }} /> Record
+                <Wallet className="w-4 h-4" style={{ color: "var(--success)" }} /> Record
               </button>
             </li>
           ))}

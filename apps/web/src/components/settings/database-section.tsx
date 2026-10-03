@@ -21,7 +21,7 @@ export function DatabaseSection() {
     <div className="space-y-8 max-w-2xl">
       <div>
         <h2 className="text-lg font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
-          <Database className="w-5 h-5 text-[var(--accent-cyan)]" />
+          <Database className="w-5 h-5 text-[var(--info)]" />
           Database Connection
         </h2>
         <p className="text-sm text-[var(--text-muted)] leading-relaxed">
@@ -29,9 +29,9 @@ export function DatabaseSection() {
         </p>
       </div>
 
-      <div className="bg-[var(--accent-cyan)]/10 border border-[var(--accent-cyan)]/20 rounded-xl p-4 flex gap-4">
-        <Info className="w-5 h-5 text-[var(--accent-cyan)] shrink-0 mt-0.5" />
-        <div className="text-sm text-[var(--accent-cyan)]/90">
+      <div className="bg-[var(--info)]/10 border border-[var(--info)]/20 rounded-xl p-4 flex gap-4">
+        <Info className="w-5 h-5 text-[var(--info)] shrink-0 mt-0.5" />
+        <div className="text-sm text-[var(--info)]/90">
           <p className="font-medium mb-1">Demo only</p>
           <p>No credentials are transmitted or stored. This field is a visual mock of the production sync connection.</p>
         </div>
@@ -51,7 +51,7 @@ export function DatabaseSection() {
               }}
               placeholder="libsql://your-db.turso.io"
               aria-label="Database connection string"
-              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition font-mono focus:border-[var(--accent-cyan)]"
+              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition font-mono focus:border-[var(--info)]"
             />
           </div>
         </div>
@@ -60,20 +60,20 @@ export function DatabaseSection() {
           type="button"
           onClick={testConnection}
           disabled={status === "testing"}
-          className="py-3 px-6 rounded-xl text-sm font-bold text-[var(--accent-cyan)] border border-[var(--accent-cyan)] bg-[color-mix(in_srgb,var(--accent-cyan)_15%,transparent)] shadow-[0_0_14px_color-mix(in_srgb,var(--accent-cyan)_20%,transparent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 cursor-pointer transition-all"
+          className="py-3 px-6 rounded-xl text-sm font-bold text-[var(--info)] border border-[var(--info)] bg-[color-mix(in_srgb,var(--info)_15%,transparent)] shadow-[0_0_14px_color-mix(in_srgb,var(--info)_20%,transparent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 cursor-pointer transition-all"
         >
           {status === "testing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
           Test Connection
         </button>
 
         {status === "ok" && (
-          <div className="flex items-center gap-2 text-sm text-[var(--accent-emerald)]">
+          <div className="flex items-center gap-2 text-sm text-[var(--success)]">
             <CheckCircle2 className="w-4 h-4" />
             Connection successful (mock).
           </div>
         )}
         {status === "error" && (
-          <p className="text-sm text-[var(--accent-flare)]">Enter a connection string of at least 8 characters to test.</p>
+          <p className="text-sm text-[var(--danger)]">Enter a connection string of at least 8 characters to test.</p>
         )}
       </div>
     </div>

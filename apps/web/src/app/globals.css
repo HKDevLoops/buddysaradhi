@@ -1,47 +1,94 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+/* ============================================================================
+   COLOUR + MATERIAL TOKENS - GENERATED, DO NOT EDIT THEM HERE
+   ============================================================================
+   20 palettes (10 dark + 10 light), one per shortlisted Figma website colour
+   scheme, x 3 material modes (Minimal / Acrylic / Liquid Glass). Every text and
+   accent role is solved for its WCAG target against its own palette canvas and
+   verified in CI; the material layer can never change text or accent, so switching
+   material cannot change a contrast ratio.
+
+   Source of truth: packages/design-system (tokens.json + tokens.css).
+   Regenerate:     pnpm --filter @buddysaradhi/design-system emit
+   Verify:        pnpm --filter @buddysaradhi/design-system verify
+   Spec:          docs/design/overhaul-plan.md section 2
+   ============================================================================ */
+@import "@buddysaradhi/design-system/tokens.css";
 
 @plugin "tailwindcss-animate";
 
+/* ============================================================================
+   TAILWIND BRIDGE — maps the generated tokens onto Tailwind's colour scale.
+   Every value is a REFERENCE to a token, never a literal: a literal here is how
+   the previous system ended up with 129 custom properties across five
+   overlapping families and no two screens looking related.
+   ============================================================================ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-mono);
 
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
+  /* Surfaces */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface-raised);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-inset: var(--surface-inset);
+  --color-surface-row: var(--surface-row);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-sheet: var(--surface-sheet);
+  --color-surface-nav: var(--surface-nav);
 
-  /* Palette accent tokens exposed to Tailwind */
-  --color-emerald: var(--accent-emerald);
-  --color-cyan: var(--accent-cyan);
-  --color-amber: var(--accent-amber);
-  --color-flare: var(--accent-flare);
-  --color-violet: var(--accent-violet);
-  --color-accent-primary: var(--accent-primary);
-  --color-accent-secondary: var(--accent-secondary);
+  /* Text */
+  --color-foreground: var(--text-primary);
+  --color-muted-foreground: var(--text-muted);
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
-  --color-bg-canvas: var(--bg-canvas);
-  --color-bg-surface: var(--bg-surface);
+  --color-text-inverse: var(--text-inverse);
 
-  /* Radius tokens (fixed px values from spec) */
+  /* Accent + semantics */
+  --color-accent: var(--accent-primary);
+  --color-accent-foreground: var(--accent-on-primary);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-text: var(--accent-text);
+  --color-ring: var(--border-focus);
+  --color-destructive: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-status-paid: var(--status-paid);
+  --color-status-partial: var(--status-partial);
+  --color-status-unpaid: var(--status-unpaid);
+  --color-status-overdue: var(--status-overdue);
+
+  /* Charts */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+
+  /* shadcn/ui compatibility aliases — the same tokens, the old names. Keeping
+     these means a shadcn primitive inherits the palette instead of carrying a
+     second colour system. */
+  --color-background: var(--canvas);
+  --color-primary: var(--accent-primary);
+  --color-primary-foreground: var(--accent-on-primary);
+  --color-secondary: var(--surface-inset);
+  --color-secondary-foreground: var(--text-secondary);
+  --color-muted: var(--surface-inset);
+  --color-card: var(--surface-raised);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--surface-overlay);
+  --color-popover-foreground: var(--text-primary);
+  --color-input: var(--surface-inset);
+  --color-border: var(--border-default);
+
+  /* Radius tokens */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -100,693 +147,6 @@
 }
 
 /* ============================================================================
-   PALETTE 1 — Aurora Cosmic (dark only; default app shell palette)
-   ============================================================================ */
-[data-palette="aurora-cosmic"],
-:root {
-  --bg-cosmic: #0f0c29;
-  --bg-midnight: #24243e;
-  --bg-abyss: #0a0a1a;
-  --bg-canvas: #0f0c29;
-  --bg-neumo-base: #0f0c29;
-  --bg-surface: rgba(255,255,255,0.07);
-  --bg-surface-raised: rgba(255,255,255,0.12);
-  --bg-surface-inset: rgba(0,0,0,0.35);
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #1e1c42;
-  --bg-neumo-light: #1e1c42;
-  --accent-primary: #00FF9D;
-  --accent-secondary: #00F0FF;
-  --accent-tertiary: #B388FF;
-  --accent-emerald: #00FF9D;
-  --accent-cyan: #00F0FF;
-  --accent-amber: #FFB300;
-  --accent-flare: #FF5E00;
-  --accent-violet: #B388FF;
-  --accent-success: #00FF9D;
-  --accent-warning: #FFB300;
-  --accent-danger: #FF5E00;
-  --accent-info: #00F0FF;
-  --text-primary: rgba(255,255,255,0.95);
-  --text-secondary: rgba(255,255,255,0.70);
-  --text-muted: rgba(255,255,255,0.45);
-  --text-on-accent: #0a0a1a;
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --border-accent: rgba(0,240,255,0.55);
-  --border-default: rgba(255,255,255,0.18);
-  --border-strong: rgba(255,255,255,0.30);
-  --shadow-color: rgba(0,0,0,0.6);
-  --aurora-1: rgba(0,255,157,0.08);
-  --aurora-2: rgba(0,240,255,0.07);
-  --aurora-3: rgba(179,136,255,0.07);
-
-  /* shadcn semantic tokens */
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --popover: var(--surface-glass-strong);
-  --popover-foreground: var(--text-primary);
-  --primary: var(--accent-emerald);
-  --primary-foreground: var(--text-on-accent);
-  --secondary: var(--surface-glass-strong);
-  --secondary-foreground: var(--text-primary);
-  --muted: var(--surface-glass-faint);
-  --muted-foreground: var(--text-muted);
-  --accent: var(--accent-cyan);
-  --accent-foreground: var(--text-on-accent);
-  --destructive: var(--accent-flare);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-cyan);
-}
-
-[data-palette="aurora-cosmic"][data-theme="light"] {
-  --bg-canvas: #F2FBF6;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #E6FBF0;
-  --bg-surface-inset: #DBF7EA;
-  --accent-primary: #059669;
-  --accent-secondary: #0E7490;
-  --accent-tertiary: #10B981;
-  --text-primary: #07271A;
-  --text-secondary: #2F5247;
-  --text-muted: #5E7C70;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(5,150,105,0.12);
-  --border-strong: rgba(5,150,105,0.24);
-  --shadow-color: rgba(5,150,105,0.06);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --border: var(--border-default);
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-}
-
-/* ============================================================================
-   PALETTE 2 — Saffron Marigold
-   Landing page, Fees & Payments (web+mobile), Receipts
-   ============================================================================ */
-[data-palette="saffron-marigold"][data-theme="light"] {
-  --bg-canvas: #FFFBF5;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #FFF7E8;
-  --bg-surface-inset: #FDF1DC;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #FFF7E8;
-  --accent-primary: #FF9933;
-  --accent-secondary: #7B1E1E;
-  --accent-tertiary: #FFB627;
-  --accent-success: #047857;
-  --accent-warning: #C2410C;
-  --accent-danger: #B91C1C;
-  --accent-info: #0E7490;
-  --accent-emerald: #047857;
-  --accent-amber: #C2410C;
-  --accent-flare: #B91C1C;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #1C1410;
-  --text-secondary: #5C4A3A;
-  --text-muted: #8B7355;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(123,30,30,0.12);
-  --border-strong: rgba(123,30,30,0.24);
-  --border-accent: rgba(255,153,51,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(123,30,30,0.08);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="saffron-marigold"][data-theme="dark"] {
-  --bg-canvas: #1A0F08;
-  --bg-surface: #261810;
-  --bg-surface-raised: #2E1F12;
-  --bg-surface-inset: #1F1209;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #2E1F12;
-  --accent-primary: #FFB347;
-  --accent-secondary: #FF6B6B;
-  --accent-tertiary: #FFD27A;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #67E8F9;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #67E8F9;
-  --accent-violet: #C4B5FD;
-  --text-primary: #FFF7E8;
-  --text-secondary: rgba(255,247,232,0.70);
-  --text-muted: rgba(255,247,232,0.45);
-  --text-on-accent: #1A0F08;
-  --border-default: rgba(255,200,140,0.10);
-  --border-strong: rgba(255,200,140,0.18);
-  --border-accent: rgba(255,179,71,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 3 — Emerald Ledger
-   Fees ledger table, Reports, ROI calculator
-   ============================================================================ */
-[data-palette="emerald-ledger"][data-theme="light"] {
-  --bg-canvas: #FAF6EE;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #F0F9F4;
-  --bg-surface-inset: #E8F5EE;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #F0F9F4;
-  --accent-primary: #059669;
-  --accent-secondary: #064E3B;
-  --accent-tertiary: #10B981;
-  --accent-success: #047857;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #D97706;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #0A1F14;
-  --text-secondary: #3B5247;
-  --text-muted: #6B7F76;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(6,78,59,0.10);
-  --border-strong: rgba(6,78,59,0.22);
-  --border-accent: rgba(5,150,105,0.45);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(6,78,59,0.06);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="emerald-ledger"][data-theme="dark"] {
-  --bg-canvas: #0A1F14;
-  --bg-surface: #0F2A1C;
-  --bg-surface-raised: #14361F;
-  --bg-surface-inset: #081810;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #14361F;
-  --accent-primary: #34D399;
-  --accent-secondary: #6EE7B7;
-  --accent-tertiary: #A7F3D0;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #67E8F9;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #67E8F9;
-  --accent-violet: #C4B5FD;
-  --text-primary: #ECFDF5;
-  --text-secondary: rgba(236,253,245,0.72);
-  --text-muted: rgba(236,253,245,0.45);
-  --text-on-accent: #0A1F14;
-  --border-default: rgba(16,185,129,0.10);
-  --border-strong: rgba(16,185,129,0.20);
-  --border-accent: rgba(52,211,153,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 4 — Cyan Lagoon
-   Attendance, calendar views
-   ============================================================================ */
-[data-palette="cyan-lagoon"][data-theme="light"] {
-  --bg-canvas: #F0FAFC;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #E0F4F8;
-  --bg-surface-inset: #D2EEF3;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #E0F4F8;
-  --accent-primary: #0891B2;
-  --accent-secondary: #0E7490;
-  --accent-tertiary: #06B6D4;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #D97706;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0891B2;
-  --accent-violet: #7C3AED;
-  --text-primary: #082A35;
-  --text-secondary: #3A5A66;
-  --text-muted: #6B8794;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(14,116,144,0.12);
-  --border-strong: rgba(14,116,144,0.24);
-  --border-accent: rgba(8,145,178,0.45);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(14,116,144,0.08);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="cyan-lagoon"][data-theme="dark"] {
-  --bg-canvas: #082A35;
-  --bg-surface: #0E3A47;
-  --bg-surface-raised: #144858;
-  --bg-surface-inset: #062028;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #144858;
-  --accent-primary: #22D3EE;
-  --accent-secondary: #67E8F9;
-  --accent-tertiary: #A5F3FC;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #5EEAD4;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #22D3EE;
-  --accent-violet: #C4B5FD;
-  --text-primary: #ECFEFF;
-  --text-secondary: rgba(236,254,255,0.72);
-  --text-muted: rgba(236,254,255,0.45);
-  --text-on-accent: #082A35;
-  --border-default: rgba(6,182,212,0.12);
-  --border-strong: rgba(6,182,212,0.22);
-  --border-accent: rgba(34,211,238,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 5 — Rose Petal
-   Students master list, student profile
-   ============================================================================ */
-[data-palette="rose-petal"][data-theme="light"] {
-  --bg-canvas: #FFF7F8;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #FFE4E9;
-  --bg-surface-inset: #FDDCE3;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #FFE4E9;
-  --accent-primary: #E11D48;
-  --accent-secondary: #9F1239;
-  --accent-tertiary: #FB7185;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #D97706;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #2A0A12;
-  --text-secondary: #5A2A38;
-  --text-muted: #8B5A66;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(225,29,72,0.10);
-  --border-strong: rgba(225,29,72,0.22);
-  --border-accent: rgba(225,29,72,0.45);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(225,29,72,0.06);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="rose-petal"][data-theme="dark"] {
-  --bg-canvas: #1A0810;
-  --bg-surface: #2A0E18;
-  --bg-surface-raised: #381520;
-  --bg-surface-inset: #150510;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #381520;
-  --accent-primary: #FB7185;
-  --accent-secondary: #FDA4AF;
-  --accent-tertiary: #FECDD3;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #67E8F9;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #67E8F9;
-  --accent-violet: #C4B5FD;
-  --text-primary: #FFF1F3;
-  --text-secondary: rgba(255,241,243,0.72);
-  --text-muted: rgba(255,241,243,0.45);
-  --text-on-accent: #1A0810;
-  --border-default: rgba(244,63,94,0.10);
-  --border-strong: rgba(244,63,94,0.22);
-  --border-accent: rgba(251,113,133,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 6 — Amber Sunrise
-   Landing features sections, pricing CTAs
-   ============================================================================ */
-[data-palette="amber-sunrise"][data-theme="light"] {
-  --bg-canvas: #FFFAF0;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #FFF3D6;
-  --bg-surface-inset: #FFE8B8;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #FFF3D6;
-  --accent-primary: #EA580C;
-  --accent-secondary: #F59E0B;
-  --accent-tertiary: #FBBF24;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #F59E0B;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #2A1A08;
-  --text-secondary: #5C4220;
-  --text-muted: #8B724A;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(234,88,12,0.12);
-  --border-strong: rgba(234,88,12,0.24);
-  --border-accent: rgba(234,88,12,0.45);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(234,88,12,0.08);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="amber-sunrise"][data-theme="dark"] {
-  --bg-canvas: #1F1408;
-  --bg-surface: #2E1F0E;
-  --bg-surface-raised: #3D2A14;
-  --bg-surface-inset: #1A1106;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #3D2A14;
-  --accent-primary: #FB923C;
-  --accent-secondary: #FBBF24;
-  --accent-tertiary: #FCD34D;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #67E8F9;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #67E8F9;
-  --accent-violet: #C4B5FD;
-  --text-primary: #FFF7E6;
-  --text-secondary: rgba(255,247,230,0.72);
-  --text-muted: rgba(255,247,230,0.45);
-  --text-on-accent: #1F1408;
-  --border-default: rgba(251,191,36,0.10);
-  --border-strong: rgba(251,191,36,0.22);
-  --border-accent: rgba(251,146,60,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 7 — Violet Nebula
-   Auth screens, Settings
-   ============================================================================ */
-[data-palette="violet-nebula"][data-theme="light"] {
-  --bg-canvas: #F5F0FF;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #EDE0FF;
-  --bg-surface-inset: #E2D0FF;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #EDE0FF;
-  --accent-primary: #7C3AED;
-  --accent-secondary: #5B21B6;
-  --accent-tertiary: #A78BFA;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #D97706;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #1A0B2E;
-  --text-secondary: #4A2D6E;
-  --text-muted: #7B5A9E;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(124,58,237,0.12);
-  --border-strong: rgba(124,58,237,0.24);
-  --border-accent: rgba(124,58,237,0.45);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(124,58,237,0.08);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-[data-palette="violet-nebula"][data-theme="dark"] {
-  --bg-canvas: #14082A;
-  --bg-surface: #1F0F3D;
-  --bg-surface-raised: #2A1654;
-  --bg-surface-inset: #0E0520;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --surface-neumo-raised: #2A1654;
-  --accent-primary: #A78BFA;
-  --accent-secondary: #C4B5FD;
-  --accent-tertiary: #DDD6FE;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
-  --accent-info: #67E8F9;
-  --accent-emerald: #34D399;
-  --accent-amber: #FBBF24;
-  --accent-flare: #F87171;
-  --accent-cyan: #67E8F9;
-  --accent-violet: #A78BFA;
-  --text-primary: #F5F0FF;
-  --text-secondary: rgba(245,240,255,0.72);
-  --text-muted: rgba(245,240,255,0.45);
-  --text-on-accent: #14082A;
-  --border-default: rgba(167,139,250,0.10);
-  --border-strong: rgba(167,139,250,0.22);
-  --border-accent: rgba(167,139,250,0.5);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--surface-glass);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-glass);
-  --input: var(--surface-glass);
-  --ring: var(--accent-primary);
-  --destructive: var(--accent-danger);
-}
-
-/* ============================================================================
-   PALETTE 8 — Midnight Slate (light mode app shell / light mode default)
-   ============================================================================ */
-[data-palette="midnight-slate"][data-theme="light"] {
-  --bg-canvas: #F8FAFC;
-  --bg-surface: #FFFFFF;
-  --bg-surface-raised: #F1F5F9;
-  --bg-surface-inset: #E2E8F0;
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 10%, #ffffff);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 16%, #ffffff);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 5%, #ffffff);
-  --surface-neumo-raised: #F1F5F9;
-  --accent-primary: #0F172A;
-  --accent-secondary: #475569;
-  --accent-tertiary: #94A3B8;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
-  --accent-info: #0E7490;
-  --accent-emerald: #059669;
-  --accent-amber: #D97706;
-  --accent-flare: #DC2626;
-  --accent-cyan: #0E7490;
-  --accent-violet: #7C3AED;
-  --text-primary: #0F172A;
-  --text-secondary: #334155;
-  --text-muted: #64748B;
-  --text-on-accent: #FFFFFF;
-  --border-default: rgba(15,23,42,0.08);
-  --border-strong: rgba(15,23,42,0.16);
-  --border-accent: rgba(15,23,42,0.40);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 12%, #ffffff);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 22%, #ffffff);
-  --shadow-color: rgba(15,23,42,0.04);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --card: var(--bg-surface);
-  --card-foreground: var(--text-primary);
-  --primary: var(--accent-primary);
-  --primary-foreground: var(--text-on-accent);
-  --border: var(--border-default);
-  --input: var(--bg-surface-inset);
-  --ring: var(--accent-info);
-  --destructive: var(--accent-danger);
-}
-
-[data-palette="midnight-slate"][data-theme="dark"] {
-  --bg-canvas: #0B1120;
-  --bg-surface: #131C2E;
-  --bg-surface-raised: #1B2740;
-  --bg-surface-inset: #0A0F1C;
-    --accent-primary: #38BDF8;
-    --accent-secondary: #A78BFA;
-    --accent-tertiary: #94A3B8;
-  --text-primary: #E2E8F0;
-  --text-secondary: rgba(226,232,240,0.72);
-  --text-muted: rgba(226,232,240,0.45);
-  --text-on-accent: #0B1120;
-  --border-default: rgba(56,189,248,0.14);
-  --border-strong: rgba(56,189,248,0.26);
-  --shadow-color: rgba(0,0,0,0.5);
-  --background: var(--bg-canvas);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
-  --surface-glass: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-  --surface-glass-strong: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  --surface-glass-faint: color-mix(in srgb, var(--accent-primary) 7%, transparent);
-  --border-glass: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-  --border-glass-strong: color-mix(in srgb, var(--accent-primary) 38%, transparent);
-}
 
 /* ============================================================================
    BASE STYLES
@@ -1560,5 +920,3 @@ html[data-density="compact"] .sticky.bottom-4 {
   margin-top: 16px !important;
   padding: 8px !important;
 }
-
-

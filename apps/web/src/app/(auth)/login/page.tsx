@@ -103,7 +103,7 @@ export default function LoginPage() {
     <div className="flex flex-col space-y-6 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Welcome Back</h1>
-        <p className="text-sm text-gray-400 mt-2">Sign in to your tuition OS</p>
+        <p className="text-sm text-text-muted mt-2">Sign in to your tuition OS</p>
       </div>
 
       <div className="space-y-4">
@@ -111,28 +111,28 @@ export default function LoginPage() {
           type="button" 
           onClick={handleGoogleLogin}
           disabled={isAnyLoading}
-          className="w-full py-6 rounded-xl neumo-raised bg-[var(--bg-surface-inset)] text-[var(--text-primary)] hover:bg-[var(--surface-glass-strong)] transition-colors flex items-center justify-center gap-3 disabled:opacity-50"
+          className="w-full py-6 rounded-xl neumo-raised bg-[var(--surface-inset)] text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] transition-colors flex items-center justify-center gap-3 disabled:opacity-50"
         >
           {loadingGoogle ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleIcon className="w-5 h-5" />}
           Continue with Google
         </Button>
 
         <div className="flex items-center gap-4 py-2">
-          <div className="flex-1 h-px bg-[var(--surface-glass-strong)]" />
-          <span className="text-xs text-gray-400 uppercase font-medium tracking-wider">OR</span>
-          <div className="flex-1 h-px bg-[var(--surface-glass-strong)]" />
+          <div className="flex-1 h-px bg-[var(--surface-overlay)]" />
+          <span className="text-xs text-text-muted uppercase font-medium tracking-wider">OR</span>
+          <div className="flex-1 h-px bg-[var(--surface-overlay)]" />
         </div>
 
         <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-gray-300 ml-1">Email</label>
+            <label htmlFor="email" className="text-sm font-medium text-text-secondary ml-1">Email</label>
             <input 
               id="email" 
               type="email" 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tutor@example.com" 
-              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-gray-500 rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--accent-emerald)]"
+              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-text-muted rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--success)]"
               required
               disabled={isAnyLoading}
             />
@@ -140,8 +140,8 @@ export default function LoginPage() {
 
           <div className="space-y-2">
             <div className="flex justify-between items-center px-1">
-              <label htmlFor="password" className="text-sm font-medium text-gray-300">Password</label>
-              <Link href="/forgot-password" className="text-xs text-[var(--accent-cyan)] underline hover:text-[var(--accent-cyan)]/80">
+              <label htmlFor="password" className="text-sm font-medium text-text-secondary">Password</label>
+              <Link href="/forgot-password" className="text-xs text-[var(--info)] underline hover:text-[var(--info)]/80">
                 Forgot password?
               </Link>
             </div>
@@ -151,20 +151,20 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••" 
-              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-gray-500 rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--accent-emerald)]"
+              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-text-muted rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--success)]"
               required
               disabled={isAnyLoading}
             />
           </div>
 
-          {error && <p role="alert" className="text-sm text-[var(--accent-flare)] text-left">{error}</p>}
-          {successMsg && <p className="text-sm text-[var(--accent-emerald)] text-left">{successMsg}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--danger)] text-left">{error}</p>}
+          {successMsg && <p className="text-sm text-[var(--success)] text-left">{successMsg}</p>}
 
           <div className="pt-2">
             <Button 
               type="submit" 
               disabled={isAnyLoading}
-              className="w-full py-6 rounded-xl neumo-raised bg-[var(--accent-emerald)]/10 text-[var(--accent-emerald)] hover:bg-[var(--accent-emerald)]/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-6 rounded-xl neumo-raised bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In"}
             </Button>
@@ -172,9 +172,9 @@ export default function LoginPage() {
         </form>
       </div>
 
-      <div className="text-sm text-gray-400">
+      <div className="text-sm text-text-muted">
         Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-[var(--accent-cyan)] underline hover:text-[var(--accent-cyan)]/80">
+        <Link href="/signup" className="text-[var(--info)] underline hover:text-[var(--info)]/80">
           Sign up
         </Link>
       </div>

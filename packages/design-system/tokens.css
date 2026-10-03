@@ -34,12 +34,12 @@
   --status-partial: #9E7700;
   --status-unpaid: #9D9FA1;
   --status-overdue: #CC584F;
-  --chart1: #007879;
-  --chart2: #0082A7;
-  --chart3: #369770;
-  --chart4: #6C92CD;
-  --chart5: #8BAA6F;
-  --chart6: #ACA4DB;
+  --chart-1: #007879;
+  --chart-2: #0082A7;
+  --chart-3: #369770;
+  --chart-4: #6C92CD;
+  --chart-5: #8BAA6F;
+  --chart-6: #ACA4DB;
 }
 
 /* Inked — Figma scheme 51 (Inked) */
@@ -73,12 +73,12 @@
   --status-partial: #9E7700;
   --status-unpaid: #9D9FA1;
   --status-overdue: #CC584F;
-  --chart1: #007879;
-  --chart2: #0082A7;
-  --chart3: #369770;
-  --chart4: #6C92CD;
-  --chart5: #8BAA6F;
-  --chart6: #ACA4DB;
+  --chart-1: #007879;
+  --chart-2: #0082A7;
+  --chart-3: #369770;
+  --chart-4: #6C92CD;
+  --chart-5: #8BAA6F;
+  --chart-6: #ACA4DB;
 }
 
 /* Wraith — Figma scheme 52 (Wraith) */
@@ -112,12 +112,12 @@
   --status-partial: #9B7800;
   --status-unpaid: #A09E9C;
   --status-overdue: #CC5848;
-  --chart1: #1E7C50;
-  --chart2: #008883;
-  --chart3: #758D4E;
-  --chart4: #509CB5;
-  --chart5: #AE9E68;
-  --chart6: #90AFD6;
+  --chart-1: #1E7C50;
+  --chart-2: #008883;
+  --chart-3: #758D4E;
+  --chart-4: #509CB5;
+  --chart-5: #AE9E68;
+  --chart-6: #90AFD6;
 }
 
 /* Lapis Velvet Evening — Figma scheme 24 (Lapis velvet evening) */
@@ -151,12 +151,12 @@
   --status-partial: #9D7700;
   --status-unpaid: #9D9FA1;
   --status-overdue: #CC5758;
-  --chart1: #7555A8;
-  --chart2: #9E5995;
-  --chart3: #6780C5;
-  --chart4: #C3768A;
-  --chart5: #65A7CE;
-  --chart6: #D99B8A;
+  --chart-1: #7555A8;
+  --chart-2: #9E5995;
+  --chart-3: #6780C5;
+  --chart-4: #C3768A;
+  --chart-5: #65A7CE;
+  --chart-6: #D99B8A;
 }
 
 /* Yacht Club — Figma scheme 12 (Yacht club) */
@@ -190,12 +190,12 @@
   --status-partial: #A07600;
   --status-unpaid: #9C9FA1;
   --status-overdue: #CC5853;
-  --chart1: #5162AD;
-  --chart2: #8464AA;
-  --chart3: #438BB9;
-  --chart4: #B47BA6;
-  --chart5: #5BADB9;
-  --chart6: #D59AA4;
+  --chart-1: #5162AD;
+  --chart-2: #8464AA;
+  --chart-3: #438BB9;
+  --chart-4: #B47BA6;
+  --chart-5: #5BADB9;
+  --chart-6: #D59AA4;
 }
 
 /* Amber Walnut Morning — Figma scheme 13 (Amber walnut morning) */
@@ -229,12 +229,12 @@
   --status-partial: #A57300;
   --status-unpaid: #A09E9C;
   --status-overdue: #CC5848;
-  --chart1: #905C00;
-  --chart2: #817819;
-  --chart3: #B66D54;
-  --chart4: #779E65;
-  --chart5: #CB8995;
-  --chart6: #7FBBA4;
+  --chart-1: #905C00;
+  --chart-2: #817819;
+  --chart-3: #B66D54;
+  --chart-4: #779E65;
+  --chart-5: #CB8995;
+  --chart-6: #7FBBA4;
 }
 
 /* Honey Opal Sunset — Figma scheme 17 (Honey opal sunset) */
@@ -268,12 +268,12 @@
   --status-partial: #9B7800;
   --status-unpaid: #A09E9C;
   --status-overdue: #CC584C;
-  --chart1: #7F6600;
-  --chart2: #66821B;
-  --chart3: #B67030;
-  --chart4: #54A475;
-  --chart5: #D3877D;
-  --chart6: #68BEB6;
+  --chart-1: #7F6600;
+  --chart-2: #66821B;
+  --chart-3: #B67030;
+  --chart-4: #54A475;
+  --chart-5: #D3877D;
+  --chart-6: #68BEB6;
 }
 
 /* Rose Quartz Evening — Figma scheme 19 (Rose quartz evening) */
@@ -307,12 +307,12 @@
   --status-partial: #A17500;
   --status-unpaid: #A19E9D;
   --status-overdue: #CC565B;
-  --chart1: #A5435A;
-  --chart2: #B05A3C;
-  --chart3: #AC699C;
-  --chart4: #B68648;
-  --chart5: #AA91CB;
-  --chart6: #B4AF75;
+  --chart-1: #A5435A;
+  --chart-2: #B05A3C;
+  --chart-3: #AC699C;
+  --chart-4: #B68648;
+  --chart-5: #AA91CB;
+  --chart-6: #B4AF75;
 }
 
 /* Cocoa Topaz Noonday — Figma scheme 15 (Cocoa topaz noonday) */
@@ -346,12 +346,12 @@
   --status-partial: #9F7600;
   --status-unpaid: #A19E9C;
   --status-overdue: #CD5754;
-  --chart1: #A74900;
-  --chart2: #9A6D00;
-  --chart3: #C65D67;
-  --chart4: #939834;
-  --chart5: #CE82AF;
-  --chart6: #87BD86;
+  --chart-1: #A74900;
+  --chart-2: #9A6D00;
+  --chart-3: #C65D67;
+  --chart-4: #939834;
+  --chart-5: #CE82AF;
+  --chart-6: #87BD86;
 }
 
 /* Amethyst Mint Harmony — Figma scheme 36 (Amethyst mint harmony) */
@@ -385,12 +385,12 @@
   --status-partial: #9B7800;
   --status-unpaid: #9E9EA0;
   --status-overdue: #CC565B;
-  --chart1: #007E3F;
-  --chart2: #00897C;
-  --chart3: #7A8E29;
-  --chart4: #10A1BD;
-  --chart5: #B99B4E;
-  --chart6: #7EB2E3;
+  --chart-1: #007E3F;
+  --chart-2: #00897C;
+  --chart-3: #7A8E29;
+  --chart-4: #10A1BD;
+  --chart-5: #B99B4E;
+  --chart-6: #7EB2E3;
 }
 
 /* Royal Glimmer — Figma scheme 33 (Royal glimmer) */
@@ -424,12 +424,12 @@
   --status-partial: #997900;
   --status-unpaid: #9E9FA1;
   --status-overdue: #CC5853;
-  --chart1: #A13B85;
-  --chart2: #BC4A5F;
-  --chart3: #9A6BC1;
-  --chart4: #CD7650;
-  --chart5: #8C98E2;
-  --chart6: #CFA465;
+  --chart-1: #A13B85;
+  --chart-2: #BC4A5F;
+  --chart-3: #9A6BC1;
+  --chart-4: #CD7650;
+  --chart-5: #8C98E2;
+  --chart-6: #CFA465;
 }
 
 /* Ink Wash — Figma scheme 1 (Ink wash) */
@@ -463,12 +463,12 @@
   --status-partial: #936A00;
   --status-unpaid: #525456;
   --status-overdue: #BF4B43;
-  --chart1: #116BB5;
-  --chart2: #6B6ABF;
-  --chart3: #0092AF;
-  --chart4: #A87DBE;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #116BB5;
+  --chart-2: #6B6ABF;
+  --chart-3: #0092AF;
+  --chart-4: #A87DBE;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Frosted Aura — Figma scheme 32 (Frosted aura) */
@@ -502,12 +502,12 @@
   --status-partial: #916B00;
   --status-unpaid: #525456;
   --status-overdue: #BF4B45;
-  --chart1: #256BB1;
-  --chart2: #6E6BB9;
-  --chart3: #0B92B0;
-  --chart4: #A87EBA;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #256BB1;
+  --chart-2: #6E6BB9;
+  --chart-3: #0B92B0;
+  --chart-4: #A87EBA;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Slate — Figma scheme 49 (Slate) */
@@ -541,12 +541,12 @@
   --status-partial: #936A00;
   --status-unpaid: #525456;
   --status-overdue: #BE4B45;
-  --chart1: #257C3A;
-  --chart2: #008978;
-  --chart3: #808B37;
-  --chart4: #000001;
-  --chart5: #000000;
-  --chart6: #000002;
+  --chart-1: #257C3A;
+  --chart-2: #008978;
+  --chart-3: #808B37;
+  --chart-4: #000001;
+  --chart-5: #000000;
+  --chart-6: #000002;
 }
 
 /* Lemon Granite Morning — Figma scheme 47 (Lemon granite morning) */
@@ -580,12 +580,12 @@
   --status-partial: #946900;
   --status-unpaid: #525455;
   --status-overdue: #BE4B45;
-  --chart1: #7A6900;
-  --chart2: #5A851D;
-  --chart3: #B5721C;
-  --chart4: #000000;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #7A6900;
+  --chart-2: #5A851D;
+  --chart-3: #B5721C;
+  --chart-4: #000000;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Neutral Elegance — Figma scheme 2 (Neutral elegance) */
@@ -619,12 +619,12 @@
   --status-partial: #936A00;
   --status-unpaid: #555351;
   --status-overdue: #BE4C41;
-  --chart1: #9C522E;
-  --chart2: #976D26;
-  --chart3: #B36B73;
-  --chart4: #000000;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #9C522E;
+  --chart-2: #976D26;
+  --chart-3: #B36B73;
+  --chart-4: #000000;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Frozen Mist — Figma scheme 11 (Frozen mist) */
@@ -658,12 +658,12 @@
   --status-partial: #926A00;
   --status-unpaid: #555351;
   --status-overdue: #BE4B45;
-  --chart1: #A74900;
-  --chart2: #9A6D00;
-  --chart3: #C36069;
-  --chart4: #000000;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #A74900;
+  --chart-2: #9A6D00;
+  --chart-3: #C36069;
+  --chart-4: #000000;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Amethyst Dawn Haze — Figma scheme 28 (Amethyst dawn haze) */
@@ -697,12 +697,12 @@
   --status-partial: #946800;
   --status-unpaid: #545356;
   --status-overdue: #BE4A49;
-  --chart1: #7B6800;
-  --chart2: #5E8418;
-  --chart3: #B77020;
-  --chart4: #000000;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #7B6800;
+  --chart-2: #5E8418;
+  --chart-3: #B77020;
+  --chart-4: #000000;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Sandstone Aquamarine Serenity — Figma scheme 16 (Sandstone aquamarine serenity) */
@@ -736,12 +736,12 @@
   --status-partial: #946900;
   --status-unpaid: #555352;
   --status-overdue: #BE4B45;
-  --chart1: #007493;
-  --chart2: #4576BB;
-  --chart3: #009694;
-  --chart4: #8F86C9;
-  --chart5: #000000;
-  --chart6: #000001;
+  --chart-1: #007493;
+  --chart-2: #4576BB;
+  --chart-3: #009694;
+  --chart-4: #8F86C9;
+  --chart-5: #000000;
+  --chart-6: #000001;
 }
 
 /* Emerald Lavender Lake — Figma scheme 26 (Emerald lavender lake) */
@@ -775,12 +775,12 @@
   --status-partial: #936A00;
   --status-unpaid: #525553;
   --status-overdue: #BF4B45;
-  --chart1: #8050A0;
-  --chart2: #A5578A;
-  --chart3: #747CC4;
-  --chart4: #C5777E;
-  --chart5: #000002;
-  --chart6: #000000;
+  --chart-1: #8050A0;
+  --chart-2: #A5578A;
+  --chart-3: #747CC4;
+  --chart-4: #C5777E;
+  --chart-5: #000002;
+  --chart-6: #000000;
 }
 
 /* Driftwood Pearl Morning — Figma scheme 5 (Driftwood pearl morning) */
@@ -814,12 +814,12 @@
   --status-partial: #946900;
   --status-unpaid: #565352;
   --status-overdue: #BE4B45;
-  --chart1: #00729B;
-  --chart2: #5474B7;
-  --chart3: #12959B;
-  --chart4: #9585C2;
-  --chart5: #000000;
-  --chart6: #000000;
+  --chart-1: #00729B;
+  --chart-2: #5474B7;
+  --chart-3: #12959B;
+  --chart-4: #9585C2;
+  --chart-5: #000000;
+  --chart-6: #000000;
 }
 
 /* Inked · Minimal — material layer (text/accent inherited) */

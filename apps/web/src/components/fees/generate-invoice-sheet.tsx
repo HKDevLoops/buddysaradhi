@@ -124,13 +124,13 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
       <div className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] shadow-2xl flex flex-col transform transition-transform duration-300">
         <div className="p-6 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[var(--accent-cyan)]" />
+            <FileText className="w-5 h-5 text-[var(--info)]" />
             Generate Invoice
           </h2>
           <button
             onClick={closeSheet}
             aria-label="Close generate invoice sheet"
-            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -145,7 +145,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
             <form id="invoice-form" onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Student</label>
-                <div className="neumo-inset bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-[var(--text-primary)]">
+                <div className="neumo-inset bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-[var(--text-primary)]">
                   {studentName}
                 </div>
               </div>
@@ -162,7 +162,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
-                    className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
+                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
                   />
                 </div>
               </div>
@@ -175,7 +175,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                   required
                   value={dateIso}
                   onChange={(e) => setDateIso(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-cyan)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--info)]"
                 />
               </div>
 
@@ -187,12 +187,12 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
                 />
               </div>
 
               {mutation.error && (
-                <div className="p-3 rounded-lg bg-[var(--accent-flare)]/10 border border-[var(--accent-flare)]/20 text-[var(--accent-flare)] text-sm">
+                <div className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
                   {mutation.error.message}
                 </div>
               )}
@@ -200,12 +200,12 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
           )}
         </div>
 
-        <div className="p-6 border-t border-[var(--border-default)] bg-[var(--bg-surface-raised)]/30">
+        <div className="p-6 border-t border-[var(--border-default)] bg-[var(--surface-raised)]/30">
           <button
             type="submit"
             form="invoice-form"
             disabled={!studentId || !amount || mutation.isPending}
-            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--text-on-accent)] bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-violet)] shadow-[0_0_15px_rgba(0,255,157,0.3)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
+            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-gradient-to-r from-[var(--info)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.3, transparent)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
           >
             {mutation.isPending ? "Generating..." : "Generate Invoice"}
           </button>

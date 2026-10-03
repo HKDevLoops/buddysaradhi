@@ -51,9 +51,9 @@ export function NotificationsSection({ settings }: NotificationsSectionProps) {
   const notifyInactiveStudent = settings?.notifyInactiveStudent !== 0;
 
   const rows = [
-    { field: "notifyDueFee", icon: FileWarning, accent: "var(--accent-flare)", title: "Overdue Fees", desc: "Notify when a student's grace period expires." },
-    { field: "notifyUpcomingDue", icon: Receipt, accent: "var(--accent-amber)", title: "Upcoming Due Dates", desc: "Notify 3 days before a fee is due." },
-    { field: "notifyMissingAttendance", icon: Clock, accent: "var(--accent-cyan)", title: "Missing Attendance", desc: "Notify when a session ends but attendance isn't marked." },
+    { field: "notifyDueFee", icon: FileWarning, accent: "var(--danger)", title: "Overdue Fees", desc: "Notify when a student's grace period expires." },
+    { field: "notifyUpcomingDue", icon: Receipt, accent: "var(--warning)", title: "Upcoming Due Dates", desc: "Notify 3 days before a fee is due." },
+    { field: "notifyMissingAttendance", icon: Clock, accent: "var(--info)", title: "Missing Attendance", desc: "Notify when a session ends but attendance isn't marked." },
     { field: "notifyInactiveStudent", icon: UserMinus, accent: "var(--accent-primary)", title: "Inactive Students", desc: "Notify when a student hasn't attended in 14 days." },
   ] as const;
 
@@ -78,7 +78,7 @@ export function NotificationsSection({ settings }: NotificationsSectionProps) {
             const Icon = row.icon;
             const on = values[row.field];
             return (
-              <div key={row.field} className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
+              <div key={row.field} className="flex items-center justify-between bg-[var(--surface-inset)] border border-[var(--border-default)] p-5 rounded-xl hover:bg-[var(--surface-raised)] transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: `color-mix(in srgb, ${row.accent} 12%, transparent)` }}>
                     <Icon className="w-5 h-5" style={{ color: row.accent }} />

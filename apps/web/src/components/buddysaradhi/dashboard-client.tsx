@@ -78,7 +78,7 @@ export function DashboardClient() {
           <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Dashboard</h1>
           <p className="text-sm text-[var(--text-muted)] mt-1">The truth of your tuition business, right now.</p>
         </div>
-        <div className="p-1 rounded-xl flex items-center bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] shadow-inner">
+        <div className="p-1 rounded-xl flex items-center bg-[var(--surface-inset)] border border-[var(--border-default)] shadow-inner">
           {(["this_month", "last_month", "this_quarter", "all_time"] as const).map((p) => (
             <button
               key={p}
@@ -86,8 +86,8 @@ export function DashboardClient() {
               className={cn(
                 "px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer",
                 periodFilter === p
-                  ? "bg-[var(--surface-glass-strong)] text-[var(--text-primary)] shadow-sm border border-[var(--border-glass)]"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-glass-faint)]"
+                  ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-sm border border-[var(--border-default)]"
+                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-inset)]"
               )}
             >
               {p.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())}
@@ -103,7 +103,7 @@ export function DashboardClient() {
           value={kpis.collectedThisMonthMinor}
           formatFn={formatINR}
           icon={<TrendingUp className="w-5 h-5" />}
-          accent="var(--accent-emerald)"
+          accent="var(--success)"
           delta={{ dir: "up", label: "18% vs last month" }}
           isLoading={isLoading}
         />
@@ -112,7 +112,7 @@ export function DashboardClient() {
           value={kpis.dueTillDateMinor}
           formatFn={formatINR}
           icon={<AlertCircle className="w-5 h-5" />}
-          accent="var(--accent-amber)"
+          accent="var(--warning)"
           delta={{ dir: "flat", label: kpis.studentsWithDues + " students owe" }}
           isLoading={isLoading}
         />
@@ -120,7 +120,7 @@ export function DashboardClient() {
           title="Active Students"
           value={kpis.totalStudents}
           icon={<Users className="w-5 h-5" />}
-          accent="var(--accent-cyan)"
+          accent="var(--info)"
           isLoading={isLoading}
         />
         <KPICard
@@ -128,7 +128,7 @@ export function DashboardClient() {
           value={kpis.overdueMinor}
           formatFn={formatINR}
           icon={<CalendarDays className="w-5 h-5" />}
-          accent="var(--accent-flare)"
+          accent="var(--danger)"
           delta={{ dir: "down", label: kpis.paymentBreakdown.unpaid + " students" }}
           isLoading={isLoading}
         />
@@ -152,10 +152,10 @@ export function DashboardClient() {
               {dueToday.map((d) => (
                 <div
                   key={d.student_id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--surface-glass-faint)] border border-[var(--border-glass)]"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--surface-inset)] border border-[var(--border-default)]"
                 >
                   <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
-                    style={{ background: "color-mix(in srgb, var(--accent-amber) 15%, transparent)", color: "var(--accent-amber)" }}>
+                    style={{ background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)" }}>
                     {initials(d.student_name)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -165,7 +165,7 @@ export function DashboardClient() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold text-[var(--accent-flare)] num">{formatINR(d.due_minor)}</p>
+                    <p className="text-sm font-semibold text-[var(--danger)] num">{formatINR(d.due_minor)}</p>
                     {d.due_date && (
                       <p className="text-xs text-[var(--text-muted)]">
                         {Math.max(0, Math.round((new Date(d.due_date).getTime() - now) / 86400000))}d
@@ -192,20 +192,20 @@ export function DashboardClient() {
                 };
                 let title = "";
                 let subtitle = "";
-                let accent = "var(--accent-cyan)";
+                let accent = "var(--info)";
                 if (typed.event_type === "PAYMENT") {
                   title = formatINR(typed.minor_amount) + " Collected";
                   subtitle = "from " + typed.student_name;
-                  accent = "var(--accent-emerald)";
+                  accent = "var(--success)";
                 } else if (typed.event_type === "INVOICE") {
                   title = "Invoice #" + (typed.invoice_number || "");
                   subtitle = typed.student_name + " owes " + formatINR(typed.minor_amount);
-                  accent = "var(--accent-amber)";
+                  accent = "var(--warning)";
                 } else if (typed.event_type === "ATTENDANCE_LOCKED") {
                   title = "Attendance Marked";
                   const add = typed.additional_data ? JSON.parse(typed.additional_data) : {};
                   subtitle = "Batch " + typed.student_name + " — " + (add.present_count || 0) + " present";
-                  accent = "var(--accent-violet)";
+                  accent = "var(--info)";
                 } else {
                   title = typed.student_name;
                   subtitle = typed.additional_data || "";
@@ -224,10 +224,10 @@ export function DashboardClient() {
       </div>
 
       {/* Quick actions — matches TutorOS prototype (no Generate Report) */}
-      <div className="glass-card p-4 rounded-2xl flex items-center justify-center gap-3 mt-8 mb-6 max-w-2xl mx-auto flex-wrap border border-[var(--border-glass)]">
-        <QuickAction icon={<CalendarCheck className="w-4 h-4" />} label="Mark Attendance" accent="var(--accent-cyan)" onClick={() => setActiveScreen("/attendance")} />
-        <QuickAction icon={<CreditCard className="w-4 h-4" />} label="Record Payment" accent="var(--accent-emerald)" onClick={() => setActiveScreen("/fees")} />
-        <QuickAction icon={<UserPlus className="w-4 h-4" />} label="Add Student" accent="var(--accent-amber)" onClick={openAddStudent} />
+      <div className="glass-card p-4 rounded-2xl flex items-center justify-center gap-3 mt-8 mb-6 max-w-2xl mx-auto flex-wrap border border-[var(--border-default)]">
+        <QuickAction icon={<CalendarCheck className="w-4 h-4" />} label="Mark Attendance" accent="var(--info)" onClick={() => setActiveScreen("/attendance")} />
+        <QuickAction icon={<CreditCard className="w-4 h-4" />} label="Record Payment" accent="var(--success)" onClick={() => setActiveScreen("/fees")} />
+        <QuickAction icon={<UserPlus className="w-4 h-4" />} label="Add Student" accent="var(--warning)" onClick={openAddStudent} />
       </div>
     </div>
   );
@@ -240,7 +240,7 @@ function KPICard({
   accent: string; delta?: { dir: "up" | "down" | "flat"; label: string }; isLoading: boolean;
 }) {
   return (
-    <div className="glass-panel p-5 rounded-xl flex flex-col justify-between transition-all hover:border-[var(--accent-cyan)]/30" style={{ border: "1px solid color-mix(in srgb, " + accent + " 25%, transparent)" }}>
+    <div className="glass-panel p-5 rounded-xl flex flex-col justify-between transition-all hover:border-[var(--info)]/30" style={{ border: "1px solid color-mix(in srgb, " + accent + " 25%, transparent)" }}>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>
         <div className="w-8 h-8 rounded-full flex items-center justify-center"
@@ -249,7 +249,7 @@ function KPICard({
         </div>
       </div>
       {isLoading ? (
-        <div className="h-8 w-24 bg-[var(--surface-glass-strong)] animate-pulse rounded" />
+        <div className="h-8 w-24 bg-[var(--surface-overlay)] animate-pulse rounded" />
       ) : (
         <p className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">
           <CountUp value={value} formatFn={formatFn} />
@@ -257,8 +257,8 @@ function KPICard({
       )}
       {delta && (
         <p className={cn("text-xs mt-1 flex items-center gap-1 num",
-          delta.dir === "up" && "text-[var(--accent-success)]",
-          delta.dir === "down" && "text-[var(--accent-danger)]",
+          delta.dir === "up" && "text-[var(--success)]",
+          delta.dir === "down" && "text-[var(--danger)]",
           delta.dir === "flat" && "text-[var(--text-muted)]")}>
           {delta.dir === "up" && <TrendingUp className="w-3 h-3" />}
           {delta.label}
@@ -270,7 +270,7 @@ function KPICard({
 
 function ActivityItem({ title, subtitle, time, accent }: { title: string; subtitle: string; time: string; accent: string }) {
   return (
-    <div className="flex items-start gap-3 border-b border-[var(--border-glass)] pb-4 last:border-0 last:pb-0">
+    <div className="flex items-start gap-3 border-b border-[var(--border-default)] pb-4 last:border-0 last:pb-0">
       <div className="w-2 h-2 mt-1.5 rounded-full" style={{ backgroundColor: accent }} />
       <div className="flex-1">
         <p className="text-sm font-medium text-[var(--text-primary)]">{title}</p>
@@ -285,7 +285,7 @@ function QuickAction({ icon, label, accent, onClick }: { icon: React.ReactNode; 
   return (
     <button
       onClick={onClick}
-      className="btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-all cursor-pointer hover:bg-[var(--surface-glass)] hover:border-[var(--accent-cyan)]/30 hover:scale-[1.02] active:scale-[0.98]"
+      className="btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-all cursor-pointer hover:bg-[var(--surface-raised)] hover:border-[var(--info)]/30 hover:scale-[1.02] active:scale-[0.98]"
       style={{ ["--qa-accent" as string]: accent }}
     >
       <span style={{ color: accent }}>{icon}</span> {label}

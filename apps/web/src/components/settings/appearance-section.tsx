@@ -1,12 +1,37 @@
-/* eslint-disable react-hooks/set-state-in-effect, @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useState, useEffect } from "react";
+// Implements: docs/design/overhaul-plan.md §5 + W2 — Settings → Appearance.
+// Three independent choices, presented as three decisions:
+//   1. PALETTE (20, grouped dark / light, each showing its real generated swatches
+//      and the Figma scheme it was derived from)
+//   2. APPEARANCE MODE (light / dark / system)
+//   3. MATERIAL (Minimal / Acrylic / Liquid Glass)
+// plus the existing density and reduced-motion controls.
+//
+// Palette and mode are separate on purpose now. Every generated palette carries
+// its own `color-scheme`, so a dark palette in light mode is a legitimate
+// combination — the previous design forced single-theme palettes to override the
+// user's mode, which fought the setting instead of honouring it.
+
+import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction } from "@/server/actions/settings";
-import { Moon, Sun, Smartphone, Palette, Type, Eye, EyeOff } from "lucide-react";
+import { Moon, Sun, Smartphone, Palette, Type, EyeOff, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NeumoToggle } from "./neumo-toggle";
+import {
+  DEFAULT_MATERIAL_ID,
+  DEFAULT_PALETTE_ID,
+  DENSITY_STORAGE_KEY,
+  MATERIAL_OPTIONS,
+  MATERIAL_STORAGE_KEY,
+  PALETTES,
+  PALETTE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  resolveMaterialId,
+  resolvePaletteId,
+} from "@/lib/palettes";
 
 import type { Settings } from "@/types/settings";
 
@@ -14,91 +39,44 @@ interface AppearanceSectionProps {
   settings: Settings;
 }
 
-// The 8 BuddySaradhi palettes. Each swatch previews its signature accent
-// gradient. `dual` = the palette has both light & dark CSS variants and should
-// respect the user's chosen Appearance Mode. Single-theme palettes (aurora,
-// midnight) switch the mode to their natural theme when selected.
-const PALETTES = [
-  {
-    id: "aurora-cosmic",
-    label: "Aurora Cosmic",
-    theme: "dark",
-    dual: true,
-    colors: ["#00FF9D", "#00F0FF", "#B388FF"],
-  },
-  {
-    id: "violet-nebula",
-    label: "Violet Nebula",
-    theme: "dark",
-    dual: true,
-    colors: ["#A78BFA", "#C4B5FD", "#22D3EE"],
-  },
-  {
-    id: "emerald-ledger",
-    label: "Emerald Ledger",
-    theme: "dark",
-    dual: true,
-    colors: ["#34D399", "#10B981", "#06B6D4"],
-  },
-  {
-    id: "cyan-lagoon",
-    label: "Cyan Lagoon",
-    theme: "dark",
-    dual: true,
-    colors: ["#22D3EE", "#0891B2", "#67E8F9"],
-  },
-  {
-    id: "rose-petal",
-    label: "Rose Petal",
-    theme: "dark",
-    dual: true,
-    colors: ["#FB7185", "#E11D48", "#FECDD3"],
-  },
-  {
-    id: "amber-sunrise",
-    label: "Amber Sunrise",
-    theme: "dark",
-    dual: true,
-    colors: ["#FB923C", "#FBBF24", "#F59E0B"],
-  },
-  {
-    id: "saffron-marigold",
-    label: "Saffron Marigold",
-    theme: "light",
-    dual: true,
-    colors: ["#FF9933", "#7B1E1E", "#FFB627"],
-  },
-  {
-    id: "midnight-slate",
-    label: "Midnight Slate",
-    theme: "light",
-    dual: true,
-    colors: ["#0F172A", "#475569", "#94A3B8"],
-  },
-] as const;
-
 const MODES = [
   { id: "light", label: "Light", icon: Sun },
   { id: "dark", label: "Dark", icon: Moon },
   { id: "system", label: "System", icon: Smartphone },
 ] as const;
 
+type QuerySnapshot = unknown;
+
 export function AppearanceSection({ settings }: AppearanceSectionProps) {
   const queryClient = useQueryClient();
-  const [selectedPalette, setSelectedPalette] = useState<string>(
-    settings?.palette || "aurora-cosmic",
-  );
+
+  // Applied state (localStorage/DOM) is the truth; the server echo seeds it.
+  const [selectedPalette, setSelectedPalette] = useState<string>(DEFAULT_PALETTE_ID);
+  const [selectedMaterial, setSelectedMaterial] = useState<string>(DEFAULT_MATERIAL_ID);
+  const [activeMode, setActiveMode] = useState<string>(settings?.theme || "system");
+  const [activeDensity, setActiveDensity] = useState<string>("comfortable");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const p =
-        localStorage.getItem("buddysaradhi.palette") ||
-        document.documentElement.getAttribute("data-palette") ||
-        settings?.palette ||
-        "aurora-cosmic";
-      setSelectedPalette(p);
-    }
-  }, [settings?.palette]);
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    setSelectedPalette(
+      resolvePaletteId(
+        localStorage.getItem(PALETTE_STORAGE_KEY) ??
+          root.getAttribute("data-palette") ??
+          settings?.palette,
+      ),
+    );
+    setSelectedMaterial(
+      resolveMaterialId(localStorage.getItem(MATERIAL_STORAGE_KEY) ?? root.getAttribute("data-material")),
+    );
+    setActiveMode(settings?.theme || "system");
+    setActiveDensity(
+      localStorage.getItem(DENSITY_STORAGE_KEY) ??
+        root.getAttribute("data-density") ??
+        settings?.density ??
+        "comfortable",
+    );
+  }, [settings?.palette, settings?.theme, settings?.density]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
@@ -107,247 +85,262 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
     },
     onMutate: async ({ field, value }) => {
       await queryClient.cancelQueries({ queryKey: ["settings"] });
-      const previousSettings = queryClient.getQueryData(["settings"]);
-      queryClient.setQueryData(["settings"], (old: any) => {
+      const previous: QuerySnapshot = queryClient.getQueryData(["settings"]);
+      queryClient.setQueryData(["settings"], (old: Record<string, unknown> | undefined) => {
         if (!old) return old;
-        return {
-          ...old,
-          data: {
-            ...old.data,
-            [field]: value,
-          },
-        };
+        const data = (old.data ?? {}) as Record<string, unknown>;
+        return { ...old, data: { ...data, [field]: value } };
       });
-      return { previousSettings };
+      return { previous };
     },
-    onError: (err, variables, context) => {
-      if (context?.previousSettings) {
-        queryClient.setQueryData(["settings"], context.previousSettings);
-      }
+    onError: (_error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(["settings"], context.previous);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
-  const [activeMode, setActiveMode] = useState<string>(settings?.theme || "system");
+  const darkPalettes = useMemo(() => PALETTES.filter((p) => p.tier === "dark"), []);
+  const lightPalettes = useMemo(() => PALETTES.filter((p) => p.tier === "light"), []);
 
-  useEffect(() => {
-    setActiveMode(settings?.theme || "system");
-  }, [settings?.theme]);
-
-  // Density truth lives where it is APPLIED (localStorage/DOM), not in the
-  // last server echo: a failed/rolled-back mutation used to clobber the
-  // optimistic state via the sync effect below (TestSprite Settings failure:
-  // aria-pressed never flipped). No sync effect on purpose.
-  const [activeDensity, setActiveDensity] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return (
-        localStorage.getItem("buddysaradhi.density") ||
-        document.documentElement.getAttribute("data-density") ||
-        settings?.density ||
-        "comfortable"
-      );
-    }
-    return settings?.density || "comfortable";
-  });
-
-  const density = activeDensity;
-  const reducedMotion = settings?.reducedMotion === 1;
-  const mode = activeMode;
-
-  // Selecting a palette changes the ACCENT only. The Appearance Mode
-  // (light/dark/system) remains the single source of truth for light vs dark:
-  // dual-theme palettes render in whatever mode is active; single-theme
-  // palettes (aurora = dark, midnight = light) switch the mode to their
-  // natural theme so they display correctly.
-  const applyPalette = (id: string, naturalTheme: "light" | "dark", dual: boolean) => {
-    const html = document.documentElement;
-    html.setAttribute("data-palette", id);
-    localStorage.setItem("buddysaradhi.palette", id);
+  const applyPalette = (id: string): void => {
+    document.documentElement.setAttribute("data-palette", id);
+    localStorage.setItem(PALETTE_STORAGE_KEY, id);
     setSelectedPalette(id);
     updateMutation.mutate({ field: "palette", value: id });
-
-    if (!dual) {
-      html.setAttribute("data-theme", naturalTheme);
-      localStorage.setItem("buddysaradhi.theme", naturalTheme);
-      updateMutation.mutate({ field: "theme", value: naturalTheme });
-    }
   };
+
+  const applyMaterial = (id: string): void => {
+    document.documentElement.setAttribute("data-material", id);
+    localStorage.setItem(MATERIAL_STORAGE_KEY, id);
+    setSelectedMaterial(id);
+  };
+
+  const applyMode = (id: string): void => {
+    setActiveMode(id);
+    const html = document.documentElement;
+    html.setAttribute("data-theme-preference", id);
+    const resolved =
+      id === "system"
+        ? window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light"
+        : id;
+    html.setAttribute("data-theme", resolved);
+    localStorage.setItem(THEME_STORAGE_KEY, resolved);
+    updateMutation.mutate({ field: "theme", value: id });
+  };
+
+  const applyDensity = (id: string): void => {
+    setActiveDensity(id);
+    localStorage.setItem(DENSITY_STORAGE_KEY, id);
+    document.documentElement.setAttribute("data-density", id);
+    updateMutation.mutate({ field: "density", value: id });
+  };
+
+  const renderPaletteGrid = (title: string, options: typeof PALETTES) => (
+    <div>
+      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+        {title}
+      </h4>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {options.map((palette) => {
+          const isActive = selectedPalette === palette.id;
+          return (
+            <button
+              key={palette.id}
+              type="button"
+              onClick={() => applyPalette(palette.id)}
+              aria-pressed={isActive}
+              aria-label={`Use the ${palette.name} palette, from Figma colour scheme ${palette.figmaScheme}`}
+              className={cn(
+                "flex min-h-[44px] cursor-pointer flex-col gap-2 rounded-xl border p-3 text-left transition-colors",
+                isActive
+                  ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
+                  : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
+              )}
+            >
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-full overflow-hidden rounded-lg border border-[var(--border-default)]"
+              >
+                <span className="flex-1" style={{ background: palette.swatch.canvas }} />
+                <span className="flex-1" style={{ background: palette.swatch.raised }} />
+                <span className="flex-1" style={{ background: palette.swatch.accent }} />
+              </span>
+              <span className="text-xs font-semibold text-[var(--text-primary)]">
+                {palette.name}
+              </span>
+              <span className="text-[11px] leading-snug text-[var(--text-muted)]">
+                Figma {palette.figmaScheme} · {palette.figmaName}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const segmented = (
+    options: readonly { id: string; label: string; icon?: React.ComponentType<{ className?: string }> }[],
+    activeId: string,
+    onSelect: (id: string) => void,
+    ariaLabel: string,
+  ) => (
+    <div className="neumo-inset inline-flex flex-wrap gap-1 rounded-full p-1.5" role="group" aria-label={ariaLabel}>
+      {options.map((option) => {
+        const isActive = activeId === option.id;
+        const Icon = option.icon;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onSelect(option.id)}
+            aria-pressed={isActive}
+            className={cn(
+              "flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+              isActive
+                ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-on-primary)]"
+                : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-row)] hover:text-[var(--text-primary)]",
+            )}
+          >
+            {Icon ? <Icon className="h-4 w-4" /> : null}
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <section className="animate-in fade-in slide-in-from-bottom-2 space-y-8 duration-300">
       <div>
-        <h3 className="mb-4 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
-          <Palette className="h-5 w-5 text-[var(--accent-cyan)]" />
+        <h3 className="mb-2 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
+          <Palette className="h-5 w-5 text-[var(--accent-text)]" />
           Palette
         </h3>
-        <p className="mb-5 text-sm text-[var(--text-muted)]">
-          Pick the accent palette for BuddySaradhi. Your choice applies instantly.
+        <p className="mb-5 max-w-prose text-sm text-[var(--text-muted)]">
+          Twenty palettes, each derived from a Figma website colour scheme and contrast-checked for
+          text, controls and status colour. Your choice applies instantly.
         </p>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {PALETTES.map((p) => {
-            const isActive = selectedPalette === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => applyPalette(p.id, p.theme, p.dual)}
-                aria-pressed={isActive}
-                aria-label={`Use ${p.label} palette`}
-                className={cn(
-                  "glass-card flex cursor-pointer flex-col items-center gap-3 rounded-xl border p-4 transition-all",
-                  isActive
-                    ? "border-[var(--accent-primary)] bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-primary)_25%,transparent)]"
-                    : "border-transparent bg-[var(--surface-glass-faint)] hover:border-[var(--border-glass)] hover:bg-[var(--surface-glass)]",
-                )}
-              >
-                <div
-                  className="h-10 w-full rounded-lg border border-[var(--border-glass)]"
-                  style={{
-                    background: `linear-gradient(135deg, ${p.colors[0]}, ${p.colors[1]} 55%, ${p.colors[2]})`,
-                  }}
-                />
-                <span
-                  className={cn(
-                    "text-center text-xs font-semibold",
-                    isActive ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]",
-                  )}
-                >
-                  {p.label}
-                </span>
-              </button>
-            );
-          })}
+        <div className="space-y-6">
+          {renderPaletteGrid("Dark", darkPalettes as typeof PALETTES)}
+          {renderPaletteGrid("Light", lightPalettes as typeof PALETTES)}
         </div>
       </div>
 
-      <div className="h-px w-full bg-[var(--border-glass)]" />
+      <div className="h-px w-full bg-[var(--border-default)]" />
 
       <div>
-        <h3 className="mb-4 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
-          <Eye className="h-5 w-5 text-[var(--accent-violet)]" />
+        <h3 className="mb-2 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
+          <Sun className="h-5 w-5 text-[var(--accent-text)]" />
           Appearance Mode
         </h3>
-        <div className="neumo-inset inline-flex gap-1 rounded-full p-1.5">
-          {MODES.map((m) => {
-            const Icon = m.icon;
-            const isActive = mode === m.id;
+        <p className="mb-4 max-w-prose text-sm text-[var(--text-muted)]">
+          Every palette declares its own contrast scheme, so a dark palette can stay dark in light
+          mode.
+        </p>
+        {segmented(MODES, activeMode, applyMode, "Appearance mode")}
+      </div>
+
+      <div className="h-px w-full bg-[var(--border-default)]" />
+
+      <div>
+        <h3 className="mb-2 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
+          <Layers className="h-5 w-5 text-[var(--accent-text)]" />
+          Material
+        </h3>
+        <p className="mb-4 max-w-prose text-sm text-[var(--text-muted)]">
+          How surfaces are rendered. Material only changes overlays, navigation and sheets — text
+          and status colours never change, so a contrast ratio you can read today is the one you
+          keep.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {MATERIAL_OPTIONS.map((material) => {
+            const isActive = selectedMaterial === material.id;
             return (
               <button
-                key={m.id}
+                key={material.id}
                 type="button"
-                onClick={() => {
-                  setActiveMode(m.id);
-                  const html = document.documentElement;
-                  html.setAttribute("data-theme-preference", m.id);
-                  if (m.id !== "system") {
-                    html.setAttribute("data-theme", m.id);
-                    localStorage.setItem("buddysaradhi.theme", m.id);
-                  } else {
-                    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-                      ? "dark"
-                      : "light";
-                    html.setAttribute("data-theme", systemTheme);
-                    localStorage.setItem("buddysaradhi.theme", systemTheme);
-                  }
-                  updateMutation.mutate({ field: "theme", value: m.id });
-                }}
+                onClick={() => applyMaterial(material.id)}
                 aria-pressed={isActive}
                 className={cn(
-                  "flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border border-transparent px-4 py-2 text-sm font-semibold transition-all",
+                  "flex min-h-[44px] cursor-pointer flex-col gap-1 rounded-xl border p-4 text-left transition-colors",
                   isActive
-                    ? "border-[color-mix(in_srgb,var(--accent-primary)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent-primary)_20%,transparent)] text-[var(--accent-primary)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent-primary)_15%,transparent)]"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)]",
+                    ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
+                    : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
                 )}
               >
-                <Icon className="h-4 w-4" />
-                {m.label}
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {material.name}
+                  </span>
+                  {isActive ? (
+                    <span className="rounded-full bg-[var(--accent-primary)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-on-primary)]">
+                      Active
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs leading-snug text-[var(--text-muted)]">{material.blurb}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      <div className="h-px w-full bg-[var(--border-glass)]" />
+      <div className="h-px w-full bg-[var(--border-default)]" />
 
       <div>
         <h3 className="mb-4 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
-          <Type className="h-5 w-5 text-[var(--accent-violet)]" />
+          <Type className="h-5 w-5 text-[var(--accent-text)]" />
           Display Density
         </h3>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDensity("comfortable");
-              localStorage.setItem("buddysaradhi.density", "comfortable");
-              document.documentElement.setAttribute("data-density", "comfortable");
-              updateMutation.mutate({ field: "density", value: "comfortable" });
-            }}
-            aria-pressed={density === "comfortable"}
-            className={cn(
-              "glass-card flex cursor-pointer flex-col items-start gap-2 rounded-xl border p-5 text-left transition-all",
-              density === "comfortable"
-                ? "border-[var(--accent-violet)] bg-[color-mix(in_srgb,var(--accent-violet)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-violet)_20%,transparent)]"
-                : "border-transparent bg-[var(--surface-glass-faint)] hover:border-[var(--border-glass)] hover:bg-[var(--surface-glass)]",
-            )}
-          >
-            <span
-              className={cn(
-                "text-sm font-semibold",
-                density === "comfortable"
-                  ? "text-[var(--text-primary)]"
-                  : "text-[var(--text-secondary)]",
-              )}
-            >
-              Comfortable
-            </span>
-            <span className="text-xs leading-relaxed text-[var(--text-muted)]">
-              More whitespace, easier to tap on touch devices. Recommended for mobile.
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveDensity("compact");
-              localStorage.setItem("buddysaradhi.density", "compact");
-              document.documentElement.setAttribute("data-density", "compact");
-              updateMutation.mutate({ field: "density", value: "compact" });
-            }}
-            aria-pressed={density === "compact"}
-            className={cn(
-              "glass-card flex cursor-pointer flex-col items-start gap-2 rounded-xl border p-5 text-left transition-all",
-              density === "compact"
-                ? "border-[var(--accent-violet)] bg-[color-mix(in_srgb,var(--accent-violet)_15%,transparent)] shadow-[0_0_18px_color-mix(in_srgb,var(--accent-violet)_20%,transparent)]"
-                : "border-transparent bg-[var(--surface-glass-faint)] hover:border-[var(--border-glass)] hover:bg-[var(--surface-glass)]",
-            )}
-          >
-            <span
-              className={cn(
-                "text-sm font-semibold",
-                density === "compact"
-                  ? "text-[var(--text-primary)]"
-                  : "text-[var(--text-secondary)]",
-              )}
-            >
-              Compact
-            </span>
-            <span className="text-xs leading-relaxed text-[var(--text-muted)]">
-              Shows more data on screen. Recommended for desktop.
-            </span>
-          </button>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {(
+            [
+              {
+                id: "comfortable",
+                title: "Comfortable",
+                body: "More whitespace, easier to tap on touch devices. Recommended for mobile.",
+              },
+              {
+                id: "compact",
+                title: "Compact",
+                body: "Shows more rows on screen. Recommended for a dense desktop ledger.",
+              },
+            ] as const
+          ).map((option) => {
+            const isActive = activeDensity === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => applyDensity(option.id)}
+                aria-pressed={isActive}
+                className={cn(
+                  "flex min-h-[44px] cursor-pointer flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors",
+                  isActive
+                    ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
+                    : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
+                )}
+              >
+                <span className="text-sm font-semibold text-[var(--text-primary)]">{option.title}</span>
+                <span className="text-xs leading-snug text-[var(--text-muted)]">{option.body}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="h-px w-full bg-[var(--border-glass)]" />
+      <div className="h-px w-full bg-[var(--border-default)]" />
 
       <div>
         <h3 className="mb-4 flex items-center gap-2 text-lg font-medium text-[var(--text-primary)]">
-          <EyeOff className="h-5 w-5 text-[var(--accent-amber)]" />
+          <EyeOff className="h-5 w-5 text-[var(--warning)]" />
           Accessibility
         </h3>
-        <div className="flex items-center justify-between rounded-xl border border-[var(--border-glass)] bg-[var(--surface-glass-faint)] p-5 transition-colors hover:bg-[var(--surface-glass)]">
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-inset)] p-4">
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">Reduced Motion</p>
             <p className="mt-1 text-xs text-[var(--text-muted)]">
@@ -356,9 +349,12 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
           </div>
           <NeumoToggle
             label="Reduced motion"
-            checked={reducedMotion}
+            checked={settings?.reducedMotion === 1}
             onChange={() =>
-              updateMutation.mutate({ field: "reducedMotion", value: reducedMotion ? 0 : 1 })
+              updateMutation.mutate({
+                field: "reducedMotion",
+                value: settings?.reducedMotion === 1 ? 0 : 1,
+              })
             }
           />
         </div>

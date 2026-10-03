@@ -94,11 +94,11 @@ export function LedgerImport() {
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
         className={cn(
           "flex flex-col items-center justify-center gap-2 p-8 rounded-xl cursor-pointer transition-colors text-center",
-          dragging ? "bg-[var(--surface-glass)]" : "bg-[var(--surface-glass-faint)]"
+          dragging ? "bg-[var(--surface-raised)]" : "bg-[var(--surface-inset)]"
         )}
-        style={{ border: `1px dashed ${dragging ? "var(--accent-cyan)" : "var(--border-glass)"}` }}
+        style={{ border: `1px dashed ${dragging ? "var(--info)" : "var(--border-default)"}` }}
       >
-        <Upload className="w-7 h-7" style={{ color: "var(--accent-cyan)" }} />
+        <Upload className="w-7 h-7" style={{ color: "var(--info)" }} />
         <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
           {fileName ? fileName : "Drop a CSV here or click to browse"}
         </p>
@@ -120,9 +120,9 @@ export function LedgerImport() {
               <span className="chip chip-danger"><AlertTriangle className="w-3 h-3" />{rows.length - validCount} invalid</span>
             )}
           </div>
-          <div className="flex-1 overflow-auto no-scrollbar rounded-xl" style={{ border: "1px solid var(--border-glass)" }}>
+          <div className="flex-1 overflow-auto no-scrollbar rounded-xl" style={{ border: "1px solid var(--border-default)" }}>
             <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 backdrop-blur-md" style={{ background: "var(--surface-glass-strong)" }}>
+              <thead className="sticky top-0 backdrop-blur-md" style={{ background: "var(--surface-overlay)" }}>
                 <tr style={{ color: "var(--text-muted)" }}>
                   {headers.map((h, i) => (
                     <th key={i} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
@@ -132,7 +132,7 @@ export function LedgerImport() {
               </thead>
               <tbody style={{ color: "var(--text-primary)" }}>
                 {rows.slice(0, 50).map((r, i) => (
-                  <tr key={i} className="border-t" style={{ borderColor: "var(--border-glass)" }}>
+                  <tr key={i} className="border-t" style={{ borderColor: "var(--border-default)" }}>
                     {headers.map((_, c) => (
                       <td key={c} className="px-4 py-2.5 whitespace-nowrap">{r.cells[c] ?? "—"}</td>
                     ))}
@@ -154,12 +154,12 @@ export function LedgerImport() {
               onClick={() => setImported(true)}
               disabled={validCount === 0}
               className="btn-glass neumo-raised px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, var(--accent-emerald), var(--accent-cyan))", color: "var(--text-on-accent)", border: "none" }}
+              style={{ background: "linear-gradient(135deg, var(--success), var(--info))", color: "var(--accent-on-primary)", border: "none" }}
             >
               <FileSpreadsheet className="w-4 h-4" /> Import {validCount} rows
             </button>
             {imported && (
-              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--accent-info)" }}>
+              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--info)" }}>
                 <Info className="w-4 h-4" /> Preview ready — connect a fees import action to commit.
               </span>
             )}

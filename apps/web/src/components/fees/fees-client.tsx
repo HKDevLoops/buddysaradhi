@@ -50,14 +50,12 @@ interface StudentRow {
 }
 
 const ACCENTS = [
-  "emerald",
-  "cyan",
-  "amber",
-  "flare",
-  "violet",
-  "primary",
-  "secondary",
-  "tertiary",
+  "success",
+  "info",
+  "warning",
+  "danger",
+  "accent-primary",
+  "accent-text",
 ] as const;
 
 function studentAccent(id: string): string {
@@ -154,7 +152,7 @@ export function FeesClient() {
               aria-label="Students Ledger Navigation"
             >
               {/* Header/Search for students in fees list */}
-              <div className="flex-none p-3 border-b border-[var(--border-glass)] space-y-2">
+              <div className="flex-none p-3 border-b border-[var(--border-default)] space-y-2">
                 <div className="text-xs uppercase tracking-wider font-semibold text-[var(--text-secondary)]">
                   Select Student
                 </div>
@@ -170,7 +168,7 @@ export function FeesClient() {
               </div>
 
               {/* Scrollable vertical list of students */}
-              <div className="flex-1 overflow-y-auto no-scrollbar p-1 divide-y divide-[var(--border-glass)]">
+              <div className="flex-1 overflow-y-auto no-scrollbar p-1 divide-y divide-[var(--border-default)]">
                 {filteredStudents.map((s) => {
                   const isActive = s.id === activeStudentId;
                   const accent = studentAccent(s.id);
@@ -185,8 +183,8 @@ export function FeesClient() {
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-3 text-left transition-all min-h-[64px] rounded-lg cursor-pointer",
                         isActive
-                          ? "bg-[var(--surface-glass-strong)] shadow-sm ring-1 ring-[var(--accent-emerald)]/30"
-                          : "hover:bg-[var(--surface-glass-faint)]"
+                          ? "bg-[var(--surface-overlay)] shadow-sm ring-1 ring-[var(--success)]/30"
+                          : "hover:bg-[var(--surface-inset)]"
                       )}
                       aria-pressed={isActive}
                     >
@@ -194,9 +192,9 @@ export function FeesClient() {
                       <div
                         className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                         style={{
-                          background: `color-mix(in srgb, var(--accent-${accent}) 16%, var(--bg-surface-raised))`,
-                          color: `var(--accent-${accent})`,
-                          border: `1px solid color-mix(in srgb, var(--accent-${accent}) 35%, transparent)`,
+                          background: `color-mix(in srgb, var(--${accent}) 16%, var(--surface-raised))`,
+                          color: `var(--${accent})`,
+                          border: `1px solid color-mix(in srgb, var(--${accent}) 35%, transparent)`,
                         }}
                         aria-hidden="true"
                       >
@@ -301,21 +299,21 @@ function CollectionsTab({ students }: { students: StudentRow[] }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-emerald) 25%, transparent)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--success) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <TrendingUp className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Collected This Month</span>
           </div>
           <p className="text-2xl font-bold num" style={{ color: "var(--text-primary)" }}>{formatINR(collected)}</p>
         </div>
-        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-flare) 25%, transparent)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--danger) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <AlertCircle className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Due Till Date</span>
           </div>
           <p className="text-2xl font-bold num" style={{ color: "var(--text-primary)" }}>{formatINR(dueTillDate)}</p>
         </div>
-        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--accent-cyan) 25%, transparent)" }}>
+        <div className="glass-panel p-5 rounded-xl flex flex-col justify-between" style={{ border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)" }}>
           <div className="flex items-center gap-2 mb-2" style={{ color: "var(--text-secondary)" }}>
             <Wallet className="w-4 h-4" />
             <span className="text-xs uppercase tracking-wider font-semibold">Active Students</span>
@@ -361,11 +359,11 @@ function Heatmap({ data }: { data: unknown[] }) {
           <div className="flex gap-1.5">
             {weeks.map((w) => {
               const cell = rows.find((d) => d.student_name === s && d.week_start === w);
-              let bg = "bg-[var(--bg-surface-inset)]";
+              let bg = "bg-[var(--surface-inset)]";
               if (cell) {
-                if (cell.cell_status === "paid") bg = "bg-[var(--accent-emerald)] shadow-[0_0_8px_var(--accent-emerald)]";
-                else if (cell.cell_status === "partial") bg = "bg-[var(--accent-cyan)] shadow-[0_0_6px_var(--accent-cyan)]";
-                else if (cell.cell_status === "unpaid") bg = "bg-[var(--accent-flare)] shadow-[0_0_6px_var(--accent-flare)]";
+                if (cell.cell_status === "paid") bg = "bg-[var(--success)] shadow-[0_0_8px_var(--success)]";
+                else if (cell.cell_status === "partial") bg = "bg-[var(--info)] shadow-[0_0_6px_var(--info)]";
+                else if (cell.cell_status === "unpaid") bg = "bg-[var(--danger)] shadow-[0_0_6px_var(--danger)]";
               }
               return (
                 <div

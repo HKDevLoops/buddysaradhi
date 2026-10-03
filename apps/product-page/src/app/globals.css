@@ -1,63 +1,349 @@
+/* Implements: docs/design/overhaul-plan.md §2 (token architecture) + §4.1
+   (front door, Persuade) on docs/design/material-modes.md §2 (the three-mode
+   contract). Replaces 13_UI_Guidelines.md §2.1/§5.5/§6.6 and the retired
+   Vibrant Glass identity (overhaul-plan.md §0: full replacement).
+
+   Token source of truth: packages/design-system/tokens.css (GENERATED).
+   It is imported by relative path rather than the package specifier
+   `@buddysaradhi/design-system/tokens.css` because the workspace link is not
+   installed in this app's node_modules and creating it would require a root
+   lockfile change (out of this task's scope). Same file, same values.
+
+   Layer A (structure, opaque, mode-invariant) comes straight from the
+   generated tokens. Layer B (material) is the `[data-material]` blocks the
+   token file already ships. This file adds ONLY the application layer:
+   a Tailwind bridge, the shared component primitives, and the three
+   accessibility fallbacks. No colour literal is declared here. */
+
+@import "../../../../packages/design-system/tokens.css";
 @import "tailwindcss";
 
-/* Implements: 13_UI_Guidelines.md §2.1 (tokens) + §5.5 (glass tiers) + §6.6 (neumo).
-   Cosmic canvas: #0f0c29 → #24243e → #0a0a1a. Accents: emerald/cyan/amber only
-   (+violet for Settings). No indigo/blue primaries (Rule 5). */
+/* Tailwind 4 bridge. One `@theme inline` layer (material-modes.md §4.1: theme
+   variables must be top level, and a variable that references another needs
+   `inline`). Names are deliberately different from the token names so no
+   declaration can self-reference: `--border-hairline: var(--border-default)`,
+   never `--border-default: var(--border-default)`. */
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-raised: var(--surface-raised);
+  --color-inset: var(--surface-inset);
+  --color-row: var(--surface-row);
+  --color-sunken: var(--surface-sunken);
+  --color-nav: var(--surface-nav);
+  --color-sheet: var(--surface-sheet);
+  --color-overlay: var(--surface-overlay);
 
-:root {
-  --bg-cosmic: #0f0c29;
-  --bg-midnight: #24243e;
-  --bg-abyss: #0a0a1a;
-  --accent-emerald: #00ff9d;
-  --accent-cyan: #00f0ff;
-  --accent-amber: #ffb300;
-  --accent-violet: #b388ff;
-  --text-primary: rgba(255, 255, 255, 0.95);
-  --text-muted: rgba(255, 255, 255, 0.7);
+  --color-fg: var(--text-primary);
+  --color-fg-secondary: var(--text-secondary);
+  --color-fg-muted: var(--text-muted);
+  --color-fg-inverse: var(--text-inverse);
+
+  --color-accent: var(--accent-primary);
+  --color-accent-text: var(--accent-text);
+  --color-accent-fg: var(--accent-on-primary);
+  --color-ok: var(--success);
+  --color-warn: var(--warning);
+  --color-bad: var(--danger);
+  --color-info: var(--info);
+
+  --color-hairline: var(--border-default);
+
+  --shadow-float: var(--shadow-overlay);
+  --shadow-drawer: var(--shadow-sheet);
+
+  --font-display: var(--font-heading);
+  --font-body: var(--font-sans);
+
+  /* craft-floor.md: card radii stay at 12-16px, pills are for small controls. */
+  --radius-panel: 0.875rem;
 }
 
-html {
-  scroll-behavior: smooth;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--text-primary);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  /* One focus treatment, everywhere (Rule 10: real focus states). */
+  :focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--accent-primary);
+    color: var(--accent-on-primary);
+  }
 }
 
-body {
-  background: radial-gradient(
-    ellipse at 50% -10%,
-    var(--bg-midnight) 0%,
-    var(--bg-cosmic) 45%,
-    var(--bg-abyss) 100%
-  );
-  background-color: var(--bg-abyss);
-  background-attachment: fixed;
-  color: var(--text-primary);
+@layer components {
+  /* ---- Material primitives (material-modes.md §2.6). All three modes route
+     through these; a component never branches on the mode. ---- */
+  .mat,
+  .mat-nav,
+  .mat-sheet {
+    border: 1px solid var(--border-default);
+    box-shadow: var(--mat-specular), var(--shadow-overlay);
+    -webkit-backdrop-filter: var(--mat-filter);
+    backdrop-filter: var(--mat-filter);
+  }
+
+  .mat {
+    background: var(--surface-overlay);
+  }
+
+  .mat-nav {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--surface-nav);
+  }
+
+  .mat-sheet {
+    background: var(--surface-sheet);
+    box-shadow: var(--mat-specular), var(--shadow-sheet);
+  }
+
+  /* Liquid Glass only: the fresnel lens, painted under the content. Never a
+     backdrop root (material-modes.md §5.3): no opacity/filter on an ancestor. */
+  .mat-fresnel {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .mat-fresnel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--mat-fresnel);
+    pointer-events: none;
+  }
+
+  /* ---- Opaque surfaces. Elevation is the 1px contour alone: craft-floor.md
+     refuses a border stacked under a wide soft shadow (the ghost card). ---- */
+  .panel {
+    background: var(--surface-raised);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-panel);
+  }
+
+  .panel-inset {
+    background: var(--surface-inset);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-panel);
+  }
+
+  /* ---- Controls. 44px minimum target (AGENTS.md Rule 10) is written as a
+     literal: the generated token set carries no target token. ---- */
+  .btn {
+    display: inline-flex;
+    min-height: 44px;
+    min-width: 44px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid transparent;
+    padding: 0.625rem 1.25rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    transition:
+      background-color 140ms cubic-bezier(0, 0, 0.2, 1),
+      border-color 140ms cubic-bezier(0, 0, 0.2, 1),
+      color 140ms cubic-bezier(0, 0, 0.2, 1);
+  }
+
+  .btn-primary {
+    background: var(--accent-primary);
+    color: var(--accent-on-primary);
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-text);
+    color: var(--accent-on-primary);
+  }
+
+  .btn-secondary {
+    background: var(--surface-raised);
+    color: var(--text-primary);
+    border-color: var(--border-default);
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-row);
+  }
+
+  /* Disabled is a real state, not a lighter colour (craft-floor.md: states). */
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* Quiet actions are text, not buttons: no box, no border. */
+  .action {
+    color: var(--accent-primary);
+    font-weight: 600;
+    text-underline-offset: 0.25em;
+    text-decoration: underline;
+  }
+
+  .action:hover {
+    color: var(--accent-text);
+  }
+
+  .input {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-default);
+    background: var(--surface-inset);
+    color: var(--text-primary);
+  }
+
+  .input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .input:focus-visible {
+    border-color: var(--border-focus);
+  }
+
+  .input[aria-invalid="true"] {
+    border-color: var(--danger);
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .field-error {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--danger);
+  }
+
+  .field-hint {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+  }
+
+  /* ---- Data rows: a scrollable list never gets a material (material-modes.md
+     §5.2 cap 4, and craft-floor.md on glass as decoration). ---- */
+  .row {
+    background: var(--surface-row);
+    border-top: 1px solid var(--border-default);
+  }
+
+  .row:first-child {
+    border-top: 0;
+  }
 }
 
-@layer utilities {
-  .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(24px) saturate(140%);
-    -webkit-backdrop-filter: blur(24px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+/* ---- FALLBACK 1: no backdrop-filter support. Remap to the paired -solid
+   tokens the generated file already ships (legibility before material). ---- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mat,
+  .mat-nav,
+  .mat-sheet {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
-  .glass-strong {
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(28px) saturate(160%);
-    -webkit-backdrop-filter: blur(28px) saturate(160%);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  .mat {
+    background: var(--surface-overlay-solid);
   }
-  .glass-faint {
-    background: rgba(255, 255, 255, 0.02);
-    backdrop-filter: blur(18px) saturate(140%);
-    -webkit-backdrop-filter: blur(18px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+
+  .mat-nav {
+    background: var(--surface-nav-solid);
   }
-  .neumo-raised {
-    background: #1a1a3a;
-    border-radius: 12px;
-    box-shadow:
-      4px 4px 8px #0a0a1a,
-      -4px -4px 8px #2a2a5a;
+
+  .mat-sheet {
+    background: var(--surface-sheet-solid);
+  }
+}
+
+/* ---- FALLBACK 2: the device asked for less transparency. ---- */
+@media (prefers-reduced-transparency: reduce) {
+  .mat,
+  .mat-nav,
+  .mat-sheet {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ---- FALLBACK 3: forced colours (Windows High Contrast). ---- */
+@media (forced-colors: active) {
+  .mat,
+  .mat-nav,
+  .mat-sheet,
+  .panel,
+  .panel-inset,
+  .input,
+  .btn,
+  .row {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    forced-color-adjust: none;
+  }
+}
+
+/* ---- FALLBACK 4: the user wants more contrast than the palette gives. ---- */
+@media (prefers-contrast: more) {
+  .input,
+  .btn-secondary,
+  .panel,
+  .panel-inset {
+    border-color: var(--border-strong);
+  }
+}
+
+/* ---- Reduced motion (material-modes.md §2.7). The material is not a licence
+   to add motion: blur radius is never animated, the fresnel lens is removed,
+   and every remaining transition collapses to a colour change. ---- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .mat-fresnel::before {
+    display: none;
+  }
+
+  .mat,
+  .mat-nav,
+  .mat-sheet {
+    transition-property: background-color, border-color;
+    transition-duration: 100ms;
+  }
+
+  .btn,
+  .action {
+    transition-duration: 100ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 100ms !important;
+    scroll-behavior: auto !important;
   }
 }

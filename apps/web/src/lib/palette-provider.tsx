@@ -1,178 +1,186 @@
 "use client";
 
-// Implements: UI/README.md §Implementation Bridge — PaletteProvider
-// Switches data-palette and data-theme on <html> based on the current route/context
+// Implements: docs/design/overhaul-plan.md W2 — writes `data-palette`,
+// `data-material`, `data-theme` and `data-density` on <html> from ONE source of
+// truth per attribute, and refuses to write a palette or material that does not
+// exist.
+//
+// The rule this file exists to enforce (it was the F-2 bug class, twice, before):
+// localStorage is the APPLIED value. A server echo from the settings query is a
+// SEED for a device that has never chosen. An effect that prefers the server
+// value clobbers the user's click on the next render, which is exactly the
+// "palette flapped and never reached the selected one" defect recorded in
+// tests/e2e/stress.spec.ts. So: applied-first everywhere, seed-only otherwise.
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSettings } from "@/server/queries/settings";
-
-export type PaletteId =
-  | "aurora-cosmic"
-  | "saffron-marigold"
-  | "emerald-ledger"
-  | "cyan-lagoon"
-  | "rose-petal"
-  | "amber-sunrise"
-  | "violet-nebula"
-  | "midnight-slate";
-
-export type ThemeId = "light" | "dark";
+import {
+  DENSITY_STORAGE_KEY,
+  DEFAULT_MATERIAL_ID,
+  DEFAULT_PALETTE_ID,
+  MATERIAL_STORAGE_KEY,
+  PALETTE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  resolveMaterialId,
+  resolvePaletteId,
+  type MaterialId,
+  type PaletteId,
+  type ThemeId,
+} from "@/lib/palettes";
 
 interface PaletteContextValue {
   palette: PaletteId;
   theme: ThemeId;
+  material: MaterialId;
 }
 
 const PaletteContext = createContext<PaletteContextValue>({
-  palette: "aurora-cosmic",
+  palette: DEFAULT_PALETTE_ID,
   theme: "dark",
+  material: DEFAULT_MATERIAL_ID,
 });
 
-export function usePalette() {
+export function usePalette(): PaletteContextValue {
   return useContext(PaletteContext);
 }
 
 interface PaletteProviderProps {
-  /** Optional fallback only. The user's global selection (localStorage, then DB) always wins. */
+  /** Fallback only. The user's applied selection (localStorage, then the DB seed)
+   *  always wins. */
   palette?: PaletteId;
   theme?: ThemeId;
+  material?: MaterialId;
   children: ReactNode;
 }
 
-/**
- * Wraps the whole app at the root and sets data-palette + data-theme on <html>
- * ONCE from the single global source of truth (localStorage, then DB settings).
- * It never clears the attribute on unmount so the selection persists app-wide.
- */
-export function PaletteProvider({ palette = "aurora-cosmic", theme = "dark", children }: PaletteProviderProps) {
-  const { data } = useQuery({
-    queryKey: ["settings"],
-    queryFn: () => getSettings(),
-  });
+export function PaletteProvider({
+  palette = DEFAULT_PALETTE_ID,
+  theme = "dark",
+  material = DEFAULT_MATERIAL_ID,
+  children,
+}: PaletteProviderProps) {
+  const { data } = useQuery({ queryKey: ["settings"], queryFn: () => getSettings() });
 
-  const dbTheme = data?.data?.theme; // 'light', 'dark', 'system', or undefined
-  const dbPalette = data?.data?.palette as PaletteId | undefined;
+  const dbTheme = data?.data?.theme;
+  const dbPalette = data?.data?.palette;
   const dbDensity = data?.data?.density || "comfortable";
+  // Material is a device-local presentation preference: a phone in a bright room
+  // and a desktop on a desk genuinely want different materials, so it is NOT part
+  // of the server-synced settings payload.
+  const dbMaterial = (data?.data as { material?: string } | undefined)?.material;
 
-  const [localTheme, setLocalTheme] = useState<string | null>(null);
-  const [localPalette, setLocalPalette] = useState<string | null>(null);
-  const [localDensity, setLocalDensity] = useState<string | null>(null);
+
+  const [applied, setApplied] = useState<{
+    theme: string | null;
+    palette: string | null;
+    density: string | null;
+    material: string | null;
+  }>({ theme: null, palette: null, density: null, material: null });
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setLocalTheme(localStorage.getItem("buddysaradhi.theme"));
-      setLocalPalette(localStorage.getItem("buddysaradhi.palette"));
-      setLocalDensity(localStorage.getItem("buddysaradhi.density"));
-
-      const handleStorage = () => {
-        setLocalTheme(localStorage.getItem("buddysaradhi.theme"));
-        setLocalPalette(localStorage.getItem("buddysaradhi.palette"));
-        setLocalDensity(localStorage.getItem("buddysaradhi.density"));
-      };
-
-      window.addEventListener("storage", handleStorage);
-      return () => window.removeEventListener("storage", handleStorage);
-    }
+    if (typeof window === "undefined") return;
+    const read = (): void => {
+      setApplied({
+        theme: localStorage.getItem(THEME_STORAGE_KEY),
+        palette: localStorage.getItem(PALETTE_STORAGE_KEY),
+        density: localStorage.getItem(DENSITY_STORAGE_KEY),
+        material: localStorage.getItem(MATERIAL_STORAGE_KEY),
+      });
+    };
+    read();
+    window.addEventListener("storage", read);
+    return () => window.removeEventListener("storage", read);
   }, []);
 
-  // Track system preference matching via media query
   const [systemTheme, setSystemTheme] = useState<ThemeId>(() => {
-    if (typeof window !== "undefined") {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    }
-    return "dark";
+    if (typeof window === "undefined") return "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-
-    const listener = (e: MediaQueryListEvent) => {
-      setSystemTheme(e.matches ? "dark" : "light");
+    const listener = (event: MediaQueryListEvent): void => {
+      setSystemTheme(event.matches ? "dark" : "light");
     };
     mediaQuery.addEventListener("change", listener);
     return () => mediaQuery.removeEventListener("change", listener);
   }, []);
 
-  // Theme resolution: DB settings (user's saved settings on login) -> localStorage override -> fallback theme prop
-  const themePreference = dbTheme || localTheme || theme;
-
-  const isCustomDarkTheme = ["onedark", "nord", "gruvbox", "tokyonight", "monochrome"].includes(themePreference);
-  const isCustomLightTheme = ["onelight", "gruvboxlight", "tokyoday", "monochromelight"].includes(themePreference);
-
+  const themePreference = dbTheme || applied.theme || theme;
   const resolvedTheme: ThemeId =
-    themePreference === "system"
-      ? systemTheme
-      : themePreference === "light" || isCustomLightTheme
-      ? "light"
-      : themePreference === "dark" || isCustomDarkTheme
-      ? "dark"
-      : theme;
+    themePreference === "system" ? systemTheme : themePreference === "light" ? "light" : "dark";
 
-  // Palette resolution: DB settings (user's saved settings on login) -> localStorage -> fallback palette prop
-  const resolvedPalette = (dbPalette || localPalette || palette) as PaletteId;
-  const resolvedDensity = dbDensity || localDensity || "comfortable";
+  const resolvedMaterial = resolveMaterialId(applied.material || dbMaterial || material);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const html = document.documentElement;
-    // APPLIED-first for data-palette (103036f density-fix class): the swatch
-    // click in appearance-section applyPalette() writes this attribute AND
-    // localStorage in the same tick, so localStorage IS the applied value —
-    // read it fresh here. A stale server echo (dbPalette from the last
-    // settings response) or its absence (failed/empty getSettings → dbPalette
-    // undefined → the aurora-cosmic fallback prop) must NEVER clobber
-    // html[data-palette] after the user chose one. e2e F-2:
-    // tests/e2e/stress.spec.ts:176 — the attribute flapped violet-nebula →
-    // aurora-cosmic and never reached the selected emerald-ledger.
-    const applied = localStorage.getItem("buddysaradhi.palette");
-    html.setAttribute("data-palette", applied || resolvedPalette);
-    // APPLIED-first for data-theme — F-2 class (tests/e2e/stress.spec.ts:182):
-    // the Light/Dark click in appearance-section writes data-theme AND
-    // localStorage in the same tick, so localStorage IS the applied value —
-    // read it fresh here. A stale server echo (dbTheme from a pre-mutation
-    // settings response, or a fallback-path write invisible to gateway reads)
-    // must NEVER clobber html[data-theme] after the user chose one.
-    // Scoped to concrete light/dark intent so "system" and custom themes keep
-    // resolving live (OS changes still follow).
-    const appliedTheme = localStorage.getItem("buddysaradhi.theme");
-    const concretePref = themePreference === "light" || themePreference === "dark";
-    const concreteApplied = appliedTheme === "light" || appliedTheme === "dark";
-    html.setAttribute("data-theme", concretePref && concreteApplied ? appliedTheme : resolvedTheme);
+
+    // Read localStorage FRESH inside the write effect rather than through the
+    // `applied` state. The state is populated by a separate mount effect, so on
+    // first paint it is still all-null — and a seed written from that null state
+    // overwrites an applied value that localStorage already held. That is the
+    // F-2 clobber class this file exists to prevent, reintroduced once already.
+    const appliedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    const appliedPalette = localStorage.getItem(PALETTE_STORAGE_KEY);
+    const appliedDensity = localStorage.getItem(DENSITY_STORAGE_KEY);
+    const appliedMaterial = localStorage.getItem(MATERIAL_STORAGE_KEY);
+
+    html.setAttribute("data-palette", resolvePaletteId(appliedPalette || dbPalette || palette));
+    // Material is written unconditionally: `--surface-overlay`, `--surface-nav`,
+    // `--surface-sheet` and `--surface-palette` are declared ONLY inside
+    // `[data-palette][data-material="…"]` in the generated token CSS, so an html
+    // element without this attribute leaves every overlay surface unstyled. That
+    // is why the attribute is set from the provider rather than only from the
+    // Settings screen.
+    html.setAttribute("data-material", resolveMaterialId(appliedMaterial || material));
+    html.setAttribute(
+      "data-theme",
+      appliedTheme === "light" || appliedTheme === "dark"
+        ? appliedTheme
+        : themePreference === "system"
+          ? systemTheme
+          : themePreference === "light"
+            ? "light"
+            : "dark",
+    );
     html.setAttribute("data-theme-preference", themePreference || "system");
-    // APPLIED-first for data-density — same stale-echo class (103036f): the
-    // density buttons write DOM + localStorage synchronously.
-    const appliedDensity = localStorage.getItem("buddysaradhi.density");
-    html.setAttribute("data-density", appliedDensity || resolvedDensity);
+    html.setAttribute("data-density", appliedDensity || dbDensity);
 
-    // Sync localStorage with DB settings when logged in — SEED only when this
-    // device has no applied value (first visit / cross-device restore).
-    // Unconditionally writing dbTheme/dbDensity here is what let a stale echo
-    // undo the user's click on the next effect run (theme: stress.spec.ts:182).
-    if (dbPalette && !applied) localStorage.setItem("buddysaradhi.palette", dbPalette);
-    if (dbTheme && !appliedTheme) localStorage.setItem("buddysaradhi.theme", dbTheme);
-    if (dbDensity && !appliedDensity) localStorage.setItem("buddysaradhi.density", dbDensity);
-  }, [resolvedPalette, resolvedTheme, themePreference, resolvedDensity, dbPalette, dbTheme, dbDensity]);
-
-  // Update localStorage when resolvedTheme changes — SEED only (see above):
-  // an applied same-device value is user intent and must survive a stale
-  // server echo arriving via resolvedTheme.
-  useEffect(() => {
-    if (resolvedTheme && !localStorage.getItem("buddysaradhi.theme")) {
-      localStorage.setItem("buddysaradhi.theme", resolvedTheme);
-    }
-  }, [resolvedTheme]);
-
-  // Update localStorage when resolvedDensity changes — SEED only (same class).
-  useEffect(() => {
-    if (resolvedDensity && !localStorage.getItem("buddysaradhi.density")) {
-      localStorage.setItem("buddysaradhi.density", resolvedDensity);
-    }
-  }, [resolvedDensity]);
+    // Seed only where this device has never chosen.
+    if (dbPalette && !appliedPalette) localStorage.setItem(PALETTE_STORAGE_KEY, dbPalette);
+    if (dbTheme && !appliedTheme) localStorage.setItem(THEME_STORAGE_KEY, dbTheme);
+    if (dbDensity && !appliedDensity) localStorage.setItem(DENSITY_STORAGE_KEY, dbDensity);
+  }, [
+    applied.palette,
+    applied.theme,
+    applied.density,
+    applied.material,
+    systemTheme,
+    themePreference,
+    dbPalette,
+    dbTheme,
+    dbDensity,
+    palette,
+    material,
+  ]);
 
   return (
-    <PaletteContext.Provider value={{ palette: resolvedPalette, theme: resolvedTheme }}>
+    <PaletteContext.Provider
+      value={{
+        palette: resolvePaletteId(applied.palette || dbPalette || palette),
+        theme: resolvedTheme,
+        material: resolveMaterialId(applied.material || material),
+      }}
+    >
       {children}
     </PaletteContext.Provider>
   );

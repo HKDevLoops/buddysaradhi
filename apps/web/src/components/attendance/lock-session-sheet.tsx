@@ -50,12 +50,12 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
 
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-            <Lock className="w-5 h-5 text-[var(--accent-cyan)]" />
+            <Lock className="w-5 h-5 text-[var(--info)]" />
             Lock Session
           </h2>
           <button 
             onClick={() => setLockSheetOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -63,25 +63,25 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
 
         {isLocked ? (
           <div className="text-center py-8 space-y-4">
-            <Lock className="w-12 h-12 text-[var(--accent-emerald)] mx-auto opacity-80" />
+            <Lock className="w-12 h-12 text-[var(--success)] mx-auto opacity-80" />
             <p className="text-[var(--text-primary)] text-lg font-medium">Session is already locked.</p>
             <p className="text-[var(--text-muted)] text-sm">Attendance records for this date and batch cannot be modified without unlocking.</p>
             <button 
               onClick={() => setLockSheetOpen(false)}
-              className="mt-4 neumo-raised px-6 py-2 rounded-lg text-sm font-medium text-[var(--text-primary)] hover:text-[var(--accent-emerald)] transition-colors"
+              className="mt-4 neumo-raised px-6 py-2 rounded-lg text-sm font-medium text-[var(--text-primary)] hover:text-[var(--success)] transition-colors"
             >
               Close
             </button>
           </div>
         ) : !session ? (
           <div className="text-center py-8 space-y-4">
-            <AlertTriangle className="w-12 h-12 text-[var(--accent-amber)] mx-auto opacity-80" />
+            <AlertTriangle className="w-12 h-12 text-[var(--warning)] mx-auto opacity-80" />
             <p className="text-[var(--text-primary)] text-lg font-medium">No active session to lock.</p>
             <p className="text-[var(--text-muted)] text-sm">Please mark attendance for at least one student before locking the session.</p>
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="bg-[var(--bg-surface-inset)] rounded-xl p-4 border border-[var(--border-default)]">
+            <div className="bg-[var(--surface-inset)] rounded-xl p-4 border border-[var(--border-default)]">
               <p className="text-sm text-[var(--text-secondary)] mb-2">
                 Locking the session prevents further modifications. You must provide your PIN (fallback: 1234) to confirm this action.
               </p>
@@ -100,10 +100,10 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
                 maxLength={4}
                 autoFocus
                 placeholder="••••"
-                className="neumo-inset w-full bg-[var(--bg-surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-2xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-cyan)]"
+                className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-2xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
               />
               {mutation.error && (
-                <p className="text-[var(--accent-flare)] text-xs mt-2 text-center">{toAppErrorState(mutation.error).message}</p>
+                <p className="text-[var(--danger)] text-xs mt-2 text-center">{toAppErrorState(mutation.error).message}</p>
               )}
             </div>
 
@@ -113,8 +113,8 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
               className={cn(
                 "w-full neumo-raised py-3 rounded-xl text-sm font-bold text-[#0a0a1a] transition-all",
                 pin.length >= 4 
-                  ? "bg-gradient-to-r from-[var(--accent-emerald)] to-[var(--accent-cyan)] shadow-[0_0_15px_rgba(0,255,157,0.4)]"
-                  : "bg-[var(--bg-surface-inset)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
+                  ? "bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.4, transparent)]"
+                  : "bg-[var(--surface-inset)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
               )}
             >
               {mutation.isPending ? "Locking..." : "Confirm & Lock"}

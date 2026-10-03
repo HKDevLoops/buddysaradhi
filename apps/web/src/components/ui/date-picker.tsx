@@ -27,7 +27,7 @@ export function DatePicker({ date, setDate, className, placeholder = "Pick a dat
         <Button
           variant={"outline"}
           className={cn(
-            "w-full justify-start text-left font-normal bg-[var(--bg-surface-inset)] border-[var(--border-default)] hover:bg-[var(--surface-glass-strong)] hover:text-[var(--text-primary)] text-[var(--text-primary)]",
+            "w-full justify-start text-left font-normal bg-[var(--surface-inset)] border-[var(--border-default)] hover:bg-[var(--surface-overlay)] hover:text-[var(--text-primary)] text-[var(--text-primary)]",
             !date && "text-[var(--text-muted)]",
             className
           )}

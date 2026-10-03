@@ -94,10 +94,10 @@ export function ImportExportSection() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button 
             onClick={handleExportJSON}
-            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-cyan)_35%,transparent)] text-left cursor-pointer transition-all w-full"
+            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--info)_35%,transparent)] text-left cursor-pointer transition-all w-full"
           >
-            <div className="w-10 h-10 rounded-lg bg-[var(--accent-cyan)]/10 flex items-center justify-center shrink-0">
-              <FileJson className="w-5 h-5 text-[var(--accent-cyan)]" />
+            <div className="w-10 h-10 rounded-lg bg-[var(--info)]/10 flex items-center justify-center shrink-0">
+              <FileJson className="w-5 h-5 text-[var(--info)]" />
             </div>
             <div>
               <p className="text-sm font-semibold text-[var(--text-primary)]">Export to JSON</p>
@@ -107,10 +107,10 @@ export function ImportExportSection() {
           
           <button 
             onClick={handleExportCSV}
-            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] hover:bg-[var(--surface-glass)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--accent-emerald)_35%,transparent)] text-left cursor-pointer transition-all w-full"
+            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--success)_35%,transparent)] text-left cursor-pointer transition-all w-full"
           >
-            <div className="w-10 h-10 rounded-lg bg-[var(--accent-emerald)]/10 flex items-center justify-center shrink-0">
-              <Download className="w-5 h-5 text-[var(--accent-emerald)]" />
+            <div className="w-10 h-10 rounded-lg bg-[var(--success)]/10 flex items-center justify-center shrink-0">
+              <Download className="w-5 h-5 text-[var(--success)]" />
             </div>
             <div>
               <p className="text-sm font-semibold text-[var(--text-primary)]">Export to CSV</p>
@@ -120,7 +120,7 @@ export function ImportExportSection() {
         </div>
       </div>
 
-      <div className="h-px bg-[var(--border-glass)] w-full" />
+      <div className="h-px bg-[var(--border-default)] w-full" />
 
       <div>
         <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
@@ -128,9 +128,9 @@ export function ImportExportSection() {
           Import Data
         </h3>
         
-        <div className="glass-card p-6 rounded-xl border border-[var(--border-glass)]">
+        <div className="glass-card p-6 rounded-xl border border-[var(--border-default)]">
           <div className="flex gap-4">
-            <AlertCircle className="w-5 h-5 text-[var(--accent-amber)] shrink-0" />
+            <AlertCircle className="w-5 h-5 text-[var(--warning)] shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Import from v1.x Backup</p>
               <p className="text-sm text-[var(--text-muted)] mb-4 leading-relaxed">
@@ -150,20 +150,20 @@ export function ImportExportSection() {
                 <button 
                   onClick={triggerFileInput}
                   disabled={importStatus === "loading"}
-                  className="neumo-raised px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--accent-amber)] cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                  className="neumo-raised px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--warning)] cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
                   {importStatus === "loading" && <Loader2 className="w-4 h-4 animate-spin" />}
                   Select Backup File...
                 </button>
 
                 {importStatus === "success" && (
-                  <p className="text-[var(--accent-emerald)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
+                  <p className="text-[var(--success)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
                     <CheckCircle2 className="w-4 h-4" /> Backup imported successfully.
                   </p>
                 )}
 
                 {importStatus === "error" && (
-                  <p className="text-[var(--accent-flare)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
+                  <p className="text-[var(--danger)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
                     <XCircle className="w-4 h-4" /> {errorMessage}
                   </p>
                 )}

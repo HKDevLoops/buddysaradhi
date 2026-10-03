@@ -37,20 +37,20 @@ function Calendar({
         head_cell:
           "text-[var(--text-muted)] rounded-md w-9 font-normal text-[0.8rem]",
         row: "flex w-full mt-2",
-        cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-[var(--bg-surface-inset)] [&:has([aria-selected])]:bg-[var(--bg-surface-inset)] first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+        cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-[var(--surface-inset)] [&:has([aria-selected])]:bg-[var(--surface-inset)] first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-[var(--surface-glass-strong)] hover:text-[var(--text-primary)]"
+          "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-[var(--surface-overlay)] hover:text-[var(--text-primary)]"
         ),
         day_range_end: "day-range-end",
         day_selected:
-          "bg-[var(--accent-cyan)] text-black hover:bg-[var(--accent-cyan)] hover:text-black focus:bg-[var(--accent-cyan)] focus:text-black",
-        day_today: "bg-[var(--surface-glass-strong)] text-[var(--text-primary)]",
+          "bg-[var(--info)] text-black hover:bg-[var(--info)] hover:text-black focus:bg-[var(--info)] focus:text-black",
+        day_today: "bg-[var(--surface-overlay)] text-[var(--text-primary)]",
         day_outside:
-          "day-outside text-[var(--text-muted)] opacity-70 opacity-50 aria-selected:bg-[var(--accent-primary)] aria-selected:text-[var(--text-on-accent)] opacity-50 aria-selected:text-[var(--text-on-accent)] aria-selected:opacity-30",
+          "day-outside text-[var(--text-muted)] opacity-70 opacity-50 aria-selected:bg-[var(--accent-primary)] aria-selected:text-[var(--accent-on-primary)] opacity-50 aria-selected:text-[var(--accent-on-primary)] aria-selected:opacity-30",
         day_disabled: "text-[var(--text-muted)] opacity-70 opacity-50",
         day_range_middle:
-          "aria-selected:bg-[var(--accent-primary)] aria-selected:text-[var(--text-on-accent)]",
+          "aria-selected:bg-[var(--accent-primary)] aria-selected:text-[var(--accent-on-primary)]",
         day_hidden: "invisible",
         ...classNames,
       }}

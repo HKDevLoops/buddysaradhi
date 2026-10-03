@@ -151,7 +151,7 @@ export function AddStudentSheet() {
 
             <div className="p-6 flex-1 overflow-y-auto">
               {error && (
-                <div className="mb-6 p-4 rounded-lg bg-[var(--accent-flare)]/10 border border-[var(--accent-flare)]/20 text-[var(--accent-flare)] text-sm">
+                <div className="mb-6 p-4 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
                   {error}
                 </div>
               )}
@@ -165,7 +165,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. Aarav Sharma"
                     />
-                    {errors.name && <p className="mt-1 text-xs text-[var(--accent-flare)]">{errors.name.message}</p>}
+                    {errors.name && <p className="mt-1 text-xs text-[var(--danger)]">{errors.name.message}</p>}
                   </div>
 
                   <div>
@@ -186,7 +186,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. Class 10 - Maths"
                     />
-                    {errors.batch && <p className="mt-1 text-xs text-[var(--accent-flare)]">{errors.batch.message}</p>}
+                    {errors.batch && <p className="mt-1 text-xs text-[var(--danger)]">{errors.batch.message}</p>}
                   </div>
 
                   <div>
@@ -204,9 +204,9 @@ export function AddStudentSheet() {
                       {...register("fee_model")}
                       className="glass-input"
                     >
-                      <option value="postpaid" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Postpaid</option>
-                      <option value="prepaid" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Prepaid</option>
-                      <option value="mixed" className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Mixed</option>
+                      <option value="postpaid" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Postpaid</option>
+                      <option value="prepaid" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Prepaid</option>
+                      <option value="mixed" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Mixed</option>
                     </select>
                   </div>
                   <div>
@@ -265,13 +265,13 @@ export function AddStudentSheet() {
                       />
                     )}
                   />
-                  {errors.joined_at && <p className="mt-1 text-xs text-[var(--accent-flare)]">{errors.joined_at.message}</p>}
+                  {errors.joined_at && <p className="mt-1 text-xs text-[var(--danger)]">{errors.joined_at.message}</p>}
                 </div>
                 <div className="pt-4 border-t border-[var(--border-default)]">
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-6 bg-[var(--accent-emerald)] hover:bg-[var(--accent-emerald)]/90 text-[var(--text-on-accent)] font-semibold rounded-xl transition-all cursor-pointer"
+                    className="w-full py-6 bg-[var(--success)] hover:bg-[var(--success)]/90 text-[var(--accent-on-primary)] font-semibold rounded-xl transition-all cursor-pointer"
                   >
                     {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Student"}
                   </Button>
@@ -280,8 +280,8 @@ export function AddStudentSheet() {
             </div>
             {duplicateWarning ? (
               <div className="absolute inset-0 z-10 glass-strong flex flex-col p-8 items-center justify-center animate-in fade-in duration-200">
-                <div className="w-full max-w-sm p-6 rounded-2xl border border-[var(--accent-flare)]/40 bg-[var(--bg-surface-raised)]/95 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
-                  <div className="w-12 h-12 rounded-full bg-[var(--accent-flare)]/15 text-[var(--accent-flare)] flex items-center justify-center mb-4 ring-1 ring-[var(--accent-flare)]/30">
+                <div className="w-full max-w-sm p-6 rounded-2xl border border-[var(--danger)]/40 bg-[var(--surface-raised)]/95 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
+                  <div className="w-12 h-12 rounded-full bg-[var(--danger)]/15 text-[var(--danger)] flex items-center justify-center mb-4 ring-1 ring-[var(--danger)]/30">
                     <X className="w-6 h-6" />
                   </div>
                   <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Duplicate Detected</h3>
@@ -291,13 +291,13 @@ export function AddStudentSheet() {
                   <div className="flex w-full gap-3">
                     <Button 
                       variant="ghost" 
-                      className="flex-1 text-[var(--text-primary)] hover:bg-[var(--surface-glass-strong)] border border-[var(--border-default)]"
+                      className="flex-1 text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] border border-[var(--border-default)]"
                       onClick={() => setDuplicateWarning(null)}
                     >
                       Cancel
                     </Button>
                     <Button 
-                      className="flex-1 bg-[var(--accent-cyan)] text-[var(--text-on-accent)] hover:bg-[var(--accent-cyan)]/90 font-medium"
+                      className="flex-1 bg-[var(--info)] text-[var(--accent-on-primary)] hover:bg-[var(--info)]/90 font-medium"
                       onClick={() => doCreate(duplicateWarning.data, true)}
                       disabled={submitting}
                     >

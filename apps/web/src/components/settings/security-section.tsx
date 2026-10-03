@@ -102,7 +102,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
         </h3>
 
         <div className="space-y-4 max-w-2xl">
-          <div className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
+          <div className="flex items-center justify-between bg-[var(--surface-inset)] border border-[var(--border-default)] p-5 rounded-xl hover:bg-[var(--surface-raised)] transition-colors">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-[var(--accent-primary)]/10 flex items-center justify-center shrink-0">
                 <Lock className="w-6 h-6 text-[var(--accent-primary)]" />
@@ -120,10 +120,10 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
             </button>
           </div>
 
-          <div className="flex items-center justify-between bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
+          <div className="flex items-center justify-between bg-[var(--surface-inset)] border border-[var(--border-default)] p-5 rounded-xl hover:bg-[var(--surface-raised)] transition-colors">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--accent-violet)]/10 flex items-center justify-center shrink-0">
-                <Fingerprint className="w-6 h-6 text-[var(--accent-violet)]" />
+              <div className="w-12 h-12 rounded-xl bg-[var(--info)]/10 flex items-center justify-center shrink-0">
+                <Fingerprint className="w-6 h-6 text-[var(--info)]" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">Biometric Unlock</p>
@@ -137,10 +137,10 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
             />
           </div>
 
-          <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4 bg-[var(--surface-glass-faint)] border border-[var(--border-glass)] p-5 rounded-xl hover:bg-[var(--surface-glass)] transition-colors">
+          <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4 bg-[var(--surface-inset)] border border-[var(--border-default)] p-5 rounded-xl hover:bg-[var(--surface-raised)] transition-colors">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--accent-amber)]/10 flex items-center justify-center shrink-0">
-                <Timer className="w-6 h-6 text-[var(--accent-amber)]" />
+              <div className="w-12 h-12 rounded-xl bg-[var(--warning)]/10 flex items-center justify-center shrink-0">
+                <Timer className="w-6 h-6 text-[var(--warning)]" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">Auto-Lock Timeout</p>
@@ -153,14 +153,14 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
                 value={sessionTimeoutMin}
                 onChange={(e) => updateMutation.mutate({ field: "sessionTimeoutMin", value: parseInt(e.target.value) })}
                 aria-label="Auto-lock timeout"
-                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--accent-amber)]"
+                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--warning)]"
               >
-                <option value={1} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">1 minute</option>
-                <option value={5} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">5 minutes</option>
-                <option value={15} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">15 minutes</option>
-                <option value={30} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">30 minutes</option>
-                <option value={60} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">1 hour</option>
-                <option value={0} className="bg-[var(--bg-surface)] text-[var(--text-primary)]">Never</option>
+                <option value={1} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">1 minute</option>
+                <option value={5} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">5 minutes</option>
+                <option value={15} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">15 minutes</option>
+                <option value={30} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">30 minutes</option>
+                <option value={60} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">1 hour</option>
+                <option value={0} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Never</option>
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-[var(--text-secondary)]">
                 <svg className="fill-current h-4 w-4" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
@@ -170,7 +170,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
         </div>
       </div>
 
-      <div className="h-px bg-[var(--border-glass)] w-full" />
+      <div className="h-px bg-[var(--border-default)] w-full" />
 
       <div>
         <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
@@ -205,10 +205,10 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
           </div>
 
           {passwordStatus === "success" && (
-            <p className="text-[var(--accent-emerald)] text-sm font-semibold">Password updated successfully.</p>
+            <p className="text-[var(--success)] text-sm font-semibold">Password updated successfully.</p>
           )}
           {passwordStatus === "error" && (
-            <p className="text-[var(--accent-flare)] text-sm font-semibold">{passwordError}</p>
+            <p className="text-[var(--danger)] text-sm font-semibold">{passwordError}</p>
           )}
 
           <button
@@ -221,7 +221,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
         </form>
       </div>
 
-      <div className="h-px bg-[var(--border-glass)] w-full" />
+      <div className="h-px bg-[var(--border-default)] w-full" />
 
       <SecurityPanel />
     </section>

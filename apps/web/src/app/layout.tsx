@@ -86,7 +86,7 @@ export default async function RootLayout({
     <html
       lang="en-IN"
       className={`${sora.variable} ${onest.variable} ${jetbrainsMono.variable} scroll-smooth`}
-      data-palette="aurora-cosmic"
+      data-palette="inked"
       data-theme="dark"
       data-scroll-behavior="smooth"
       suppressHydrationWarning
@@ -109,10 +109,6 @@ export default async function RootLayout({
                     theme = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)
                       ? "dark" : "light";
                   }
-                  // Aurora-cosmic is dark-only; midnight-slate is light-only.
-                  // Pair them so a single-theme palette displays correctly.
-                  if (palette === "aurora-cosmic" && theme === "light") palette = "midnight-slate";
-                  if (palette === "midnight-slate" && theme === "dark") palette = "aurora-cosmic";
                   if (palette) html.setAttribute("data-palette", palette);
                   if (theme) html.setAttribute("data-theme", theme);
                   if (density) html.setAttribute("data-density", density);

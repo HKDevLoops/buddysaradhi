@@ -1,6 +1,9 @@
 // @ts-nocheck
-// Implements: 20_3D_Product_Page.md §3 (perf) + §7.3 (cosmic bg) + Oddy lesson:
+// Implements: 20_3D_Product_Page.md §3 (perf) + §7.3 (canvas) + Oddy lesson:
 // ACESFilmic tone mapping or the render comes out dark and muddy (FM-12).
+// docs/design/overhaul-plan.md §4.1: the background and fog now come from the
+// ACTIVE palette (--canvas / --surface-sunken) instead of the retired cosmic
+// indigo literals.
 // R3F + turpopack + TS 7 → ts-nocheck per buddysaradhi-3d skill.
 "use client";
 
@@ -9,9 +12,11 @@ import { Canvas } from "@react-three/fiber";
 import { AdaptiveDpr } from "@react-three/drei";
 import * as THREE from "three";
 import { Journey, type ProgressProxy } from "./Journey";
+import type { SceneTokens } from "./hooks";
 
 interface ProductSceneProps {
   progressRef: ProgressProxy;
+  tokens: SceneTokens;
   frozen?: boolean;
   lowEnd?: boolean;
   inView?: boolean;
@@ -20,6 +25,7 @@ interface ProductSceneProps {
 
 export function ProductScene({
   progressRef,
+  tokens,
   frozen = false,
   lowEnd = false,
   inView = true,
@@ -38,11 +44,11 @@ export function ProductScene({
         onReady?.();
       }}
     >
-      <color attach="background" args={["#0f0c29"]} />
-      <fog attach="fog" args={["#0a0a1a", 8, 18]} />
+      <color attach="background" args={[tokens.canvas]} />
+      <fog attach="fog" args={[tokens.sunken, 8, 18]} />
       <AdaptiveDpr />
       <Suspense fallback={null}>
-        <Journey progressRef={progressRef} frozen={frozen} lowEnd={lowEnd} />
+        <Journey progressRef={progressRef} tokens={tokens} frozen={frozen} lowEnd={lowEnd} />
       </Suspense>
     </Canvas>
   );

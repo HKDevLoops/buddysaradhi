@@ -16,10 +16,10 @@ import { cn } from "@/lib/utils";
 import { fuzzySearch } from "@buddysaradhi/shared";
 
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
-  { key: "present", label: "Present", accent: "var(--accent-emerald)" },
-  { key: "absent", label: "Absent", accent: "var(--accent-flare)" },
-  { key: "late", label: "Late", accent: "var(--accent-amber)" },
-  { key: "excused", label: "Leave", accent: "var(--accent-cyan)" },
+  { key: "present", label: "Present", accent: "var(--success)" },
+  { key: "absent", label: "Absent", accent: "var(--danger)" },
+  { key: "late", label: "Late", accent: "var(--warning)" },
+  { key: "excused", label: "Leave", accent: "var(--info)" },
 ];
 
 interface AttendanceGridProps {
@@ -131,9 +131,9 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
       <div
         className="p-4 rounded-xl flex items-center justify-between sticky top-0 z-20 shadow-sm"
         style={{
-          background: "var(--surface-glass-strong)",
+          background: "var(--surface-overlay)",
           backdropFilter: "blur(24px) saturate(160%)",
-          border: "1px solid var(--border-glass-strong)",
+          border: "1px solid var(--border-strong)",
         }}
       >
         <h2 className="text-sm font-semibold" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-heading)" }}>
@@ -149,24 +149,24 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
             )}
             style={{
               background: isAllPresent
-                ? "color-mix(in srgb, var(--accent-success) 15%, transparent)"
-                : "var(--bg-surface-raised)",
+                ? "color-mix(in srgb, var(--success) 15%, transparent)"
+                : "var(--surface-raised)",
               color: "var(--text-primary)",
               border: isAllPresent
-                ? "1px solid var(--accent-success)"
+                ? "1px solid var(--success)"
                 : "1px solid var(--border-default)",
               boxShadow: isAllPresent
-                ? "0 0 14px color-mix(in srgb, var(--accent-success) 20%, transparent)"
+                ? "0 0 14px color-mix(in srgb, var(--success) 20%, transparent)"
                 : undefined,
             }}
             onMouseEnter={(e) => {
-              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--accent-success)";
+              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--success)";
             }}
             onMouseLeave={(e) => {
               if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
-            <Check className="w-4 h-4" style={{ color: "var(--accent-success)" }} /> Mark all Present
+            <Check className="w-4 h-4" style={{ color: "var(--success)" }} /> Mark all Present
           </button>
           <button
             onClick={() => handleBulk("absent")}
@@ -177,24 +177,24 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
             )}
             style={{
               background: isAllAbsent
-                ? "color-mix(in srgb, var(--accent-danger) 15%, transparent)"
-                : "var(--bg-surface-raised)",
+                ? "color-mix(in srgb, var(--danger) 15%, transparent)"
+                : "var(--surface-raised)",
               color: "var(--text-primary)",
               border: isAllAbsent
-                ? "1px solid var(--accent-danger)"
+                ? "1px solid var(--danger)"
                 : "1px solid var(--border-default)",
               boxShadow: isAllAbsent
-                ? "0 0 14px color-mix(in srgb, var(--accent-danger) 20%, transparent)"
+                ? "0 0 14px color-mix(in srgb, var(--danger) 20%, transparent)"
                 : undefined,
             }}
             onMouseEnter={(e) => {
-              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--accent-danger)";
+              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--danger)";
             }}
             onMouseLeave={(e) => {
               if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
-            <X className="w-4 h-4" style={{ color: "var(--accent-danger)" }} /> Mark all Absent
+            <X className="w-4 h-4" style={{ color: "var(--danger)" }} /> Mark all Absent
           </button>
         </div>
       </div>
@@ -203,12 +203,12 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
         <div
           className="px-4 py-2 rounded-lg text-sm flex items-center gap-2"
           style={{
-            background: "color-mix(in srgb, var(--accent-danger) 15%, transparent)",
-            border: "1px solid var(--accent-danger)",
+            background: "color-mix(in srgb, var(--danger) 15%, transparent)",
+            border: "1px solid var(--danger)",
             color: "var(--text-primary)",
           }}
         >
-          <AlertTriangle className="w-4 h-4" style={{ color: "var(--accent-danger)" }} /> {errorToast}
+          <AlertTriangle className="w-4 h-4" style={{ color: "var(--danger)" }} /> {errorToast}
         </div>
       )}
 
@@ -220,14 +220,14 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
               No students found for this batch.
             </div>
           ) : (
-            <div className="divide-y" style={{ borderColor: "var(--border-glass)" }}>
+            <div className="divide-y" style={{ borderColor: "var(--border-default)" }}>
               {filteredRecords.map((record) => (
                 <div
                   key={record.student_id}
                   className="flex items-center justify-between px-6 py-3 transition-colors group h-16"
-                  style={{ borderBottom: "1px solid var(--border-glass)" }}
+                  style={{ borderBottom: "1px solid var(--border-default)" }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--surface-glass-faint)";
+                    e.currentTarget.style.background = "var(--surface-inset)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background = "transparent";
@@ -237,8 +237,8 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
                     <div
                       className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-lg shrink-0"
                       style={{
-                        background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))",
-                        color: "var(--text-on-accent)",
+                        background: "linear-gradient(135deg, var(--accent-primary), var(--accent-text))",
+                        color: "var(--accent-on-primary)",
                       }}
                     >
                       {record.name.charAt(0).toUpperCase()}

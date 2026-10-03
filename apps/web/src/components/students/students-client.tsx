@@ -35,7 +35,7 @@ export function StudentsClient() {
         className="flex flex-col w-full md:w-[360px] flex-shrink-0 min-h-0 glass-panel rounded-2xl overflow-hidden"
         aria-label="Student list"
       >
-        <div className="flex-none p-4 space-y-3 border-b border-[var(--border-glass)]">
+        <div className="flex-none p-4 space-y-3 border-b border-[var(--border-default)]">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <h1
@@ -47,7 +47,7 @@ export function StudentsClient() {
               <span
                 className="text-xs font-medium px-2 py-0.5 rounded-full"
                 style={{
-                  background: "var(--surface-glass-faint)",
+                  background: "var(--surface-inset)",
                   color: "var(--text-muted)",
                 }}
               >
@@ -60,7 +60,7 @@ export function StudentsClient() {
               type="button"
               onClick={openAddSheet}
               aria-label="Add Student"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--accent-emerald)]/10 text-[var(--accent-emerald)] border border-[var(--accent-emerald)]/20 text-xs font-bold shadow-md hover:bg-[var(--accent-emerald)]/20 active:translate-y-[1px] transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20 text-xs font-bold shadow-md hover:bg-[var(--success)]/20 active:translate-y-[1px] transition-all"
             >
               <Plus className="w-3.5 h-3.5" />
               Add

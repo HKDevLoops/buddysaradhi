@@ -42,7 +42,7 @@ export function AttendanceClient() {
         {isLoading ? (
           <div className="glass rounded-xl overflow-hidden min-h-[400px] flex items-center justify-center">
             <div className="flex flex-col items-center gap-4 opacity-50">
-              <Loader2 className="w-8 h-8 text-[var(--accent-cyan)] animate-spin" />
+              <Loader2 className="w-8 h-8 text-[var(--info)] animate-spin" />
               <p className="text-sm text-[var(--text-muted)]">Loading attendance...</p>
             </div>
           </div>

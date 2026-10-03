@@ -59,13 +59,13 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
   const statusColor = (status: number) => {
     switch (status) {
       case 1:
-        return "bg-[var(--accent-emerald)]/80 shadow-[0_0_6px_rgba(0,255,157,0.35)]";
+        return "bg-[var(--success)]/80 shadow-[0_0_6px_color-mix(in srgb, var(--success) 0.35, transparent)]";
       case 2:
-        return "bg-[var(--accent-amber)]/80";
+        return "bg-[var(--warning)]/80";
       case 0:
-        return "bg-[var(--accent-flare)]/80";
+        return "bg-[var(--danger)]/80";
       default:
-        return "bg-[var(--bg-surface-inset)]";
+        return "bg-[var(--surface-inset)]";
     }
   };
   const statusLabel = (status: number) =>
@@ -84,7 +84,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
         <div
           className="p-4 rounded-xl border flex flex-col justify-between"
           style={{
-            background: "var(--bg-surface-inset)",
+            background: "var(--surface-inset)",
             borderColor: "var(--border-default)",
           }}
         >
@@ -103,7 +103,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
         <div
           className="p-4 rounded-xl border flex flex-col justify-between"
           style={{
-            background: "var(--bg-surface-inset)",
+            background: "var(--surface-inset)",
             borderColor: "var(--border-default)",
           }}
         >
@@ -114,7 +114,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
             <span className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
               Today
             </span>
-            <span className="text-sm font-medium" style={{ color: "var(--accent-success)" }}>
+            <span className="text-sm font-medium" style={{ color: "var(--success)" }}>
               On time
             </span>
           </div>
@@ -125,7 +125,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
       <div
         className="p-5 rounded-xl border space-y-4"
         style={{
-          background: "var(--surface-glass-faint)",
+          background: "var(--surface-inset)",
           borderColor: "var(--border-default)",
         }}
       >
@@ -135,13 +135,13 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
           </h3>
           <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-emerald)]/80" /> Present
+              <span className="w-2 h-2 rounded-full bg-[var(--success)]/80" /> Present
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-amber)]/80" /> Late
+              <span className="w-2 h-2 rounded-full bg-[var(--warning)]/80" /> Late
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--accent-flare)]/80" /> Absent
+              <span className="w-2 h-2 rounded-full bg-[var(--danger)]/80" /> Absent
             </span>
           </div>
         </div>
@@ -161,7 +161,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
               key={i}
               className={`aspect-square rounded-md flex items-center justify-center text-xs ${
                 c.day ? statusColor(c.status) : ""
-              } ${c.day ? "text-[var(--text-on-accent)]" : ""}`}
+              } ${c.day ? "text-[var(--accent-on-primary)]" : ""}`}
               style={!c.day ? { background: "transparent" } : undefined}
               title={
                 c.date
@@ -176,7 +176,7 @@ export function AttendanceTab({ studentId }: AttendanceTabProps) {
       </div>
 
       <div className="flex justify-center">
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors" style={{ background: "var(--bg-surface-inset)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }} onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}>
+        <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors" style={{ background: "var(--surface-inset)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }} onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}>
           <CalendarCheck className="w-4 h-4" />
           Open in Attendance &rarr;
         </button>

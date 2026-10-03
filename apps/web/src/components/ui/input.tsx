@@ -14,21 +14,21 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         // Layout & sizing
         "min-h-[44px] w-full min-w-0 rounded-xl px-4 py-2.5 text-sm",
         // Glass-inset surface — clearly visible against cosmic canvas
-        "bg-[var(--bg-surface-inset)]",
+        "bg-[var(--surface-inset)]",
         // Borders — strong enough to delineate the field
-        "border border-[var(--border-glass-strong)]",
+        "border border-[var(--border-strong)]",
         // Text
         "text-[var(--text-primary)] placeholder:text-[var(--text-muted)]",
         // Transitions
         "transition-[border-color,box-shadow] duration-200",
         // Focus ring — bioluminescent cyan glow
         "outline-none",
-        "focus:border-[var(--accent-cyan)]",
-        "focus:shadow-[0_0_0_2px_rgba(0,240,255,0.2),inset_0_1px_2px_rgba(0,0,0,0.3)]",
+        "focus:border-[var(--info)]",
+        "focus:shadow-[0_0_0_2px_color-mix(in srgb, var(--info) 0.2, transparent),inset_0_1px_2px_rgba(0,0,0,0.3)]",
         // Disabled
         "disabled:pointer-events-none disabled:opacity-40",
         // Invalid
-        "aria-invalid:border-[var(--accent-flare)] aria-invalid:focus:shadow-[0_0_0_2px_rgba(255,94,0,0.2)]",
+        "aria-invalid:border-[var(--danger)] aria-invalid:focus:shadow-[0_0_0_2px_color-mix(in srgb, var(--danger) 0.2, transparent)]",
         className
       )}
       {...props}

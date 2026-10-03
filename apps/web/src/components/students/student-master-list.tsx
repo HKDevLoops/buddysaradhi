@@ -6,14 +6,12 @@ import { useStudentsStore } from "@/stores/students-store";
 import { type StudentListRow, formatINR } from "@buddysaradhi/shared";
 
 const ACCENTS = [
-  "emerald",
-  "cyan",
-  "amber",
-  "flare",
-  "violet",
-  "primary",
-  "secondary",
-  "tertiary",
+  "success",
+  "info",
+  "warning",
+  "danger",
+  "accent-primary",
+  "accent-text",
 ] as const;
 
 export function studentAccent(id: string): string {
@@ -44,7 +42,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
         <div
           className="w-8 h-8 border-2 rounded-full animate-spin"
           style={{
-            borderColor: "var(--border-glass)",
+            borderColor: "var(--border-default)",
             borderTopColor: "var(--accent-primary)",
           }}
         />
@@ -57,7 +55,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
       <div className="flex flex-col items-center justify-center text-center px-6 py-16 space-y-4">
         <div
           className="w-16 h-16 rounded-full flex items-center justify-center"
-          style={{ background: "var(--surface-glass-strong)" }}
+          style={{ background: "var(--surface-overlay)" }}
         >
           <svg
             className="w-8 h-8"
@@ -86,7 +84,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
           onClick={() => openAddSheet()}
           className="neumo-raised mt-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors"
           style={{
-            background: "var(--bg-surface-raised)",
+            background: "var(--surface-raised)",
             border: "1px solid var(--border-default)",
             color: "var(--text-primary)",
           }}
@@ -98,7 +96,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
   }
 
   return (
-    <ul className="divide-y divide-[var(--border-glass)]">
+    <ul className="divide-y divide-[var(--border-default)]">
       {students.map((s) => {
         const isSelected = s.id === selectedStudentId;
         const accent = studentAccent(s.id);
@@ -123,7 +121,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
                   : "3px solid transparent",
               }}
               onMouseEnter={(e) => {
-                if (!isSelected) e.currentTarget.style.background = "var(--surface-glass-faint)";
+                if (!isSelected) e.currentTarget.style.background = "var(--surface-inset)";
               }}
               onMouseLeave={(e) => {
                 if (!isSelected) e.currentTarget.style.background = "transparent";
@@ -133,9 +131,9 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
               <div
                 className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                 style={{
-                  background: `color-mix(in srgb, var(--accent-${accent}) 16%, var(--bg-surface-raised))`,
-                  color: `var(--accent-${accent})`,
-                  border: `1px solid color-mix(in srgb, var(--accent-${accent}) 35%, transparent)`,
+                  background: `color-mix(in srgb, var(--${accent}) 16%, var(--surface-raised))`,
+                  color: `var(--${accent})`,
+                  border: `1px solid color-mix(in srgb, var(--${accent}) 35%, transparent)`,
                 }}
                 aria-hidden="true"
               >

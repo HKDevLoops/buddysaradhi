@@ -1,18 +1,22 @@
 // @ts-nocheck
-// Implements: 20_3D_Product_Page.md §1 (particle field) + §7.3 (cosmic grain).
+// Implements: 20_3D_Product_Page.md §1 (particle field).
+// docs/design/overhaul-plan.md §4.1: particles take the palette accent instead
+// of the retired cyan literal, so the scene follows whichever palette is live.
 // R3F + turpopack + TS 7 → ts-nocheck per buddysaradhi-3d skill (AGENTS.md FM-09).
 "use client";
 
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import type { SceneTokens } from "./hooks";
 
 interface ParticleFieldProps {
+  tokens: SceneTokens;
   count?: number;
   frozen?: boolean;
 }
 
-export function ParticleField({ count = 200, frozen = false }: ParticleFieldProps) {
+export function ParticleField({ tokens, count = 200, frozen = false }: ParticleFieldProps) {
   const ref = useRef<THREE.Points>(null);
   const pointer = useRef({ x: 0, y: 0 });
 
@@ -49,9 +53,9 @@ export function ParticleField({ count = 200, frozen = false }: ParticleFieldProp
       </bufferGeometry>
       <pointsMaterial
         size={0.035}
-        color="#00F0FF"
+        color={tokens.accent}
         transparent
-        opacity={0.55}
+        opacity={0.4}
         sizeAttenuation
         depthWrite={false}
       />

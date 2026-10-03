@@ -74,12 +74,12 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
       />
 
       <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-4xl shadow-2xl p-6 overflow-hidden max-h-[85vh] flex flex-col">
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,rgba(0,240,255,0.1)_0%,transparent_70%)] blur-2xl pointer-events-none" />
+        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,color-mix(in srgb, var(--info) 0.1, transparent)_0%,transparent_70%)] blur-2xl pointer-events-none" />
 
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-[var(--accent-cyan)]" />
+              <BarChart3 className="w-5 h-5 text-[var(--info)]" />
               Attendance Summary
             </h2>
             {summaryData && (
@@ -91,7 +91,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
           </div>
           <button
             onClick={() => setReportOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-glass-strong)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
             aria-label="Close report"
           >
             <X className="w-5 h-5" />
@@ -99,7 +99,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
         </div>
 
         {/* Preset Selector */}
-        <div className="flex flex-wrap gap-2 mb-5 pb-4" style={{ borderBottom: "1px solid var(--border-glass)" }}>
+        <div className="flex flex-wrap gap-2 mb-5 pb-4" style={{ borderBottom: "1px solid var(--border-default)" }}>
           {PRESETS.map((p) => (
             <button
               key={p.id}
@@ -107,7 +107,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-all",
                 activePreset === p.id
-                  ? "bg-[var(--surface-glass-strong)] text-[var(--text-primary)] shadow-sm ring-1 ring-white/10"
+                  ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-sm ring-1 ring-white/10"
                   : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
               )}
             >
@@ -124,25 +124,25 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
               title="Total Students"
               value={overall.total_students}
               icon={<Users className="w-4 h-4" />}
-              accent="var(--accent-cyan)"
+              accent="var(--info)"
             />
             <StatCard
               title="Present"
               value={overall.overall_present}
               icon={<CheckCircle className="w-4 h-4" />}
-              accent="var(--accent-emerald)"
+              accent="var(--success)"
             />
             <StatCard
               title="Absent"
               value={overall.overall_absent}
               icon={<XCircle className="w-4 h-4" />}
-              accent="var(--accent-flare)"
+              accent="var(--danger)"
             />
             <StatCard
               title="Attendance %"
               value={`${overall.overall_percentage}%`}
               icon={<TrendingUp className="w-4 h-4" />}
-              accent={overall.overall_percentage >= 75 ? "var(--accent-emerald)" : overall.overall_percentage >= 50 ? "var(--accent-amber)" : "var(--accent-flare)"}
+              accent={overall.overall_percentage >= 75 ? "var(--success)" : overall.overall_percentage >= 50 ? "var(--warning)" : "var(--danger)"}
             />
           </div>
         )}
@@ -152,7 +152,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
           {isLoading ? (
             <div className="flex items-center justify-center py-10">
               <div className="flex flex-col items-center gap-4 opacity-50">
-                <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border-glass)", borderTopColor: "var(--accent-cyan)" }} />
+                <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: "var(--border-default)", borderTopColor: "var(--info)" }} />
                 <p className="text-sm text-[var(--text-muted)]">Loading summary...</p>
               </div>
             </div>
@@ -195,22 +195,22 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
                       {s.student_name}
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-emerald)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--success)" }}>
                         {s.present}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-flare)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--danger)" }}>
                         {s.absent}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-amber)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--warning)" }}>
                         {s.late}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--accent-cyan)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--info)" }}>
                         {s.excused}
                       </div>
                     </td>
@@ -221,7 +221,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
                     </td>
                     <td className="p-0">
                       <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ 
-                        color: s.percentage >= 75 ? "var(--accent-emerald)" : s.percentage >= 50 ? "var(--accent-amber)" : "var(--accent-flare)" 
+                        color: s.percentage >= 75 ? "var(--success)" : s.percentage >= 50 ? "var(--warning)" : "var(--danger)" 
                       }}>
                         {s.percentage}%
                       </div>
@@ -234,21 +234,21 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
         </div>
 
         {/* Legend — color is never the only signal */}
-        <div className="flex flex-wrap items-center gap-4 mt-5 pt-4" style={{ borderTop: "1px solid var(--border-glass)" }}>
+        <div className="flex flex-wrap items-center gap-4 mt-5 pt-4" style={{ borderTop: "1px solid var(--border-default)" }}>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-emerald)" }} aria-hidden="true" />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--success)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Present</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-flare)" }} aria-hidden="true" />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--danger)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Absent</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-amber)" }} aria-hidden="true" />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--warning)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Late</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent-cyan)" }} aria-hidden="true" />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--info)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Leave</span>
           </div>
         </div>
