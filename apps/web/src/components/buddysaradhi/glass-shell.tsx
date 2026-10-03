@@ -162,7 +162,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
           className="hidden md:flex md:w-64 md:flex-col z-20 shrink-0"
           style={{
             background: "var(--surface-raised)",
-            backdropFilter: "blur(20px)",
+            backdropFilter: "var(--mat-filter)",
             borderRight: "1px solid var(--border-default)",
           }}
         >
@@ -240,24 +240,41 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
 
           {/* Sync + search bottom area */}
           <div className="p-4 shrink-0" style={{ borderTop: "1px solid var(--border-default)" }}>
+            {/* Connection state. This used to be a 2px green dot with a `title`
+                and no role, no tabIndex and no handler — colour was the only
+                signal, the tooltip was invisible to a keyboard or a screen reader,
+                the wrapper carried `cursor-pointer` so it read as a control that
+                did nothing, and the dot was ALWAYS green regardless of the real
+                state. Now the state is text first, the dot is decoration, and the
+                row exposes it to assistive tech (Rule 10 / AP-14: colour is never
+                the only signal). */}
             <div
-              className="flex items-center justify-between px-3 py-2 text-sm cursor-pointer rounded-lg transition-all duration-150"
+              className="flex min-h-[44px] items-center justify-between px-3 py-2 text-sm rounded-lg"
               style={{ color: "var(--text-secondary)" }}
+              role="status"
+              aria-live="polite"
+              aria-label={
+                isOffline ? "Sync: offline, changes are queued" : "Sync: online, all changes saved"
+              }
             >
               <span className="flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" aria-hidden="true" />
-                Sync
+                {isOffline ? "Sync · offline" : "Sync"}
               </span>
-              <div
+              <span
+                aria-hidden="true"
                 className="w-2 h-2 rounded-full"
-                style={{ background: "var(--success)", boxShadow: "0 0 6px var(--success)" }}
-                title="Online"
+                style={{
+                  background: isOffline ? "var(--warning)" : "var(--success)",
+                  boxShadow: `0 0 6px ${isOffline ? "var(--warning)" : "var(--success)"}`,
+                }}
               />
             </div>
             <button
               type="button"
               onClick={focusPalette}
-              className="mt-2 w-full flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 cursor-pointer"
+              className="mt-2 w-full min-h-[44px] flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 cursor-pointer
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{ background: "var(--surface-inset)", color: "var(--text-muted)" }}
             >
               <span className="flex items-center gap-2">
@@ -287,7 +304,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
             className="h-16 flex items-center justify-between px-4 sm:px-6 md:px-8 shrink-0"
             style={{
               background: "var(--surface-raised)",
-              backdropFilter: "blur(20px)",
+              backdropFilter: "var(--mat-filter)",
               borderBottom: "1px solid var(--border-default)",
             }}
           >
@@ -348,7 +365,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                       className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-default)] overflow-hidden shadow-2xl"
                       style={{
                         background: "var(--surface-overlay)",
-                        backdropFilter: "blur(24px)",
+                        backdropFilter: "var(--mat-filter)",
                       }}
                       role="menu"
                       aria-label="User menu"
@@ -394,7 +411,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               className="h-12 flex items-center justify-between px-4 sm:px-6 md:px-8 text-xs shrink-0 mt-auto max-w-7xl mx-auto w-full"
               style={{
                 background: "var(--surface-inset)",
-                backdropFilter: "blur(8px)",
+                backdropFilter: "var(--mat-filter)",
                 borderTop: "1px solid var(--border-default)",
                 color: "var(--text-muted)",
                 paddingBottom: "env(safe-area-inset-bottom)",
@@ -420,7 +437,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
           className="md:hidden fixed bottom-0 inset-x-0 z-30 flex items-stretch justify-around"
           style={{
             background: "var(--surface-raised)",
-            backdropFilter: "blur(20px)",
+            backdropFilter: "var(--mat-filter)",
             borderTop: "1px solid var(--border-default)",
             paddingBottom: "env(safe-area-inset-bottom)",
           }}

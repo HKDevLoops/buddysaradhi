@@ -27,6 +27,7 @@ import {
   DEFAULT_PALETTE_ID,
   MATERIAL_STORAGE_KEY,
   PALETTE_STORAGE_KEY,
+  REDUCED_MOTION_STORAGE_KEY,
   THEME_STORAGE_KEY,
   resolveMaterialId,
   resolvePaletteId,
@@ -71,6 +72,7 @@ export function PaletteProvider({
   const dbTheme = data?.data?.theme;
   const dbPalette = data?.data?.palette;
   const dbDensity = data?.data?.density || "comfortable";
+  const dbReducedMotion = data?.data?.reducedMotion === 1;
   // Material is a device-local presentation preference: a phone in a bright room
   // and a desktop on a desk genuinely want different materials, so it is NOT part
   // of the server-synced settings payload.
@@ -142,18 +144,26 @@ export function PaletteProvider({
     // is why the attribute is set from the provider rather than only from the
     // Settings screen.
     html.setAttribute("data-material", resolveMaterialId(appliedMaterial || material));
-    html.setAttribute(
-      "data-theme",
-      appliedTheme === "light" || appliedTheme === "dark"
-        ? appliedTheme
-        : themePreference === "system"
-          ? systemTheme
-          : themePreference === "light"
-            ? "light"
-            : "dark",
-    );
-    html.setAttribute("data-theme-preference", themePreference || "system");
+    // The theme PREFERENCE resolves to a concrete tier. A stored `"system"` must
+    // NOT short-circuit the OS listener: `appliedTheme === "light" | "dark"` is
+    // the only case where an explicit choice wins, and the Settings screen now
+    // stores the preference verbatim so `system` survives a click and keeps
+    // following the OS.
+    const preference = appliedTheme || dbTheme || theme;
+    const concrete: ThemeId =
+      preference === "system" ? systemTheme : preference === "light" ? "light" : "dark";
+    html.setAttribute("data-theme", concrete);
+    html.setAttribute("data-theme-preference", preference || "system");
     html.setAttribute("data-density", appliedDensity || dbDensity);
+    // Reduced motion is a RENDERING preference, and the toggle used to write it
+    // to the database and nothing else — so the switch promised an effect that
+    // never happened. It is mirrored onto <html> here, where globals.css can act
+    // on it, and it is applied from the device first because a tutor in a train
+    // should not have to sync before the screen stops moving.
+    const appliedReducedMotion = localStorage.getItem(REDUCED_MOTION_STORAGE_KEY);
+    const reduced = appliedReducedMotion ?? (dbReducedMotion ? "1" : "0");
+    if (reduced === "1") html.setAttribute("data-reduced-motion", "1");
+    else html.removeAttribute("data-reduced-motion");
 
     // Seed only where this device has never chosen.
     if (dbPalette && !appliedPalette) localStorage.setItem(PALETTE_STORAGE_KEY, dbPalette);

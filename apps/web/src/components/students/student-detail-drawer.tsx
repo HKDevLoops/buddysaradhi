@@ -550,7 +550,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-[#0C081A]/80 backdrop-blur-sm"
+            className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm"
             onClick={() => setShowDeleteConfirm(false)}
           />
           <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6">

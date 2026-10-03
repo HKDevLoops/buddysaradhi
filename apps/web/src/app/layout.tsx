@@ -32,8 +32,8 @@ export const runtime = "nodejs";
 export const viewport: Viewport = {
   viewportFit: 'cover',
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#0F172A' },
-    { media: '(prefers-color-scheme: dark)', color: '#0B1020' },
+    { media: '(prefers-color-scheme: light)', color: "#F4F6F8" },
+    { media: '(prefers-color-scheme: dark)', color: "#111315" },
   ],
 };
 

@@ -82,7 +82,7 @@ export function AttendanceReportClient({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-[#0C081A]/80 backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm transition-opacity"
         onClick={() => setReportOpen(false)}
       />
 
@@ -178,7 +178,7 @@ export function AttendanceReportClient({
             <table className="w-full border-separate" style={{ borderSpacing: "4px" }}>
               <thead>
                 <tr>
-                  <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur" style={{ fontFamily: "var(--font-mono)" }}>
+                  <th className="text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)] p-2 sticky left-0 bg-[var(--surface-raised)]" style={{ fontFamily: "var(--font-mono)" }}>
                     Student
                   </th>
                   <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
@@ -204,7 +204,7 @@ export function AttendanceReportClient({
               <tbody>
                 {summaries.map((s) => (
                   <tr key={s.student_id}>
-                    <td className="text-sm font-medium p-2 sticky left-0 bg-[#0C081A]/60 backdrop-blur whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
+                    <td className="text-sm font-medium p-2 sticky left-0 bg-[var(--surface-raised)] whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
                       {s.student_name}
                     </td>
                     <td className="p-0">

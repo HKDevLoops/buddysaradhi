@@ -38,7 +38,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-[#0C081A]/80 backdrop-blur-sm transition-opacity" 
+        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm transition-opacity" 
         onClick={() => setLockSheetOpen(false)}
       />
 
@@ -111,7 +111,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
               onClick={() => mutation.mutate(pin)}
               disabled={pin.length < 4 || mutation.isPending}
               className={cn(
-                "w-full neumo-raised py-3 rounded-xl text-sm font-bold text-[#0a0a1a] transition-all",
+                "w-full neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] transition-all",
                 pin.length >= 4 
                   ? "bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.4, transparent)]"
                   : "bg-[var(--surface-inset)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"

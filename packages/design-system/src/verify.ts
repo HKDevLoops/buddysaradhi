@@ -1,152 +1,192 @@
-// Implements: docs/design/overhaul-plan.md §2.2 + §8 — the token verification
-// gate. This is what makes "20 generated palettes" a checked claim instead of a
-// hopeful one. It runs in CI and in `packages/shared`'s test suite.
+// Implements: docs/design/overhaul-plan.md §8 — the token verification gate. This
+// is what makes "20 generated palettes" a checked claim instead of a hopeful one.
 //
-// Five classes of defect it must catch, each of which has actually happened in
-// this repo or would have with hand-authored palettes:
+// The FIRST version of this gate solved and measured every text role against
+// `canvas` alone. A measurement pass then found 240 of 640 real pairings below
+// target, because the app paints most of its text on `--surface-raised`,
+// `--surface-inset` and `--surface-row`, and a colour solved against the canvas
+// drifts the wrong way on one of those every time (`surface-raised` is LIGHTER
+// than the canvas on a dark tier; `surface-inset` is DARKER on a light tier). The
+// same pass found `--border-default` below 3:1 on all 20 palettes against all four
+// surfaces — and that role was not in the checked list at all, while being the
+// border on every unselected button, table row, search field and divider.
 //
-//  1. TEXT CONTRAST — a text or accent role below its WCAG target on its own
-//     palette's canvas. (A palette can pass on one canvas and fail on another;
-//     each palette is measured against its own.)
-//  2. TEXT-ON-FILL — text drawn on a button fill below target. Reading it off
-//     the palette is easy to get backwards and invisible until a screenshot.
-//  3. MATERIAL INVARIANCE — a mode that changed a text or accent colour. The
-//     contrast guarantee in material-modes.md §0 is only real if something
-//     asserts it.
-//  4. DUPLICATE PALETTES — two schemes generating the same canvas hex (they
-//     would be indistinguishable in the picker).
-//  5. NAMING / COMPLETENESS — a token emitted by the generator but missing from
-//     the CSS projection, or a CSS var with no generator behind it.
+// Six classes of defect must fail here, each of which has already happened:
+//   1. TEXT CONTRAST on every surface the app paints on, not just the canvas.
+//   2. TEXT-ON-FILL — text drawn on a button fill.
+//   3. COMPOSITE — a status colour on a 14%-tinted chip surface (§2.3), where the
+//      real background is neither token.
+//   4. NON-TEXT — borders and data marks against every surface, including
+//      `--border-default`.
+//   5. MATERIAL INVARIANCE — a mode that changed a text or accent colour.
+//   6. STRUCTURE — a duplicate canvas, an invisible surface hierarchy, or a role
+//      collapsing onto another.
 import { contrastRatio, hexToRgb } from "./oklch";
 import { MATERIALS, MATERIAL_ROLE_KEYS, buildMaterial, type MaterialId } from "./material";
-import { CONTRAST, buildPalette, type GeneratedPalette } from "./tokens";
+import { CONTRAST, buildPalette, type GeneratedPalette, type PaletteTokens } from "./tokens";
+import {
+  NON_TEXT_ROLE_KEYS,
+  TEXT_ROLE_KEYS,
+  TEXT_SURFACES,
+  borderPairings,
+  compositePairings,
+  overlayLegibility,
+  ratio,
+  textPairings,
+  type SurfaceKey,
+} from "./surfaces";
 import { SCHEMES } from "./schemes";
+
+export type { SurfaceKey };
 
 export interface Finding {
   paletteId: string;
   severity: "error" | "warn";
   code: string;
   message: string;
-  /** The measured number, so a failure states the gap rather than "failed". */
   measured?: number;
   required?: number;
+  role?: string;
+  surface?: string;
 }
 
-const TEXT_ROLES: readonly (keyof GeneratedPalette["tokens"])[] = [
-  "textPrimary",
-  "textSecondary",
-  "textMuted",
-  "accentText",
-  "success",
-  "warning",
-  "danger",
-  "info",
-  "statusPaid",
-  "statusPartial",
-  "statusUnpaid",
-  "statusOverdue",
-];
-
-const FILL_ROLES: readonly (keyof GeneratedPalette["tokens"])[] = ["accentOnPrimary"];
-
-const NON_TEXT_ROLES: readonly (keyof GeneratedPalette["tokens"])[] = [
-  "borderStrong",
-  "borderFocus",
-  "chart1",
-  "chart2",
-  "chart3",
-  "chart4",
-  "chart5",
-  "chart6",
-];
-
-function ratio(a: string, b: string): number {
-  return contrastRatio(hexToRgb(a), hexToRgb(b));
+function round(value: number): number {
+  return Number(value.toFixed(2));
 }
 
 export function verifyPalette(palette: GeneratedPalette): Finding[] {
   const findings: Finding[] = [];
   const t = palette.tokens;
-  const canvas = t.canvas;
+  const at = (paletteId: string): string => paletteId;
 
-  for (const role of TEXT_ROLES) {
-    const measured = ratio(t[role] as string, canvas);
-    if (measured < CONTRAST.text) {
+  for (const pairing of textPairings(palette)) {
+    if (pairing.ratio < CONTRAST.text) {
       findings.push({
-        paletteId: palette.id,
+        paletteId: at(palette.id),
         severity: "error",
         code: "TEXT_CONTRAST",
-        message: `${role} on canvas is below ${CONTRAST.text}:1`,
-        measured: Number(measured.toFixed(2)),
+        role: pairing.role,
+        surface: pairing.surface,
+        message: `${pairing.role} on --${pairing.surface.replace(/([A-Z])/g, "-$1").toLowerCase()} is below ${CONTRAST.text}:1`,
+        measured: round(pairing.ratio),
         required: CONTRAST.text,
       });
     }
   }
 
-  for (const role of FILL_ROLES) {
-    const fill = t.accentPrimary;
-    const measured = ratio(t[role] as string, fill);
-    if (measured < CONTRAST.text) {
+  const onFill = ratio(t.accentOnPrimary, t.accentPrimary);
+  if (onFill < CONTRAST.text) {
+    findings.push({
+      paletteId: at(palette.id),
+      severity: "error",
+      code: "TEXT_ON_FILL",
+      message: `--accent-on-primary on --accent-primary ${t.accentPrimary} is below ${CONTRAST.text}:1`,
+      measured: round(onFill),
+      required: CONTRAST.text,
+    });
+  }
+
+  for (const pairing of compositePairings(palette)) {
+    if (pairing.ratio < CONTRAST.text) {
       findings.push({
-        paletteId: palette.id,
+        paletteId: at(palette.id),
         severity: "error",
-        code: "TEXT_ON_FILL",
-        message: `${role} on accent fill ${fill} is below ${CONTRAST.text}:1`,
-        measured: Number(measured.toFixed(2)),
+        code: "COMPOSITE_CONTRAST",
+        role: pairing.role,
+        message: `${pairing.role} (14% tinted chip surface) is below ${CONTRAST.text}:1`,
+        measured: round(pairing.ratio),
         required: CONTRAST.text,
       });
     }
   }
 
-  // The accent is two roles on purpose (vivid fill + readable text); if they
-  // collapse into one colour, one of them is unreadable somewhere.
+  for (const pairing of borderPairings(palette)) {
+    if (pairing.ratio < CONTRAST.large) {
+      findings.push({
+        paletteId: at(palette.id),
+        // Chart marks are data, not controls; a series that sits slightly under the
+        // non-text floor is a warning so the palette can still ship with a record.
+        severity: pairing.role.startsWith("chart") ? "warn" : "error",
+        code: "NON_TEXT_CONTRAST",
+        role: pairing.role,
+        surface: pairing.surface,
+        message: `${pairing.role} on --${pairing.surface.replace(/([A-Z])/g, "-$1").toLowerCase()} is below ${CONTRAST.large}:1`,
+        measured: round(pairing.ratio),
+        required: CONTRAST.large,
+      });
+    }
+  }
+
+  for (const pairing of overlayLegibility(palette)) {
+    if (pairing.ratio < CONTRAST.text) {
+      findings.push({
+        paletteId: at(palette.id),
+        severity: "error",
+        code: "OVERLAY_TEXT_CONTRAST",
+        role: pairing.role,
+        message: `${pairing.role} is below ${CONTRAST.text}:1 — the translucent surfaces composite over unknown content, so the solid twin is the worst realistic backdrop`,
+        measured: round(pairing.ratio),
+        required: CONTRAST.text,
+      });
+    }
+  }
+
   if (t.accentPrimary === t.accentText) {
     findings.push({
-      paletteId: palette.id,
+      paletteId: at(palette.id),
       severity: "error",
       code: "ACCENT_ROLES_COLLAPSED",
       message: `accentPrimary and accentText are the same colour (${t.accentPrimary})`,
     });
   }
 
-  for (const role of NON_TEXT_ROLES) {
-    const measured = ratio(t[role] as string, canvas);
-    if (measured < CONTRAST.large) {
-      findings.push({
-        paletteId: palette.id,
-        severity: role.startsWith("chart") ? "warn" : "error",
-        code: "NON_TEXT_CONTRAST",
-        message: `${role} on canvas is below ${CONTRAST.large}:1`,
-        measured: Number(measured.toFixed(2)),
-        required: CONTRAST.large,
-      });
-    }
+  if (t.textPrimary === t.textSecondary || t.textSecondary === t.textMuted || t.textPrimary === t.textMuted) {
+    findings.push({
+      paletteId: at(palette.id),
+      severity: "error",
+      code: "TEXT_HIERARCHY_COLLAPSED",
+      message: "two text roles resolved to the same colour",
+    });
   }
 
-  // Elevation must be legible: `raised` and `inset` are how the UI reads depth,
-  // so if they are indistinguishable from the canvas the whole surface model
-  // collapses into a flat sheet of colour.
-  const raisedDelta = Math.abs(ratio(t.surfaceRaised, t.surfaceInset) - 1) * 100;
-  if (raisedDelta < 3) {
+  // Elevation must be legible: `raised` and `inset` are how the UI reads depth, so
+  // if they are indistinguishable the whole surface model collapses into one sheet.
+  const depth = ratio(t.surfaceRaised, t.surfaceInset);
+  if (depth <= 1.03) {
     findings.push({
-      paletteId: palette.id,
+      paletteId: at(palette.id),
       severity: "error",
       code: "SURFACE_NO_DEPTH",
-      message: `surface-raised and surface-inset are indistinguishable (Δ ${raisedDelta.toFixed(2)}%)`,
-      measured: Number(raisedDelta.toFixed(2)),
-      required: 3,
+      message: "surface-raised and surface-inset are indistinguishable",
+      measured: round(depth),
+      required: 1.03,
     });
   }
+
   const rowDelta = ratio(t.surfaceRow, t.canvas);
-  if (rowDelta < 1.02 && rowDelta > 1) {
+  if (rowDelta < 1.01) {
     findings.push({
-      paletteId: palette.id,
-      severity: "warn",
+      paletteId: at(palette.id),
+      severity: "error",
       code: "ROW_BANDING_INVISIBLE",
-      message: `surface-row barely separates from canvas (${rowDelta.toFixed(3)}:1)`,
-      measured: Number(rowDelta.toFixed(3)),
-      required: 1.02,
+      message: "surface-row barely separates from canvas — zebra striping in a dense ledger would be invisible",
+      measured: round(rowDelta),
+      required: 1.01,
     });
+  }
+
+  // A surface the app cannot distinguish is a surface role that was never needed.
+  for (const key of TEXT_SURFACES) {
+    const hex = t[key as keyof PaletteTokens] as string;
+    if (!/^#[0-9A-F]{6}$/i.test(hex)) {
+      findings.push({
+        paletteId: at(palette.id),
+        severity: "error",
+        code: "SURFACE_NOT_SOLID",
+        surface: key,
+        message: `--${key} is not a solid hex (${hex})`,
+      });
+    }
   }
 
   return findings;
@@ -218,3 +258,15 @@ export function buildAndVerify(): TokenBundle {
   for (const palette of palettes) findings.push(...verifyMaterialInvariance(palette, materials));
   return { palettes, findings };
 }
+
+export {
+  contrastRatio,
+  hexToRgb,
+  borderPairings,
+  compositePairings,
+  overlayLegibility,
+  textPairings,
+  TEXT_ROLE_KEYS,
+  NON_TEXT_ROLE_KEYS,
+  TEXT_SURFACES,
+};

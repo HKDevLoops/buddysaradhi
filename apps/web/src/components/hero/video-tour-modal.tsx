@@ -53,7 +53,7 @@ export function VideoTourModal({ isOpen, onClose }: VideoTourModalProps) {
         </div>
 
         {/* Video / Interactive Presentation Screen */}
-        <div className="relative aspect-video w-full rounded-xl bg-[#0a0a1a] border border-[var(--border-default)] overflow-hidden flex flex-col items-center justify-center p-8 text-center">
+        <div className="relative aspect-video w-full rounded-xl bg-[var(--surface-sunken)] border border-[var(--border-default)] overflow-hidden flex flex-col items-center justify-center p-8 text-center">
           <div className="absolute inset-0 bg-gradient-to-tr from-[var(--info)]/10 via-transparent to-[var(--info)]/10 pointer-events-none" />
           
           <div className="w-16 h-16 rounded-full bg-[var(--info)]/20 border border-[var(--info)] flex items-center justify-center mb-6 shadow-[0_0_30px_color-mix(in srgb, var(--info) 0.4, transparent)]">

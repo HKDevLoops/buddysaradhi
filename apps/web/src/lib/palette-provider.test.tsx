@@ -22,6 +22,9 @@ import { PaletteProvider } from "@/lib/palette-provider";
 
 const mockedGetSettings = vi.mocked(getSettings);
 
+/** Captured matchMedia change listeners, so a test can simulate an OS flip. */
+const mediaListeners: ((e: MediaQueryListEvent) => void)[] = [];
+
 type SettingsResult = Awaited<ReturnType<typeof getSettings>>;
 
 function echo(theme: string, palette = "inked", density = "comfortable"): SettingsResult {
@@ -79,23 +82,63 @@ describe("PaletteProvider applied-wins-over-stale-echo", () => {
 
     renderProvider();
 
-    // Applied value wins pre-echo (localTheme hydrated from localStorage)
+    // Applied value wins pre-echo (read fresh from localStorage in the effect).
     await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     });
 
-    // Land the stale echo; data-theme-preference tracks the raw echo so it
-    // proves the echo arrived (React Query notifies outside act — poll for it).
+    // Land the stale echo. The witness is the query being settled rather than a
+    // DOM attribute: `data-theme-preference` is the user's own preference, so it
+    // correctly reflects the applied `light` and can no longer be used to prove
+    // the echo arrived — asserting it equalled the stale echo would be asserting
+    // the clobber this test exists to prevent.
     await act(async () => {
       resolveSettings(echo("dark"));
     });
     await waitFor(() => {
-      expect(document.documentElement.getAttribute("data-theme-preference")).toBe("dark");
+      expect(mockedGetSettings).toHaveBeenCalled();
     });
 
-    // Applied Light must survive the stale echo — DOM and localStorage
+    // Applied Light must survive the stale echo — DOM and localStorage.
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme-preference")).toBe("light");
     expect(localStorage.getItem("buddysaradhi.theme")).toBe("light");
+  });
+
+  it("a stored `system` preference keeps following the OS instead of pinning", async () => {
+    // The Settings screen used to store the RESOLVED value ("dark"), which meant
+    // `system` could never be selected again and an OS flip stopped mattering.
+    mockedGetSettings.mockResolvedValue(echo("system"));
+    let matches = false;
+    window.matchMedia = vi.fn().mockReturnValue({
+      get matches() {
+        return matches;
+      },
+      addEventListener: vi.fn((_event: string, listener: (e: MediaQueryListEvent) => void) => {
+        mediaListeners.push(listener);
+      }),
+      removeEventListener: vi.fn(),
+    }) as unknown as typeof window.matchMedia;
+    localStorage.setItem("buddysaradhi.theme", "system");
+
+    renderProvider();
+
+    // Light OS.
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    });
+    expect(document.documentElement.getAttribute("data-theme-preference")).toBe("system");
+
+    // OS flips to dark: the page follows.
+    matches = true;
+    await act(async () => {
+      for (const listener of mediaListeners) {
+        listener({ matches: true } as MediaQueryListEvent);
+      }
+    });
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    });
   });
 
   it("applied palette still wins over stale server echo (F-2 guard, 512f0e4)", async () => {

@@ -114,3 +114,10 @@ export const PALETTE_STORAGE_KEY = "buddysaradhi.palette";
 export const MATERIAL_STORAGE_KEY = "buddysaradhi.material";
 export const THEME_STORAGE_KEY = "buddysaradhi.theme";
 export const DENSITY_STORAGE_KEY = "buddysaradhi.density";
+/**
+ * Reduced motion is stored per DEVICE as well as per tenant. A tutor who turns it on
+ * in a moving train should not have to wait for a round trip before the screen stops
+ * moving, and a shared tablet should not inherit one user"s motion preference from the
+ * database. The DB value seeds a device that has never chosen.
+ */
+export const REDUCED_MOTION_STORAGE_KEY = "buddysaradhi.reduced-motion";

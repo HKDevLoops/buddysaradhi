@@ -261,7 +261,12 @@ export function StudentSearchBox<T>({
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           className={cn(
-            "w-full pl-9 pr-9 text-sm focus:outline-none",
+            // The field removed its own outline and supplied NO replacement, so
+            // the app's single keyboard affordance (Ctrl/Cmd-K, the only way to
+            // reach the palette without a pointer) had no visible focus state at
+            // all — WCAG 2.4.7. The ring is drawn from the focus token, so it is
+            // legible on all 20 palettes.
+            "w-full pl-9 pr-9 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
             className ?? "neumo-inset h-11",
           )}
           style={{

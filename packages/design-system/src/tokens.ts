@@ -26,6 +26,7 @@ import {
   solveLuminanceForContrast,
   type Oklch,
 } from "./oklch";
+import { solveTextAcrossSurfaces, ratio, TEXT_SURFACES } from "./surfaces";
 import type { SchemeDefinition } from "./schemes";
 
 /** WCAG 2.1 AA targets. Rule 10 holds these as a floor, not a goal. */
@@ -106,14 +107,17 @@ function at(l: number, c: number, h: number): string {
  *
  * `target` is what makes the hierarchy structural rather than decorative: primary
  * is solved for a much higher ratio than muted, so the three greys are guaranteed
- * to be visually distinct. Solving all three for the same ratio made every
+ * to be visually distinct. Solving all three for the same target made every
  * palette emit `text-primary === text-muted`, which is a hierarchy collapse no
  * contrast check would ever flag.
+ *
+ * The background it solves against is the WORST surface the role will sit on
+ * (`solveTextAcrossSurfaces`), not the canvas — see `surfaces.ts` for the
+ * measurement that forced this.
  */
-function solveText(hue: number, bgHex: string, tier: "dark" | "light", target: number): string {
-  const direction = tier === "dark" ? "lighter" : "darker";
-  const solved = solveLuminanceForContrast(hue, 0.004, bgHex, target, direction);
-  if (solved.reached) return solved.hex;
+function solveText(hue: number, tokens: PaletteTokens, tier: "dark" | "light", target: number): string {
+  const solved = solveTextAcrossSurfaces(hue, 0.004, tokens, tier, target);
+  if (solved !== null) return solved;
   // The hue cannot reach the target even at the extreme — fall back to the
   // safest neutral there is rather than shipping a low-contrast token. The
   // verifier still measures it, so the failure stays visible.
@@ -142,7 +146,7 @@ const TEXT_TARGETS = { primary: 10, secondary: 7, muted: CONTRAST.text } as cons
 function solveAccent(
   hue: number,
   chroma: number,
-  bgHex: string,
+  tokens: PaletteTokens,
   tier: "dark" | "light",
   fillL: number,
 ): { fill: string; onFill: string; text: string } {
@@ -155,35 +159,41 @@ function solveAccent(
       : contrastRatio(hexToRgb(fillHex), hexToRgb(alt)) >= CONTRAST.text
         ? alt
         : ink;
-  const textSolved = solveLuminanceForContrast(hue, chroma, bgHex, CONTRAST.text, tier === "dark" ? "lighter" : "darker");
-  return {
-    fill: fillHex,
-    onFill,
-    text: textSolved.reached ? textSolved.hex : fillHex,
-  };
+  // `accentText` is solved across every surface like a text role, not against the
+  // canvas: it is drawn on raised cards and inset panels as often as on the canvas,
+  // and a version that only cleared the canvas measured 4.05:1 on both.
+  const text =
+    solveTextAcrossSurfaces(hue, chroma, tokens, tier, CONTRAST.text) ?? fillHex;
+  return { fill: fillHex, onFill, text };
 }
 
 /**
- * Chart colours are decorative-by-data, not text: they carry values in a bar or
- * a sparkline, so they are held to the non-text floor and spaced around the
- * accent hue so adjacent series never collide.
+ * Chart colours carry values in a bar or a sparkline, so they are held to the
+ * non-text floor — and, like every other role, against the surface STACK rather
+ * than the canvas. Solving them on the canvas alone left chart1 at 2.79–2.98:1 on
+ * `--surface-raised` in six dark palettes, which is the surface a chart actually
+ * sits on.
  */
-function chartRamp(accentHue: number, accentChroma: number, canvas: string): string[] {
+function chartRamp(
+  accentHue: number,
+  accentChroma: number,
+  surfaces: PaletteTokens,
+  tier: "dark" | "light",
+): string[] {
   const offsets = [0, 32, -32, 64, -64, 96];
   return offsets.map((offset, index) => {
     const hue = (accentHue + offset + 360) % 360;
     const chroma = Math.max(0.06, accentChroma * (1 - index * 0.08));
     const l = Math.max(0.22, Math.min(0.86, 0.52 + index * 0.045));
     const candidate = oklchToHex({ l, c: chroma, h: hue });
-    if (contrastRatio(hexToRgb(candidate), hexToRgb(canvas)) >= CONTRAST.large) return candidate;
-    const solved = solveLuminanceForContrast(
-      hue,
-      chroma,
-      canvas,
-      CONTRAST.large,
-      (0.52 + index * 0.045) > 0.5 ? "lighter" : "darker",
+    const solved = solveTextAcrossSurfaces(hue, chroma, surfaces, tier, CONTRAST.large);
+    if (solved === null) return candidate;
+    // Prefer the saturated candidate when it already clears every surface, so the
+    // ramp keeps its intended lightness ladder instead of collapsing to one step.
+    const clearsEverywhere = TEXT_SURFACES.every(
+      (key) => ratio(candidate, surfaces[key] as string) >= CONTRAST.large,
     );
-    return solved.hex;
+    return clearsEverywhere ? candidate : solved;
   });
 }
 
@@ -208,42 +218,55 @@ export function buildPalette(scheme: SchemeDefinition): GeneratedPalette {
   const surfaceRow = at(ramp.row, rampC(ramp.row), groundHue);
   const surfaceSunken = at(ramp.sunken, rampC(ramp.sunken), groundHue);
 
-  const textPrimary = solveText(groundHue, canvas, scheme.tier, TEXT_TARGETS.primary);
-  const textSecondary = solveText(groundHue, canvas, scheme.tier, TEXT_TARGETS.secondary);
-  const textMuted = solveText(groundHue, canvas, scheme.tier, TEXT_TARGETS.muted);
+  // Text roles are solved against the surface STACK, not the canvas, so the
+  // palette object they solve against has to exist first.
+  const surfaces: PaletteTokens = {
+    canvas,
+    surfaceRaised,
+    surfaceInset,
+    surfaceRow,
+    surfaceSunken,
+  } as PaletteTokens;
+
+  const textPrimary = solveText(groundHue, surfaces, scheme.tier, TEXT_TARGETS.primary);
+  const textSecondary = solveText(groundHue, surfaces, scheme.tier, TEXT_TARGETS.secondary);
+  const textMuted = solveText(groundHue, surfaces, scheme.tier, TEXT_TARGETS.muted);
   const textInverse = dark ? at(0.14, rampC(0.14), groundHue) : at(0.99, rampC(0.99), groundHue);
 
   const accentFillL = dark
     ? scheme.accentLightness?.dark ?? 0.72
     : scheme.accentLightness?.light ?? 0.62;
-  const accent = solveAccent(accentHue, accentChroma, canvas, scheme.tier, accentFillL);
+  const accent = solveAccent(accentHue, accentChroma, surfaces, scheme.tier, accentFillL);
   const semanticFillL = dark ? 0.68 : 0.58;
-  const success = solveAccent(scheme.semantics.success, 0.13, canvas, scheme.tier, semanticFillL);
-  const warning = solveAccent(scheme.semantics.warning, 0.14, canvas, scheme.tier, semanticFillL);
-  const danger = solveAccent(scheme.semantics.danger, 0.15, canvas, scheme.tier, semanticFillL);
-  const info = solveAccent(scheme.semantics.info, 0.12, canvas, scheme.tier, semanticFillL);
+  const success = solveAccent(scheme.semantics.success, 0.13, surfaces, scheme.tier, semanticFillL);
+  const warning = solveAccent(scheme.semantics.warning, 0.14, surfaces, scheme.tier, semanticFillL);
+  const danger = solveAccent(scheme.semantics.danger, 0.15, surfaces, scheme.tier, semanticFillL);
+  const info = solveAccent(scheme.semantics.info, 0.12, surfaces, scheme.tier, semanticFillL);
 
-  // Borders are solid, never alpha: three runtimes (web, Swift, WinUI) must
-  // agree, and only the web composites alpha.
-  //   - `borderDefault` is decorative separation (a quiet mix toward the text
-  //     colour, so it stays inside the palette's temperature).
-  //   - `borderStrong` is a CONTROL boundary — WCAG 1.4.11 requires 3:1 for the
-  //     visual boundary of an interactive component, so it is SOLVED for that
-  //     target instead of mixed by a fixed ratio. Mixing by a constant produced
-  //     1.41:1 on all ten light palettes, which the verifier caught.
-  const borderDefault = mixHex(canvas, textPrimary, dark ? 0.16 : 0.2);
-  const borderStrongSolution = solveLuminanceForContrast(
-    groundHue,
-    0.006,
-    canvas,
-    CONTRAST.large,
-    dark ? "lighter" : "darker",
-  );
-  const borderStrong = borderStrongSolution.reached
-    ? borderStrongSolution.hex
-    : mixHex(canvas, textPrimary, dark ? 0.3 : 0.36);
+  // Borders are solid, never alpha: three runtimes (web, Swift, WinUI) must agree,
+  // and only the web composites alpha. BOTH roles are SOLVED against the surface
+  // stack for the WCAG 1.4.11 non-text floor, because both are component
+  // boundaries in this app:
+  //
+  //   - `borderStrong` is the emphasised boundary (hover, active, control).
+  //   - `borderDefault` is the RESTING boundary of every unselected button, every
+  //     table row and the search field. It measured 1.10–2.58:1 on all 20 palettes
+  //     against all four surfaces when it was mixed by a constant ratio, and it was
+  //     not in the checked role list at all — the one border the app leans on
+  //     hardest was the one nobody measured.
+  //
+  // `borderFocus` reuses `accentText`, which is already solved to the text floor
+  // and so clears 3:1 everywhere.
+  const solveBorder = (target: number, chroma: number): string => {
+    const solved = solveTextAcrossSurfaces(groundHue, chroma, surfaces, scheme.tier, target);
+    return solved ?? (dark ? textPrimary : "#000000");
+  };
+  const borderStrong = solveBorder(CONTRAST.large, 0.006);
+  // A hair lighter than `borderStrong` so a resting boundary still reads as
+  // quieter than an emphasised one, while clearing the same non-text floor.
+  const borderDefault = solveBorder(CONTRAST.large + 0.35, 0.005);
 
-  const charts = chartRamp(accentHue, accentChroma, canvas);
+  const charts = chartRamp(accentHue, accentChroma, surfaces, scheme.tier);
   // `chartRamp` is total by construction; the non-null assertions are replaced by
   // explicit fallbacks so a future edit that returns a short array fails here
   // rather than emitting an `undefined` colour into CSS.

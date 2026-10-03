@@ -63,7 +63,7 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
             aria-label={`Mark ${studentName} ${meta.label}`}
             onClick={() => onChange(s)}
             className={cn(
-              "min-w-[44px] min-h-[44px] px-2.5 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0C081A]",
+              "min-w-[44px] min-h-[44px] px-2.5 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
               active ? "neumo-raised" : "opacity-55 hover:opacity-100"
             )}
             style={

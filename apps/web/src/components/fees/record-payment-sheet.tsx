@@ -213,7 +213,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-[#0C081A]/80 backdrop-blur-sm transition-opacity"
+        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm transition-opacity"
         onClick={closeSheet}
       />
 

@@ -323,7 +323,7 @@ const voidMutation = useMutation({
               background: "var(--surface-overlay)",
               backdropFilter: "blur(24px) saturate(160%)",
               border: "1px solid var(--danger)",
-              boxShadow: "0 12px 40px var(--shadow-color)",
+              boxShadow: "0 12px 40px var(--shadow-overlay)",
             }}
             role="dialog"
             aria-modal="true"

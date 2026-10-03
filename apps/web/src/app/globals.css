@@ -161,7 +161,7 @@
     font-size: var(--text-base);
     line-height: var(--text-base-lh);
     color: var(--text-primary);
-    background: var(--bg-canvas);
+    background: var(--canvas);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "ss01", "cv01";
@@ -170,7 +170,7 @@
 
   /* Theme-driven cosmic canvas - tinted by each palette's accents */
   [data-theme="dark"] body {
-    background: radial-gradient(ellipse at top, var(--bg-canvas), color-mix(in srgb, var(--bg-canvas) 65%, #000) 70%, #04040c 100%);
+    background: radial-gradient(ellipse at top, var(--canvas), color-mix(in srgb, var(--canvas) 65%, #000) 70%, #04040c 100%);
     background-attachment: fixed;
     position: relative;
   }
@@ -182,11 +182,11 @@
     z-index: 0;
     background:
       radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 42%),
-      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-secondary) 8%, transparent), transparent 42%),
-      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--accent-tertiary) 8%, transparent), transparent 42%);
+      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 8%, transparent), transparent 42%),
+      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--info) 8%, transparent), transparent 42%);
   }
   [data-theme="light"] body {
-    background: var(--bg-canvas);
+    background: var(--canvas);
     background-attachment: fixed;
     position: relative;
   }
@@ -198,7 +198,7 @@
     z-index: 0;
     background:
       radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 45%),
-      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-secondary) 4%, transparent), transparent 45%);
+      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 4%, transparent), transparent 45%);
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -231,43 +231,43 @@
 @layer utilities {
   /* ---- Glass Tiers ---- */
   .glass-faint {
-    background: var(--surface-glass-faint);
+    background: var(--surface-row);
     backdrop-filter: blur(18px) saturate(150%);
     -webkit-backdrop-filter: blur(18px) saturate(150%);
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-default);
   }
   .glass {
-    background: var(--surface-glass);
+    background: var(--surface-raised);
     backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-default);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
   }
   .glass-strong {
-    background: var(--surface-glass-strong);
+    background: var(--surface-overlay);
     backdrop-filter: blur(28px) saturate(170%);
     -webkit-backdrop-filter: blur(28px) saturate(170%);
-    border: 1px solid var(--border-glass-strong);
+    border: 1px solid var(--border-strong);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
   }
 
   /* ---- Neumorphic Controls ---- */
   .neumo-raised {
-    background: var(--surface-neumo-raised);
+    background: var(--surface-raised);
     border-radius: 12px;
     box-shadow:
       5px 5px 10px rgba(0,0,0,0.45),
       -3px -3px 8px rgba(255,255,255,0.06);
   }
   .neumo-inset {
-    background: var(--surface-neumo-raised);
+    background: var(--surface-raised);
     border-radius: 12px;
     box-shadow:
       inset 4px 4px 8px rgba(0,0,0,0.40),
       inset -3px -3px 6px rgba(255,255,255,0.05);
   }
   .neumo-pressed {
-    background: var(--bg-neumo-base);
+    background: var(--canvas);
     border-radius: 12px;
     box-shadow:
       inset 2px 2px 5px rgba(0,0,0,0.45),
@@ -277,10 +277,10 @@
 
   /* Glass card (full component) */
   .glass-card {
-    background: var(--surface-glass);
+    background: var(--surface-raised);
     backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     padding: var(--space-6);
     box-shadow:
@@ -309,10 +309,10 @@
     z-index: 1;
   }
   .glass-card-strong {
-    background: var(--surface-glass-strong);
+    background: var(--surface-overlay);
     backdrop-filter: blur(28px) saturate(170%);
     -webkit-backdrop-filter: blur(28px) saturate(170%);
-    border: 1px solid var(--border-glass-strong);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
     padding: var(--space-6);
     box-shadow:
@@ -322,20 +322,20 @@
 
   /* Alias for existing code that uses glass-panel */
   .glass-panel {
-    background: var(--surface-glass);
+    background: var(--surface-raised);
     backdrop-filter: blur(24px) saturate(160%);
     -webkit-backdrop-filter: blur(24px) saturate(160%);
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
   }
 
   /* ---- Glass Input (form fields) ---- */
   /* Applied to all raw <input>, <select>, <textarea> elements to maintain uniformity */
   .glass-input {
-    background: var(--surface-glass-faint, rgba(255,255,255,0.03));
+    background: var(--surface-row, rgba(255,255,255,0.03));
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    border: 1px solid var(--border-glass);
+    border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     color: var(--text-primary);
     min-height: 44px;
@@ -361,7 +361,7 @@
     pointer-events: none;
   }
   .glass-input[aria-invalid="true"] {
-    border-color: var(--accent-flare);
+    border-color: var(--danger);
   }
   .glass-input[aria-invalid="true"]:focus {
     box-shadow: 0 0 0 2px rgba(255,94,0,0.2);
@@ -369,28 +369,28 @@
 
   /* Solid surface card (light palettes) */
   .surface-card {
-    background: var(--bg-surface);
+    background: var(--surface-raised);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     padding: var(--space-6);
-    box-shadow: 0 1px 3px var(--shadow-color), 0 1px 2px var(--shadow-color);
+    box-shadow: 0 1px 3px var(--shadow-overlay), 0 1px 2px var(--shadow-overlay);
     transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
   }
   .surface-card:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px var(--shadow-color), 0 2px 4px var(--shadow-color);
+    box-shadow: 0 4px 12px var(--shadow-overlay), 0 2px 4px var(--shadow-overlay);
   }
 
   /* ---- Neumorphic Recipes ---- */
   .neumo-raised {
-    background: var(--surface-neumo-raised, var(--bg-surface-raised));
+    background: var(--surface-raised);
     border-radius: var(--radius-full);
     box-shadow:
       4px 4px 8px rgba(0,0,0,0.3),
       -4px -4px 8px rgba(255,255,255,0.05);
   }
   .neumo-inset {
-    background: var(--bg-surface-inset);
+    background: var(--surface-inset);
     border-radius: var(--radius-md);
     box-shadow:
       inset 3px 3px 6px rgba(0,0,0,0.25),
@@ -406,8 +406,8 @@
   .kpi-label { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
   .kpi-figure { font-family: var(--font-mono); font-size: var(--text-3xl); font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .kpi-delta { font-size: var(--text-xs); display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
-  .kpi-delta-up { color: var(--accent-success); }
-  .kpi-delta-down { color: var(--accent-danger); }
+  .kpi-delta-up { color: var(--success); }
+  .kpi-delta-down { color: var(--danger); }
   .kpi-delta-flat { color: var(--text-muted); }
 
   /* ---- Chips / Badges ---- */
@@ -422,11 +422,18 @@
     letter-spacing: 0.02em;
     border: 1px solid;
   }
-  .chip-success { background: color-mix(in srgb, var(--accent-success) 8%, transparent); border-color: color-mix(in srgb, var(--accent-success) 25%, transparent); color: var(--accent-success); }
-  .chip-warning { background: color-mix(in srgb, var(--accent-warning) 8%, transparent); border-color: color-mix(in srgb, var(--accent-warning) 25%, transparent); color: var(--accent-warning); }
-  .chip-danger  { background: color-mix(in srgb, var(--accent-danger) 8%, transparent); border-color: color-mix(in srgb, var(--accent-danger) 25%, transparent); color: var(--accent-danger); }
-  .chip-info    { background: color-mix(in srgb, var(--accent-info) 8%, transparent); border-color: color-mix(in srgb, var(--accent-info) 25%, transparent); color: var(--accent-info); }
-  .chip-neutral { background: var(--surface-glass); border-color: var(--border-glass); color: var(--text-secondary); }
+  /* Status chip recipe (13_UI_Guidelines.md 2.3).
+     The TEXT is a neutral text role, not the status colour: a status colour on a
+     tint of ITSELF measured 3.0-3.3:1 in every one of the 20 palettes, because the
+     composite backdrop moves toward the text. The status colour carries the border
+     and the dot/icon, the label carries the meaning, and the palette check now
+     asserts the composite (`COMPOSITE_CONTRAST`). This is also the better answer
+     to Rule 10 / AP-14: colour is never the only signal. */
+  .chip-success { background: color-mix(in srgb, var(--success) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--success) 34%, transparent); color: var(--text-primary); }
+  .chip-warning { background: color-mix(in srgb, var(--warning) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--warning) 34%, transparent); color: var(--text-primary); }
+  .chip-danger  { background: color-mix(in srgb, var(--danger) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--danger) 34%, transparent); color: var(--text-primary); }
+  .chip-info    { background: color-mix(in srgb, var(--info) 14%, var(--surface-raised)); border-color: color-mix(in srgb, var(--info) 34%, transparent); color: var(--text-primary); }
+  .chip-neutral { background: var(--surface-raised); border-color: var(--border-default); color: var(--text-secondary); }
   .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
   /* ---- Data table ---- */
@@ -442,26 +449,26 @@
     border-bottom: 1px solid var(--border-default);
     position: sticky;
     top: 0;
-    background: var(--bg-surface);
+    background: var(--surface-raised);
     z-index: 2;
   }
   .data-table tbody td {
     padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--border-glass);
+    border-bottom: 1px solid var(--border-default);
     color: var(--text-primary);
     vertical-align: middle;
   }
   .data-table tbody tr { transition: background var(--motion-fast) var(--ease-out); }
-  .data-table tbody tr:hover { background: var(--surface-glass-faint); }
+  .data-table tbody tr:hover { background: var(--surface-row); }
   .data-table .money, .data-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 
   /* ---- Sidebar ---- */
   .sidebar {
     width: 240px;
     flex-shrink: 0;
-    background: var(--surface-glass);
+    background: var(--surface-raised);
     backdrop-filter: blur(20px);
-    border-right: 1px solid var(--border-glass);
+    border-right: 1px solid var(--border-default);
     padding: var(--space-6) var(--space-4);
     display: flex;
     flex-direction: column;
@@ -485,7 +492,7 @@
     border: 1px solid transparent;
     min-height: 44px;
   }
-  .sidebar-item:hover { background: var(--surface-glass); color: var(--text-primary); }
+  .sidebar-item:hover { background: var(--surface-raised); color: var(--text-primary); }
   .sidebar-item-active {
     background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
     color: var(--accent-primary);
@@ -498,8 +505,8 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-4) var(--space-6);
-    border-bottom: 1px solid var(--border-glass);
-    background: var(--surface-glass);
+    border-bottom: 1px solid var(--border-default);
+    background: var(--surface-raised);
     backdrop-filter: blur(20px);
     position: sticky;
     top: 0;
@@ -513,11 +520,11 @@
   .app-footer { flex-shrink: 0; margin-top: auto; }
 
   /* ---- Progress bar ---- */
-  .progress { height: 6px; background: var(--surface-glass-faint); border-radius: var(--radius-full); overflow: hidden; }
+  .progress { height: 6px; background: var(--surface-row); border-radius: var(--radius-full); overflow: hidden; }
   .progress-bar { height: 100%; background: var(--accent-primary); border-radius: var(--radius-full); transition: transform var(--motion-slow) var(--ease-out); transform-origin: left; }
 
   /* ---- Tabs ---- */
-  .tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-glass); }
+  .tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
   .tab { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all var(--motion-fast) var(--ease-out); }
   .tab:hover { color: var(--text-primary); }
   .tab-active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
@@ -536,13 +543,13 @@
 
 
   /* ---- Toggle switch ---- */
-  .toggle { width: 44px; height: 26px; background: var(--bg-surface-inset); border-radius: var(--radius-full); position: relative; cursor: pointer; transition: background var(--motion-fast) var(--ease-out); border: 1px solid var(--border-default); }
-  .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--bg-surface); box-shadow: 0 2px 4px var(--shadow-color); transition: transform var(--motion-fast) var(--ease-spring); }
+  .toggle { width: 44px; height: 26px; background: var(--surface-inset); border-radius: var(--radius-full); position: relative; cursor: pointer; transition: background var(--motion-fast) var(--ease-out); border: 1px solid var(--border-default); }
+  .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-raised); box-shadow: 0 2px 4px var(--shadow-overlay); transition: transform var(--motion-fast) var(--ease-spring); }
   .toggle-on { background: var(--accent-primary); }
-  .toggle-on::after { transform: translateX(18px); background: var(--text-on-accent); }
+  .toggle-on::after { transform: translateX(18px); background: var(--accent-on-primary); }
 
   /* ---- Avatar ---- */
-  .avatar { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-surface-raised)); color: var(--accent-primary); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; border: 2px solid var(--bg-surface); flex-shrink: 0; }
+  .avatar { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-full); background: color-mix(in srgb, var(--accent-primary) 15%, var(--surface-raised)); color: var(--accent-primary); font-weight: 600; font-size: var(--text-sm); letter-spacing: 0.02em; border: 2px solid var(--surface-raised); flex-shrink: 0; }
   .avatar-sm { width: 28px; height: 28px; font-size: var(--text-xs); }
   .avatar-lg { width: 56px; height: 56px; font-size: var(--text-lg); }
   .avatar-xl { width: 80px; height: 80px; font-size: var(--text-2xl); }
@@ -552,23 +559,23 @@
 
   /* ---- Skeleton shimmer ---- */
   .skeleton {
-    background: linear-gradient(90deg, var(--surface-glass-faint) 0%, var(--surface-glass) 50%, var(--surface-glass-faint) 100%);
+    background: linear-gradient(90deg, var(--surface-row) 0%, var(--surface-raised) 50%, var(--surface-row) 100%);
     background-size: 200% 100%;
     animation: skeleton-shimmer 1.5s infinite;
     border-radius: var(--radius-md);
   }
 
   /* ---- Scrollbar styling ---- */
-  .no-scrollbar { scrollbar-width: thin; scrollbar-color: var(--border-glass) transparent; }
+  .no-scrollbar { scrollbar-width: thin; scrollbar-color: var(--border-default) transparent; }
   .no-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-  .no-scrollbar::-webkit-scrollbar-thumb { background: var(--border-glass); border-radius: 3px; }
+  .no-scrollbar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
   .no-scrollbar::-webkit-scrollbar-track { background: transparent; }
 
   /* ---- Badge count ---- */
-  .badge-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--accent-danger); color: #FFFFFF; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--danger); color: #FFFFFF; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* ---- Divider ---- */
-  .divider { height: 1px; background: var(--border-glass); margin: var(--space-4) 0; }
+  .divider { height: 1px; background: var(--border-default); margin: var(--space-4) 0; }
 
   /* ---- Icon defaults ---- */
   .icon { width: 18px; height: 18px; stroke-width: 2; stroke: currentColor; fill: none; flex-shrink: 0; }
@@ -592,6 +599,21 @@
 
 /* ============================================================================
    REDUCED MOTION CONTRACT (accessibility)
+
+   Two independent switches, because they answer different questions:
+
+   1. `prefers-reduced-motion` — the OS setting. Honour it unconditionally.
+   2. `html[data-reduced-motion="1"]` — the in-app toggle (Settings → Appearance →
+      Accessibility). It used to write a database row and nothing else, so the
+      switch promised an effect that never happened; the provider now mirrors it
+      onto <html> and this block is where it takes effect.
+
+   The global `0.01ms` kill is NOT applied to the in-app case for spinners and
+   pulses: it freezes them at their first frame with no alternative cue, so a
+   loading indicator simply stops existing. Instead the decorative motion stops and
+   the loading motion is replaced by a static, visible state. Skeletons and blobs
+   are compensated either way; a spinner is not — it gets a non-animated
+   indicator instead.
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -601,7 +623,35 @@
   }
   .skeleton {
     animation: none;
-    background: var(--surface-glass-faint);
+    background: var(--surface-row);
+  }
+}
+
+/* The in-app toggle: same intent, but with a floor on feedback. */
+html[data-reduced-motion="1"] .animate-blob-1,
+html[data-reduced-motion="1"] .animate-blob-2,
+html[data-reduced-motion="1"] .animate-blob-3,
+html[data-reduced-motion="1"] .aurora-blob {
+  animation: none !important;
+}
+
+html[data-reduced-motion="1"] .skeleton {
+  animation: none;
+  background: var(--surface-row);
+}
+
+/* A frozen spinner reads as "stuck", so reduced motion replaces movement with a
+   static ring: the same silhouette, no rotation. */
+html[data-reduced-motion="1"] .animate-spin,
+html[data-reduced-motion="1"] .animate-pulse {
+  animation: none !important;
+  opacity: 0.65;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin, .animate-pulse {
+    animation: none !important;
+    opacity: 0.65;
   }
 }
 
@@ -641,200 +691,6 @@
   .animate-blob-1, .animate-blob-2, .animate-blob-3 {
     animation: none !important;
   }
-}
-
-/* ============================================================================
-   CUSTOM COLOR THEME OVERRIDES (AstroVim & NvChad Inspired)
-   ============================================================================ */
-
-/* 1. One Dark */
-[data-theme-preference="onedark"] {
-  --bg-cosmic: #1e1e24;
-  --bg-midnight: #282c34;
-  --bg-abyss: #181a1f;
-  --bg-canvas: #1e1e24;
-  --bg-surface: rgba(40, 44, 52, 0.40);
-  --bg-surface-raised: rgba(44, 49, 60, 0.60);
-  --bg-surface-inset: #181a1f;
-  --surface-glass: rgba(40, 44, 52, 0.35);
-  --surface-glass-strong: rgba(40, 44, 52, 0.55);
-  --surface-glass-faint: rgba(40, 44, 52, 0.15);
-  --accent-primary: #61afef;
-  --accent-secondary: #c678dd;
-  --accent-tertiary: #56b6c2;
-  --accent-success: #98c379;
-  --accent-warning: #e5c07b;
-  --accent-danger: #e06c75;
-  --accent-info: #56b6c2;
-  --accent-emerald: #98c379;
-  --accent-amber: #e5c07b;
-  --accent-flare: #e06c75;
-  --accent-cyan: #56b6c2;
-  --accent-violet: #c678dd;
-  --text-primary: #abb2bf;
-  --text-secondary: rgba(171,178,191,0.72);
-  --text-muted: rgba(171,178,191,0.45);
-  --border-glass: rgba(97,175,239,0.12);
-  --border-glass-strong: rgba(97,175,239,0.22);
-  --border-default: rgba(97,175,239,0.12);
-  --border-strong: rgba(97,175,239,0.22);
-  --shadow-color: rgba(0,0,0,0.45);
-  
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
-}
-
-/* 2. Nord */
-[data-theme-preference="nord"] {
-  --bg-cosmic: #2e3440;
-  --bg-midnight: #3b4252;
-  --bg-abyss: #242933;
-  --bg-canvas: #2e3440;
-  --bg-surface: rgba(59, 66, 82, 0.40);
-  --bg-surface-raised: rgba(67, 76, 94, 0.60);
-  --bg-surface-inset: #242933;
-  --surface-glass: rgba(59, 66, 82, 0.35);
-  --surface-glass-strong: rgba(59, 66, 82, 0.55);
-  --surface-glass-faint: rgba(59, 66, 82, 0.15);
-  --accent-primary: #88c0d0;
-  --accent-secondary: #81a1c1;
-  --accent-tertiary: #8fbcbb;
-  --accent-success: #a3be8c;
-  --accent-warning: #ebcb8b;
-  --accent-danger: #bf616a;
-  --accent-info: #88c0d0;
-  --accent-emerald: #a3be8c;
-  --accent-amber: #ebcb8b;
-  --accent-flare: #bf616a;
-  --accent-cyan: #88c0d0;
-  --accent-violet: #b48ead;
-  --text-primary: #d8dee9;
-  --text-secondary: rgba(216,222,233,0.72);
-  --text-muted: rgba(216,222,233,0.45);
-  --border-glass: rgba(136,192,208,0.12);
-  --border-glass-strong: rgba(136,192,208,0.22);
-  --border-default: rgba(136,192,208,0.12);
-  --border-strong: rgba(136,192,208,0.22);
-  --shadow-color: rgba(0,0,0,0.4);
-  
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
-}
-
-/* 3. Gruvbox */
-[data-theme-preference="gruvbox"] {
-  --bg-cosmic: #282828;
-  --bg-midnight: #3c3836;
-  --bg-abyss: #1d2021;
-  --bg-canvas: #282828;
-  --bg-surface: rgba(60, 56, 54, 0.40);
-  --bg-surface-raised: rgba(80, 73, 69, 0.60);
-  --bg-surface-inset: #1d2021;
-  --surface-glass: rgba(60, 56, 54, 0.35);
-  --surface-glass-strong: rgba(60, 56, 54, 0.55);
-  --surface-glass-faint: rgba(60, 56, 54, 0.15);
-  --accent-primary: #fabd2f;
-  --accent-secondary: #b8bb26;
-  --accent-tertiary: #fe8019;
-  --accent-success: #b8bb26;
-  --accent-warning: #fabd2f;
-  --accent-danger: #fb4934;
-  --accent-info: #83a598;
-  --accent-emerald: #b8bb26;
-  --accent-amber: #fabd2f;
-  --accent-flare: #fb4934;
-  --accent-cyan: #83a598;
-  --accent-violet: #d3869b;
-  --text-primary: #ebdbb2;
-  --text-secondary: rgba(235,219,178,0.72);
-  --text-muted: rgba(235,219,178,0.45);
-  --border-glass: rgba(250,189,47,0.12);
-  --border-glass-strong: rgba(250,189,47,0.22);
-  --border-default: rgba(250,189,47,0.12);
-  --border-strong: rgba(250,189,47,0.22);
-  --shadow-color: rgba(0,0,0,0.5);
-  
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
-}
-
-/* 4. Tokyo Night */
-[data-theme-preference="tokyonight"] {
-  --bg-cosmic: #1a1b26;
-  --bg-midnight: #1f2335;
-  --bg-abyss: #16161e;
-  --bg-canvas: #1a1b26;
-  --bg-surface: rgba(31, 35, 53, 0.40);
-  --bg-surface-raised: rgba(36, 40, 60, 0.60);
-  --bg-surface-inset: #16161e;
-  --surface-glass: rgba(31, 35, 53, 0.35);
-  --surface-glass-strong: rgba(31, 35, 53, 0.55);
-  --surface-glass-faint: rgba(31, 35, 53, 0.15);
-  --accent-primary: #7aa2f7;
-  --accent-secondary: #bb9af7;
-  --accent-tertiary: #2ac3de;
-  --accent-success: #9ece6a;
-  --accent-warning: #e0af68;
-  --accent-danger: #f7768e;
-  --accent-info: #7dcfff;
-  --accent-emerald: #9ece6a;
-  --accent-amber: #e0af68;
-  --accent-flare: #f7768e;
-  --accent-cyan: #7dcfff;
-  --accent-violet: #bb9af7;
-  --text-primary: #c0caf5;
-  --text-secondary: rgba(192,202,245,0.72);
-  --text-muted: rgba(192,202,245,0.45);
-  --border-glass: rgba(122,162,247,0.12);
-  --border-glass-strong: rgba(122,162,247,0.22);
-  --border-default: rgba(122,162,247,0.12);
-  --border-strong: rgba(122,162,247,0.22);
-  --shadow-color: rgba(0,0,0,0.45);
-  
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
-}
-
-/* 5. Monochrome */
-[data-theme-preference="monochrome"] {
-  --bg-cosmic: #121212;
-  --bg-midnight: #1e1e1e;
-  --bg-abyss: #0a0a0a;
-  --bg-canvas: #121212;
-  --bg-surface: rgba(255, 255, 255, 0.03);
-  --bg-surface-raised: rgba(255, 255, 255, 0.06);
-  --bg-surface-inset: #0a0a0a;
-  --surface-glass: rgba(255, 255, 255, 0.02);
-  --surface-glass-strong: rgba(255, 255, 255, 0.04);
-  --surface-glass-faint: rgba(255, 255, 255, 0.01);
-  --accent-primary: #ffffff;
-  --accent-secondary: #888888;
-  --accent-tertiary: #aaaaaa;
-  --accent-success: #e0e0e0;
-  --accent-warning: #c0c0c0;
-  --accent-danger: #a0a0a0;
-  --accent-info: #d0d0d0;
-  --accent-emerald: #e0e0e0;
-  --accent-amber: #c0c0c0;
-  --accent-flare: #a0a0a0;
-  --accent-cyan: #d0d0d0;
-  --accent-violet: #b0b0b0;
-  --text-primary: #f5f5f5;
-  --text-secondary: rgba(245,245,245,0.72);
-  --text-muted: rgba(245,245,245,0.45);
-  --border-glass: rgba(255,255,255,0.10);
-  --border-glass-strong: rgba(255,255,255,0.16);
-  --border-default: rgba(255,255,255,0.10);
-  --border-strong: rgba(255,255,255,0.16);
-  --shadow-color: rgba(0,0,0,0.6);
-  
-  --background: var(--bg-abyss);
-  --foreground: var(--text-primary);
-  --border: var(--border-glass);
 }
 
 
@@ -902,18 +758,22 @@ html[data-density="compact"] .data-table tbody td {
   padding: 8px 12px !important;
 }
 
+/* Density compresses PADDING, never the touch target. 36px is below the 44x44 floor
+   (AGENTS.md Rule 10, WCAG 2.5.5) and "compact" is offered on tablets and phones as
+   well as desktops, so the override silently removed the target from every field in
+   the app. Density is a density-of-information decision, not an accessibility one. */
 html[data-density="compact"] input,
 html[data-density="compact"] select,
 html[data-density="compact"] textarea {
-  padding: 8px 12px !important;
-  min-height: 36px !important;
+  padding: 6px 12px !important;
+  min-height: 44px !important;
 }
 
 html[data-density="compact"] .sidebar-item,
 html[data-density="compact"] aside nav button {
-  padding-top: 6px !important;
-  padding-bottom: 6px !important;
-  min-height: 36px !important;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  min-height: 44px !important;
 }
 
 html[data-density="compact"] .sticky.bottom-4 {

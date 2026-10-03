@@ -17,13 +17,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction } from "@/server/actions/settings";
-import { Moon, Sun, Smartphone, Palette, Type, EyeOff, Layers } from "lucide-react";
+import { Moon, Sun, Smartphone, Palette, Type, EyeOff, Layers, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NeumoToggle } from "./neumo-toggle";
 import {
   DEFAULT_MATERIAL_ID,
   DEFAULT_PALETTE_ID,
   DENSITY_STORAGE_KEY,
+  REDUCED_MOTION_STORAGE_KEY,
   MATERIAL_OPTIONS,
   MATERIAL_STORAGE_KEY,
   PALETTES,
@@ -55,6 +56,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
   const [selectedMaterial, setSelectedMaterial] = useState<string>(DEFAULT_MATERIAL_ID);
   const [activeMode, setActiveMode] = useState<string>(settings?.theme || "system");
   const [activeDensity, setActiveDensity] = useState<string>("comfortable");
+  const [reducedMotion, setReducedMotion] = useState<boolean>(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -70,13 +72,18 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
       resolveMaterialId(localStorage.getItem(MATERIAL_STORAGE_KEY) ?? root.getAttribute("data-material")),
     );
     setActiveMode(settings?.theme || "system");
+    setReducedMotion(
+      document.documentElement.getAttribute("data-reduced-motion") === "1" ||
+        localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) === "1" ||
+        settings?.reducedMotion === 1,
+    );
     setActiveDensity(
       localStorage.getItem(DENSITY_STORAGE_KEY) ??
         root.getAttribute("data-density") ??
         settings?.density ??
         "comfortable",
     );
-  }, [settings?.palette, settings?.theme, settings?.density]);
+  }, [settings?.palette, settings?.theme, settings?.density, settings?.reducedMotion]);
 
   const updateMutation = useMutation({
     mutationFn: async ({ field, value }: { field: string; value: unknown }) => {
@@ -121,18 +128,20 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
     setActiveMode(id);
     const html = document.documentElement;
     html.setAttribute("data-theme-preference", id);
-    const resolved =
-      id === "system"
-        ? window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light"
-        : id;
-    html.setAttribute("data-theme", resolved);
-    localStorage.setItem(THEME_STORAGE_KEY, resolved);
+    // The PREFERENCE is what gets stored, not its current resolution. Storing
+    // "dark" because that is what system resolved to right now pins the app to
+    // dark for good: `system` could never be selected again and an OS flip would
+    // stop being followed. The provider resolves the preference on every read.
+    localStorage.setItem(THEME_STORAGE_KEY, id);
     updateMutation.mutate({ field: "theme", value: id });
   };
 
   const applyDensity = (id: string): void => {
+    setReducedMotion(
+      document.documentElement.getAttribute("data-reduced-motion") === "1" ||
+        localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) === "1" ||
+        settings?.reducedMotion === 1,
+    );
     setActiveDensity(id);
     localStorage.setItem(DENSITY_STORAGE_KEY, id);
     document.documentElement.setAttribute("data-density", id);
@@ -155,7 +164,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
               aria-pressed={isActive}
               aria-label={`Use the ${palette.name} palette, from Figma colour scheme ${palette.figmaScheme}`}
               className={cn(
-                "flex min-h-[44px] cursor-pointer flex-col gap-2 rounded-xl border p-3 text-left transition-colors",
+                "flex min-h-[44px] cursor-pointer flex-col gap-2 rounded-xl border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
                 isActive
                   ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
                   : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
@@ -169,8 +178,20 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                 <span className="flex-1" style={{ background: palette.swatch.raised }} />
                 <span className="flex-1" style={{ background: palette.swatch.accent }} />
               </span>
-              <span className="text-xs font-semibold text-[var(--text-primary)]">
-                {palette.name}
+              <span className="flex items-start justify-between gap-2">
+                <span className="text-xs font-semibold text-[var(--text-primary)]">
+                  {palette.name}
+                </span>
+                {/* Selection is signalled by a check glyph and the word "Active",
+                    not by border colour alone (Rule 10 / AP-14). The Material
+                    picker already did this; the other three pickers did not, so
+                    four sibling controls spoke three different languages. */}
+                {isActive ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--accent-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-on-primary)]">
+                    <Check className="h-3 w-3" aria-hidden="true" />
+                    Active
+                  </span>
+                ) : null}
               </span>
               <span className="text-[11px] leading-snug text-[var(--text-muted)]">
                 Figma {palette.figmaScheme} · {palette.figmaName}
@@ -197,15 +218,19 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
             key={option.id}
             type="button"
             onClick={() => onSelect(option.id)}
+            // `aria-pressed` rather than a radio group: these are toggle buttons,
+            // each of which is reachable by Tab and announces its own state, which
+            // is what a screen-reader user needs from a single-select row.
             aria-pressed={isActive}
             className={cn(
-              "flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors",
+              "flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
               isActive
                 ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-on-primary)]"
                 : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-row)] hover:text-[var(--text-primary)]",
             )}
           >
-            {Icon ? <Icon className="h-4 w-4" /> : null}
+            {isActive ? <Check className="h-4 w-4" aria-hidden="true" /> : null}
+            {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
             {option.label}
           </button>
         );
@@ -266,7 +291,7 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                 onClick={() => applyMaterial(material.id)}
                 aria-pressed={isActive}
                 className={cn(
-                  "flex min-h-[44px] cursor-pointer flex-col gap-1 rounded-xl border p-4 text-left transition-colors",
+                  "flex min-h-[44px] cursor-pointer flex-col gap-1 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
                   isActive
                     ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
                     : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
@@ -319,13 +344,23 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
                 onClick={() => applyDensity(option.id)}
                 aria-pressed={isActive}
                 className={cn(
-                  "flex min-h-[44px] cursor-pointer flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors",
+                  "flex min-h-[44px] cursor-pointer flex-col items-start gap-1 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
                   isActive
                     ? "border-[var(--accent-primary)] bg-[var(--surface-raised)]"
                     : "border-[var(--border-default)] bg-[var(--surface-inset)] hover:border-[var(--border-strong)]",
                 )}
               >
-                <span className="text-sm font-semibold text-[var(--text-primary)]">{option.title}</span>
+                <span className="flex w-full items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {option.title}
+                  </span>
+                  {isActive ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-primary)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-on-primary)]">
+                      <Check className="h-3 w-3" aria-hidden="true" />
+                      Active
+                    </span>
+                  ) : null}
+                </span>
                 <span className="text-xs leading-snug text-[var(--text-muted)]">{option.body}</span>
               </button>
             );
@@ -349,13 +384,20 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
           </div>
           <NeumoToggle
             label="Reduced motion"
-            checked={settings?.reducedMotion === 1}
-            onChange={() =>
-              updateMutation.mutate({
-                field: "reducedMotion",
-                value: settings?.reducedMotion === 1 ? 0 : 1,
-              })
-            }
+            checked={reducedMotion}
+            onChange={() => {
+              // Write the DOM + localStorage FIRST so the screen responds on this
+              // tap, then persist. The previous order (database only) left the
+              // switch inert: nothing consumed the value, so the promise in this
+              // row was not kept.
+              const next = reducedMotion ? "0" : "1";
+              setReducedMotion(next === "1");
+              localStorage.setItem(REDUCED_MOTION_STORAGE_KEY, next);
+              const html = document.documentElement;
+              if (next === "1") html.setAttribute("data-reduced-motion", "1");
+              else html.removeAttribute("data-reduced-motion");
+              updateMutation.mutate({ field: "reducedMotion", value: next === "1" ? 1 : 0 });
+            }}
           />
         </div>
       </div>
