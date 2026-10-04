@@ -378,7 +378,7 @@ jobs:
       - name: Mirror APK to Vercel Blob
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path Buddysaradhi.apk \
             --blob-pathname "mobile/android/Buddysaradhi-${VERSION}-universal.apk" \
             --content-type "application/vnd.android.package-archive"
@@ -416,7 +416,7 @@ jobs:
 
 - **Two jobs: `build` and `wait-and-mirror`.** The `build` job returns immediately (via `--no-wait`); the `wait-and-mirror` job polls EAS's API until both builds finish.
 - **`timeout-minutes: 30`** on `build`, **`timeout-minutes: 60`** on `wait-and-mirror`. EAS iOS builds can take ~25 minutes; the 60-minute timeout gives a buffer.
-- **The APK mirror** (the `Mirror APK to Vercel Blob` step) runs the `scripts/blob-upload.mjs` script, which calls the `uploadInstaller` function from `02_Vercel_Blob_Build_Storage.md` §3.2.
+- **The APK mirror** (the `Mirror APK to Vercel Blob` step) runs the `scripts/blob-upload.ts` script, which calls the `uploadInstaller` function from `02_Vercel_Blob_Build_Storage.md` §3.2.
 - **The iOS IPA is NOT mirrored.** The `wait-and-mirror` job verifies the iOS build finished (so we know TestFlight submission succeeded), but does not download or upload the IPA. This is the `no-ios-blob-upload.test.ts` lint rule (`02_Vercel_Blob_Build_Storage.md` §2.2) operationalised.
 
 ---
@@ -558,7 +558,7 @@ jobs:
             ubuntu-22.04)   BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}" ;;
           esac
           # Upload
-          UPLOAD_RESULT=$(bun run scripts/blob-upload.mjs \
+          UPLOAD_RESULT=$(node scripts/blob-upload.ts \
             --local-path "$INSTALLER" \
             --blob-pathname "$BLOB_PATH" \
             --content-type "application/octet-stream" \
@@ -586,7 +586,7 @@ jobs:
             macos-latest)   SIG_BLOB_PATH="desktop/macos/Buddysaradhi-${VERSION}-universal.${{ matrix.installer_ext }}.sig" ;;
             ubuntu-22.04)   SIG_BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}.sig" ;;
           esac
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path "$SIG_FILE" \
             --blob-pathname "$SIG_BLOB_PATH" \
             --content-type "application/octet-stream"
@@ -616,7 +616,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           # The build job's outputs are arrays (one per matrix entry); iterate
-          bun run scripts/build-manifest.mjs \
+          node scripts/build-manifest.ts \
             --version "$VERSION" \
             --commit "${{ github.sha }}" \
             --output manifests/desktop-staging.json
@@ -624,7 +624,7 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Verify manifest
-        run: bun run scripts/verify-manifest.mjs --manifest manifests/desktop-staging.json
+        run: node scripts/verify-manifest.ts --manifest manifests/desktop-staging.json
 
       - name: Notify on completion
         run: |
@@ -648,7 +648,7 @@ jobs:
 - **The Windows codesign cert** is stored as a base64-encoded PFX in the `WINDOWS_CODESIGN_PFX` secret, decoded to a file at build time. The password is a separate secret (`WINDOWS_CODESIGN_PASSWORD`).
 - **The macOS notarization** uses the `notarytool` API with an Apple ID + team ID + app-specific password (the `MACOS_NOTARY_*` secrets). Tauri's `tauri-build` invokes `notarytool` automatically.
 - **The manifest update** is a separate job (`update-manifest`) that runs after all three platforms' builds finish. It uses the `needs: build` dependency to ensure all three artifacts are uploaded before the manifest is built.
-- **The manifest verification** (`scripts/verify-manifest.mjs`) is the verification step from `02_Vercel_Blob_Build_Storage.md` §5.4 — JSON parse, URL 200, signature non-empty, version matches tag.
+- **The manifest verification** (`scripts/verify-manifest.ts`) is the verification step from `02_Vercel_Blob_Build_Storage.md` §5.4 — JSON parse, URL 200, signature non-empty, version matches tag.
 
 ---
 
@@ -863,7 +863,7 @@ jobs:
         if: ${{ inputs.promote_desktop }}
         run: |
           VERSION=${{ inputs.version }}
-          bun run scripts/promote-manifest.mjs \
+          node scripts/promote-manifest.ts \
             --from manifests/desktop-staging.json \
             --to manifests/desktop-stable.json \
             --version "$VERSION"
@@ -872,12 +872,12 @@ jobs:
 
       - name: Verify stable manifest
         if: ${{ inputs.promote_desktop }}
-        run: bun run scripts/verify-manifest.mjs --manifest manifests/desktop-stable.json
+        run: node scripts/verify-manifest.ts --manifest manifests/desktop-stable.json
 
       - name: Upload changelog to Blob
         run: |
           VERSION=${{ inputs.version }}
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path CHANGELOG_ENTRY.md \
             --blob-pathname "changelogs/${VERSION}.md" \
             --content-type "text/markdown"
@@ -1487,15 +1487,15 @@ live `.github/workflows/` has diverged. Minimal diff, no example rewrites.
    ESLint 10 has no `.ts` autodiscovery, verified by trial; locked
    `apps/desktop` + `apps/mobile` entries with gate expiry). Regression test:
    `scripts/principle-lints.test.ts`. Gate is 7/7.
-5. **KNOWN-BREAK (release path): missing `scripts/*.mjs`.** `eas-build.yml`,
-   `desktop-build.yml`, and `release.yml` still invoke
-   `scripts/blob-upload.mjs`, `scripts/build-manifest.mjs`,
-   `scripts/verify-manifest.mjs`, `scripts/promote-manifest.mjs` — none exist
-   on disk (the `.ts` migration did not port them). Tag-push and manual
-   release runs will fail at those steps until the scripts are ported or the
-   call sites updated. Call sites were left untouched deliberately (no
-   release-critical YAML logic changes without an on-branch run per §12);
-   porting them is the follow-up, owned by release-eng.
+5. **RESOLVED (release path): `scripts/*.ts` ported.** `eas-build.yml`,
+    `desktop-build.yml`, and `release.yml` invoke `node scripts/blob-upload.ts`,
+    `scripts/build-manifest.ts`, `scripts/verify-manifest.ts`,
+    `scripts/promote-manifest.ts` — all exist on disk as strict TypeScript
+    (Node 24 type-stripping, `--dry-run` for CI-less verification, pure
+    manifest logic under `scripts/release-scripts.test.ts`). Tag-push and
+    manual release runs call the ported scripts. Live Blob I/O still needs
+    `BLOB_READ_WRITE_TOKEN` at run time (fail-closed with a typed message
+    when absent).
 6. **Canonical `vercel.json` is the repo root.** Root `vercel.json` is
    canonical; `apps/web/vercel.json` carries a `$comment` pointer and must
    not be deleted without owner sign-off (Rule 11: one directory, one
