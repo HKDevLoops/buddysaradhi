@@ -484,7 +484,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Scrim — asks first while a reason or PIN is typed. */}
           <div
-            className="absolute inset-0 backdrop-blur-sm"
+            className="absolute inset-0 [backdrop-filter:var(--mat-filter)]"
             style={{ background: "color-mix(in srgb, var(--canvas) 80%, transparent)" }}
             onClick={onScrimClick}
             aria-hidden="true"

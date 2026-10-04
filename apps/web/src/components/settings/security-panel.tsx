@@ -111,7 +111,7 @@ export function SecurityPanel() {
               className={cn(
                 "w-full neumo-raised py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
                 isValid 
-                  ? "bg-[var(--danger)]/20 text-[var(--danger)] hover:bg-[var(--danger)]/40 shadow-[0_0_15px_rgba(255,51,102,0.2)]" 
+                  ? "bg-[var(--danger)]/20 text-[var(--danger)] hover:bg-[var(--danger)]/40 shadow-[0_0_15px_color-mix(in_oklch,var(--danger)_20%,transparent)]" 
                   : "bg-[var(--surface-inset)] text-[var(--text-muted)] opacity-70 cursor-not-allowed shadow-none"
               )}
             >

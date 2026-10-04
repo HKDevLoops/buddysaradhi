@@ -259,8 +259,9 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     }, 0);
 
     // ── Overdue, from invoices ───────────────────────────────────────────────
-    // `buildTenantWhere` has no range operator, so the `<= today` comparison
-    // happens here. It is a lexicographic comparison of two 'YYYY-MM-DD'
+    // `openDatedInvoices` is already in memory, so the `<= today` comparison
+    // happens here (range operators exist in `lib/sql.ts` RANGE_CLAUSE for
+    // DB-side filters). It is a lexicographic comparison of two 'YYYY-MM-DD'
     // strings, which is exact; and because it happens AFTER the count, the
     // total below is the true population — never "at least DUE_TODAY_LIMIT".
     const overdueInvoices = openDatedInvoices.filter((inv) =>

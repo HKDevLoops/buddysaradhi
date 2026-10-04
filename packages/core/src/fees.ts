@@ -11,7 +11,7 @@
 // payment cannot diverge between them (the shadow-ledger failure class —
 // reviews/overhaul-audit-report-2026-09-26.md F2/F9).
 //
-// This adapter's only job is to translate the eight port operations into
+// This adapter's only job is to translate the ten port operations into
 // parameterised statements inside ONE write transaction (`withWriteTx`,
 // BEGIN IMMEDIATE). It never decides anything about money.
 import { randomUUID } from "crypto";

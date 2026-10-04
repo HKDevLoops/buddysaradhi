@@ -296,7 +296,7 @@ Disputes (e.g., a tutor claims a payment the owner reassigned) are resolved via 
 | **Ad network / ad monetisation** | AP-3, AP-10, P5 | Ads require telemetry and a backend that processes user data. Both are forbidden. |
 | **Forced social feed** (leaderboards, public rankings, "share your attendance %") | AP-4, P1, P14 | The tutor is the only user; students are data. |
 | **AI auto-billing without audit** (an LLM that posts `FEE_CHARGE` rows without explicit tutor confirmation) | AP-5, P4 | The ledger is the verbatim capture of the tutor's intent. An AI that writes to it without confirmation is a spine surgeon with no oversight. |
-| **Indigo / blue as primary accent** | AP-6, `13_UI_Guidelines.md §2` | Indigo/blue read as "default tech app." The bioluminescent palette is Buddysaradhi's signature; the lint rule `no-indigo-accent` enforces this in CI. |
+| **Indigo / blue as primary accent** | AP-6, `13_UI_Guidelines.md` §2.1 | Indigo/blue read as "default tech app." The generated palette is Buddysaradhi's signature; the lint rule `no-indigo-accent` enforces this in CI. |
 | **Vendor lock-in via data hostage** ("export is premium," proprietary backup format) | AP-7, P10 | The tutor stays because the product is better, not because the data is trapped. |
 | **Student or parent accounts in the tutor app** | AP-8, P1, P14 | Parents are guests (signed URLs); students are data. Their accounts — when they exist — live in separate apps. |
 | **A sixth top-level screen for solo tutors** | AP-9, P2 | Five is the spatial-memory ceiling. |
@@ -449,7 +449,7 @@ ROADMAP TIMELINE — v1.x → v2.0 → v2.x → v3.0 → v3.x → v4.0 (5-year h
    │  │     (post-§1.6-trigger; pre-trigger MRR = ₹0/mo by design — "Free for   │
    │  │     everyone, for now" model per product/05_Pricing_and_Plans.md §1.6;   │
    │  │     the 250-student number is internal soft guidance, no paywall)        │
-   │  │   ↑ amber hex stays #FFB300; no indigo/blue accents (AP-6)                │
+    │  │   ↑ `var(--warning)` stays status amber; no indigo/blue accents (AP-6, `13_UI_Guidelines.md` §2.1)                │
    │  ▼                                                                           │
    │                                                                              │
    │  v2.0 MULTI-DEVICE SYNC (flagship v2; principle amendment P5-A1 required)   │
@@ -517,7 +517,7 @@ ROADMAP TIMELINE — v1.x → v2.0 → v2.x → v3.0 → v3.x → v4.0 (5-year h
    │  ✕ content hosting (worksheets, videos)        (different business)         │
    │  ✕ a 6th screen for solo tutors                (violates P2)                │
    │  ✕ telemetry that leaves the device            (violates AP-10)             │
-   │  ✕ indigo or blue as primary accent            (violates AP-6)              │
+    │  ✕ indigo or blue as primary accent            (violates AP-6, `13_UI_Guidelines.md` §2.1)              │
    │                                                                              │
    └──────────────────────────────────────────────────────────────────────────────┘
 

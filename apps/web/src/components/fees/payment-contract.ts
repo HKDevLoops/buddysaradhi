@@ -39,11 +39,10 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export const PaymentMethodSchema = z.enum(PAYMENT_METHODS);
 
 /**
- * Gateway parity note (read-only, apps/gateway/routes/ledger.ts:58-64): the
- * gateway payment path accepts `method: z.string().trim().max(32).optional()`
- * defaulting to `"upi"` — ANY 32-char string passes. This contract enforces
- * the strict 6-method enum web-side per 07 §7 PaymentPayload; a gateway row
- * with a non-enum method is a parity gap (reported, not fixed here).
+ * Gateway parity note (read-only, apps/gateway/routes/ledger.ts:73-83,407):
+ * the gateway payment path enforces the same 6-value method enum
+ * (`cash|upi|card|bank|cheque|other`) as this contract — defaults differ:
+ * gateway omits to `"upi"`, web omits to `"cash"` per 07 §6.4.
  */
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: "Cash",

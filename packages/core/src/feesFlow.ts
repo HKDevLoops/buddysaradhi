@@ -17,7 +17,7 @@
 // called out for the previous shadow ledger (reviews/overhaul-audit-report-
 // 2026-09-26.md F2/F9: divergent hash construction, partial payments attributed
 // against `invoices.total` instead of the outstanding amount). So the flow lives
-// ONCE here, against a narrow port, and each dialect supplies only the eight
+// ONCE here, against a narrow port, and each dialect supplies only the ten
 // I/O operations it can express in its own driver. A behaviour change to a
 // payment therefore lands in one place and both paths change together.
 //
@@ -120,7 +120,7 @@ export interface AuditArgs {
 }
 
 /**
- * The eight I/O operations the fee flows need, inside ONE already-open write
+ * The ten I/O operations the fee flows need, inside ONE already-open write
  * transaction. Two adapters implement it — `fees.ts` (libsql statements) and
  * `feesPrisma.ts` (ORM model calls) — and both are exercised against the same
  * database by `feesDialectParity.test.ts`.

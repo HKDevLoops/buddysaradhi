@@ -114,7 +114,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Scrim — dismissal goes through the shared overlay module. */}
       <div
-        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm"
+        className="absolute inset-0 bg-[var(--surface-scrim)] [backdrop-filter:var(--mat-filter)]"
         onClick={onScrimClick}
         aria-hidden="true"
       />

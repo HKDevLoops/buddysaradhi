@@ -2,7 +2,7 @@
 
 > The registry of every learner in the tenant: their identity, their batch enrollments, their fee plan, their immutable ledger, their invoices, their attendance footprint, and their lifecycle. The Students screen is the master-detail surface that turns a name into a 360° business record in one tap.
 
-**Design system:** Vibrant Glass & Neumorphism — Cosmic Indigo (`#0f0c29`) → Midnight Violet (`#24243e`) → Abyss (`#0a0a1a`), glass `rgba(255,255,255,0.05)` + `backdrop-blur(24px)`, accents Emerald (`#00FF9D`), Cyan (`#00F0FF`), Flare (`#FF5E00`), Amber (`#FFB300`), Violet (`#B388FF`). No monochrome. No pure black/white. No indigo/blue primaries.
+**Design system:** Vibrant Glass & Neumorphism — bioluminescent palette only (AP-6, `13_UI_Guidelines.md` §2.1); no indigo/blue accents.
 
 **Engines touched:** Ledger ● · Search ● · Reminder ◐ · Report ◐ · Sync ◐ · Security ● · Notification — (per `02_Core_Logic.md` §10).
 

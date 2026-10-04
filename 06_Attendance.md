@@ -49,7 +49,7 @@ This screen is governed by these `01_Product_Principles.md` principles:
 - **P2 — Five Screens, Forever.** Attendance is one of the five; it must absorb calendar, heatmap, reports, holiday management, and locking without spawning sub-screens.
 - **P3 — Two-Tap Rule.** "Mark all Present" is one tap from the sidebar; "Lock" is the next tap. Two taps to a locked, synced session.
 - **P5 — Offline-First, Always.** The toggle writes to local SQLite in <16 ms. The cloud is the replica; the network is never on the critical path.
-- **P7 — Motion Is Meaning.** The toggle's emerald glow confirms *present*; the lock's compressive thunk confirms *frozen*. No decorative animation.
+- **P7 — Motion Is Meaning.** The toggle's `--success` glow (see `13_UI_Guidelines.md` §2.1; AP-6) confirms *present*; the lock's compressive thunk confirms *frozen*. No decorative animation.
 - **P8 — Density Without Clutter.** A 36-student batch is visible on one mobile screen and on one desktop row block, every column earning its pixels.
 - **P11 — Security Is Tactile.** Locking with a fingerprint is *felt*; an "Are you sure?" dialog is not. The biometric prompt is the entire confirmation.
 - **P12 — Tutor's Time Is the Metric.** The default view is *today's* session for *the most recently used batch*, not a date picker on a blank screen.
@@ -88,10 +88,10 @@ The Attendance screen has one persistent header (batch + date + view switcher) a
 ```
 
 Layout notes:
-- **Header row:** `BatchSelector` (glass dropdown), `DatePicker` (segmented ◀ / label / ▶ + Today chip), `LockButton` (emerald when unlocked, slate when locked with a small lock glyph), `HolidayToggle` (in the `⋯` overflow).
-- **Summary strip:** present/absent/late/excused counts with their respective accent colors (emerald / flare / amber / muted-violet). Right-aligned sync chip animates from amber "Saved locally · N pending" → cyan "Syncing…" → emerald "Synced ✓".
-- **Grid:** sticky-header data table, sticky first column (student name) on horizontal scroll. Each row is a `StudentAttendanceRow`. The `Fee` column shows an amber dot when the student is prepaid-unpaid (BR-FEE-08 soft warning) — tapping the dot opens the fee tooltip; it never blocks marking.
-- **Bulk action bar:** sticky-bottom; "Mark all Present" is the primary emerald CTA; "Mark all Absent…" is a destructive flare-tinted ghost button that requires a second confirmation sheet (BR-ATT-06).
+- **Header row:** `BatchSelector` (glass dropdown), `DatePicker` (segmented ◀ / label / ▶ + Today chip), `LockButton` (`--success` when unlocked, slate when locked with a small lock glyph — see `13_UI_Guidelines.md` §2.1; AP-6), `HolidayToggle` (in the `⋯` overflow).
+- **Summary strip:** present/absent/late/excused counts with their respective status colours (see `13_UI_Guidelines.md` §2.4; palette see §2.1, AP-6). Right-aligned sync chip animates from `--warning` "Saved locally · N pending" → `--info` "Syncing…" → `--success` "Synced ✓".
+- **Grid:** sticky-header data table, sticky first column (student name) on horizontal scroll. Each row is a `StudentAttendanceRow`. The `Fee` column shows a `--warning` dot when the student is prepaid-unpaid (BR-FEE-08 soft warning) — tapping the dot opens the fee tooltip; it never blocks marking.
+- **Bulk action bar:** sticky-bottom; "Mark all Present" is the primary `--success` CTA; "Mark all Absent…" is a destructive `--danger`-tinted ghost button that requires a second confirmation sheet (BR-ATT-06).
 - **Lock state:** when `locked_at IS NOT NULL`, every toggle is replaced by a static state pill (no knob), the `LockButton` shows "🔒 Locked · tap to unlock", the `HolidayToggle` is disabled, and the bulk bar is hidden.
 
 ### 6.2 Calendar Month View
@@ -673,7 +673,7 @@ Audit log is viewable in Settings → Security → Audit Log, filterable by `act
 | Keyboard `P` / `A` / `L` (desktop, when row focused) | Set present / absent / late. |
 | Keyboard `Enter` (desktop, when row focused) | Toggle present ↔ absent. |
 
-Spring motion: `{ type: 'spring', stiffness: 380, damping: 30, mass: 0.8 }` per `13_UI_Guidelines.md` §7.1 (`ease-spring` token), target 120 fps. Knob uses `bg-gradient-to-br from-[#00FF9D] to-[#00F0FF]` when present, `from-[#2a2a5a] to-[#1a1a3a]` when absent, `from-[#FFB300] to-[#FF5E00]` when late.
+Spring motion: `{ type: 'spring', stiffness: 380, damping: 30, mass: 0.8 }` per `13_UI_Guidelines.md` §7.1 (`ease-spring` token), target 120 fps. Knob uses `var(--success)` → `var(--info)` when present, slate when absent, `var(--warning)` → `var(--danger)` when late (see `13_UI_Guidelines.md` §2.1; AP-6).
 
 ### 10.10 "Upload After Marking" Semantics
 There is **no Save button**. The screen autosaves:
@@ -849,11 +849,11 @@ Per `13_UI_Guidelines.md` §10 (Accessibility Commitments) and §8 (Component Vo
   - `Cmd/Ctrl + L` triggers lock (when a session is open).
   - `?` shows the shortcut cheatsheet.
 - **Screen reader:** each toggle exposes `aria-label="Mark Aarav Sharma present"` and `aria-pressed` reflects state. The summary strip uses `aria-live="polite"` to announce count changes ("28 present, 4 absent"). The status chip uses `aria-live="polite"` for sync state.
-- **Focus:** visible cyan ring (`outline: 2px solid #00F0FF; outline-offset: 2px`) — never removed.
+- **Focus:** visible `--info` ring (`outline: 2px solid var(--info); outline-offset: 2px`) — never removed.
 - **Colour-blind safe:** every status is paired with an icon (`✓` present, `✕` absent, `◐` late, `—` excused, `▒` holiday) — colour is never the sole encoder (BR-CALC-07 / UI §8).
 - **Motion sensitivity:** `prefers-reduced-motion` replaces spring transitions with 120 ms fades; long-press haptic replaced with a 200 ms dwell + visual confirm.
 - **Touch targets:** ≥ 44 × 44 px on `base`/`sm`; the toggle knob is 28 px but the hit area is padded to 44 px.
-- **Contrast:** text-on-glass ≥ 4.5:1; emerald/cyan accents on cosmic bg ≥ 7:1.
+- **Contrast:** text-on-glass ≥ 4.5:1; `--success`/`--info` accents (see `13_UI_Guidelines.md` §2.1; AP-6) on canvas ≥ 7:1.
 
 ---
 
@@ -938,22 +938,22 @@ These are explicitly **out of scope for v1** and parked for v1.x / v2. Citing th
 
 | Neumorphic controls on this screen | Recipe | Cross-ref |
 |---|---|---|
-| PresentAbsentToggle (the per-row switch) | well = `neumo-inset`; knob = `neumo-raised`; on = emerald→cyan gradient + glow; off = slate knob; late = amber→flare gradient | §6.4, §8.16, §6.6 coverage map |
-| View switcher (Daily / Calendar / Heatmap) | well = `neumo-inset`; active pill = `neumo-raised` + cyan glow | §6.6, §8.5 |
+| PresentAbsentToggle (the per-row switch) | well = `neumo-inset`; knob = `neumo-raised`; on = `--success`→`--info` gradient + glow; off = slate knob; late = `--warning`→`--danger` gradient (see `13_UI_Guidelines.md` §2.1; AP-6) | §6.4, §8.16, §6.6 coverage map |
+| View switcher (Daily / Calendar / Heatmap) | well = `neumo-inset`; active pill = `neumo-raised` + `--info` glow | §6.6, §8.5 |
 | Batch selector dropdown trigger | `neumo-raised` | §6.6 |
-| Date picker ◀ / Today / ▶ | `neumo-raised` compact; Today = `neumo-raised` + cyan glow | §6.6 |
-| Lock button (unlocked state) | `neumo-raised` + emerald glow | §6.6, §8.2 |
+| Date picker ◀ / Today / ▶ | `neumo-raised` compact; Today = `neumo-raised` + `--info` glow | §6.6 |
+| Lock button (unlocked state) | `neumo-raised` + `--success` glow | §6.6, §8.2 |
 | Lock button (locked state) | `neumo-pressed` (inset, frozen affordance) + lock glyph | §6.3, §6.6 |
 | Holiday toggle (overflow) | `neumo-raised` secondary | §6.6 |
-| "Mark all Present" bulk button | `neumo-raised` + emerald glow (primary) | §6.6, §8.2 |
-| "Mark all Absent…" bulk button | `neumo-raised` + flare glow (destructive) | §6.6, §8.2 |
+| "Mark all Present" bulk button | `neumo-raised` + `--success` glow (primary) | §6.6, §8.2 |
+| "Mark all Absent…" bulk button | `neumo-raised` + `--danger` glow (destructive) | §6.6, §8.2 |
 | Calendar cell tap target | flat tinted (tile is a surface, not a control — §5.5); 44px hit wrapper | §10.2 |
-| PinPad (in Lock/Unlock sheet) | digits = `neumo-raised`; backspace = `neumo-raised` + flare glow | §6.6 |
+| PinPad (in Lock/Unlock sheet) | digits = `neumo-raised`; backspace = `neumo-raised` + `--danger` glow | §6.6 |
 | Edit-Locked-Record reason input | `neumo-inset` | §6.6, §8.9 |
 | Bulk-absent typed-confirm input | `neumo-inset` well (word = `ABSENT`) | §6.6, §8.9 |
-| Sync status chip in summary strip | flat tinted chip (informational, not a control — §8.3); amber→cyan→emerald by state | §8.3 |
+| Sync status chip in summary strip | flat tinted chip (informational, not a control — §8.3); `--warning`→`--info`→`--success` by state | §8.3 |
 
-> **References:** Apple HIG — *Toggles* (the canonical switch anatomy — our `PresentAbsentToggle` is a 3-state specialisation); Material Design 3 — *Switches* (knob extrudes on, flattens on press); Nielsen Norman Group — *Haptic Feedback in Mobile UX* (60ms haptic timing on toggle); Smashing Magazine — *Designing Tactile Touch Targets* (44×44px hit area for the 28px knob); WCAG 2.1 AA §1.4.11 (Non-text Contrast — the on/off state of the toggle must pair shadow with emerald glow + ✓/✕ icon, never shadow alone); WCAG 2.1 AA §4.1.2 (toggle exposes `aria-pressed` and `aria-label="Mark <name> present"`).
+> **References:** Apple HIG — *Toggles* (the canonical switch anatomy — our `PresentAbsentToggle` is a 3-state specialisation); Material Design 3 — *Switches* (knob extrudes on, flattens on press); Nielsen Norman Group — *Haptic Feedback in Mobile UX* (60ms haptic timing on toggle); Smashing Magazine — *Designing Tactile Touch Targets* (44×44px hit area for the 28px knob); WCAG 2.1 AA §1.4.11 (Non-text Contrast — the on/off state of the toggle must pair shadow with `--success` glow + ✓/✕ icon, never shadow alone — see `13_UI_Guidelines.md` §2.1); WCAG 2.1 AA §4.1.2 (toggle exposes `aria-pressed` and `aria-label="Mark <name> present"`).
 
 ### 21.2 Mockup M1 — Full-Screen Desktop Layout (Daily Grid View, default landing)
 

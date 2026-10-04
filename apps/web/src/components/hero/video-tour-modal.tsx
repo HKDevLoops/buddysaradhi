@@ -40,7 +40,7 @@ export function VideoTourModal({ isOpen, onClose }: VideoTourModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Scrim — dismissal goes through the shared overlay module. */}
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
+        className="absolute inset-0 bg-black/70 [backdrop-filter:var(--mat-filter)] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
         onClick={onScrimClick}
         aria-hidden="true"
       />

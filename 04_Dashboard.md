@@ -284,7 +284,7 @@ interface KpiCardProps {
   deltaPct?: number;                      // signed, drives ↑/↓ + color
   deltaLabel?: string;                    // "vs last month"
   caption?: string;                       // "All-time, ignores filter"
-  accent: 'emerald' | 'cyan' | 'flare' | 'amber' | 'violet';
+  accent: 'emerald' | 'cyan' | 'flare' | 'amber' | 'violet'; // status roles per `13_UI_Guidelines.md` §2.1 (success/info/danger/warning); AP-6
   spark?: number[];                       // optional sparkline data
   drillTarget?: { screen: string; params: Record<string, string> };
   loading?: boolean;
@@ -603,8 +603,8 @@ The Dashboard cites and enforces the following BR-IDs from `12_Business_Rules.md
 | **BR-CALC-03** | Monthly Collected | C1 (Collected This Month) — direct SQL aggregate over `PAYMENT_RECEIVED`. |
 | **BR-CALC-04** | Total Due Till Date | C2 — sum of all active-student balances, all-time, ignores period filter. |
 | **BR-CALC-05** | Total Due For Month | C3 — sum of `invoices.total` where issue_date in period and status is unpaid/partial/overdue. |
-| **BR-CALC-07** | Attendance Heatmap Cell | H1 cell color = `present→emerald`, `absent→flare`, `late→amber`, `excused→muted violet`, `holiday→cyan stripe`, `null→empty`. |
-| **BR-CALC-08** | Payment Heatmap Cell | H2 cell color = `paid→emerald`, `partial→amber`, `unpaid→flare`, `no_due→muted`. |
+| **BR-CALC-07** | Attendance Heatmap Cell | H1 cell color per `13_UI_Guidelines.md` §2.4 (status mapping; palette see §2.1, AP-6): `present→--status-paid`, `absent→--status-overdue`, `late→--status-partial`, `excused→muted`, `holiday→--info stripe`, `null→empty`. |
+| **BR-CALC-08** | Payment Heatmap Cell | H2 cell color per `13_UI_Guidelines.md` §2.4 (palette see §2.1, AP-6): `paid→--status-paid`, `partial→--status-partial`, `unpaid→--status-overdue`, `no_due→muted`. |
 | **BR-RPT-01** | Due Fee Reminder | DT panel surfaces these first, in red. |
 | **BR-RPT-02** | Upcoming Due Reminder | DT panel surfaces these as amber, below the overdue ones. |
 | **BR-RPT-03** | Missing Attendance Reminder | DT panel surfaces these as amber, batched by batch name. |
@@ -664,20 +664,20 @@ Per `13_UI_Guidelines.md` §2.4 (Status → Accent Mapping) and §8.12 (Heatmap 
 **Attendance (H1):**
 | Status | Cell Color | Icon (for color-blind) | Tooltip |
 |--------|-----------|------------------------|---------|
-| present | `#00FF9D` emerald, filled | ✓ | "A. Sharma · 28 Sep · Present" |
-| absent | `#FF5E00` flare, filled | ✕ | "A. Sharma · 28 Sep · Absent" |
-| late | `#FFB300` amber, filled | ◐ | "A. Sharma · 28 Sep · Late" |
-| excused | muted violet `rgba(179,136,255,0.4)` | – | "A. Sharma · 28 Sep · Excused" |
-| holiday | cyan diagonal stripe `#00F0FF` | H | "Batch 10-Maths · 28 Sep · Holiday" |
-| (none) | `rgba(255,255,255,0.04)` empty | (empty) | "No session" |
+| present | `var(--status-paid)`, filled (see `13_UI_Guidelines.md` §2.1; AP-6) | ✓ | "A. Sharma · 28 Sep · Present" |
+| absent | `var(--status-overdue)`, filled | ✕ | "A. Sharma · 28 Sep · Absent" |
+| late | `var(--status-partial)`, filled | ◐ | "A. Sharma · 28 Sep · Late" |
+| excused | muted `var(--status-unpaid)` | – | "A. Sharma · 28 Sep · Excused" |
+| holiday | `var(--info)` diagonal stripe | H | "Batch 10-Maths · 28 Sep · Holiday" |
+| (none) | `var(--surface-inset)` empty | (empty) | "No session" |
 
 **Payment (H2):**
 | Status | Cell Color | Tooltip |
 |--------|-----------|---------|
-| paid | `#00FF9D` emerald | "A. Sharma · Week of Sep 22 · ₹ 3,500 paid in full" |
-| partial | `#FFB300` amber | "A. Sharma · Week of Sep 22 · ₹ 1,200 of ₹ 2,500" |
-| unpaid | `#FF5E00` flare | "A. Sharma · Week of Sep 22 · ₹ 2,500 unpaid" |
-| no_due | muted `rgba(255,255,255,0.04)` | "A. Sharma · Week of Sep 22 · No invoice" |
+| paid | `var(--status-paid)` (see `13_UI_Guidelines.md` §2.1; AP-6) | "A. Sharma · Week of Sep 22 · ₹ 3,500 paid in full" |
+| partial | `var(--status-partial)` | "A. Sharma · Week of Sep 22 · ₹ 1,200 of ₹ 2,500" |
+| unpaid | `var(--status-overdue)` | "A. Sharma · Week of Sep 22 · ₹ 2,500 unpaid" |
+| no_due | muted `var(--surface-inset)` | "A. Sharma · Week of Sep 22 · No invoice" |
 
 ### 10.3 Heatmap Click Behaviour
 
@@ -804,8 +804,8 @@ If any target is missed by > 2× in CI benchmarks, the spec owner files a P1 bug
 
 | Concern | Implementation |
 |---------|----------------|
-| Contrast | All text on glass verified ≥ 4.5:1 (emerald/cyan on cosmic bg = 7:1+). KPI numbers use `--text-primary` (rgba 0.95). |
-| Focus ring | Cyan outline `2px solid #00F0FF; outline-offset: 2px` on every interactive element (cards, cells, feed rows, buttons). |
+| Contrast | All text on glass verified ≥ 4.5:1 (`--success`/`--info` on canvas — see `13_UI_Guidelines.md` §2.1; AP-6). KPI numbers use `--text-primary`. |
+| Focus ring | `--info` outline `2px solid var(--info); outline-offset: 2px` on every interactive element (cards, cells, feed rows, buttons). |
 | Keyboard nav | `Tab` walks: Period filter → KPI cards (left-right, top-down) → Heatmap tabs (mobile) → Heatmap cells (grid order) → Activity feed rows → Due Today reminders → Quick Actions. `Enter` activates drill-down. |
 | Screen readers | KPI card: `aria-label="Collected this month: 1 lakh 24 thousand 500 rupees, up 18 percent versus last month."` Heatmap cell: `aria-label="A. Sharma, 28 September, present."` |
 | `aria-live` | Toast region: `polite`. Refresh-failed toast: `assertive`. |

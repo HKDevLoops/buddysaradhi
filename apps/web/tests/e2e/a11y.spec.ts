@@ -38,13 +38,23 @@ async function authenticate(page: import("@playwright/test").Page) {
   }
 }
 
+// Scope to the Screens navs (sidebar on desktop, bottom tabs on mobile —
+// AGENTS.md §2 Rule 4, one route five screens). An unscoped
+// `document.querySelectorAll("button")` matches in-content controls first: when
+// the settings query fails, the shell renders an ErrorState whose retry button
+// reads "Reload settings" inside <main>, DOM-before the mobile bottom nav, so
+// on viewports where the sidebar is hidden the helper clicked "Reload settings"
+// (a refetch, not a screen change) and the Settings screen never landed.
 async function clickNav(page: import("@playwright/test").Page, name: RegExp) {
   const handle = await page.evaluateHandle((reSrc: string) => {
     const re = new RegExp(reSrc, "i");
-    const btns = Array.from(document.querySelectorAll("button"));
-    for (const b of btns) {
-      const label = b.getAttribute("aria-label") || b.textContent || "";
-      if (re.test(label) && b.offsetParent !== null) return b;
+    const navs = Array.from(document.querySelectorAll('nav[aria-label="Screens"]'));
+    for (const nav of navs) {
+      const btns = Array.from(nav.querySelectorAll("button"));
+      for (const b of btns) {
+        const label = b.getAttribute("aria-label") || b.textContent || "";
+        if (re.test(label) && b.offsetParent !== null) return b;
+      }
     }
     return null;
   }, name.source);

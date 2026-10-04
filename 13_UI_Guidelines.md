@@ -20,21 +20,21 @@ Buddysaradhi synthesises three lineages into one visual language (`00_Vision.md`
 
 ### 1.2 The Manifesto
 
-> The cosmic canvas is the **night sky**. The glass panels are the **aurora** on it. The accents are the **bioluminescence**.
+> The cosmic canvas is the **night sky**. The glass panels are the **aurora** on it. The accents are the **bioluminescence**. (Palette: see §2.1; AP-6.)
 
 Backgrounds never compete with content. Accents never exceed 8% of any screen real-estate unless they are the primary CTA. The eye is always led: cosmic bg → glass surface → text → accent.
 
 ### 1.3 The Four Prohibitions + One Layout Mandate
 
-1. **No monochrome.** Every surface carries at least one of: gradient, translucency, accent, or tactile shadow. A flat `#fff` on `#f5f5f5` panel is forbidden (`00_Vision.md` §9.2).
-2. **No pure black.** Black is `#0a0a1a` (Abyss) at its darkest — a *warm* black with violet undertone. Pure `#000` kills the aurora.
-3. **No pure white.** White is `rgba(255,255,255,0.95)` (text-primary) at its brightest — *translucent*. Pure `#fff` flattens glass panels into plastic.
-4. **No indigo/blue primaries.** The indigo→violet cosmic gradient is the **neutral night sky**, not the brand. Indigo and blue are the visual signature of every generic SaaS dashboard since 2018 — the colour of "we copied Stripe" (`00_Vision.md` §9.4). The brand is the **bioluminescent life** on the canvas: emerald, cyan, flare, amber, violet. A `no-indigo-accent` lint rule rejects any PR introducing an indigo accent (`01_Product_Principles.md` AP-6).
+1. **No monochrome.** Every surface carries at least one of: gradient, translucency, accent, or tactile shadow. A flat token `var(--surface-raised)` on `var(--canvas)` panel is forbidden (`00_Vision.md` §9.2).
+2. **No pure black.** Black is `var(--canvas)` (Abyss, see §2.1) at its darkest — a *warm* black with violet undertone. Pure `#000` kills the aurora.
+3. **No pure white.** White is `var(--text-primary)` (see §2.1) at its brightest — *translucent*. Pure `#fff` flattens glass panels into plastic.
+4. **No indigo/blue primaries.** The indigo→violet cosmic gradient is the **neutral night sky**, not the brand. Indigo and blue are the visual signature of every generic SaaS dashboard since 2018 — the colour of "we copied Stripe" (`00_Vision.md` §9.4). The brand is the **bioluminescent life** on the canvas (see §2.1; `01_Product_Principles.md` AP-6). A `no-indigo-accent` lint rule rejects any PR introducing an indigo accent (`01_Product_Principles.md` AP-6).
 5. **Sticky-footer mandate (layout, non-negotiable).** Every screen root is `min-h-screen flex flex-col`; the footer carries `mt-auto flex-shrink-0`. No fixed overlays, no gap below the footer on short content. Full pattern + `pro-sticky-footer` helper in §13.
 
 ### 1.4 Where This System Lives
 
-Enforced at four layers: (a) CSS custom properties in `globals.css` (`:root` tokens, §2), (b) Tailwind utilities + `.glass` / `.neumo-*` component classes (§5, §6), (c) **`.pro-*` Professional Polish Layer utilities in `globals.css` lines 1050+** (§20 — the refined glassmorphic cards, button system, KPI strip, avatar, status pill, tab strip, list row, empty state, sticky-footer helper applied across the app in Task 15), (d) Framer Motion variants in `lib/motion.ts` (§7). Every screen spec (`04_Dashboard.md` §3, `05_Students.md` §6, `06_Attendance.md`, `07_Fees_and_Payments.md` §4, `08_Settings.md` §5) references tokens by name — never raw hex. The commercial landing page is no exception: `product/02_Hero_and_Above_the_Fold.md` and `product/03_Features_Showcase.md` consume the same tokens, so the tutor's first encounter with Buddysaradhi (the marketing surface) and every subsequent session (the product surface) share one visual language. See §19 for the commercial-surface contract.
+Enforced at four layers: (a) CSS custom properties in `globals.css` (`:root` tokens, §2 — see §2.1; AP-6), (b) Tailwind utilities + `.glass` / `.neumo-*` component classes (§5, §6), (c) **`.pro-*` Professional Polish Layer utilities in `globals.css` lines 1050+** (§20 — the refined glassmorphic cards, button system, KPI strip, avatar, status pill, tab strip, list row, empty state, sticky-footer helper applied across the app in Task 15), (d) Framer Motion variants in `lib/motion.ts` (§7). Every screen spec (`04_Dashboard.md` §3, `05_Students.md` §6, `06_Attendance.md`, `07_Fees_and_Payments.md` §4, `08_Settings.md` §5) references tokens by name — never raw hex. The commercial landing page is no exception: `product/02_Hero_and_Above_the_Fold.md` and `product/03_Features_Showcase.md` consume the same tokens, so the tutor's first encounter with Buddysaradhi (the marketing surface) and every subsequent session (the product surface) share one visual language. See §19 for the commercial-surface contract.
 
 **Reference implementation.** The running `/` route (`src/app/page.tsx` + the six prototype components in `src/components/tutoros/`) is the canonical reference implementation of this design system — 159 `.pro-*` utility instances were applied across it in Task 15-UI-OVERHAUL. When in doubt about how a token, glass tier, or `.pro-*` utility renders, open `/` and inspect. The visual regression baselines in `21_Automation_Testing.md` §5 encode THIS design system — any visual change requires a baseline update there.
 

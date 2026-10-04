@@ -4,7 +4,7 @@
 // SQL in this file, and no DDL ever).
 //
 // This is the **ORM dialect** of the invoice/payment flows: the same
-// `createInvoiceFlow` / `recordPaymentFlow` in `feesFlow.ts`, with the eight
+// `createInvoiceFlow` / `recordPaymentFlow` in `feesFlow.ts`, with the ten
 // port operations expressed as ORM model calls instead of statements. It exists
 // so `apps/web` can record a payment without ever holding a raw libSQL client —
 // the ORM-ONLY law (AGENTS.md §3.4) had one last exception here because the
@@ -161,7 +161,7 @@ async function insertInvoiceRow(tx: OrmTx, inv: InvoiceInsert): Promise<void> {
 }
 
 /**
- * The ORM implementation of the fee-flow port. Same nine operations, same
+ * The ORM implementation of the fee-flow port. Same ten operations, same
  * order, same payloads as `sqlFeeTx` in `fees.ts` — only the transport differs.
  */
 export function ormFeeTx(tx: OrmTx): FeeTx {

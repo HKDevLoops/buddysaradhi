@@ -53,7 +53,7 @@ export function DatePicker({
           {date ? format(date, "PPP") : <span>{placeholder}</span>}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 border-[var(--border-default)] bg-[var(--surface-scrim)] backdrop-blur-xl">
+      <PopoverContent className="w-auto p-0 border-[var(--border-default)] bg-[var(--surface-scrim)] [backdrop-filter:var(--mat-filter)]">
         <Calendar
           mode="single"
           selected={date}

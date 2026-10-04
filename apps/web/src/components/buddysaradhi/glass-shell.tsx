@@ -642,8 +642,20 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               nothing to jump between. `id="main-content"` + `tabIndex={-1}` are
               the skip link's target (WCAG 2.4.1): without the tabindex the
               fragment link scrolls but leaves focus in the nav, which is the one
-              outcome a skip link exists to prevent. */}
-          <div className="flex-1 overflow-auto flex flex-col no-scrollbar">
+              outcome a skip link exists to prevent.
+              AGENTS.md §2 Rule 10 (keyboard parity, WCAG 2.1.1/2.1.3): the
+              wrapper itself scrolls (`overflow-auto`), so it is `tabIndex={0}` +
+              `role="region"` with the screen name — otherwise a keyboard-only
+              tutor can never move the scrollport (axe `scrollable-region-
+              focusable`), e.g. while a screen is still in its skeleton state
+              with no tabbable descendants yet. `focus:outline-none` matches the
+              skip-link target below: the region is a scroll stop, not a control. */}
+          <div
+            className="flex-1 overflow-auto flex flex-col no-scrollbar focus:outline-none"
+            tabIndex={0}
+            role="region"
+            aria-label={`${activeLabel} content`}
+          >
             <main
               id="main-content"
               tabIndex={-1}

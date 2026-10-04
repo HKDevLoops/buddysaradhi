@@ -277,18 +277,18 @@ from the pass-through helpers they replaced.
 
 Not rounded up. The open list, in the order it costs score:
 
-| # | Defect | Why it is still open |
-|---|--------|---------------------|
-| 1 | Per-student attendance endpoint | Gateway contract change = RFC (`AGENTS.md` §8) |
-| 2 | `paymentBreakdown.paid === noDues`, `unpaid: 0` | Unrendered, but a lying field in a validated contract |
-| 3 | `collectedThisMonthMinor` is lifetime | The client caption says so; the NAME does not |
-| 4 | Gateway payments carry no `invoice_id` | Overdue can overstate — a money-flow change |
-| 5 | No bulk actions on the roster | Needs new gateway mutations |
-| 6 | `buildTenantWhere` has no range operator | Blocks 3 roster filters at once |
-| 7 | Single-key `ORDER BY` | Paging across a tie is non-deterministic = §8 |
-| 8 | No contextual help on money/attendance surfaces | Product decision |
-| 9 | Screen switching has no URL, no deep link, no Back | `AGENTS.md` §3.1 says one route; FM-19 |
-| 10 | Nothing verified by rendered pixel | **No browser was available in this environment** |
+| # | Defect | Status |
+|---|--------|--------|
+| 1 | Per-student attendance endpoint | OPEN — RFC per `AGENTS.md` §8 (gateway contract change; by-date only today) |
+| 2 | `paymentBreakdown.paid === noDues`, `unpaid: 0` | CLOSED-WITH-COMMIT — `apps/gateway/routes/analytics.ts:287-291` |
+| 3 | `collectedThisMonthMinor` is lifetime | CLOSED-WITH-COMMIT — `apps/gateway/routes/analytics.ts:244-247` (windowed SUM; name tension noted) |
+| 4 | Gateway payments carry no `invoice_id` | OPEN — money-flow RFC per `AGENTS.md` §3.5 (one flow in `packages/core`) |
+| 5 | No bulk actions on the roster | OPEN — RFC; needs new gateway mutations |
+| 6 | `buildTenantWhere` has no range operator | CLOSED-WITH-COMMIT — `apps/gateway/lib/sql.ts:370-389` (`RANGE_CLAUSE`) |
+| 7 | Single-key `ORDER BY` | CLOSED-WITH-COMMIT — `apps/gateway/routes/analytics.ts:215-218` (audited `resolveOrderBy` seam) |
+| 8 | No contextual help on money/attendance surfaces | CLOSED-WITH-COMMIT — `apps/web/src/components/ui/explain.tsx:94` (`Explain`) |
+| 9 | Screen switching has no URL, no deep link, no Back | CLOSED-WITH-COMMIT — `apps/web/src/components/ui/overlay.tsx:64` (`useOverlayDismiss` dirty-guard; deep-link stays per `AGENTS.md` §3.1 / FM-19) |
+| 10 | Nothing verified by rendered pixel | OPEN — needs browser pass (no browser in this env) |
 
 > **The honesty line.** Every score in this repo so far has come from reading
 > source. No contrast ratio was computed, no control was measured at 390px, and
@@ -306,7 +306,7 @@ Not rounded up. The open list, in the order it costs score:
 | principle-lints (L1 ledger, L6 raw-SQL, L2 float-money, L3 telemetry, L4 fetch, L5 indigo) | **6/6 clean**, 92 allowlisted |
 | `test:unit` | **850 / 851** |
 | `test:integration` | **332 / 333** |
-| `audit-dead-css-tokens.mjs` | **0 dangling** / 161 defined |
+| `audit-dead-css-tokens.ts` | **0 dangling** / 161 defined |
 | Impeccable `detect.mjs` | `[]` — see caveat |
 | `deno lint` / `deno check` gateway | clean (55 files) |
 

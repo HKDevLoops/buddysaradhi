@@ -445,7 +445,7 @@ DB file.
   Rule 1 everywhere), `count`, `aggregate`, `groupBy`,
   `db.$transaction([...])` or `db.$transaction(async (tx) => { ... })`,
   `include`, `select`. **Forbidden at runtime, auto-blocked by CI
-  (`scripts/principle-lints.mjs` L6 `no-raw-sql`, P0 — a tripped build fails,
+  (`scripts/principle-lints.ts` L6 `no-raw-sql`, P0 — a tripped build fails,
   no override without a spec citation + security reviewer + expiry):**
   `$queryRaw`, `$executeRaw` (+ `Unsafe` variants), `client.execute` /
   `client.batch` with SQL strings, `` sql: ` `` template literals, backtick /

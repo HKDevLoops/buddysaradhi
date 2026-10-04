@@ -122,7 +122,7 @@ export function LedgerImport() {
           </div>
           <div className="flex-1 overflow-auto no-scrollbar rounded-xl" style={{ border: "1px solid var(--border-default)" }}>
             <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 backdrop-blur-md" style={{ background: "var(--surface-overlay)" }}>
+              <thead className="sticky top-0 [backdrop-filter:var(--mat-filter)]" style={{ background: "var(--surface-overlay)" }}>
                 <tr style={{ color: "var(--text-muted)" }}>
                   {headers.map((h, i) => (
                     <th key={i} className="px-4 py-3 font-semibold whitespace-nowrap">{h}</th>
