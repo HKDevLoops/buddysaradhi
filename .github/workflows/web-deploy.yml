@@ -26,7 +26,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -147,5 +147,61 @@ jobs:
           if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
             curl -X POST -H "Content-Type: application/json" \
               -d "{\"content\": \"⚠️ web-deploy smoke failed on commit ${{ github.sha }}\"}" \
+              ${{ secrets.DISCORD_WEBHOOK_URL }}
+          fi
+
+  # -------------------------------------------------------------------------
+  # Job 3: Product page — build in CI (catches marketing breakage post-merge)
+  # + smoke the standalone production target. Rule 11: product-page deploys
+  # to exactly one target (buddysaradhi-product, Root Directory =
+  # apps/product-page — see apps/product-page/next.config.ts); the URL below
+  # is Vercel's auto-assigned domain for that project (deployment/01 §).
+  # Follow-up: add a VERCEL_PRODUCT_PROJECT_ID secret + API wait like smoke.
+  # -------------------------------------------------------------------------
+  product-page:
+    name: Product Page Build + Smoke
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build product page
+        run: pnpm --filter product-page build
+
+      - name: Smoke — product URL responds
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 30 \
+            https://buddysaradhi-product.vercel.app/)
+          echo "HTTP status: $HTTP_STATUS"
+          # Accept 200 or 3xx (redirect), mirroring the web smoke above.
+          if [[ "$HTTP_STATUS" -ge 200 && "$HTTP_STATUS" -lt 400 ]]; then
+            echo "Product smoke passed — site is up"
+          else
+            echo "Product smoke FAILED — unexpected HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+            curl -X POST -H "Content-Type: application/json" \
+              -d "{\"content\": \"⚠️ web-deploy product-page smoke failed on commit ${{ github.sha }}\"}" \
               ${{ secrets.DISCORD_WEBHOOK_URL }}
           fi

@@ -41,7 +41,7 @@ jobs:
         if: steps.check-token.outputs.has_token == 'true'
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
 
       - name: Setup pnpm
         if: steps.check-token.outputs.has_token == 'true'

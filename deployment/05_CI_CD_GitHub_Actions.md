@@ -1454,4 +1454,66 @@ The mockups and the workflow-automation contract in this file synthesise practic
 
 ---
 
+## 15. Reality amendment (2026-10-04) — what changed since §§1–14
+
+The YAML examples in §§2–7 are the design; this section records where the
+live `.github/workflows/` has diverged. Minimal diff, no example rewrites.
+
+1. **11 workflows, not 6.** The canonical set grew: `lint.yml`,
+   `web-deploy.yml`, `eas-build.yml`, `eas-update.yml`,
+   `desktop-build.yml`, `release.yml` (§§2–7) plus `test.yml` (CI/Testing:
+   typecheck + lint + vitest + coverage floors + `:3300` local-server recipe
+   + blocking axe + soft Playwright), `web-prod-gate.yml` (P1 production
+   gate: core/web/product-page builds + `:3300` e2e + gateway Deno
+   lint/typecheck), `security.yml` (gitleaks + semgrep + osv-scanner +
+   license-checker + SBOM), `supabase-ci.yml` (gateway Deno lint/typecheck +
+   Edge deploy), `reviewer.yml` (AI PR review). The §14.2 "6-workflow" graph
+   and the §6-trigger-#7 "7th workflow" language are stale — a 12th workflow
+   is the stop-and-ask, not a 7th.
+2. **Bun pinned to 1.3.4 everywhere.** Every `oven-sh/setup-bun` step uses
+   `bun-version: 1.3.4` (was `latest` in most files; `release.yml` already
+   pinned). Left floating by choice: `expo-version`/`eas-version: latest`
+   (Expo action tracks the current SDK), `supabase/setup-cli: latest`,
+   `dtolnay/rust-toolchain: stable`, `deno-version: v2.x` — pinning any of
+   these is a follow-up with its own on-branch test (§12), not this change.
+3. **Node 22 + pnpm 11.15.0.** All Node jobs use `actions/setup-node@v4`
+   with `node-version: 22` (matches root `engines`) and
+   `pnpm/action-setup@v4` with `version: 11.15.0` (matches root
+   `packageManager`). Installs are `pnpm install --frozen-lockfile`.
+4. **Scripts are `.ts`, and L7 enforces it.** `scripts/*.mjs` were migrated
+   to `scripts/*.ts` (run via `node`/`bun run`). `scripts/principle-lints.ts`
+   grew rule **L7 `no-js-source`**: tracked `*.js/*.mjs/*.cjs` under `apps/`,
+   `packages/`, `scripts/` fails unless allowlisted (`eslint.config.mjs` —
+   ESLint 10 has no `.ts` autodiscovery, verified by trial; locked
+   `apps/desktop` + `apps/mobile` entries with gate expiry). Regression test:
+   `scripts/principle-lints.test.ts`. Gate is 7/7.
+5. **KNOWN-BREAK (release path): missing `scripts/*.mjs`.** `eas-build.yml`,
+   `desktop-build.yml`, and `release.yml` still invoke
+   `scripts/blob-upload.mjs`, `scripts/build-manifest.mjs`,
+   `scripts/verify-manifest.mjs`, `scripts/promote-manifest.mjs` — none exist
+   on disk (the `.ts` migration did not port them). Tag-push and manual
+   release runs will fail at those steps until the scripts are ported or the
+   call sites updated. Call sites were left untouched deliberately (no
+   release-critical YAML logic changes without an on-branch run per §12);
+   porting them is the follow-up, owned by release-eng.
+6. **Canonical `vercel.json` is the repo root.** Root `vercel.json` is
+   canonical; `apps/web/vercel.json` carries a `$comment` pointer and must
+   not be deleted without owner sign-off (Rule 11: one directory, one
+   deployment target — prod targets unchanged).
+7. **Product page is in the gates.** `test.yml` builds `web` +
+   `product-page`; `web-prod-gate.yml` builds both; `web-deploy.yml` runs a
+   product-page build + HTTP smoke against
+   `https://buddysaradhi-product.vercel.app/` (follow-up: product project-ID
+   secret + API wait).
+8. **`release.yml` worklog path fixed.** The append step wrote to the stale
+   absolute path `/home/z/my-project/worklog.md`; now appends to repo-root
+   `worklog.md`.
+9. **Playwright stays soft; axe stays blocking.** Both `test.yml` and
+   `web-prod-gate.yml` keep `continue-on-error: true` on the Playwright e2e
+   batch (flaky-by-nature) with a comment saying so; the axe step is the
+   blocking accessibility contract. Do NOT harden e2e without a flake-rate
+   measurement plan.
+
+---
+
 *This file is the operational spec for Buddysaradhi's GitHub Actions workflows. It is read by every release-engineering agent before they touch `.github/workflows/`. When this file and the actual workflow YAML disagree, this file wins — unless this file is wrong, in which case you amend this file first, then the YAML, then the worklog. The order matters.*

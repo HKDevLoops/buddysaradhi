@@ -128,7 +128,7 @@ jobs:
       - name: Append worklog entry
         run: |
           VERSION=${{ inputs.version }}
-          cat >> /home/z/my-project/worklog.md << EOF
+          cat >> worklog.md << EOF
           ---
           Task ID: RELEASE-${VERSION}
           Agent: release-engineering

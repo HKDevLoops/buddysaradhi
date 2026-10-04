@@ -1,0 +1,70 @@
+# docker-compose.local.yml — LOCAL-ONLY dev parity (Rule 11)
+#
+# Implements: deployment/05_CI_CD_GitHub_Actions.md §15 (local parity amendment)
+# Rule 11 (AGENTS.md §2): production targets are UNCHANGED — web/product ship
+# via Vercel, mobile via EAS, desktop via Tauri-signed installers. This file
+# never deploys anywhere; it gives a contributor `web` + `product-page` dev
+# servers with one command, on the same Node/pnpm contract as CI.
+#
+# Usage:
+#   cp .env.local .env.local          # already gitignored; compose reads it
+#   docker compose -f docker-compose.local.yml config   # validate (no start)
+#   docker compose -f docker-compose.local.yml up       # :3000 + :3003
+#
+# Gateway: NOT a service here. It is a Deno 2 process (Supabase Edge parity) —
+# run it on the host next to compose:
+#   deno run --allow-all apps/gateway/index.ts   # Deno.serve, :8000 default
+#
+# Mobile (apps/mobile): EXCLUDED — needs EAS cloud builds or a local
+# emulator/simulator with Expo Go; a linux container cannot run it.
+# Desktop (apps/desktop): EXCLUDED — Tauri v2 needs a native webview +
+# OS signing toolchain (signtool / codesign / webkit); containerising it
+# would not reproduce the shipped artefact. See deployment/03 + desktop specs.
+
+name: buddysaradhi-local
+
+services:
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /repo
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter web dev"
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/repo:cached
+      # Anonymous volumes keep container-installed deps off the host checkout.
+      - web-node-modules:/repo/node_modules
+      - web-next-cache:/repo/apps/web/.next
+    environment:
+      # Env contract mirrors .github/workflows/lint.yml (testing_agent env).
+      # Override any of these in .env.local (gitignored); CI dummy defaults
+      # below are enough for `config` validation + logged-out dev rendering.
+      TURSO_DATABASE_URL: ${TURSO_DATABASE_URL:-file:./prisma/dev.db}
+      TURSO_AUTH_TOKEN: ${TURSO_AUTH_TOKEN:-test-token}
+      DATABASE_URL: ${DATABASE_URL:-file:./prisma/dev.db}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://127.0.0.1:54321}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-dev-anon-key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-dev-service-key}
+      E2E_EMAIL: ${E2E_EMAIL:-dev@example.com}
+      E2E_PASSWORD: ${E2E_PASSWORD:-dev-password}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://127.0.0.1:3000}
+
+  product-page:
+    image: node:22-bookworm-slim
+    working_dir: /repo
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter product-page dev"
+    ports:
+      - "3003:3003"
+    volumes:
+      - .:/repo:cached
+      - product-node-modules:/repo/node_modules
+      - product-next-cache:/repo/apps/product-page/.next
+    environment:
+      # Static marketing surface: no DB, no auth. Only the base URL matters.
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://127.0.0.1:3003}
+
+volumes:
+  web-node-modules:
+  web-next-cache:
+  product-node-modules:
+  product-next-cache:

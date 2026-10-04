@@ -1,0 +1,60 @@
+# .dockerignore — build context exclusions (LOCAL-ONLY compose)
+# Mirrors the EXCLUDE_DIRS list in scripts/principle-lints.ts so the lint gate
+# and the docker build context agree on what "not product code" means.
+
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# Vercel
+.vercel/
+
+# SQLite local dev databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Test / report artefacts
+playwright-report/
+test-results/
+blob-report/
+coverage/
+apps/web/stress-shots/
+
+# Agent / skill tooling and vendored helpers — not product code.
+.claude/
+.agents/
+.agent/
+.kilo/
+.opencode/
+.github/skills/
+.testsprite/
+.ruff_cache/
+.playwright-mcp/
+.freebuff/
+
+# Scratch, references, one-off verification harnesses.
+scratch/
+reference-implementations/
+testsprite_tests/
+
+# Local-only deploy staging + OS artefacts
+.temp-deploy/
+sbom/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE + OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -36,7 +36,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -69,6 +69,12 @@ jobs:
       # (61 tests) was in no CI workflow and could never fail a PR.
       - name: Web unit tests (vitest)
         run: pnpm --filter web exec vitest run
+        timeout-minutes: 5
+
+      # Product-page node:test suites (admin access-requests + engine) run
+      # outside vitest by design — root vitest.config.ts excludes them.
+      - name: Product-page contract tests (node:test)
+        run: pnpm --filter product-page test
         timeout-minutes: 5
 
       # AGENTS §7.4 / report L6: coverage floors enforced — ≥70% lines on
@@ -122,7 +128,7 @@ jobs:
       - name: End-to-End Tests (Playwright)
         run: pnpm --filter web exec playwright test
         timeout-minutes: 10
-        continue-on-error: true
+        continue-on-error: true # SOFT by design: e2e is flaky-by-nature; axe above is the blocking gate. Do NOT harden.
 
       - name: Stop local web server
         if: always()
