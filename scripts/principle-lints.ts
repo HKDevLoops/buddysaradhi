@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// scripts/principle-lints.mjs
+// scripts/principle-lints.ts
 // Implements: reviews/verification-production-readiness-report-2026-09-29.md §4 F-7
 //   AGENTS.md §2 Rules 1/2/3/5/6 + §7.4 promise static "principle lints" that
-//   did not exist. This file is L1–L5 of that gate (L6 coverage floors live in
+//   did not exist. This file is L1–L7 of that gate (L6 coverage floors live in
 //   vitest.config.ts, L7 wiring lives in package.json "lint"/"test:unit").
 //
 // Zero new dependencies: plain Node (>=22) + `git ls-files` for the file set.
 // Exit 0 = clean. Exit 1 = findings (printed). Exit 2 = harness error.
 //
 // Usage:
-//   node scripts/principle-lints.mjs            # gate: findings -> exit 1
-//   node scripts/principle-lints.mjs --verbose  # also print allowlisted hits
+//   node scripts/principle-lints.ts            # gate: findings -> exit 1
+//   node scripts/principle-lints.ts --verbose  # also print allowlisted hits
 //
 // Allowlist policy: an entry is { file, re, reason }. `re` must match the
 // offending LINE CONTENT (not its number) so entries survive unrelated edits
@@ -22,14 +22,54 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const VERBOSE = process.argv.includes("--verbose");
+interface Finding {
+  rule: string;
+  file: string;
+  line: number;
+  msg: string;
+  text: string;
+}
+
+interface AllowEntry {
+  file: string;
+  re: RegExp;
+  reason: string;
+}
+
+interface LintPattern {
+  re: RegExp;
+  msg: string;
+  allowSameLine?: RegExp;
+}
+
+interface Rule {
+  id: string;
+  name: string;
+  spec: string;
+  exts: string[];
+  prefixes?: string[];
+  exclude?: RegExp[];
+  patterns: LintPattern[];
+  allow: AllowEntry[];
+  extra?: (findings: Finding[]) => void;
+}
+
+interface BlockState {
+  inBlock: boolean;
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+const ROOT: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const VERBOSE: boolean = process.argv.includes("--verbose");
 
 // ---------------------------------------------------------------------------
 // File set — git-tracked + untracked-but-not-ignored, minus non-product dirs
 // (same exclusion list as the root eslint config so both gates agree).
 // ---------------------------------------------------------------------------
-const EXCLUDE_DIRS = [
+const EXCLUDE_DIRS: string[] = [
   "node_modules/",
   ".next/",
   "dist/",
@@ -58,8 +98,8 @@ const EXCLUDE_DIRS = [
   "testsprite_tests/",
 ];
 
-function listFiles() {
-  let out;
+function listFiles(): string[] {
+  let out: string;
   try {
     out = execFileSync(
       "git",
@@ -67,22 +107,22 @@ function listFiles() {
       { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
     );
   } catch (err) {
-    console.error(`principle-lints: git ls-files failed: ${err.message}`);
+    console.error(`principle-lints: git ls-files failed: ${errMsg(err)}`);
     process.exit(2);
   }
   return out
     .split("\n")
-    .map((f) => f.trim().replace(/\\/g, "/"))
-    .filter((f) => f.length > 0)
-    .filter((f) => !EXCLUDE_DIRS.some((d) => f.startsWith(d)));
+    .map((f: string) => f.trim().replace(/\\/g, "/"))
+    .filter((f: string) => f.length > 0)
+    .filter((f: string) => !EXCLUDE_DIRS.some((d: string) => f.startsWith(d)));
 }
 
-const hasExt = (file, exts) => exts.some((e) => file.endsWith(e));
+const hasExt = (file: string, exts: string[]): boolean => exts.some((e: string) => file.endsWith(e));
 
 // ---------------------------------------------------------------------------
 // Rule table
 // ---------------------------------------------------------------------------
-const CODE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
+const CODE_EXTS: string[] = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
 // L1 — Rule 1 (P4, BR-LED-01): ledger_entries is append-only.
 // Mutating ORM calls + raw SQL with a mutating verb aimed at ledger_entries or
@@ -90,7 +130,7 @@ const CODE_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 // separate §3.4 raw-SQL concern, out of F-7 scope); the verb must sit directly
 // before the table name so `CREATE TRIGGER ... BEFORE UPDATE ON ledger_entries`
 // (guard DDL, legal) never matches.
-const L1_PATTERNS = [
+const L1_PATTERNS: LintPattern[] = [
   {
     re: /\.ledgerEntry\s*\.\s*(?:update|delete|deleteMany)\s*\(/,
     msg: "ORM ledger mutation — Rule 1: only ledgerEntry.create() is permitted",
@@ -116,7 +156,7 @@ const L1_PATTERNS = [
     msg: "append-only trigger dropped — Rule 1: trg_ledger_* guards must persist",
   },
 ];
-const L1_ALLOW = [
+const L1_ALLOW: AllowEntry[] = [
   {
     file: "packages/core/src/ledger.test.ts",
     re: /\.ledgerEntry\s*\.\s*update/,
@@ -164,9 +204,9 @@ const L1_ALLOW = [
 // L2 — Rule 6 (BR-M-01, EC-F-01): money is integer minor units, never float.
 // parseFloat on money-ish inputs, Float columns on money-ish Prisma fields,
 // and toFixed() applied to a non-paise money value.
-const L2_MONEY_WORDS =
+const L2_MONEY_WORDS: string =
   "(?:amount|fee|price|balance|due|paid|payment|discount|paise|inr|revenue|salary|total)";
-const L2_PATTERNS = [
+const L2_PATTERNS: LintPattern[] = [
   {
     re: new RegExp(`parseFloat\\s*\\(\\s*[^)]*${L2_MONEY_WORDS}`, "i"),
     msg: "parseFloat on a money value — Rule 6: parse integer paise, not float",
@@ -180,7 +220,7 @@ const L2_PATTERNS = [
     allowSameLine: /(?:\/\s*100\b|formatINR|paiseToRupees|\/\s*100n\b)/,
   },
 ];
-const L2_ALLOW = [
+const L2_ALLOW: AllowEntry[] = [
   {
     file: "packages/core/src/engines/report.ts",
     re: /amountPaise\s*\/\s*100\s*\)\s*\.toFixed/,
@@ -190,7 +230,7 @@ const L2_ALLOW = [
 ];
 
 // L3 — Rule 3 (AP-10, TELE-1): no telemetry/analytics/crash SDK in any manifest.
-const L3_FORBIDDEN_DEPS = [
+const L3_FORBIDDEN_DEPS: string[] = [
   "sentry",
   "@sentry",
   "mixpanel",
@@ -221,8 +261,8 @@ const L3_FORBIDDEN_DEPS = [
 // L4 — Rule 2 (FM-05, P5): client components never call fetch() directly;
 // mutations run in Server Actions. Scope = files under apps/web/src carrying
 // the "use client" directive (the compile-time truth of FM-05).
-const L4_PREFIX = "apps/web/src/";
-const L4_ALLOW = [
+const L4_PREFIX: string = "apps/web/src/";
+const L4_ALLOW: AllowEntry[] = [
   {
     file: "apps/web/src/app/(auth)/signup/provision/page.tsx",
     re: /fetch\s*\(\s*["'`]\/api\/v1\/provision/,
@@ -240,7 +280,7 @@ const L4_ALLOW = [
 // L5 — Rule 5 (AP-6): no indigo/blue as accent. Hex literals + Tailwind
 // indigo/blue utilities. eslint.config.* files are skipped (they CONTAIN the
 // banned tokens as rule definitions).
-const L5_PATTERNS = [
+const L5_PATTERNS: LintPattern[] = [
   {
     re: /#(?:4F46E5|4338CA|3730A3|312E81|1E1B4B|2563EB|3B82F6|1D4ED8|1E40AF|1E3A8A)\b/i,
     msg: "indigo/blue hex accent — Rule 5: use the bioluminescent palette",
@@ -256,7 +296,7 @@ const L5_PATTERNS = [
 // verbs only (repo SQL convention is UPPERCASE; UI sentence-case copy such as
 // "Delete entry" never matches). Test files are excluded (§7.3 requires real
 // DDL in tests). New raw SQL must remove the SQL, not grow this allowlist.
-const L6_PREFIXES = [
+const L6_PREFIXES: string[] = [
   "apps/web/src/",
   "packages/shared/src/",
   "packages/core/src/",
@@ -264,7 +304,7 @@ const L6_PREFIXES = [
   "apps/gateway/graphql/",
   "apps/gateway/lib/",
 ];
-const L6_PATTERNS = [
+const L6_PATTERNS: LintPattern[] = [
   {
     re: /\$(queryRaw|executeRaw)(Unsafe)?\s*\(/,
     msg: "Prisma $queryRaw/$executeRaw — §3.4 ORM-ONLY: use findMany/create/update/$transaction",
@@ -290,7 +330,7 @@ const L6_PATTERNS = [
     msg: "single-quoted SQL statement — §3.4 ORM-ONLY: use ORM methods or the audited builder module",
   },
 ];
-const L6_ALLOW = [
+const L6_ALLOW: AllowEntry[] = [
   {
     file: "apps/web/src/lib/libsql-proxy.ts",
     re: /[\s\S]/,
@@ -338,7 +378,66 @@ const L6_ALLOW = [
   },
 ];
 
-const RULES = [
+// L7 — no-JS governance (AGENTS.md §6.1 TS strict): product code is
+// TypeScript. Any *.js/*.mjs/*.cjs under apps/, packages/ or scripts/ is a
+// finding unless allowlisted below. Scope notes:
+// - eslint.config.mjs: ESLint 10 flat config has no .ts autodiscovery — .mjs
+//   is the supported format (verified by trial: renaming to .ts breaks
+//   `eslint .` without a jiti loader, which would be a new prod dep).
+// - apps/desktop + apps/mobile entries: locked platforms per
+//   16_Platform_Delivery_Sequence.md — migrate to .ts when the platform
+//   unlocks (precedent: apps/web + apps/product-page postcss already .ts).
+//   Expiry: revisit at MOBILE-PROD-GATE / DESKTOP-PROD-GATE.
+// - Root eslint.config.mjs is out of scope (prefixes below start at apps/).
+const L7_PREFIXES: string[] = ["apps/", "packages/", "scripts/"];
+const L7_EXTS: string[] = [".js", ".mjs", ".cjs"];
+const L7_ESLINT_REASON: string =
+  "ESLint 10 flat config: no .ts autodiscovery (verified by trial) — .mjs is the supported format, not product code";
+const L7_LOCKED_REASON: string =
+  "locked platform per 16_Platform_Delivery_Sequence.md (mobile/desktop) — migrate to .ts at platform unlock; expiry MOBILE-PROD-GATE / DESKTOP-PROD-GATE";
+const L7_ALLOW: AllowEntry[] = [
+  { file: "apps/web/eslint.config.mjs", re: /eslint\.config\.mjs$/, reason: L7_ESLINT_REASON },
+  {
+    file: "apps/product-page/eslint.config.mjs",
+    re: /eslint\.config\.mjs$/,
+    reason: L7_ESLINT_REASON,
+  },
+  { file: "packages/core/eslint.config.mjs", re: /eslint\.config\.mjs$/, reason: L7_ESLINT_REASON },
+  {
+    file: "packages/shared/eslint.config.mjs",
+    re: /eslint\.config\.mjs$/,
+    reason: L7_ESLINT_REASON,
+  },
+  {
+    file: "packages/security/eslint.config.mjs",
+    re: /eslint\.config\.mjs$/,
+    reason: L7_ESLINT_REASON,
+  },
+  { file: "apps/desktop/eslint.config.mjs", re: /eslint\.config\.mjs$/, reason: L7_ESLINT_REASON },
+  {
+    file: "apps/desktop/postcss.config.mjs",
+    re: /postcss\.config\.mjs$/,
+    reason:
+      "locked desktop per 16_Platform_Delivery_Sequence.md — web/product-page already migrated postcss to .ts; expiry DESKTOP-PROD-GATE",
+  },
+  {
+    file: "apps/desktop/scripts/generate-tokens.mjs",
+    re: /generate-tokens\.mjs$/,
+    reason: L7_LOCKED_REASON,
+  },
+  {
+    file: "apps/desktop/scripts/verify-tokens.mjs",
+    re: /verify-tokens\.mjs$/,
+    reason: L7_LOCKED_REASON,
+  },
+  {
+    file: "apps/mobile/scripts/generate-tokens.mjs",
+    re: /generate-tokens\.mjs$/,
+    reason: L7_LOCKED_REASON,
+  },
+];
+
+const RULES: Rule[] = [
   {
     id: "L1",
     name: "no-ledger-mutation",
@@ -392,6 +491,16 @@ const RULES = [
     patterns: L5_PATTERNS,
     allow: [],
   },
+  {
+    id: "L7",
+    name: "no-js-source",
+    spec: "AGENTS.md §6.1 TS strict · 16_Platform_Delivery_Sequence.md (locked platforms)",
+    exts: L7_EXTS,
+    prefixes: L7_PREFIXES,
+    patterns: [], // file-level scan handled by lintNoJs
+    allow: L7_ALLOW,
+    extra: lintNoJs,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -402,22 +511,22 @@ const RULES = [
 // is a scanner, not a parser — a banned token inside a multi-line template
 // literal can still match (allowlistable; never seen in this repo).
 // ---------------------------------------------------------------------------
-function stripComments(line, ext, st) {
+function stripComments(line: string, ext: string, st: BlockState): string {
   if (st.inBlock) {
-    const end = line.indexOf("*/");
+    const end: number = line.indexOf("*/");
     if (end === -1) return "";
     st.inBlock = false;
     line = line.slice(end + 2);
   }
-  const t = line.trimStart();
-  const sqlish = ext === ".sql" || ext === ".prisma";
+  const t: string = line.trimStart();
+  const sqlish: boolean = ext === ".sql" || ext === ".prisma";
   if (sqlish ? t.startsWith("--") : t.startsWith("//")) return "";
   if (!sqlish && ext !== ".css" && t.startsWith("*")) return "";
 
   let out = "";
-  let q = null;
+  let q: string | null = null;
   for (let i = 0; i < line.length; i++) {
-    const c = line[i];
+    const c: string = line[i] as string;
     if (q) {
       out += c;
       if (c === "\\") {
@@ -435,7 +544,7 @@ function stripComments(line, ext, st) {
     }
     if (c === "/" && line[i + 1] === "/") break;
     if (c === "/" && line[i + 1] === "*") {
-      const close = line.indexOf("*/", i + 2);
+      const close: number = line.indexOf("*/", i + 2);
       if (close === -1) {
         st.inBlock = true;
         break;
@@ -453,9 +562,9 @@ function stripComments(line, ext, st) {
 // Specialised checkers
 // ---------------------------------------------------------------------------
 
-function lintPrismaSchema(findings) {
+function lintPrismaSchema(findings: Finding[]): void {
   const file = "prisma/schema.prisma";
-  let text;
+  let text: string;
   try {
     text = readFileSync(path.join(ROOT, file), "utf8");
   } catch {
@@ -465,8 +574,8 @@ function lintPrismaSchema(findings) {
     String.raw`^\s*(\w*${L2_MONEY_WORDS}\w*)\s+Float\b`,
     "i",
   );
-  text.split("\n").forEach((line, i) => {
-    const m = line.match(moneyField);
+  text.split("\n").forEach((line: string, i: number) => {
+    const m: RegExpMatchArray | null = line.match(moneyField);
     if (m) {
       findings.push({
         rule: "L2",
@@ -479,19 +588,19 @@ function lintPrismaSchema(findings) {
   });
 }
 
-function lintPackageJson(findings) {
+function lintPackageJson(findings: Finding[]): void {
   for (const file of ALL_FILES) {
     if (!file.endsWith("package.json")) continue;
     if (file.includes("node_modules")) continue;
-    let manifest;
+    let manifest: Record<string, unknown>;
     try {
-      manifest = JSON.parse(readFileSync(path.join(ROOT, file), "utf8"));
+      manifest = JSON.parse(readFileSync(path.join(ROOT, file), "utf8")) as Record<string, unknown>;
     } catch (err) {
       findings.push({
         rule: "L3",
         file,
         line: 0,
-        msg: `unparseable package.json: ${err.message}`,
+        msg: `unparseable package.json: ${errMsg(err)}`,
         text: "",
       });
       continue;
@@ -502,18 +611,18 @@ function lintPackageJson(findings) {
       "optionalDependencies",
       "peerDependencies",
     ]) {
-      const deps = manifest[section];
+      const deps: unknown = manifest[section];
       if (!deps || typeof deps !== "object") continue;
-      for (const dep of Object.keys(deps)) {
-        const lower = dep.toLowerCase();
-        const hit = L3_FORBIDDEN_DEPS.find((f) => lower === f || lower.startsWith(f + "/") || lower.includes(f));
+      for (const dep of Object.keys(deps as Record<string, unknown>)) {
+        const lower: string = dep.toLowerCase();
+        const hit: string | undefined = L3_FORBIDDEN_DEPS.find((f: string) => lower === f || lower.startsWith(f + "/") || lower.includes(f));
         if (hit) {
           findings.push({
             rule: "L3",
             file,
             line: 0,
             msg: `telemetry SDK "${dep}" in ${section} — Rule 3 (AP-10): no analytics/crash SDK, not even "anonymous" (matched "${hit}")`,
-            text: `${dep}: ${deps[dep]}`,
+            text: `${dep}: ${(deps as Record<string, string>)[dep]}`,
           });
         }
       }
@@ -521,21 +630,21 @@ function lintPackageJson(findings) {
   }
 }
 
-function lintClientFetch(findings) {
+function lintClientFetch(findings: Finding[]): void {
   for (const file of ALL_FILES) {
     if (!file.startsWith(L4_PREFIX) || !hasExt(file, CODE_EXTS)) continue;
     if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
-    let text;
+    let text: string;
     try {
       text = readFileSync(path.join(ROOT, file), "utf8");
     } catch {
       continue;
     }
-    const head = text.slice(0, 400);
+    const head: string = text.slice(0, 400);
     if (!/^['"]use client['"]/m.test(head)) continue;
-    const st = { inBlock: false };
-    text.split("\n").forEach((line, i) => {
-      const code = stripComments(line, ".ts", st);
+    const st: BlockState = { inBlock: false };
+    text.split("\n").forEach((line: string, i: number) => {
+      const code: string = stripComments(line, ".ts", st);
       if (!/(^|[^.\w$])fetch\s*\(/.test(code)) return;
       findings.push({
         rule: "L4",
@@ -548,45 +657,60 @@ function lintClientFetch(findings) {
   }
 }
 
+function lintNoJs(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!L7_PREFIXES.some((p: string) => file.startsWith(p))) continue;
+    if (!hasExt(file, L7_EXTS)) continue;
+    findings.push({
+      rule: "L7",
+      file,
+      line: 0,
+      msg: "JS source under TS-only scope — AGENTS.md §6.1: product code is TypeScript; rename to .ts or add a spec-cited allowlist entry",
+      text: file,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Driver
 // ---------------------------------------------------------------------------
 
-const ALL_FILES = listFiles();
+const ALL_FILES: string[] = listFiles();
 
-function isAllowlisted(rule, finding) {
+function isAllowlisted(rule: Rule, finding: Finding): AllowEntry | undefined {
   return (rule.allow ?? []).find(
-    (a) => finding.file === a.file && a.re.test(finding.text),
+    (a: AllowEntry) => finding.file === a.file && a.re.test(finding.text),
   );
 }
 
-function main() {
-  const findings = [];
+function main(): void {
+  const findings: Finding[] = [];
   let allowlisted = 0;
 
   for (const rule of RULES) {
-    const ruleFindings = [];
+    const ruleFindings: Finding[] = [];
     for (const file of ALL_FILES) {
       if (!hasExt(file, rule.exts)) continue;
-      if (rule.prefixes && !rule.prefixes.some((p) => file.startsWith(p))) continue;
-      if (rule.exclude && rule.exclude.some((rx) => rx.test(file))) continue;
+      if (rule.prefixes && !rule.prefixes.some((p: string) => file.startsWith(p))) continue;
+      if (rule.exclude && rule.exclude.some((rx: RegExp) => rx.test(file))) continue;
       if (rule.id === "L5" && /(^|\/)eslint\.config\.[cm]?[jt]s$/.test(file))
         continue; // rule definitions cite the banned tokens by design
       if (rule.id === "L3" && !file.endsWith("package.json")) continue;
-      if (rule.id === "L4") continue; // handled by lintClientFetch (prefix scope)
+      // L4/L7 are file-level scans (lintClientFetch / lintNoJs) — skip the line loop.
+      if (rule.id === "L4" || rule.id === "L7") continue;
       if (rule.patterns.length === 0 && !rule.extra) continue;
 
-      let text;
+      let text: string;
       try {
         text = readFileSync(path.join(ROOT, file), "utf8");
       } catch {
         continue;
       }
       if (rule.patterns.length > 0) {
-        const st = { inBlock: false };
-        const ext = path.extname(file);
-        text.split("\n").forEach((line, i) => {
-          const code = stripComments(line, ext, st);
+        const st: BlockState = { inBlock: false };
+        const ext: string = path.extname(file);
+        text.split("\n").forEach((line: string, i: number) => {
+          const code: string = stripComments(line, ext, st);
           if (!code) return;
           for (const p of rule.patterns) {
             if (!p.re.test(code)) continue;
@@ -605,7 +729,7 @@ function main() {
     }
     rule.extra?.(ruleFindings);
     for (const f of ruleFindings) {
-      const hit = isAllowlisted(rule, f);
+      const hit: AllowEntry | undefined = isAllowlisted(rule, f);
       if (hit) {
         allowlisted++;
         if (VERBOSE)
@@ -627,14 +751,14 @@ function main() {
     for (const f of findings) {
       if (f.rule !== current) {
         current = f.rule;
-        const rule = RULES.find((r) => r.id === current);
-        console.error(`\n${current} ${rule.name} — ${rule.spec}`);
+        const rule: Rule | undefined = RULES.find((r: Rule) => r.id === current);
+        console.error(`\n${current} ${(rule as Rule).name} — ${(rule as Rule).spec}`);
       }
       console.error(`  ${f.file}:${f.line}\n    ${f.msg}`);
       if (f.text) console.error(`    > ${f.text.slice(0, 160)}`);
     }
     console.error(
-      `\nprinciple-lints: FAIL — ${findings.length} finding(s), ${allowlisted} allowlisted.\nFix the finding, or (only with a spec citation) add an allowlist entry in scripts/principle-lints.mjs.`,
+      `\nprinciple-lints: FAIL — ${findings.length} finding(s), ${allowlisted} allowlisted.\nFix the finding, or (only with a spec citation) add an allowlist entry in scripts/principle-lints.ts.`,
     );
     process.exit(1);
   }

@@ -12,12 +12,17 @@ import { readFileSync } from "fs";
 import { join, resolve } from "path";
 import { fileURLToPath } from "url";
 
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const root = resolve(__dirname, "..");
+const __dirname: string = fileURLToPath(new URL(".", import.meta.url));
+const root: string = resolve(__dirname, "..");
 
-function readJson(p) {
+interface PackageJson {
+  name?: string;
+  version?: string;
+}
+
+function readJson(p: string): PackageJson | null {
   try {
-    return JSON.parse(readFileSync(p, "utf8"));
+    return JSON.parse(readFileSync(p, "utf8")) as PackageJson;
   } catch {
     return null;
   }
@@ -25,7 +30,7 @@ function readJson(p) {
 
 // Key packages that MUST have consistent versions.
 // Generated, vendored, or private stub packages are excluded.
-const KEY_PACKAGES = [
+const KEY_PACKAGES: string[] = [
   "apps/web/package.json",
   "apps/gateway/package.json",
   "apps/mobile/package.json",
@@ -37,12 +42,18 @@ const KEY_PACKAGES = [
   "apps/services/attendance-svc/package.json",
 ];
 
-const versions = [];
+interface VersionInfo {
+  name: string;
+  version: string;
+  path: string;
+}
+
+const versions: VersionInfo[] = [];
 let failed = false;
 
 for (const rel of KEY_PACKAGES) {
-  const full = join(root, rel);
-  const pkg = readJson(full);
+  const full: string = join(root, rel);
+  const pkg: PackageJson | null = readJson(full);
   if (!pkg) {
     console.log(`  SKIP (not found): ${rel}`);
     continue;
@@ -52,7 +63,7 @@ for (const rel of KEY_PACKAGES) {
     continue;
   }
   console.log(`  ${pkg.name}@${pkg.version}`);
-  versions.push({ name: pkg.name, version: pkg.version, path: rel });
+  versions.push({ name: pkg.name as string, version: pkg.version, path: rel });
 }
 
 if (versions.length === 0) {
@@ -61,8 +72,8 @@ if (versions.length === 0) {
 }
 
 // Check that all listed packages share the same MAJOR.MINOR
-const [refMaj, refMin] = versions[0].version.split(".").map(Number);
-const ref = versions[0];
+const [refMaj, refMin] = (versions[0] as VersionInfo).version.split(".").map(Number);
+const ref: VersionInfo = versions[0] as VersionInfo;
 
 for (const v of versions.slice(1)) {
   const [maj, min] = v.version.split(".").map(Number);

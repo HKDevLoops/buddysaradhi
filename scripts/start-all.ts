@@ -1,7 +1,17 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 
-const services = [
+// __dirname is provided by the runner (bun) for this entrypoint.
+declare const __dirname: string;
+
+interface Service {
+  name: string;
+  cwd: string;
+  command: string;
+  port: number;
+}
+
+const services: Service[] = [
   { name: 'web', cwd: 'apps/web', command: 'pnpm run start', port: 3000 },
   { name: 'gateway', cwd: 'apps/gateway', command: 'pnpm run dev', port: 3001 },
   { name: 'ledger-svc', cwd: 'apps/services/ledger-svc', command: 'pnpm run dev', port: 3031 },
@@ -11,9 +21,9 @@ const services = [
 
 console.log('Starting all services for E2E tests...');
 
-const processes = services.map(svc => {
+const processes: ChildProcess[] = services.map((svc: Service) => {
   console.log(`Starting ${svc.name} on port ${svc.port}...`);
-  const child = spawn(svc.command.split(' ')[0], svc.command.split(' ').slice(1), {
+  const child: ChildProcess = spawn(svc.command.split(' ')[0] as string, svc.command.split(' ').slice(1), {
     cwd: path.resolve(__dirname, '..', svc.cwd),
     stdio: 'inherit',
     shell: true,
@@ -22,23 +32,23 @@ const processes = services.map(svc => {
       PORT: String(svc.port),
     },
   });
-  
-  child.on('error', err => {
+
+  child.on('error', (err: Error) => {
     console.error(`Failed to start ${svc.name}:`, err);
   });
-  
+
   return child;
 });
 
 process.on('SIGINT', () => {
   console.log('Killing all services...');
-  processes.forEach(p => p.kill('SIGINT'));
+  processes.forEach((p: ChildProcess) => p.kill('SIGINT'));
   process.exit();
 });
 
 process.on('SIGTERM', () => {
   console.log('Killing all services...');
-  processes.forEach(p => p.kill('SIGTERM'));
+  processes.forEach((p: ChildProcess) => p.kill('SIGTERM'));
   process.exit();
 });
 

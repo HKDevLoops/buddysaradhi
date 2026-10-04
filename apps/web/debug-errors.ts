@@ -1,8 +1,8 @@
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 
-async function fillField(page, label, value) {
+async function fillField(page: Page, label: string, value: string): Promise<void> {
   const input = page.getByLabel(label);
-  for (let i = 0; i < 15; i++) {
+  for (let i: number = 0; i < 15; i++) {
     await input.click({ timeout: 2000 }).catch(() => {});
     await input.fill(value, { timeout: 2000 }).catch(() => {});
     if ((await input.inputValue().catch(() => "")) === value) return;
@@ -12,10 +12,10 @@ async function fillField(page, label, value) {
 }
 
 const browser = await chromium.launch();
-const page = await browser.newPage();
-const pageErrors = [];
-const consoleErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message + "\n" + (e.stack || "")));
+const page: Page = await browser.newPage();
+const pageErrors: string[] = [];
+const consoleErrors: string[] = [];
+page.on("pageerror", (e: Error) => pageErrors.push(e.message + "\n" + (e.stack || "")));
 page.on("console", (m) => {
   if (m.type() === "error") consoleErrors.push(m.text());
 });
@@ -33,8 +33,8 @@ await page.waitForTimeout(2000);
 // Try clicking each nav to surface which one errors
 for (const name of ["Students", "Attendance", "Fees", "Settings"]) {
   const btns = page.getByRole("button", { name: new RegExp(name, "i") });
-  const n = await btns.count();
-  for (let i = 0; i < n; i++) {
+  const n: number = await btns.count();
+  for (let i: number = 0; i < n; i++) {
     const b = btns.nth(i);
     if (await b.isVisible().catch(() => false)) {
       await b.click().catch(() => {});

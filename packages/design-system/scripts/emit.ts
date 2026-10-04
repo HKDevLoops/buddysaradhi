@@ -2,7 +2,7 @@
 // (`tokens.json`) and the web CSS projection (`tokens.css`), then run the
 // verification gate.
 //
-// Run:  node packages/design-system/scripts/emit.mjs
+// Run:  node packages/design-system/scripts/emit.ts
 // Exit: 0 = emitted + verified; 1 = verification findings, and NOTHING is written,
 //       so a failing palette can never reach an app.
 import { execFileSync } from "node:child_process";
@@ -12,8 +12,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const repoRoot = join(pkgRoot, "..", "..");
+const pkgRoot: string = join(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot: string = join(pkgRoot, "..", "..");
 
 // Build the TypeScript sources first: the generator IS the token logic, and a
 // second copy of it in JS would be a second thing to keep in sync — the exact
@@ -29,17 +29,36 @@ execFileSync(
   { stdio: "inherit", cwd: repoRoot },
 );
 
-const { buildAndVerify } = require(join(pkgRoot, "dist", "verify.js"));
-const { toJsonBundle, toCss } = require(join(pkgRoot, "dist", "index.js"));
+interface TokenFinding {
+  severity: string;
+  code: string;
+  paletteId: string;
+  message: string;
+  measured?: number | string;
+  required?: number | string;
+}
 
-const { palettes, findings } = buildAndVerify();
-const errors = findings.filter((f) => f.severity === "error");
-const warns = findings.filter((f) => f.severity === "warn");
+interface VerifyApi {
+  buildAndVerify: () => { palettes: unknown[]; findings: TokenFinding[] };
+}
+
+interface IndexApi {
+  toJsonBundle: () => unknown;
+  toCss: () => string;
+}
+
+const { buildAndVerify } = require(join(pkgRoot, "dist", "verify.js")) as VerifyApi;
+const { toJsonBundle, toCss } = require(join(pkgRoot, "dist", "index.js")) as IndexApi;
+
+const { palettes, findings }: { palettes: unknown[]; findings: TokenFinding[] } =
+  buildAndVerify();
+const errors: TokenFinding[] = findings.filter((f) => f.severity === "error");
+const warns: TokenFinding[] = findings.filter((f) => f.severity === "warn");
 
 console.log(`palettes: ${palettes.length}`);
 console.log(`findings: ${errors.length} error(s), ${warns.length} warning(s)`);
 for (const finding of findings) {
-  const detail =
+  const detail: string =
     finding.measured !== undefined ? ` (${finding.measured} / ${finding.required})` : "";
   console.log(
     `  [${finding.severity}] ${finding.code} ${finding.paletteId}: ${finding.message}${detail}`,

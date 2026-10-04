@@ -58,7 +58,7 @@ export default defineConfig({
         // The BFF handles gateway-down gracefully (503/fallback).
         ? 'pnpm run start'
         // Local dev: start all services for full integration.
-        : 'cd ../.. && bun run scripts/start-all.js',
+        : 'cd ../.. && bun run scripts/start-all.ts',
       url: baseURL,
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000,

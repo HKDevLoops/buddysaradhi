@@ -21,8 +21,8 @@
     "tokens.css"
   ],
   "scripts": {
-    "emit": "node scripts/emit.mjs",
-    "verify": "node scripts/emit.mjs",
+    "emit": "node scripts/emit.ts",
+    "verify": "node scripts/emit.ts",
     "test": "vitest run",
     "build": "tsc -p tsconfig.json"
   },

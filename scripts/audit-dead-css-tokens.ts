@@ -9,37 +9,49 @@
 // the whole accent-wash layer — while `eslint` and the static detector were both
 // clean.
 //
-// Usage: node scripts/audit-dead-css-tokens.mjs
+// Usage: node scripts/audit-dead-css-tokens.ts
 // Exit:  0 = no dangling reference, 1 = findings.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const WEB_CSS = join("apps", "web", "src", "app", "globals.css");
-const TOKENS_CSS = join("packages", "design-system", "tokens.css");
+const WEB_CSS: string = join("apps", "web", "src", "app", "globals.css");
+const TOKENS_CSS: string = join("packages", "design-system", "tokens.css");
 
-const sources = [
+interface CssSource {
+  file: string;
+  css: string;
+}
+
+const sources: CssSource[] = [
   { file: WEB_CSS, css: readFileSync(WEB_CSS, "utf8") },
   { file: TOKENS_CSS, css: readFileSync(TOKENS_CSS, "utf8") },
 ];
 
 /** Strip comments so a token named in prose is not mistaken for a definition. */
-function stripComments(css) {
+function stripComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
-const defined = new Set();
+const defined = new Set<string>();
 for (const { css } of sources) {
   for (const match of stripComments(css).matchAll(/(--[a-z0-9-]+)\s*:/g)) {
-    defined.add(match[1]);
+    defined.add(match[1] as string);
   }
 }
 
-const findings = [];
+interface TokenFinding {
+  file: string;
+  line: number;
+  token: string;
+  text: string;
+}
+
+const findings: TokenFinding[] = [];
 for (const { file, css } of sources) {
-  const lines = stripComments(css).split("\n");
-  lines.forEach((line, index) => {
+  const lines: string[] = stripComments(css).split("\n");
+  lines.forEach((line: string, index: number) => {
     for (const match of line.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) {
-      const name = match[1];
+      const name: string = match[1] as string;
       if (!defined.has(name)) {
         findings.push({ file, line: index + 1, token: name, text: line.trim().slice(0, 90) });
       }
@@ -47,7 +59,7 @@ for (const { file, css } of sources) {
   });
 }
 
-const unique = [...new Map(findings.map((f) => [`${f.file}:${f.line}:${f.token}`, f])).values()];
+const unique: TokenFinding[] = [...new Map(findings.map((f: TokenFinding) => [`${f.file}:${f.line}:${f.token}`, f])).values()];
 for (const finding of unique) {
   console.log(`  ${finding.file}:${finding.line}  ${finding.token}  ${finding.text}`);
 }
