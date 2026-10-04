@@ -272,13 +272,23 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
       take: 100,
     });
 
+    // BR-LED-06 read consistency: mirror the money flow's
+    // `type != 'VOID' AND void_of_id IS NULL` filter
+    // (packages/core/src/feesFlow.ts:301-302, fees.ts:239-241,
+    // feesPrisma.ts:266-275). A VOID or reversal-linked row must never inflate
+    // paid_amount_minor. `voidOfId: null` is enforced at the query level via the
+    // audited builder (`void_of_id IS NULL`); the in-memory guard below is
+    // defence-in-depth for rows already in flight (Rule 9 — no silent wrong figure).
     const entries = await orm.ledgerEntry.findMany({
-      where: { type: "PAYMENT_RECEIVED" },
+      where: { type: "PAYMENT_RECEIVED", voidOfId: null },
       take: 200,
     });
 
     const paidMap = new Map<string, number>();
     for (const e of entries) {
+      // Defence-in-depth: skip any VOID or reversal-linked row that reached us
+      // despite the query filter (see above).
+      if (e.type === "VOID" || e.voidOfId != null) continue;
       if (e.invoiceId) {
         paidMap.set(e.invoiceId, (paidMap.get(e.invoiceId) ?? 0) + (e.creditPaise ?? 0));
       }

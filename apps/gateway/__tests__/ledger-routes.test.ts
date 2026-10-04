@@ -434,4 +434,59 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
       tx.close();
     }
   });
+
+  it("BR-LED-06 read consistency: GET /api/v1/ledger/invoices excludes VOID / reversal-linked rows (routes/ledger.ts:282-291)", async () => {
+    const f = createLedgerFixture();
+    const now = new Date().toISOString();
+    const invVoidId = crypto.randomUUID();
+    const invCtrlId = crypto.randomUUID();
+    const voidId = crypto.randomUUID();
+    const payVoidLinkedId = crypto.randomUUID();
+    const payCtrlId = crypto.randomUUID();
+
+    // Gateway POST /api/v1/ledger/payment writes unattributed PAYMENT_RECEIVED
+    // rows (no invoice_id — see docs/rfc/005-unified-payment-dialect.md §1), so
+    // the invoice-linkage the read filter sums over cannot be built through the
+    // route. These invoice-linked rows are inserted directly to prove the READ
+    // filter only (query-level `void_of_id IS NULL` + in-memory VOID guard).
+    const insInvoice = f.db.raw.prepare(
+      `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date,
+                             subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'hash', ?, ?)`,
+    );
+    insInvoice.run(invVoidId, f.tenantId, "INV-000001", f.studentId, "2026-01-01", "2026-02-01", 100000, 100000, "unpaid", now, now);
+    insInvoice.run(invCtrlId, f.tenantId, "INV-000002", f.studentId, "2026-01-01", "2026-02-01", 100000, 100000, "unpaid", now, now);
+
+    const insEntry = f.db.raw.prepare(
+      `INSERT INTO ledger_entries (id, tenant_id, student_id, invoice_id, type, debit_paise, credit_paise,
+                                   balance_after_paise, description, receipt_no, void_of_id, occurred_on, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'gateway', ?, ?)`,
+    );
+    // Voided invoice: a PAYMENT_RECEIVED carrying a reversal link (the
+    // query-level `void_of_id IS NULL` must exclude it) ...
+    insEntry.run(payVoidLinkedId, f.tenantId, f.studentId, invVoidId, "PAYMENT_RECEIVED", 0, 40000, "Payment received", "RCP-000001", voidId, "2026-01-15", now, now);
+    // ... plus a VOID row on the same invoice carrying credit (the in-memory
+    // `e.type === "VOID"` guard must exclude it even if it reached the loop).
+    insEntry.run(voidId, f.tenantId, f.studentId, invVoidId, "VOID", 0, 40000, "VOID: test", null, payVoidLinkedId, "2026-01-16", now, now);
+    // Control invoice: a live payment with void_of_id NULL must be counted.
+    insEntry.run(payCtrlId, f.tenantId, f.studentId, invCtrlId, "PAYMENT_RECEIVED", 0, 40000, "Payment received", "RCP-000002", null, "2026-01-15", now, now);
+
+    const url = new URL("https://api.buddysaradhi.app/api/v1/ledger/invoices");
+    const res = await handleLedger(
+      new Request(url, { method: "GET" }),
+      f.db as unknown as DB,
+      f.tenantId,
+      "/api/v1/ledger/invoices",
+      "GET",
+      url,
+      {},
+    );
+    if (!res) throw new Error("no route matched GET /api/v1/ledger/invoices");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as ApiBody;
+    const data = dataOf<Array<{ id: string; paid_amount_minor: number }>>(body);
+    const byId = new Map(data.map((r) => [r.id, r.paid_amount_minor]));
+    expect(byId.get(invVoidId)).toBe(0);
+    expect(byId.get(invCtrlId)).toBe(40000);
+  });
 });

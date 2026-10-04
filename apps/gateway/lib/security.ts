@@ -349,6 +349,10 @@ export function clearFailedAuth(tenantId: string): void {
 
 export function getSecurityHeaders(): Record<string, string> {
   return {
+    // 10_Security.md §17 headers: JSON API serves no HTML, so the policy is
+    // deny-by-default (`default-src 'none'`) plus `frame-ancestors 'none'`
+    // (mirrors `X-Frame-Options: DENY`). No `unsafe-inline`/`unsafe-eval`.
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "X-XSS-Protection": "0",

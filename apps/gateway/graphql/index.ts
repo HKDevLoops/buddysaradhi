@@ -14,7 +14,7 @@
 import { createClient as createLibsql } from "@libsql/client";
 import { createClient as createSb } from "@supabase/supabase-js";
 import { corsHeadersForOrigin } from "../lib/errors.ts";
-import { log } from "../lib/log.ts";
+import { logError } from "../lib/log.ts";
 
 type DB = ReturnType<typeof createLibsql>;
 
@@ -216,7 +216,7 @@ const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
     }
     const rows = await allRows(
       ctx.db,
-      `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name LIMIT ? OFFSET ?`,
+      `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name, id ASC LIMIT ? OFFSET ?`,
       [...a, ps, from],
     );
     const cnt = await oneRow(
@@ -253,7 +253,7 @@ const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
     const { p, ps, from } = clampPage(args.page, args.pageSize);
     const rows = await allRows(
       ctx.db,
-      "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC LIMIT ? OFFSET ?",
+      "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC, id ASC LIMIT ? OFFSET ?",
       [ctx.tenantId, ps, from],
     );
     const cnt = await oneRow(
@@ -377,7 +377,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Rule 9 + 10_Security.md §8: the raw `err.message` reaches the client here,
     // and a libsql/tenant error carries SQL text, column names and file paths.
     // The detail is logged server-side; the client gets a stable code.
-    log.error("graphql_exec_failed", err instanceof Error ? err.message : String(err));
+    logError("graphql_exec_failed", { message: err instanceof Error ? err.message : String(err) });
     return new Response(
       JSON.stringify({
         errors: [{ message: "VALIDATION: the query could not be completed" }],

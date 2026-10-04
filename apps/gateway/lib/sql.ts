@@ -1200,7 +1200,7 @@ export function stmtGraphqlStudents(
     args.push(`%${clean}%`, `%${clean}%`, `%${clean}%`);
   }
   return {
-    sql: `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name LIMIT ? OFFSET ?`,
+    sql: `SELECT * FROM students WHERE ${where.join(" AND ")} ORDER BY first_name, id ASC LIMIT ? OFFSET ?`,
     args: [...args, lim, off],
   };
 }
@@ -1220,7 +1220,7 @@ export function stmtGraphqlStudentsCount(tenantId: string, search: string | null
 export function stmtGraphqlLedgerEntries(tenantId: string, limit: number, offset: number): BuiltStatement {
   const tenant = auditedTenant(tenantId);
   return {
-    sql: "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC LIMIT ? OFFSET ?",
+    sql: "SELECT * FROM ledger_entries WHERE tenant_id = ? ORDER BY occurred_on DESC, id ASC LIMIT ? OFFSET ?",
     args: [tenant, LimitSchema.parse(limit), OffsetSchema.parse(offset)],
   };
 }
