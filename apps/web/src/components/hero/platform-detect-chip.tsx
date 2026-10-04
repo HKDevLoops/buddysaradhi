@@ -42,11 +42,12 @@ export function PlatformDetectChip({ detectedPlatform }: { detectedPlatform: Pla
       <div className="flex items-center gap-3">
         <Link
           href={href}
-          className={`flex items-center justify-center h-[36px] px-4 rounded-full
-                     bg-[var(--surface-inset)] backdrop-blur-[24px] saturate-140 border border-opacity-30
+          className={`flex items-center justify-center h-[44px] px-4 rounded-full
+                     bg-[var(--surface-inset)] border border-opacity-30
                      text-sm font-medium transition-all duration-200 hover:bg-[var(--surface-overlay)]
                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
                      ${colorClass}`}
+          style={{ backdropFilter: "var(--mat-filter)", WebkitBackdropFilter: "var(--mat-filter)" }}
         >
           {message}
         </Link>

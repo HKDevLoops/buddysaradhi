@@ -147,6 +147,44 @@ class StudentRouteError extends Error {
   }
 }
 
+// ── Roster read contract (GET /api/v1/students) ─────────────────────────
+// Implements: 05_Students.md §"Roster" — the roster control a tutor can see must
+// be a control the server honours. The web store sends sort (SortCol =
+// 'name'|'code'|'balance') plus five filters (apps/web/src/types/students.ts);
+// this route either applies each one or rejects it with a typed error naming the
+// field. "Accept and drop" is the defect: a filter that silently does nothing is
+// worse than no filter, because the tutor believes the list is narrowed.
+//
+// Sort vocabulary is the CLIENT's, not the column's: `sortCol` is a roster-facing
+// name, mapped here to one real `students` column. An unknown value is a 400
+// VALIDATION that lists what IS supported — an actionable error, not a silent
+// fallback to an unordered result set.
+const ROSTER_SORT_COLUMN = {
+  name: "firstName",
+  code: "code",
+  balance: "balancePaise",
+  grade: "grade",
+  status: "status",
+  joined: "admissionDate",
+  created: "createdAt",
+} as const;
+
+const ROSTER_SORT_COLUMNS = Object.keys(ROSTER_SORT_COLUMN) as [
+  keyof typeof ROSTER_SORT_COLUMN,
+  ...(keyof typeof ROSTER_SORT_COLUMN)[],
+];
+const ROSTER_SORT_SCHEMA = z.enum(ROSTER_SORT_COLUMNS);
+const ROSTER_DIR_SCHEMA = z.enum(["asc", "desc"]);
+
+const STUDENT_STATUS = ["active", "inactive", "graduated", "archived"] as const;
+const STUDENT_STATUS_SCHEMA = z.enum(STUDENT_STATUS);
+const STUDENT_FEE_MODEL = ["postpaid", "prepaid", "mixed"] as const;
+const STUDENT_FEE_MODEL_SCHEMA = z.enum(STUDENT_FEE_MODEL);
+
+function splitCsv(raw: string | null): string[] {
+  return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 export const handleStudents: RouteHandler = async (
   req,
   db,
@@ -161,19 +199,179 @@ export const handleStudents: RouteHandler = async (
 
   // GET /api/v1/students
   if (path === "/api/v1/students" && method === "GET") {
-    const cacheKey = `students:${tenantId}:${sp.get("page") ?? "1"}:${sp.get("search") ?? ""}:${sp.get("status") ?? ""}`;
-    const cached = getCached<{ students: unknown[]; total: number }>(cacheKey);
-    if (cached) return ok(cached);
-    const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10));
-    const pageSize = Math.min(200, parseInt(sp.get("pageSize") ?? "50", 10));
-    const search = (sp.get("search") ?? "").toLowerCase();
-    const statusFilter = (sp.get("status") ?? "").split(",").filter(Boolean);
+    // ── Parse + validate BEFORE the cache read. An invalid request must never
+    // reach (and poison) the cache, and a 400 must not be answered from a cache
+    // entry minted before the same validation existed.
+    const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
+    const pageSize = Math.min(200, parseInt(sp.get("pageSize") ?? "50", 10) || 50);
+    const search = (sp.get("search") ?? "").trim().toLowerCase();
     const from = (page - 1) * pageSize;
 
+    const statusFilter = splitCsv(sp.get("status"));
+    for (const s of statusFilter) {
+      if (!STUDENT_STATUS_SCHEMA.safeParse(s).success) {
+        return failValidation(
+          `status=${s} is not a student status. Supported: ${STUDENT_STATUS.join(", ")}.`,
+        );
+      }
+    }
+
+    // feeModels — HONOURED. `students.fee_model` is a real column
+    // (lib/schema.ts:98), so this is a plain `IN` on the audited builder.
+    const feeModelFilter = splitCsv(sp.get("feeModels"));
+    for (const m of feeModelFilter) {
+      if (!STUDENT_FEE_MODEL_SCHEMA.safeParse(m).success) {
+        return failValidation(
+          `feeModels=${m} is not a fee model. Supported: ${STUDENT_FEE_MODEL.join(", ")}.`,
+        );
+      }
+    }
+
+    // balanceRange — HONOURED. All four values are now expressible: `all` (no
+    // clause), `zero` (`balance_paise = 0`), and the two that need a range
+    // comparison, via the audited builder's fixed operator vocabulary
+    // (lib/sql.ts `RANGE_CLAUSE` — `gt`/`gte`/`lt`/`lte`, module literals, never
+    // a string from the request).
+    const balanceRange = sp.get("balanceRange") ?? "all";
+    const BALANCE_RANGE = ["all", "zero", "has_dues", "overdue_only"] as const;
+    if (!(BALANCE_RANGE as readonly string[]).includes(balanceRange)) {
+      return failValidation(
+        `balanceRange=${balanceRange} is not supported. ` +
+          `Supported: ${BALANCE_RANGE.join(", ")}.`,
+      );
+    }
+
+    // admittedInLast — HONOURED. `students.admission_date` is TEXT 'YYYY-MM-DD'
+    // (lib/schema.ts:95), which sorts lexicographically, so "admitted since N
+    // days ago" is an `admission_date >= ?` range against an ISO date literal.
+    const ADMITTED_WINDOWS = ["all", "7d", "30d", "90d", "180d", "365d"] as const;
+    const admittedInLast = sp.get("admittedInLast") ?? "all";
+    if (!(ADMITTED_WINDOWS as readonly string[]).includes(admittedInLast)) {
+      return failValidation(
+        `admittedInLast=${admittedInLast} is not supported. ` +
+          `Supported: ${ADMITTED_WINDOWS.join(", ")}.`,
+      );
+    }
+
+    // tagIds — NOT SUPPORTED. The gateway schema has no `student_tags` table at
+    // all (lib/schema.ts), and `TableNameSchema` (lib/sql.ts:284-298) does not
+    // admit it, so there is nothing to filter on. A rejected request, not an
+    // empty result: an empty result would claim the tutor has no tagged students.
+    const tagIds = splitCsv(sp.get("tagIds"));
+    if (tagIds.length > 0) {
+      return failValidation(
+        `tagIds is not supported: the gateway schema has no student_tags table. ` +
+          `Send tagIds empty until the table ships.`,
+      );
+    }
+
+    // sortCol / sortDir — HONOURED via the orm allowlist seam (lib/orm.ts).
+    const rawSortCol = sp.get("sortCol") ?? "name";
+    const rawSortDir = sp.get("sortDir") ?? "asc";
+    const sortCol = ROSTER_SORT_SCHEMA.safeParse(rawSortCol);
+    if (!sortCol.success) {
+      return failValidation(
+        `sortCol=${rawSortCol} is not a sortable roster column. ` +
+          `Supported: ${ROSTER_SORT_COLUMNS.join(", ")}.`,
+      );
+    }
+    const sortDir = ROSTER_DIR_SCHEMA.safeParse(rawSortDir);
+    if (!sortDir.success) {
+      return failValidation(
+        `sortDir=${rawSortDir} is not a sort direction. Supported: asc, desc.`,
+      );
+    }
+    const orderBy = { [ROSTER_SORT_COLUMN[sortCol.data]]: sortDir.data };
+
+    // batchIds — HONOURED in two audited reads: resolve the batch's enrolled
+    // student ids via student_enrollments, then intersect on students.id
+    // (`IN` is supported by the builder; an empty list renders `1=0`).
+    const batchIds = splitCsv(sp.get("batchIds"));
+    let batchStudentIds: string[] | null = null;
+    if (batchIds.length > 0) {
+      const enrollments = await orm.studentEnrollment.findMany({
+        where: { batchId: { in: batchIds } },
+      });
+      batchStudentIds = [...new Set(enrollments.map((e) => String(e.studentId)))];
+    }
+
+    // balanceRange=overdue_only — HONOURED in two audited reads, for the same
+    // reason `batchIds` is: "overdue" is a property of an INVOICE
+    // (`invoices.due_date < today AND status IN (unpaid, partial, overdue)`,
+    // lib/schema.ts:193-212), not of `students`, and the audited builder does not
+    // join. So resolve the overdue student ids first, then intersect on
+    // `students.id`. Defining `overdue_only` as "has_dues" instead would be the
+    // accept-and-drop defect: the tutor narrows to "owes money" and believes
+    // they narrowed to "owes money AND the due date has passed".
+    const today = new Date().toISOString().slice(0, 10);
+    let overdueStudentIds: string[] | null = null;
+    if (balanceRange === "overdue_only") {
+      const overdue = await orm.invoice.findMany({
+        where: { dueDate: { lt: today }, status: { in: ["unpaid", "partial", "overdue"] } },
+      });
+      overdueStudentIds = [...new Set(overdue.map((i) => String(i.studentId)))];
+    }
+
+    // admittedInLast=Nd — the ISO date the window opens on. TEXT 'YYYY-MM-DD'
+    // compares lexicographically, so `>=` is a correct date comparison and no
+    // date math happens in SQL.
+    const ADMITTED_DAYS: Record<string, number> = {
+      "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365,
+    };
+    const admittedDays = ADMITTED_DAYS[admittedInLast];
+    const admissionCutoff = admittedDays === undefined
+      ? null
+      : new Date(Date.now() - admittedDays * 86_400_000).toISOString().slice(0, 10);
+
+    // ── Cache key: every input that changes the result set. The previous key
+    // (page + search + status only) served a cached 50-row page to a client that
+    // asked for 100, and served one sort's rows to a client that asked for
+    // another — a data-correctness bug, not a performance one. Labelled,
+    // pipe-delimited components so a `search` containing the separator cannot
+    // collide with a different request.
+    const cacheKey = [
+      "students",
+      tenantId,
+      `page=${page}`,
+      `pageSize=${pageSize}`,
+      `search=${search}`,
+      `status=${statusFilter.join("|")}`,
+      `feeModels=${feeModelFilter.join("|")}`,
+      `batchIds=${batchIds.join("|")}`,
+      `balanceRange=${balanceRange}`,
+      `admittedInLast=${admittedInLast}`,
+      `overdueIds=${overdueStudentIds === null ? "" : [...overdueStudentIds].sort().join("|")}`,
+      `sort=${sortCol.data}:${sortDir.data}`,
+    ].join("::");
+
+    const cached = getCached<{ students: unknown[]; total: number }>(cacheKey);
+    if (cached) return ok(cached);
+
+    const where: Record<string, unknown> = {};
+    if (statusFilter.length > 0) where.status = { in: statusFilter };
+    if (feeModelFilter.length > 0) where.feeModel = { in: feeModelFilter };
+    if (balanceRange === "zero") where.balancePaise = 0;
+    if (balanceRange === "has_dues") where.balancePaise = { gt: 0 };
+    if (admissionCutoff !== null) where.admissionDate = { gte: admissionCutoff };
+
+    // `batchIds` and `overdue_only` BOTH narrow on `students.id`. They must
+    // intersect, not overwrite: assigning the second one would silently discard
+    // the first, and a tutor filtering by batch AND overdue would get the whole
+    // batch. An empty intersection is a legitimate empty result, so the empty
+    // list is preserved (the builder renders it as `1=0`, not "no filter").
+    const idFilters: string[][] = [];
+    if (batchStudentIds !== null) idFilters.push(batchStudentIds);
+    if (overdueStudentIds !== null) idFilters.push(overdueStudentIds);
+    if (idFilters.length > 0) {
+      where.id = { in: idFilters.reduce((acc, list) => acc.filter((id) => list.includes(id))) };
+    }
+
+    // Search is a substring match across three columns and is applied in the
+    // route (the builder has no LIKE). When searching we must read the whole
+    // filtered set to slice the page; otherwise SQLite does the paging.
     const rawStudents = await orm.student.findMany({
-      where: {
-        ...(statusFilter.length ? { status: { in: statusFilter } } : {}),
-      },
+      where,
+      orderBy,
       ...(search ? {} : { take: pageSize, skip: from }),
     });
 
@@ -188,11 +386,7 @@ export const handleStudents: RouteHandler = async (
 
     const paginated = search ? filtered.slice(from, from + pageSize) : filtered;
 
-    const total = search ? filtered.length : await orm.student.count({
-      where: {
-        ...(statusFilter.length ? { status: { in: statusFilter } } : {}),
-      },
-    });
+    const total = search ? filtered.length : await orm.student.count({ where });
 
     const students = paginated.map((s) => ({
       id: s.id,

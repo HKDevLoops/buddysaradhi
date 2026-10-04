@@ -1,20 +1,58 @@
 import { logWarn } from "./log.ts";
 
-const HMAC_SECRET = Deno.env.get("GATEWAY_SHARED_SECRET") || "";
-const DATA_KEY = Deno.env.get("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
+/** Minimum entropy floor for a shared secret. 32 chars of a random string is
+ *  the point below which an HMAC secret stops being a secret (10_Security.md
+ *  §4 anti-tamper; BR-SEC-03 fail-closed). */
+const MIN_SECRET_LENGTH = 32;
 
-if (!HMAC_SECRET || HMAC_SECRET.length < 32) {
-  const env = Deno.env.get("DENO_DEPLOYMENT_ID") ||
-    Deno.env.get("SUPABASE_URL") || "local";
-  if (env !== "local") {
-    // P1 SECURITY FIX: Throw in production instead of just warning.
-    // A missing/weak HMAC secret means requests can't be verified — fail loudly.
+/** Deployment is a POSITIVE signal. The previous check inferred production from
+ * the ABSENCE of `SUPABASE_URL` (`if (env !== "local")`), so any misconfigured
+ * or partially-migrated environment skipped secret validation entirely — the
+ * fail-open direction. `DENO_DEPLOYMENT_ID` is set by the Supabase/Deno Deploy
+ * edge; `DENO_ENV=production` is the explicit manual override. */
+function isProduction(): boolean {
+  if (typeof Deno === "undefined") return false;
+  return Boolean(Deno.env.get("DENO_DEPLOYMENT_ID")) ||
+    Deno.env.get("DENO_ENV") === "production";
+}
+
+function readSecret(name: string): string {
+  if (typeof Deno === "undefined") return "";
+  return Deno.env.get(name) || "";
+}
+
+const HMAC_SECRET = readSecret("GATEWAY_SHARED_SECRET");
+const DATA_KEY = readSecret("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
+
+/**
+ * Startup gate. Every secret the gateway signs, verifies or encrypts with is
+ * checked ONCE, at module load, before a single request is served — a gateway
+ * that boots with a weak or missing shared secret has already failed open, and
+ * no per-request check can undo that.
+ *
+ * Production: THROW. The edge fails to boot, which is a loud, correct outcome.
+ * Development: warn and continue, so `deno task dev` and the vitest suite work
+ * without a secret store — but the warning is emitted, not swallowed.
+ */
+function assertSecretStrength(name: string, value: string): void {
+  if (value.length >= MIN_SECRET_LENGTH) return;
+  const problem = `${name} is ${value.length === 0 ? "not set" : `only ${value.length} chars`}` +
+    ` (minimum ${MIN_SECRET_LENGTH})`;
+  if (isProduction()) {
     throw new Error(
-      `CRITICAL: GATEWAY_SHARED_SECRET must be >= 32 chars in production (got ${HMAC_SECRET.length}). ` +
-        "Set it in your Supabase Edge Function secrets.",
+      `CRITICAL: ${problem}. A gateway that boots without it fails OPEN: ` +
+        "request signatures are forgeable and encrypted responses are readable. " +
+        "Set it in your Supabase Edge Function secrets and redeploy.",
     );
   }
+  logWarn("crypto.weak_secret", { name, length: value.length, minimum: MIN_SECRET_LENGTH });
 }
+
+assertSecretStrength("GATEWAY_SHARED_SECRET", HMAC_SECRET);
+// `DATA_KEY` falls back to `HMAC_SECRET`, so it inherits the HMAC secret's
+// strength when unset — but it is checked independently so that an explicitly
+// configured but short data key cannot slip through on the HMAC's coattails.
+assertSecretStrength("DATA_ENCRYPTION_KEY", DATA_KEY);
 
 export function getHmacSecret(): string {
   return HMAC_SECRET;
@@ -67,10 +105,19 @@ function constantTimeCompare(a: string, b: string): boolean {
 
 export async function encryptResponse(plaintext: string): Promise<string> {
   if (!DATA_KEY) {
-    // P2 SECURITY FIX: Don't silently return plaintext when encryption key is missing.
-    // This is defense-in-depth — callers may assume data is encrypted when it isn't.
+    // Returning plaintext from a function whose contract says "encrypted" is a
+    // fail-open: the caller cannot tell the difference, so a missing key turns
+    // every response body into cleartext in production while the type still says
+    // otherwise. Production throws (Rule 9 — no silent failures); development
+    // warns and degrades so local work is not blocked.
+    if (isProduction()) {
+      throw new Error(
+        "CRITICAL: DATA_ENCRYPTION_KEY is not set; refusing to return plaintext for an " +
+          "encrypted response (10_Security.md §8).",
+      );
+    }
     logWarn("crypto.encrypt_no_key", {
-      message: "DATA_ENCRYPTION_KEY not set; returning plaintext",
+      message: "DATA_ENCRYPTION_KEY not set; returning plaintext (development only)",
     });
     return plaintext;
   }
@@ -106,7 +153,20 @@ export async function encryptResponse(plaintext: string): Promise<string> {
 }
 
 export async function decryptRequest(ciphertextB64: string): Promise<string> {
-  if (!DATA_KEY) return ciphertextB64;
+  if (!DATA_KEY) {
+    // Symmetric with encryptResponse: silently handing back the ciphertext as
+    // "decrypted" would push the raw envelope into the caller's JSON as if it
+    // were plaintext. Production throws; development degrades loudly.
+    if (isProduction()) {
+      throw new Error(
+        "CRITICAL: DATA_ENCRYPTION_KEY is not set; cannot decrypt a request body.",
+      );
+    }
+    logWarn("crypto.decrypt_no_key", {
+      message: "DATA_ENCRYPTION_KEY not set; returning body unchanged (development only)",
+    });
+    return ciphertextB64;
+  }
   const combined = Uint8Array.from(atob(ciphertextB64), (c) => c.charCodeAt(0));
   if (combined.length < 28) {
     throw new Error("invalid ciphertext: too short");

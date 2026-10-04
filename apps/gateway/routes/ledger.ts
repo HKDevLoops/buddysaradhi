@@ -1,5 +1,5 @@
 import type { RouteHandler } from "./students.ts";
-import { ok, fail, failZod } from "../lib/errors.ts";
+import { ok, json, fail, failZod } from "../lib/errors.ts";
 import { recordOutbox, recordAudit } from "./students.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
@@ -300,15 +300,47 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
   }
 
   // GET /api/v1/ledger/fees
+  //
+  // ── Roster paging, on the same seam as GET /api/v1/students ──────────────
+  // (routes/students.ts:205-208): `page`/`pageSize`, `orderBy` validated by
+  // the `resolveOrderBy` allowlist in lib/orm.ts, and the population size from
+  // the audited `stmtCountWhere` behind `orm.student.count`. No caller string
+  // ever reaches SQL text (AGENTS.md §3.4).
+  //
+  // The previous read was `take: 200` with no total, no pager and no warning:
+  // students 201+ were unreachable from Fees, Pending/Overdue and Collections,
+  // and nothing in the response hinted that anything was missing. The defect is
+  // the SILENCE, so the fix is that the population size is now always in the
+  // response and a page is something the caller asked for.
+  //
+  // `data` deliberately stays the ARRAY that `getStudentsForFees`
+  // (apps/web/src/server/queries/fees.ts:12) and the three Fees surfaces it
+  // feeds already consume, so nothing breaks at the same time as the fix; the
+  // paging facts ride beside it in the envelope, next to `success`, which is
+  // where this gateway already puts read metadata. A caller that sends no
+  // pager gets the COMPLETE roster (no cap) — the existing readers stop losing
+  // students — and a caller that sends a pager gets a page plus the total.
   if (path === "/api/v1/ledger/fees" && method === "GET") {
     const search = (sp.get("search") ?? "").toLowerCase();
+    const paged = sp.has("page") || sp.has("pageSize");
+    const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
+    const pageSize = Math.min(
+      200,
+      Math.max(1, parseInt(sp.get("pageSize") ?? "200", 10) || 200),
+    );
+    const from = (page - 1) * pageSize;
+
+    const where = { status: "active", archivedAt: null };
     const rawStudents = await orm.student.findMany({
-      where: { status: "active", archivedAt: null },
+      where,
       orderBy: { firstName: "asc" },
-      take: 200,
+      // Search is a substring match applied in the route (the builder has no
+      // LIKE operator), so a searched read has to be complete before it can be
+      // sliced. Unsearched reads let SQLite do the paging.
+      ...(paged ? (search ? {} : { take: pageSize, skip: from }) : {}),
     });
 
-    const filtered = search
+    const matched = search
       ? rawStudents.filter(
           (s) =>
             (s.firstName && s.firstName.toLowerCase().includes(search)) ||
@@ -317,15 +349,29 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         )
       : rawStudents;
 
-    return ok(
-      filtered.map((s) => ({
-        id: s.id,
-        name: `${s.firstName || ""} ${s.lastName || ""}`.trim(),
-        code: s.code,
-        fee_model: s.feeModel || "postpaid",
-        balance_due: s.balancePaise || 0,
-      })),
-    );
+    const pageRows = paged && search ? matched.slice(from, from + pageSize) : matched;
+
+    const total = search ? matched.length : await orm.student.count({ where });
+
+    const students = pageRows.map((s) => ({
+      id: s.id,
+      name: `${s.firstName || ""} ${s.lastName || ""}`.trim(),
+      code: s.code,
+      fee_model: s.feeModel || "postpaid",
+      balance_due: s.balancePaise || 0,
+    }));
+
+    return json({
+      success: true,
+      data: students,
+      total,
+      page: paged ? page : 1,
+      /** The size of the slice actually returned, so an unpaged read reports
+       *  its own row count rather than a page size that was never applied. */
+      pageSize: paged ? pageSize : students.length,
+      totalPages: paged ? Math.max(1, Math.ceil(total / pageSize)) : 1,
+      truncated: paged && students.length < total,
+    });
   }
 
   // POST /api/v1/ledger/payment

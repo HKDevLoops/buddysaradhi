@@ -13,7 +13,21 @@ export type SavedFilter = {
   filters: StudentFilters;
 };
 
-export type SortCol = 'name' | 'code' | 'balance';
+/**
+ * The roster's sort vocabulary — EXACTLY the keys of the gateway's
+ * `ROSTER_SORT_COLUMN` (`apps/gateway/routes/students.ts:162-170`) and nothing
+ * more. Every key maps to a real `students` column the gateway validates, so a
+ * value from this union cannot produce a 400.
+ *
+ * The union used to declare only `name | code | balance` while the server
+ * accepted seven. A type NARROWER than the server is a silent truncation of
+ * capability: the roster cannot be ordered by grade, status, admission date or
+ * age, and nothing says so. A type WIDER than the server is the opposite
+ * failure — every value past the end is a runtime 400 — so the union is pinned
+ * to the server's set, and this comment is the coupling that keeps them equal.
+ * Change one and you must change the other.
+ */
+export type SortCol = 'name' | 'code' | 'balance' | 'grade' | 'status' | 'joined' | 'created';
 
 export type TabKey = 'profile' | 'fee_plan' | 'ledger' | 'invoices' | 'attendance' | 'timeline' | 'notes' | 'documents';
 

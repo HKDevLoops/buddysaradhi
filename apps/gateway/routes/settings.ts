@@ -87,10 +87,54 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
 
     const parsed = SETTINGS_PATCH_SCHEMA.safeParse(body);
     if (!parsed.success) return failZod(parsed.error);
-    const filteredBody = parsed.data;
 
+    // A field the allowlist does not name is REJECTED, not stripped-and-ignored.
+    //
+    // `z.object().partial()` silently drops unknown keys, so a client that
+    // PATCHed `{ next_receipt_seq: 1 }` — the monotonic sequence counter that
+    // BR-RC-01 says is consumed forever and never rewound — got HTTP 200 and a
+    // settings row unchanged. That is the "accept and drop" defect: the caller
+    // is told the write happened. It matters most for the fields a client would
+    // most plausibly try to reach: `pin_hash`, `tenant_secret`, `plan`,
+    // `next_invoice_seq`, `next_receipt_seq`, `next_student_seq`, `tenant_id`,
+    // `created_at` (AGENTS.md §2 Rule 1/6, BR-RC-01).
+    //
+    // This runs BEFORE the empty-payload guard so a PATCH whose every field is
+    // unknown names the offending field rather than the generic `no_valid_fields`.
+    //
+    // `base_updated_at` is excluded: RFC-004 C4 reads it from the RAW body and it
+    // must never enter the Zod allowlist, so a legitimate CAS-only PATCH
+    // (compare-and-swap probe with nothing to change) is not an injection.
+    const CAS_KEYS = new Set(["base_updated_at", "baseUpdatedAt"]);
+    const rejected = Object.keys(body).filter((k) => !CAS_KEYS.has(k) && !(k in parsed.data));
+    if (rejected.length > 0) {
+      return failValidation(
+        `not a writable settings field: ${rejected.join(", ")}. ` +
+          "A settings PATCH may only carry the fields a tutor sets in " +
+          "08_Settings.md — institute identity, currency/locale, fee model, " +
+          "invoice/receipt prefixes, grace days, auto-invoice, attendance lock, " +
+          "notification toggles, session/biometric/auto-archive, theme/palette/" +
+          "density/reduced-motion. Secret columns (pin_hash, tenant_secret, " +
+          "backup_passphrase_hash) and the monotonic sequence counters " +
+          "(next_invoice_seq, next_receipt_seq, next_student_seq) are " +
+          "server-owned (BR-RC-01) and are never client-writable.",
+      );
+    }
+
+    const filteredBody = parsed.data;
     if (Object.keys(filteredBody).length === 0) {
       return fail("no_valid_fields", 400);
+    }
+
+    // Flags are INTEGER columns in the DDL (`auto_invoice INTEGER DEFAULT 0`,
+    // lib/schema.ts:31). The allowlist deliberately accepts a JSON boolean
+    // because clients send both shapes — but a JS boolean is not a bindable
+    // SQLite value and reaches the driver as-is, so it fails at execute time
+    // (or, worse on a lenient driver, coerces unpredictably). Normalise here,
+    // once, so the column type and the wire type can differ safely.
+    const normalisedBody: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(filteredBody)) {
+      normalisedBody[k] = typeof v === "boolean" ? (v ? 1 : 0) : v;
     }
 
     let updated: Record<string, unknown> | null;
@@ -108,10 +152,10 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
         const row = await txOrm.setting.upsert({
           where: { tenantId },
           create: {
-            instituteName: filteredBody.instituteName ?? filteredBody.institute_name ?? "My Tuition",
-            ...filteredBody,
+            instituteName: normalisedBody.instituteName ?? normalisedBody.institute_name ?? "My Tuition",
+            ...normalisedBody,
           },
-          update: filteredBody,
+          update: normalisedBody,
         });
 
         // Rule 7 (12_Business_Rules.md BR-SYN-01 / BR-SEC-03) — the settings
@@ -120,8 +164,8 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
         // Op is "update" (not "upsert"): the migration CHECK on sync_outbox.op
         // allows only (insert, update, soft_delete), and the audit row below
         // already records this mutation as "settings.update".
-        await recordOutbox(tx, tenantId, "settings", tenantId, "update", filteredBody);
-        await recordAudit(tx, tenantId, tenantId, "settings.update", "settings", tenantId, filteredBody);
+        await recordOutbox(tx, tenantId, "settings", tenantId, "update", normalisedBody);
+        await recordAudit(tx, tenantId, tenantId, "settings.update", "settings", tenantId, normalisedBody);
         // RFC-004 C1 — response bytes commit atomically with the upsert (see
         // routes/ledger.ts payment path). Never echo the stored row (it carries
         // pin_hash/tenant_secret): project first, same as the GET path.

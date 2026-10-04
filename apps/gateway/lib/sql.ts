@@ -284,9 +284,12 @@ const IdSchema = z.string().min(1).max(128);
 const TableNameSchema = z.enum([
   "students",
   "batches",
+  "tutors",
   "student_enrollments",
   "attendance_sessions",
   "attendance_records",
+  "fee_plans",
+  "fee_schedule_items",
   "invoices",
   "ledger_entries",
   "receipts",
@@ -297,6 +300,30 @@ const TableNameSchema = z.enum([
   "idempotency_keys",
 ]);
 type TableName = z.infer<typeof TableNameSchema>;
+
+/** Each table's primary-key column, read off the DDL in lib/schema.ts. Used as
+ * the deterministic tie-break appended to every ORDER BY (see
+ * `stmtSelectWhere`): a sort column is not unique (`first_name` repeats, so do
+ * `balance_paise`, `status`, `category`), and SQLite is free to return tied rows
+ * in any order across queries — which means the SAME row can appear on page 1
+ * and page 2 of a LIMIT/OFFSET read. `settings` is keyed by `tenant_id`, not
+ * `id` (lib/schema.ts:19); `idempotency_keys` has a composite key
+ * (lib/schema.ts:331) and is never paged. */
+const TABLE_PK: Readonly<Record<TableName, string>> = Object.freeze({
+  students: "id",
+  batches: "id",
+  student_enrollments: "id",
+  attendance_sessions: "id",
+  attendance_records: "id",
+  invoices: "id",
+  ledger_entries: "id",
+  receipts: "id",
+  settings: "tenant_id",
+  notifications: "id",
+  audit_log: "id",
+  sync_outbox: "id",
+  idempotency_keys: "tenant_id",
+} as Record<TableName, string>);
 
 const ColumnRefSchema = z.string().regex(/^[a-z_][a-z0-9_]*$/).max(64);
 const SortDirSchema = z.enum(["ASC", "DESC"]);
@@ -327,10 +354,38 @@ function auditedTenant(tenantId: string): string {
   return parsed.data;
 }
 
+/** The range vocabulary — the ONLY four comparison operators a `where` filter
+ * may use, and the complete list.
+ *
+ * Operator names are INTERNAL literals, fixed at module load and frozen. A
+ * caller picks one by using its object key (`{ balancePaise: { gt: 0 } }`); there
+ * is no `op`/`operator` string anywhere in the interface, so no caller-supplied
+ * operator name — nor a fragment of one — can reach the SQL string. The SQL text
+ * is the value in this map and nothing else.
+ *
+ * Thresholds are bounded by `RangeThresholdSchema`: a date string (TEXT
+ * `YYYY-MM-DD`, which sorts lexicographically — lib/schema.ts:95) or an INTEGER.
+ * A float threshold is REJECTED so a money comparison can never introduce
+ * floating-point drift into an integer-paise balance (Rule 6 / BR-M-01). */
+const RANGE_CLAUSE: Readonly<Record<string, string>> = Object.freeze({
+  gt: ">",
+  gte: ">=",
+  lt: "<",
+  lte: "<=",
+});
+const RangeThresholdSchema = z.union([z.string().max(64), z.number().int()]);
+
 /** Audited `tenant_id = ? AND ...` builder (preserves `orm.ts buildWhere`
  * semantics byte-for-byte: `IS NULL` / `IS NOT NULL` / `!= ?` / `IN (?,..)` /
- * empty-IN `1=0` / `= ?`; `tenantId`/`tenant_id` keys skipped). Values via
- * `?`; only audited column refs are interpolated. */
+ * empty-IN `1=0` / `= ?`; `tenantId`/`tenant_id` keys skipped), plus the four
+ * range comparisons above. Values via `?`; only audited column refs are
+ * interpolated.
+ *
+ * Fail-closed: a `where` value that is an object of ANY other shape (including
+ * a bare array, or `{ op: ">= 0 OR 1=1", value: 0 }`) THROWS rather than
+ * degrading into `col = ?` with an object bound. "Accept and drop" is the defect
+ * — a silently-widened filter is a wrong answer to a tutor, and an unrecognised
+ * operator shape is exactly what an injection attempt looks like. */
 export function buildTenantWhere(
   tenantId: string,
   where: Record<string, unknown> = {}
@@ -362,6 +417,26 @@ export function buildTenantWhere(
         clauses.push(`${col} IN (${list.map(() => "?").join(",")})`);
         params.push(...list);
       }
+    } else if (typeof val === "object" && val !== null) {
+      // Exactly one recognised range key must be present, and nothing else.
+      const bag = val as Record<string, unknown>;
+      const rangeKeys = Object.keys(bag).filter((k) => k in RANGE_CLAUSE);
+      if (rangeKeys.length !== 1 || Object.keys(bag).length !== 1) {
+        throw new Error(
+          `unsupported filter operator for column "${key}": expected exactly one of ` +
+            `${Object.keys(RANGE_CLAUSE).join(", ")} (10_Security.md §8 — no operator is ever taken from the request)`
+        );
+      }
+      const opKey = rangeKeys[0] as string;
+      const threshold = RangeThresholdSchema.safeParse(bag[opKey]);
+      if (!threshold.success) {
+        throw new Error(
+          `filter threshold for column "${key}" must be a date string or an integer ` +
+            `(BR-M-01 — no float money ever reaches a comparison)`
+        );
+      }
+      clauses.push(`${col} ${RANGE_CLAUSE[opKey]} ?`);
+      params.push(threshold.data);
     } else {
       clauses.push(`${col} = ?`);
       params.push(val);
@@ -370,6 +445,18 @@ export function buildTenantWhere(
   return { sql: clauses.join(" AND "), args: params };
 }
 
+// Sort allowlists. Every entry is verified against the DDL in lib/schema.ts —
+// an allowlist that names a column which does not exist is worse than no
+// allowlist: it advertises a sort the caller can never get, and the next person
+// to trust it removes the `EFFECTIVE_SORT_COLUMNS` intersection in lib/orm.ts
+// that is currently hiding the mistake. `__tests__/sql-range-operators.test.ts`
+// asserts each name against the real DDL, so a schema change that invalidates a
+// name fails the build instead of silently becoming unreachable.
+//
+//   students            → lib/schema.ts:82-108
+//   attendance_sessions → lib/schema.ts:273-285  (`batch_id`; there is NO `batch_name`)
+//   ledger_entries      → lib/schema.ts:121-145
+//   notifications       → lib/schema.ts:260-271  (`read_at`; there is NO `read`)
 const STUDENT_SORT = new Set([
   "first_name",
   "last_name",
@@ -381,9 +468,9 @@ const STUDENT_SORT = new Set([
   "grade",
   "balance_paise",
 ]);
-const ATTENDANCE_SESSION_SORT = new Set(["session_date", "batch_name", "created_at"]);
+const ATTENDANCE_SESSION_SORT = new Set(["session_date", "batch_id", "created_at"]);
 const LEDGER_SORT = new Set(["occurred_on", "type", "created_at"]);
-const NOTIFICATION_SORT = new Set(["category", "created_at", "read"]);
+const NOTIFICATION_SORT = new Set(["category", "created_at", "read_at"]);
 
 // ── Generic audited SELECT/COUNT/DELETE ─────────────────────────────────
 
@@ -406,6 +493,17 @@ export function stmtSelectWhere(
       const dirParsed = SortDirSchema.safeParse(upperDir);
       if (opts.orderAllowed.has(snakeCol) && dirParsed.success) {
         sql += ` ORDER BY ${snakeCol} ${dirParsed.data}`;
+        // Deterministic paging: the sort column is not unique (two students can
+        // share a first name, a balance, or a status), so append the primary key
+        // as a tie-break and the (sort, pk) pair becomes a total order. Without
+        // it, LIMIT/OFFSET can return the same row on two pages and skip another
+        // entirely — the web roster pages on this statement. `TABLE_PK` values are
+        // module literals, so the tie-break is never caller-influenced; it is
+        // skipped when the sort column IS the primary key (no duplicate term).
+        const pk = TABLE_PK[t];
+        if (pk !== snakeCol) {
+          sql += `, ${pk} ASC`;
+        }
       }
     }
   }
@@ -907,6 +1005,19 @@ export function stmtTenantSecret(tenantId: string): BuiltStatement {
   };
 }
 
+/** Presence-only read of the PIN hash, for the secure-erase gate
+ * (10_Security.md §18.1 step 1, BR-SEC-04). Deliberately returns the raw column
+ *  and NO projection alias: the caller must be able to tell "no PIN configured"
+ *  (NULL) from "a PIN is configured" and must not be tempted to carry the hash
+ *  anywhere — it is an argon2id hash plus a secret pepper, and the route records
+ *  only a boolean in `audit_log`. */
+export function stmtSettingPinPresence(tenantId: string): BuiltStatement {
+  return {
+    sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+    args: [auditedTenant(tenantId)],
+  };
+}
+
 export function stmtChainTip(tenantId: string, studentId: string): BuiltStatement {
   return {
     sql: `SELECT this_hash, balance_after_paise FROM ledger_entries
@@ -995,10 +1106,31 @@ export function stmtVoidReceipt(tenantId: string, receiptId: string, nowIso: str
   };
 }
 
+/** The secure-erase cascade (10_Security.md §18.1 step 4, the single audited
+ *  LEDGER-4 exception to "no physical deletes"). ORDER IS LOAD-BEARING: it is
+ *  child-before-parent with foreign keys enabled.
+ *
+ *  Two corrections on 2026-10-04, both found by running the real route against
+ *  real SQLite (the endpoint was broken in production, not merely untested):
+ *
+ *  1. `tutors` was listed here but NOT admitted by `TableNameSchema`, so
+ *     `stmtEraseTable("tutors")` threw `invalid table identifier: tutors` and
+ *     the whole erase failed on its seventh statement — nothing was deleted and
+ *     the caller got a 500. The most destructive endpoint in the product could
+ *     not complete. `tutors` is now in the table allowlist.
+ *  2. `fee_schedule_items` and `fee_plans` were missing entirely, and both
+ *     declare `REFERENCES students(id)` / `REFERENCES fee_plans(id)`
+ *     (lib/schema.ts:153-182). With foreign keys on, `DELETE FROM students` would
+ *     abort on a dangling plan — so even with (1) fixed the wipe could not
+ *     commit. They now sit between `invoices` and `students`, which is the only
+ *     order that satisfies every FK: invoices → fee_schedule_items → fee_plans
+ *     → students → batches. */
 const ERASE_TABLES = [
   "ledger_entries",
   "receipts",
   "invoices",
+  "fee_schedule_items",
+  "fee_plans",
   "attendance_records",
   "attendance_sessions",
   "student_enrollments",

@@ -6,12 +6,21 @@
 // Rules live in src/lib/access-request.ts and are shared with the stub endpoint
 // at src/app/api/access-request/route.ts, so the browser and the endpoint can
 // never disagree about what is valid.
+// Claims-audit pass (docs/design/marketing-claims-audit.md rows 5–6):
+//   · a transport failure is NOT a field error. It used to be reported against
+//     the optional `note` box, blaming a field the tutor never had to fill.
+//     Validation errors and `transportError` are now separate channels.
+//   · the submitted state no longer dead-ends on "Back to plans". It states what
+//     actually happened, names the path that works today, and offers a
+//     correction for a mistyped email.
 
 import Link from "next/link";
 import { useId, useState, type FormEvent } from "react";
 import {
+  APP_SIGNUP_URL,
   BILLING_PERIODS,
   BILLING_PERIOD_LABEL,
+  FREE_SIGNUP_CTA,
   PLAN_CATALOGUE,
   planDefinition,
   validateAccessRequest,
@@ -23,9 +32,49 @@ import {
 } from "@/lib/access-request";
 
 type FieldErrors = AccessRequestErrors;
-type FormState = "editing" | "sending" | "sent" | "failed";
+type FormState = "editing" | "sending" | "sent";
 
 const INITIAL_ERRORS: FieldErrors = {};
+
+interface SentCopy {
+  readonly heading: string;
+  /** Two complete, standalone sentences. No interpolation, so a translator can
+   *  reorder them without dragging variables along (clarify.md, Voice). */
+  readonly outcome: readonly string[];
+  /** True when nothing was queued anywhere, so a correction is a plain re-send. */
+  readonly correctionIsSafe: boolean;
+}
+
+/**
+ * The panel a visitor reads after a successful POST, per delivery outcome.
+ *
+ * `delivery` is a closed union on `AccessRequestReceipt`. Implementing one member
+ * and throwing on the rest means `tsc` fails the moment delivery is widened —
+ * the state cannot be shipped with a missing sentence (AGENTS.md Rule 9, and the
+ * no-orphan-code rule). Today the only outcome is the stub: validated, receipt
+ * returned, request NOT delivered. So we say that, instead of promising an
+ * administrator will email a person who has not been told anything.
+ */
+function sentCopy(receipt: AccessRequestReceipt): SentCopy {
+  switch (receipt.delivery) {
+    case "stub":
+      return {
+        heading: "Recorded here, not yet sent to us.",
+        outcome: [
+          "Nothing was charged, and nothing has been delivered.",
+          "The step that emails a request to a person is not connected yet.",
+        ],
+        correctionIsSafe: true,
+      };
+    default:
+      // SAFETY: unreachable while `delivery` is the literal "stub". Widen the
+      // union in access-request.ts and this becomes the branch that must be
+      // written before a request can claim to have reached anyone.
+      throw new Error(
+        `access-request.delivery "${String(receipt.delivery)}" has no submitted-state copy`,
+      );
+  }
+}
 
 export function AccessRequestForm() {
   const formId = useId();
@@ -36,6 +85,7 @@ export function AccessRequestForm() {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriodId>("annual");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<FieldErrors>(INITIAL_ERRORS);
+  const [transportError, setTransportError] = useState<string | null>(null);
   const [state, setState] = useState<FormState>("editing");
   const [receipt, setReceipt] = useState<AccessRequestReceipt | null>(null);
 
@@ -47,6 +97,7 @@ export function AccessRequestForm() {
     event.preventDefault();
     setState("sending");
     setErrors(INITIAL_ERRORS);
+    setTransportError(null);
 
     const parsed = validateAccessRequest({
       name,
@@ -63,58 +114,112 @@ export function AccessRequestForm() {
       return;
     }
 
+    let res: Response;
+    let body: unknown;
     try {
-      const res = await fetch("/api/access-request", {
+      res = await fetch("/api/access-request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed.value),
       });
-      const body: unknown = await res.json();
-      if (!res.ok || typeof body !== "object" || body === null) {
-        throw new Error(`access request rejected with status ${res.status}`);
-      }
-      const result = body as
-        | { ok: true; receipt: AccessRequestReceipt }
-        | { ok: false; errors: AccessRequestErrors };
-      if (!result.ok) {
-        setErrors(result.errors);
-        setState("editing");
-        return;
-      }
-      setReceipt(result.receipt);
-      setState("sent");
+      body = await res.json();
     } catch {
-      setErrors({ note: "We could not send your request. Check your connection and try again." });
-      setState("failed");
+      // Transport failed: the request left the browser but never reached us.
+      // That is not any field's fault, and the fields stay exactly as typed so
+      // the tutor can fix a real mistake rather than guess at a phantom one.
+      setTransportError(
+        "Your request did not reach this site. Nothing was sent and nothing was charged. Your answers are still here — check your connection and press Send again.",
+      );
+      setState("editing");
+      return;
     }
+
+    if (!res.ok || typeof body !== "object" || body === null) {
+      setTransportError(
+        "This site could not accept the request right now. Nothing was sent and nothing was charged. Your answers are still here — try again in a moment.",
+      );
+      setState("editing");
+      return;
+    }
+
+    const result = body as
+      | { ok: true; receipt: AccessRequestReceipt }
+      | { ok: false; errors: AccessRequestErrors };
+    if (!result.ok) {
+      setErrors(result.errors);
+      setState("editing");
+      return;
+    }
+    setReceipt(result.receipt);
+    setState("sent");
   }
 
   if (state === "sent" && receipt) {
     const chosen = planDefinition(plan);
+    const periodLabel =
+      periodApplies && billingPeriod ? BILLING_PERIOD_LABEL[billingPeriod].toLowerCase() : null;
+    const copy = sentCopy(receipt);
     return (
       <div className="panel p-8">
-        <h2 className="font-display text-2xl font-bold">Request received.</h2>
-        <p className="mt-3 max-w-[62ch] text-pretty text-[var(--text-secondary)]">
-          Nothing has been charged. An administrator will reply to{" "}
-          <span style={{ color: "var(--text-primary)" }}>{email}</span> to contract the{" "}
-          {chosen.name} plan
-          {periodApplies && billingPeriod
-            ? ` on the ${BILLING_PERIOD_LABEL[billingPeriod].toLowerCase()} period`
-            : ""}
-          , then provision your access. Your reference is{" "}
-          <span style={{ color: "var(--text-primary)" }}>{receipt.reference}</span>.
-        </p>
-        {receipt.delivery === "stub" && (
-          <p className="field-hint">
-            This form is currently wired to a stub endpoint, so the request has not yet reached an
-            administrator. Delivery is the next piece of work.
+        <h2 className="font-display text-2xl font-bold">{copy.heading}</h2>
+        {copy.outcome.map((line) => (
+          <p key={line} className="mt-3 max-w-[62ch] text-pretty text-[var(--text-secondary)]">
+            {line}
+          </p>
+        ))}
+
+        {/* What was recorded, as its own block. The values stay separate
+            elements so a translator can reorder the labels. */}
+        <dl className="mt-6 grid gap-3 border-t pt-5 text-sm" style={{ borderColor: "var(--border-default)" }}>
+          <div>
+            <dt className="text-[var(--text-muted)]">Reference</dt>
+            <dd className="mt-0.5 font-semibold">{receipt.reference}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--text-muted)]">Plan you asked for</dt>
+            <dd className="mt-0.5">
+              {chosen.name}
+              {periodLabel ? `, on the ${periodLabel} period` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[var(--text-muted)]">Address you gave us</dt>
+            <dd className="mt-0.5 break-words">{email}</dd>
+          </div>
+        </dl>
+
+        {copy.correctionIsSafe && (
+          <p className="mt-5 max-w-[62ch] text-pretty text-[var(--text-secondary)]">
+            If that address is a typo, correct it and send again: nothing is queued, so there is
+            nothing to cancel.
           </p>
         )}
-        <div className="mt-6 flex flex-wrap gap-3">
+
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          <a href={APP_SIGNUP_URL} className="btn btn-primary" rel="noopener">
+            {FREE_SIGNUP_CTA}
+          </a>
+          {/* The correction path. Because nothing was queued, a fix is a plain
+              re-send: the fields are untouched and only the address needs
+              editing. */}
+          <button
+            type="button"
+            className="action inline-flex min-h-[44px] items-center"
+            onClick={() => {
+              setReceipt(null);
+              setState("editing");
+              setTransportError(null);
+            }}
+          >
+            Fix the email and send again
+          </button>
           <Link href="/pricing" className="btn btn-secondary">
             Back to plans
           </Link>
         </div>
+        <p className="field-hint mt-4">
+          Nothing is charged at any point on this page, and no card is asked for.
+        </p>
       </div>
     );
   }
@@ -122,20 +227,27 @@ export function AccessRequestForm() {
   const errorFor = (field: AccessRequestField) => errors[field];
   const describedBy = (field: AccessRequestField) =>
     errorFor(field) ? `${formId}-${field}-error` : undefined;
+  const errorCount = Object.keys(errors).length;
 
   return (
     <form onSubmit={onSubmit} noValidate className="panel p-6 md:p-8">
-      {Object.keys(errors).length > 0 && (
-        <p
+      {/* Two failure channels, two different sentences. A field that needs
+          fixing is counted and attributed; a transport failure says the request
+          never arrived and does not point at any input. */}
+      {(errorCount > 0 || transportError) && (
+        <div
           role="alert"
           className="mb-6 rounded-panel px-4 py-3 text-sm"
           style={{ background: "var(--surface-inset)", color: "var(--danger)" }}
         >
-          {Object.keys(errors).length === 1
-            ? "One field needs fixing."
-            : `${Object.keys(errors).length} fields need fixing.`}{" "}
-          The form has not been sent.
-        </p>
+          {errorCount > 0 && (
+            <p>
+              {errorCount === 1 ? "One field needs fixing" : `${errorCount} fields need fixing`}.
+              The request has not been sent.
+            </p>
+          )}
+          {transportError && <p className={errorCount > 0 ? "mt-2" : undefined}>{transportError}</p>}
+        </div>
       )}
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -305,8 +417,13 @@ export function AccessRequestForm() {
       </div>
 
       <div className="mt-8 flex flex-wrap items-center gap-4">
-        <button type="submit" className="btn btn-primary" disabled={state === "sending"}>
-          {state === "sending" ? "Sending" : "Send access request"}
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={state === "sending"}
+          aria-busy={state === "sending"}
+        >
+          {state === "sending" ? "Sending your request" : "Send access request"}
         </button>
         <p className="text-sm text-[var(--text-muted)]">
           No card, no payment, no automatic renewal.

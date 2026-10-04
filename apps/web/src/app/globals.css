@@ -217,6 +217,29 @@
 
   button { font-family: inherit; cursor: pointer; }
 
+  /* Touch-target floor — AGENTS.md §2 Rule 10, 13_UI_Guidelines.md §10, WCAG 2.5.5.
+     Roughly fifteen standalone action buttons sat at 28–36px by arithmetic
+     (`px-4 py-2 text-sm` computes to 36px; `px-3 py-1.5 text-xs` to 28px) across
+     settings, attendance and fees. One rule here fixes all of them and stops the
+     next one from drifting, instead of fifteen call-site edits that rot.
+
+     Scoped three ways, so it cannot stretch a control that is compact BY DESIGN:
+       · It lives in @layer base, so ANY Tailwind `min-h-*` / `h-*` utility at a
+         call site still wins. A control that needs to be smaller must say so
+         explicitly — it can never be stretched silently by this rule.
+       · `.chip` is excluded: the removable status-filter pills in
+         students-toolbar are real <button>s whose hit target IS the pill, and the
+         compact reading is the intended one. (Static status chips are <span> and
+         were never matched.)
+       · `[role="switch"]` is excluded: the neumorphic toggle wraps a 26px visual
+         span in a 44px button — a floor would be a no-op there, but excluding it
+         keeps the contract legible if that markup ever changes.
+     Inline links are <a>, not <button>, so they are out of scope by element.
+     A control with a fixed `height` and no `min-h` utility would grow taller
+     than wide; no such <button> exists in apps/web today (audited: zero
+     `size-*`/`h-*` classes on any button). */
+  button:not(.chip):not([role="switch"]) { min-height: 44px; }
+
   /* Tabular numerics for money/counts/time */
   .tnum, .num, .money, .count, .time {
     font-variant-numeric: tabular-nums;
@@ -628,13 +651,6 @@
 }
 
 /* The in-app toggle: same intent, but with a floor on feedback. */
-html[data-reduced-motion="1"] .animate-blob-1,
-html[data-reduced-motion="1"] .animate-blob-2,
-html[data-reduced-motion="1"] .animate-blob-3,
-html[data-reduced-motion="1"] .aurora-blob {
-  animation: none !important;
-}
-
 html[data-reduced-motion="1"] .skeleton {
   animation: none;
   background: var(--surface-row);
@@ -656,43 +672,41 @@ html[data-reduced-motion="1"] .animate-pulse {
 }
 
 /* ============================================================================
-   LIQUID GLASS BACKGROUND BLOB ANIMATIONS
+   LIQUID GLASS BACKGROUND BLOB ANIMATIONS — DELETED
+   ---------------------------------------------------------------------------
+   `.animate-blob-1/2/3` and `@keyframes blob-shift-1/2/3` had zero consumers
+   once `GlassShell` stopped rendering three `blur-[65px] opacity-[0.12]`
+   drifting divs behind every one of the five product screens.
+
+   Two things killed them, and both are the point:
+   1. P7 (01_Product_Principles.md) calls ambient motion decoration and forbids
+      it inside product surfaces. `product/02_Hero_and_Above_the_Fold.md` §2.2
+      keeps exactly one aurora drift, on the MARKETING hero — `apps/web` is not
+      that surface.
+   2. Three copies of the same slow drift is not one authored moment, and it ran
+      a compositor on every device on every screen for a background nobody looks
+      at. `--canvas` already carries the gradient.
+
+   The classes are removed rather than left inert so the next agent does not
+   rediscover them as an available effect. `scripts/audit-dead-css-tokens.mjs`
+   gates dead custom properties; this was dead animation, which it does not see.
    ============================================================================ */
-@keyframes blob-shift-1 {
-  0% { transform: translate(0px, 0px) scale(1); }
-  33% { transform: translate(40px, -60px) scale(1.15); }
-  66% { transform: translate(-30px, 30px) scale(0.9); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-@keyframes blob-shift-2 {
-  0% { transform: translate(0px, 0px) scale(1); }
-  33% { transform: translate(-50px, 50px) scale(0.85); }
-  66% { transform: translate(60px, -40px) scale(1.2); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
-@keyframes blob-shift-3 {
-  0% { transform: translate(0px, 0px) scale(1); }
-  33% { transform: translate(30px, 40px) scale(1.1); }
-  66% { transform: translate(-40px, -50px) scale(0.95); }
-  100% { transform: translate(0px, 0px) scale(1); }
-}
 
-.animate-blob-1 {
-  animation: blob-shift-1 25s infinite alternate ease-in-out;
-}
-.animate-blob-2 {
-  animation: blob-shift-2 30s infinite alternate ease-in-out;
-}
-.animate-blob-3 {
-  animation: blob-shift-3 28s infinite alternate ease-in-out;
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-blob-1, .animate-blob-2, .animate-blob-3 {
-    animation: none !important;
+/* A resting hover-reveal is a keyboard-and-pointer affordance. On a touch
+   device there is no hover to wait for, so a control that rests at reduced
+   opacity is simply a hard-to-read button — and if the action it hides is the
+   one that touches the immutable ledger, "hard to read" is a correctness
+   problem, not a taste one. On a coarse pointer the reveal has nothing to
+   reveal, so the control rests at full strength. */
+.reveal-on-hover {
+  opacity: 0.6;
+}
+@media (pointer: coarse) {
+  .reveal-on-hover {
+    opacity: 1;
   }
 }
-
 
 /* ============================================================================
    DISPLAY DENSITY SCALING RULES

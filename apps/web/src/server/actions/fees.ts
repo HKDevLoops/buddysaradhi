@@ -7,7 +7,8 @@ import {
 } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { paiseSub } from "@buddysaradhi/shared";
+import { verifyPin } from "@/lib/crypto";
+import { pinFormatError, paiseSub } from "@buddysaradhi/shared";
 import {
   createInvoicePrisma,
   recordPaymentPrisma,
@@ -64,6 +65,20 @@ export interface RecordPaymentOptions {
   method?: PaymentMethod;
   reference?: string;
   advanceAcknowledged?: boolean;
+  /**
+   * BR-SEC-04: a backdated payment needs a fresh PIN. The sheet collected one,
+   * displayed it behind a "fresh PIN required" panel, and then never sent it —
+   * so the gate was decoration. It is now part of the action's signature and
+   * verified below, but ONLY when the payment is actually backdated.
+   */
+  pin?: string;
+}
+
+/** BR-SEC-04: today in the tenant's local terms, as a YYYY-MM-DD string. */
+function todayLocalIso(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
 }
 
 export async function recordPaymentAction(
@@ -88,9 +103,50 @@ export async function recordPaymentAction(
     log.error("fee_record_payment_invalid_input", parsed.error.message, {
       studentId,
     });
-    return { success: false as const, error: parsed.error.message };
+    // Tutor-safe by construction: the Zod detail is logged, not returned.
+    return {
+      success: false as const,
+      error: "That payment was missing or had an invalid amount. Check the figures and try again.",
+    };
   }
   const payload = parsed.data;
+
+  // BR-SEC-04, enforced server-side and never trusting the client's own
+  // `isBackdated` flag: the date decides, not the form. A payment dated before
+  // today is a backdated payment and needs a verified PIN; anything else
+  // passes through untouched, because requiring a PIN to pay today would be
+  // friction with no security value.
+  const isBackdated = payload.receivedOn < todayLocalIso();
+  if (isBackdated) {
+    const pin = options?.pin ?? "";
+    const pinProblem = pinFormatError(pin);
+    if (pinProblem) {
+      log.audit("fee_record_payment_pin_rejected", "Backdated payment refused on PIN", {
+        studentId,
+      });
+      return {
+        success: false as const,
+        error: `Recording a backdated payment needs your PIN. ${pinProblem}`,
+      };
+    }
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+    if (!pinHash) {
+      return {
+        success: false as const,
+        error:
+          "No PIN is set for this account. Set one in Settings, then record the backdated payment.",
+      };
+    }
+    if (!(await verifyPin(pin, pinHash))) {
+      log.audit("fee_record_payment_pin_rejected", "Backdated payment refused on wrong PIN", {
+        studentId,
+      });
+      return { success: false as const, error: "That PIN isn't right. Nothing was written." };
+    }
+  }
+
   try {
     const { db, tenantId } = await getAuthenticatedPrisma();
     // BR-M-04 soft guard, server-enforced (G-HARDEN: never trust client
@@ -171,11 +227,17 @@ export async function voidReceiptAction(
   opts?: { intentKey?: string }
 ) {
   // 07 §9.10 + BR-LED-04 + BR-SEC-04: void requires a typed reason AND a
-  // fresh PIN. PIN *presence* is gated here fail-closed; Argon2 verification
-  // is workstream A (auth) — until it lands, presence + audit is the boundary
-  // (the old `pin !== "1234"` backdoor stays removed; the PIN is never logged
-  // and never forwarded — the gateway void contract carries only
-  // `{entryId, reason}`).
+  // fresh PIN that is actually VERIFIED.
+  //
+  // This used to check PIN *presence* only and forward nothing, with a comment
+  // deferring Argon2 to "workstream A". That is not a deferral, it is an
+  // unauthenticated mutation: the ledger is append-only (Rule 1), so a void is
+  // the ONLY correction path a mistaken payment has, and any 4-8 digits voided a
+  // real receipt — while the dialog's own copy promised "That PIN isn't right",
+  // an outcome the server could not produce. `lockSessionAction` in
+  // `server/actions/attendance.ts` is the working reference for this exact
+  // sequence: format check, load `settings.pinHash`, fail closed when no PIN is
+  // configured, `verifyPin`, then proceed.
   const parsed = VoidPayloadSchema.safeParse({
     entryId: entryIdToVoid,
     reason: reason ?? "",
@@ -185,7 +247,41 @@ export async function voidReceiptAction(
     log.error("fee_void_receipt_invalid_input", parsed.error.message, {
       entryIdToVoid,
     });
-    return { success: false as const, error: parsed.error.message };
+    // Rule 9: the client shows this string to a tutor, so it must be one the
+    // product wrote. A raw Zod message leaks internal field paths, which is
+    // exactly what invariant 1 of `components/ui/screen-state.tsx` forbids.
+    return {
+      success: false as const,
+      error: "That void request was missing something. Check the receipt and the reason, then try again.",
+    };
+  }
+
+  // The PIN is never forwarded to the gateway and never logged (Rule 3): it is
+  // verified here, in the server action, against the tenant's own stored hash.
+  const pinProblem = pinFormatError(parsed.data.pin);
+  if (pinProblem) {
+    log.audit("fee_void_receipt_pin_rejected", "Void refused on PIN format", {
+      entryIdToVoid,
+    });
+    return { success: false as const, error: pinProblem };
+  }
+  {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+    if (!pinHash) {
+      return {
+        success: false as const,
+        error: "No PIN is set for this account. Set one in Settings, then void again.",
+      };
+    }
+    const pinValid = await verifyPin(parsed.data.pin, pinHash);
+    if (!pinValid) {
+      log.audit("fee_void_receipt_pin_rejected", "Void refused on wrong PIN", {
+        entryIdToVoid,
+      });
+      return { success: false as const, error: "That PIN isn't right. Nothing was written." };
+    }
   }
   try {
     // Rule 1 + Rule 7: the reversing VOID entry, the receipt `voided_at`,

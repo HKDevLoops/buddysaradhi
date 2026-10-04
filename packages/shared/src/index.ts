@@ -5,3 +5,4 @@ export * from "./utils/format";
 export * from "./outboxPayload";
 export * from "./types";
 export * from "./fuzzy";
+export * from "./pin";

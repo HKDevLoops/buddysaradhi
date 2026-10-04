@@ -38,32 +38,35 @@ export const getStudents = cache(async (
       return { success: true, data: res.data };
     }
 
-    log.warn('get_students_gateway_failed_using_direct_db', res.error);
-    const { client, tenantId } = await getAuthenticatedDb();
-    const proxy = createLibsqlProxy(client);
-    // Single-query fallback (no fan-out here): still bounded + typed.
-    // Student rows are NOT tenant-cached — roster churn is high (web/02 §3.2);
-    // per-request dedup comes from React cache() above.
-    // RFC-004 C4 note: list rows intentionally omit `updated_at` (the shared
-    // StudentListRowSchema contract has no timestamp field). Edit forms must
-    // capture the CAS base from the detail read below (`getStudent` maps
-    // `updated_at` in both the gateway and fallback branches), never from a
-    // list row.
-    const rawStudents = await withQueryTimeout(
-      proxy.student.findMany({ where: { tenantId } }),
-      QUERY_TIMEOUT_MS,
-    );
-    const mapped = rawStudents.map((s: any) => ({
-      id: s.id,
-      code: s.code,
-      name: `${s.firstName} ${s.lastName ?? ""}`.trim(),
-      grade: s.grade,
-      batch: null,
-      fee_model: s.feeModel || "postpaid",
-      balance_due: s.balancePaise || 0,
-      status: s.status || "active",
-    }));
-    return { success: true, data: { students: mapped, total: mapped.length } };
+    // No roster fallback — fail loudly instead.
+    //
+    // `proxy.student.findMany({ where: { tenantId } })` returns the WHOLE roster
+    // and the old mapping reported `total: mapped.length`, ignoring page,
+    // pageSize, sort and all five filters. On page 2 of a three-page roster the
+    // tutor saw page 1 again; with a sort applied the order was not the one they
+    // chose; with a filter applied the list was not filtered at all. A plausible
+    // wrong answer is the worst outcome — it reads as "the app is working".
+    //
+    // Re-implementing paging + sort + the five filters here would be a SECOND
+    // implementation of the roster read contract, which AGENTS.md §3.5 forbids
+    // for money ("one flow, two I/O dialects") and which would silently drift the
+    // moment a filter is added on the gateway. The fallback is therefore removed;
+    // the roster is honest-unavailable rather than honest-looking-wrong. The
+    // student's own record (`getStudent` below) keeps its single-row fallback:
+    // one row, one key, no contract to duplicate.
+    log.error('get_students_gateway_failed_no_fallback', res.error, {
+      page,
+      pageSize,
+      sortCol: sort.col,
+      sortDir: sort.dir,
+    });
+    return {
+      success: false,
+      error:
+        `Student roster unavailable: the gateway read failed and there is no local ` +
+        `fallback, because the direct-DB path cannot honour page/pageSize/sort/filters ` +
+        `and would return a wrong roster. Cause: ${res.error}`,
+    };
   } catch (error) {
     const typed = toTypedQueryError(error);
     log.error('students_list_failed', typed);

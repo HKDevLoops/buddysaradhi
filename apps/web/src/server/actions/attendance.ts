@@ -2,7 +2,7 @@
 
 import { getAttendanceForDate } from "../queries/attendance";
 import { getAuthenticatedPrisma } from "@/server/get-db";
-import { UpdateAttendancePayload } from "@buddysaradhi/shared";
+import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
@@ -126,9 +126,20 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
+    const pinFormatProblem = pinFormatError(pin);
+    if (pinFormatProblem) {
+      // A 3-digit entry is not a wrong PIN, it is an unusable one. Saying
+      // "incorrect" sends the tutor round a loop retyping the same digits.
+      return { success: false, error: `VALIDATION: ${pinFormatProblem}` };
+    }
     const pinValid = await verifyPin(pin, pinHash);
     if (!pinValid) {
-      return { success: false, error: "Invalid PIN" };
+      // The bare string "Invalid PIN" carried no taxonomy code, so every client
+      // had to pattern-match a literal to tell a wrong PIN from any other
+      // refusal. Prefixing the shared code lets `extractServerCode` classify it
+      // (and `lockErrorCopy` still match the sentence inside it), while the
+      // verification itself is unchanged — the tutor still has to be right.
+      return { success: false, error: "VALIDATION: The security PIN is incorrect." };
     }
     const now = new Date().toISOString();
 

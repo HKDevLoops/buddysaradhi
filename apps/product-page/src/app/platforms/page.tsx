@@ -3,8 +3,16 @@
 // today. The mobile and desktop clients are in progress under
 // 16_Platform_Delivery_Sequence.md and are described as such, with no download
 // links and no claim of a release that does not exist.
+// Claims-audit pass (docs/design/marketing-claims-audit.md row 7): the unbuilt
+// clients no longer borrow the web build's capability list. "The same five
+// screens and the same ledger" and "your data in a local encrypted database"
+// described apps/mobile and apps/desktop, which are scaffolds held behind
+// WEB-PROD-GATE (AGENTS.md §3.1, §9.3) — they share the design system and the
+// data model, and nothing else yet. The call to action now offers only what
+// actually runs, in the same words the rest of the front door uses (§4.1).
 
 import Link from "next/link";
+import { APP_SIGNUP_URL, CONTRACTED_PLAN_CTA, FREE_SIGNUP_CTA, FREE_SIGNUP_NOTE } from "@/lib/access-request";
 
 export const metadata = {
   title: "Platforms. BuddySaradhi.",
@@ -34,21 +42,21 @@ const PLATFORMS: readonly PlatformDefinition[] = [
     status: "in-progress",
     builtWith: "Expo, React Native",
     today:
-      "In development. The same five screens and the same ledger, built for one hand and a bright phone. No build is published yet.",
+      "In development on the same design system and the same data model, built for one hand and a bright phone. None of those screens are finished. No build is published yet.",
   },
   {
     name: "iOS",
     status: "in-progress",
     builtWith: "Expo, React Native",
     today:
-      "In development, built from the same codebase as Android. No build is published yet.",
+      "In development, from the same codebase as Android. No build is published yet.",
   },
   {
     name: "macOS",
     status: "in-progress",
     builtWith: "Tauri, native window",
     today:
-      "In development. A desktop window over the same web app, with your data in a local encrypted database. No build is published yet.",
+      "In development. The plan is a desktop window over this same web app. No build is published yet.",
   },
   {
     name: "Windows",
@@ -114,13 +122,24 @@ export default function PlatformsPage() {
       </div>
 
       <div className="panel mt-12 flex flex-col items-start gap-4 p-8 md:flex-row md:items-center md:justify-between">
-        <p className="max-w-[52ch] text-pretty text-[var(--text-secondary)]">
-          If a particular platform is the reason you are here, say so in your access request. It goes
-          to the same person who provisions your account.
-        </p>
-        <Link href="/request-access" className="btn btn-primary">
-          Request access
-        </Link>
+        <div className="max-w-[52ch]">
+          <p className="text-pretty text-[var(--text-secondary)]">
+            The web app is the only client running today, so it is the only one we will ask you to
+            start with. If another platform is the reason you are here, the free plan gets you in
+            now, and a contracted-plan request tells us which platform to build next.
+          </p>
+        </div>
+        {/* One primary, and it is the thing that actually runs. Same words as `/`
+            and `/pricing` (docs/design/marketing-claims-audit.md §4.1). */}
+        <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
+          <a href={APP_SIGNUP_URL} className="btn btn-primary text-base" rel="noopener">
+            {FREE_SIGNUP_CTA}
+          </a>
+          <p className="text-sm text-pretty text-[var(--text-muted)]">{FREE_SIGNUP_NOTE}</p>
+          <Link href="/request-access" className="action inline-flex min-h-[44px] items-center">
+            {CONTRACTED_PLAN_CTA}
+          </Link>
+        </div>
       </div>
     </div>
   );

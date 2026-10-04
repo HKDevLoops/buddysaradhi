@@ -1754,3 +1754,251 @@ Stage Summary:
   see computed contrast, glass cascades or layout on this target (documented), and
   no browser was available in this session, so the palette result is verified by
   computation rather than by screenshot.
+---
+
+**Task ID**: `VISUAL-WORLD-02` **Agent**: Kilo (swarm: 9 specialist agents) **Task**: Raise the Impeccable design/UX score above 90/100 across `apps/web` and `apps/product-page`, evidence-first.
+
+**Work Log**:
+
+Baseline was mis-recorded. An earlier pass claimed 85.5/100 and self-declared it
+was "degraded". A clean isolated re-score put the honest figure at **68/100**.
+That gap was the finding: the previous score had been inflated by an assessor that
+had read the change's own documentation. Three independent scoring passes were
+run this session (68, then 84, then a final), each barred from reading the
+critique/plan/claims files so intent could not be mistaken for result.
+
+**Root theme across all three passes: the app failed quietly.** Every high-severity
+defect was the same shape — a read that failed, a control that was never wired, a
+figure that was invented — and in every case the surface rendered something
+confident and false. "All dues collected. Clean slate." on a gateway timeout is
+the most dangerous string in the product: a tutor reads it as clean books.
+
+**Built (new modules, each a seam so the behaviour cannot regress per-surface):**
+
+- `components/ui/overlay.tsx` — `useOverlayDismiss`: Escape, Tab trap, focus
+  return, scroll lock, topmost-layer stack, dirty-form discard guard. One hook,
+  ten overlays. A nested `DiscardChangesPrompt` now composes it too, so it is in a
+  focus trap instead of letting Tab walk behind a modal.
+- `components/ui/toast.tsx` — outcome announcements via `useSyncExternalStore`
+  (a toast does not re-render the tree that published it). Timer arms on first
+  paint, not on push, so a queued toast cannot expire unread; overflow goes to an
+  `aria-expanded` tray rather than being dropped.
+- `components/ui/screen-state.tsx` — `ScreenSkeleton` / `ErrorState` /
+  `NotFoundState`. `dataStatus` is **required and undefaulted**, so a surface that
+  cannot say what is safe for the tutor cannot render. This is why twelve read
+  paths closed at once.
+- `components/ui/avatar.tsx` — one avatar after finding six implementations.
+- `components/fees/balance-status.tsx` — one `balance_due` classifier (Due /
+  Partial / Credit / No dues), replacing three vocabularies and a `Math.abs`.
+- `components/students/students-pager.tsx` — pure `pageWindow` + pager. A tutor
+  with 200 students previously could reach only the first 50.
+- `packages/shared/src/pin.ts` — `PIN_MIN_LENGTH` / `PIN_MAX_LENGTH` /
+  `isValidPinFormat` / `pinFormatError`. One fact after finding **three** rules for
+  one stored value (accepts 4-8, input capped at 4, void required >=6) — so a tutor
+  with a 4-digit PIN could never void a receipt, and one with a 6-digit PIN could
+  never lock a session.
+- `app/(app)/{loading,error}.tsx`, `app/{not-found,global-error}.tsx`, and
+  product-page `error.tsx` / `not-found.tsx` / `site-nav.tsx` / `site-state.tsx`.
+  Next 16 replaced `reset()` with `unstable_retry()`; `reset()` only re-renders
+  without re-fetching, which is the wrong behaviour for a failed load.
+
+**Fixed — the three P0s the final pass surfaced, none previously flagged:**
+
+1. `voidReceiptAction` checked PIN **presence** and forwarded nothing, so any
+   4-8 digits voided a real receipt — while the dialog promised "That PIN isn't
+   right", an outcome the server could not produce. The ledger is append-only, so
+   void is the only correction path a mistaken payment has. Now verified with
+   `verifyPin`, fail-closed when no PIN is configured.
+2. The backdate PIN was collected, shown behind a "fresh PIN required" panel, and
+   **discarded** — `recordPaymentAction` had no PIN parameter. BR-SEC-04 was
+   unenforced while the UI asserted otherwise. Now forwarded; the server re-derives
+   `isBackdated` from the date rather than trusting the form.
+3. `students/attendance-tab.tsx` drew a month of attendance from a PRNG seeded on
+   the student id and rendered it as a rate, a day count, and "Last Attended ·
+   Today · On time". There was no read to fail, so there was no state in which it
+   told the truth — a plausible non-zero falsehood about a child's record, on the
+   surface opened specifically to sanity-check one. Replaced with an honest panel
+   pointing at where the real records live. There is no per-student attendance
+   endpoint (`GET /api/v1/attendance` is by date), and 31 requests to fake it
+   violates the free-tier budget, so the endpoint is recorded as RFC owner work
+   rather than smuggled in.
+
+**Also fixed:** six clean-slate read paths; a header "Record Payment" button that
+recorded against `due[0].id` regardless of the selection; a `?? students[0]`
+positional payment fallback; a second dashboard implementation with fabricated
+measures returned as `dataOrigin: "live"`; the roster's dead Filters / "More
+roster actions" / "N selected" controls; a sort dimension plumbed end-to-end with
+no UI; export covering only the visible page; gateway `orderBy` interpolating
+caller strings on three models (SQL injection) plus unknown columns silently
+emitting no ORDER BY; filters accepted and dropped; a cache key omitting pageSize;
+a silently-truncated 200-student Fees roster; three animated blobs behind every
+product screen; nine hardcoded material blurs bypassing the token system;
+fabricated "Local DB: 2.1 MB"; an unsourced "38 students in 30 seconds" claim; a
+false "staff accounts" capability claim; the entire mobile nav hidden below
+768px; `metadataBase` pointing at a Vercel preview slug; "₹0 owed. 0 students." on
+the no-WebGL poster; `settings.palette`/`[key: string]: any`; seven `as any` in the
+drawer; two half-built tablists; dead blob keyframes.
+
+**Gates** (all green): `tsc --noEmit` web / product-page / mobile / desktop = 0;
+`pnpm run lint` + 6/6 principle lints; unit 850/851; integration 332/333;
+dead-token audit 0 dangling / 161 defined; Impeccable detector `[]`.
+The one failure in each suite is `apps/gateway/__tests__/low-latency.test.ts` — a
+wall-clock p95 assertion (0.73ms vs a 0.5ms budget) that is green solo and fails
+only under parallel load. Pre-existing, unrelated, tracked.
+
+**Stage Summary**:
+
+- State: COMPLETED
+- Files touched: 62 (37 modified, 25 added, 1 deleted)
+- Score: **68 -> 84** combined (Operate 65 -> 80, Persuade 75 -> 92) across three
+  independent isolated passes. **The 90 bar was not reached**; the gap is
+  enumerated below rather than rounded up.
+- Verification: `tsc` clean in all four workspaces; lint + 6/6 principle lints;
+  850/851 unit; 332/333 integration (one known flake); dead-token audit clean.
+- Next: the open defects are listed in `docs/design/critique-2026-10-03.md`.
+
+**Open, for the owner (not done):**
+
+- Per-student attendance endpoint (gateway contract, RFC per AGENTS.md §8).
+- `paymentBreakdown` on the dashboard contract still sets `paid === noDues`;
+  unrendered, but a lying field in a validated contract.
+- `collectedThisMonthMinor` is lifetime, not monthly. The client caption says so
+  ("All payments received to date"), so the tutor is not misled — the NAME is.
+- Gateway-created payments carry no `invoice_id`, so per-invoice attribution (and
+  therefore Overdue) can overstate. A money-flow change.
+- `buildTenantWhere` has no range operator, which is what blocks `has_dues`,
+  `overdue_only` and `admittedInLast` on the roster.
+- Single-key `ORDER BY` means paging across a tie is non-deterministic (one row
+  can land on two pages). Multi-key ORDER BY in the audited builder = AGENTS §8.
+- No browser was available, so nothing was verified by rendered pixel, computed
+  size or contrast ratio. The 44px floor is verified by construction and by class
+  audit only.
+- Entitlement engine (scheduled reminders, zip packaging, mail, downgrade
+  enforcement) remains specified-only per `docs/design/entitlements-contract.md`.
+---
+
+**Task ID**: `VISUAL-WORLD-03` **Agent**: Kilo (swarm: 11 specialist agents) **Task**: "improve the webapp, gateway and product page with better functionality, better security and more improvements", then push.
+
+**Work Log**:
+
+Continued from `VISUAL-WORLD-02` (68 → 84). This pass closed the named defects and
+found four more P0s, three of them security.
+
+**Gateway — security (the substance of this pass):**
+
+1. **P0 — the erase endpoint never worked.** `ERASE_TABLES` listed `tutors`, which
+   `TableNameSchema` did not admit, so statement 7 raised `invalid table
+   identifier` → 500 → nothing deleted. `fee_plans` / `fee_schedule_items` were
+   absent while declaring `REFERENCES students(id)`, so a working erase would
+   have aborted on a dangling plan. Fixed, in FK-safe order.
+2. **P0 — CORS substring bypass.** `errors.ts` resolved the origin with
+   `envOrigin.includes(origin)`, so `buddysaradhi.app.evil.com` was granted
+   credentialed CORS. Now an exact `Set` lookup, `Vary: Origin`, no ACAO at all
+   for an unknown origin, never `*`, loopback dev-only.
+3. **P0 — GraphQL echoed the caller's own `Origin`.** `graphql/index.ts:360` sent
+   `Access-Control-Allow-Origin: req.headers.get("origin")`, which is the
+   textbook bypass: any page could read another tutor's roster through a
+   credentialed cross-origin request. Preflight also sent `*`. Both now resolve
+   through the one allowlist seam.
+4. **P1 — error hygiene.** The GraphQL 500 returned raw `err.message`, which
+   carries SQL text, column names and file paths. Now logged server-side, with a
+   stable code to the client. `authorization: Bearer <jwt>` was also being logged
+   verbatim.
+5. **P1 — production detection failed OPEN.** `crypto.ts` inferred production
+   from the *absence* of `SUPABASE_URL`. Now a positive signal
+   (`DENO_DEPLOYMENT_ID` / `DENO_ENV`), and `assertSecretStrength` throws at load
+   when `GATEWAY_SHARED_SECRET` or `DATA_ENCRYPTION_KEY` is absent or under 32
+   chars.
+6. **P1 — `settings` PATCH field injection.** An unvalidated `...body` spread
+   accepted `pinHash`, `tenantId` and the monotonic `next_*_seq` counters.
+   Whitelisted to `08_Settings.md` fields; the rest are rejected 400 naming the
+   field (previously 200 with a silent no-op).
+7. **P1 — erase had no re-authentication.** Now identity → typed confirm →
+   rate limit (5/15min/tenant) → fail closed if no PIN is configured → cascade.
+   The web client already typed `DELETE` **and** asked for a PIN; the server
+   enforced neither.
+8. **P2 — two sort allowlists named columns that do not exist**
+   (`attendance_sessions.batch_name` is `batch_id`; `notifications.read` is
+   `read_at`). They survived only because `orm.ts` intersects against the real
+   schema. Corrected, each asserted against live `pragma_table_info`.
+9. **Improvement — `buildTenantWhere` gained `gt/gte/lt/lte`**, which unblocked
+   the three roster filters (`has_dues`, `overdue_only`, `admittedInLast`) that
+   previously returned a typed 400. Operators are module literals in a frozen
+   map, selected by key — there is no operator *string* in the interface, and a
+   test proves nine hostile shapes cannot reach SQL.
+10. **Improvement — deterministic paging.** `ORDER BY <col> <dir>, <pk> ASC`,
+    which removes the non-determinism where one row could land on two pages.
+11. Log redaction was eating any 16-digit run (student ids, timestamps). Now
+    Luhn + issuer-prefix gated.
+
+**Product page — funnel and trust:**
+- The primary action was a **stub** (`delivery: "stub"`; nothing persisted,
+  nothing delivered) while the only working path was free sign-up. Free sign-up
+  is now the primary on `/`, `/pricing` and `/platforms`; the contracted-plan
+  request is a quiet secondary that still states delivery is not connected. The
+  alternative (an `access_request` table + mail) is recorded as the owner's
+  commercial decision.
+- `/admin` was wrapped in the **marketing** error boundary, so an operator saw
+  recovery copy and a link to the plans. `app/admin/error.tsx` added, matching the
+  console's own `.adm-*` vocabulary, failing closed, surfacing no tenant data.
+- Skip link (first tab stop), `scroll-padding-top` clearing the sticky header, a
+  polite live region announcing `Story step N of 5` plus canvas state, a focus
+  ring that reads against the emerald primary, and a real way past the 500vh
+  story.
+- `APP_ORIGIN` had two literal owners; `lib/access-request.ts` is now the only one.
+
+**Web app:**
+- Contextual help via one `<Explain>` primitive wired at the four highest-stakes
+  moments (backdate PIN, void, credit-on-account, the attendance lock window).
+- **The Help section was three dead links** — `/faq` does not exist, and it
+  promised a user manual, a feature-request page and a **community forum**.
+  Replaced with in-product content. `about-section.tsx` had the same dead anchor.
+- Keyboard: `a` attendance, `p` payment, `n` add student, `s` search, `g 1-5`
+  screens, `?` for the list, from one registry, with guards so nothing fires
+  while typing or with a modal open.
+- Deep linking: `?screen=fees` on the existing single route — still one route, so
+  Rule 4 holds. Reload, deep link and Back/Forward now work.
+- **A dirty sheet no longer loses typed work on a screen switch, including via
+  the browser Back button** — the nav, the account menu and `popstate` all route
+  through the one `requestScreen` door.
+- Extra Fees' six "Charge" buttons discarded the category and charged a
+  "Monthly Tuition Fee"; they now charge what they say, and "Add Category" (which
+  only toggled a notice) is gone.
+- Skip link, 44px calendar cells, `CountUp` honouring both reduced-motion
+  switches, the version string read from `package.json` rather than a literal.
+- `types/settings.ts` had `[key: string]: any` over snake_case fields nothing
+  read. Replaced with a real contract in the casing the screens use — which
+  surfaced 20 latent type errors and forced the fix.
+
+**Gates — all green**: `tsc --noEmit` web / product-page / mobile / desktop = 0;
+`deno lint` 59 files clean; `deno check` clean; `pnpm run lint` + 6/6 principle
+lints; unit **1041/1041**; integration **523/523**; `test:a11y` 4/4;
+dead-token audit 0 dangling / 161 defined; design-system verify 0 findings;
+Impeccable detector `[]`.
+
+The `low-latency.test.ts` flake did not fire this run — the full suite is green
+for the first time.
+
+**Stage Summary**:
+
+- State: COMPLETED
+- Files touched: 108 (85 modified, 23 added)
+- Security: 3 P0s (erase never worked, CORS substring bypass, GraphQL origin
+  echo), 5 P1s, plus 2 capability improvements (range operators, deterministic
+  paging).
+- Verification: every gate above green.
+- Not done: see `docs/design/visual-world-02-handoff.md` §7 and
+  `docs/design/marketing-claims-audit.md` §4 for the open owner list.
+
+**Open, for the owner:**
+- **The edge cannot verify a PIN.** `pin_hash` is argon2id+pepper and the Deno
+  edge has no argon2; the npm native addon will not bundle. The erase endpoint
+  therefore fails closed with "PIN must be configured" rather than accepting a
+  PIN it cannot check. Needs WASM argon2id or a client-emitted HMAC PIN proof.
+- `erase_initiated` is deleted by its own cascade, and a mid-cascade rollback
+  destroys the intent row — leaving a *failed* erase with no trace, where
+  `10_Security.md` §18.1 step 7 promises both survive. Spec decision.
+- `tagIds` roster filter still 400s: no `student_tags` table exists.
+- Single-tenant build, so no bulk actions on the roster (needs gateway mutations).
+- Nothing has been verified by rendered pixel, computed size or contrast ratio —
+  no browser was available in any of these sessions.

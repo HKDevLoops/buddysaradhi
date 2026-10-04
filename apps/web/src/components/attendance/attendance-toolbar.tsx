@@ -5,13 +5,24 @@
 // shared fzf engine, so Attendance has the same keyboard path as Students and the ⌘K
 // palette. AGENTS.md §2 Rule 10 (44px targets, keyboard parity), Rule 2 (ranking is local —
 // the toolbar issues no request while typing).
+//
+// The batch selector closes a real gap: `selectedBatch` is read by
+// `attendance-client.tsx`, `attendance-grid.tsx` and `lock-session-sheet.tsx`, it is
+// part of the persisted store, and it is part of the query key — yet `setBatch` was
+// called from nowhere in the codebase, so the whole batch dimension was dead and every
+// tutor marked the whole roster regardless. The options come from `getBatches`
+// (reference data, 63s cache), NOT from the current roster: deriving them from the
+// roster would collapse the control to a single option the moment a batch was picked,
+// because picking one filters the roster that feeds it.
 
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { StudentSearchBox } from "@/components/search/student-search-box";
 import type { SearchCandidate } from "@/components/search/student-search-box";
+import { getBatches } from "@/server/queries/attendance";
 import { type AttendanceSession } from "@buddysaradhi/shared";
-import { Calendar, Lock, Unlock } from "lucide-react";
+import { Calendar, Lock, Unlock, Users } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
 export interface AttendanceToolbarProps {
@@ -21,8 +32,26 @@ export interface AttendanceToolbarProps {
 }
 
 export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarProps) {
-  const { selectedDateIso, setDate, searchQuery, setSearchQuery, setLockSheetOpen } =
-    useAttendanceStore();
+  const {
+    selectedDateIso,
+    setDate,
+    selectedBatch,
+    setBatch,
+    searchQuery,
+    setSearchQuery,
+    setLockSheetOpen,
+  } = useAttendanceStore();
+
+  // One cached reference read per session, not one per keystroke.
+  const { data: batchesData } = useQuery({
+    queryKey: ["attendance-batches"],
+    queryFn: getBatches,
+    staleTime: 5 * 60_000,
+  });
+  const batches = useMemo(
+    () => (batchesData?.success ? batchesData.data : []),
+    [batchesData],
+  );
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.value) {
@@ -39,7 +68,10 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
       className="rounded-xl p-4 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center"
       style={{
         background: "var(--surface-overlay)",
-        backdropFilter: "blur(24px) saturate(160%)",
+        // docs/design/material-modes.md §2 — one blur source. The hand-written
+        // `blur(24px) saturate(160%)` made this toolbar ignore the material mode.
+        backdropFilter: "var(--mat-filter)",
+        WebkitBackdropFilter: "var(--mat-filter)",
         border: "1px solid var(--border-strong)",
       }}
     >
@@ -62,6 +94,42 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
         />
 
         <div className="flex items-center gap-3 w-full md:w-auto">
+          {/* Batch selector — the dimension `selectedBatch` was always modelling. */}
+          <div className="relative">
+            <label htmlFor="attendance-batch" className="sr-only">
+              Batch
+            </label>
+            <select
+              id="attendance-batch"
+              value={selectedBatch}
+              onChange={(e) => setBatch(e.target.value)}
+              className="neumo-inset min-h-[44px] pl-9 pr-3 text-sm appearance-none cursor-pointer focus:outline-none"
+              style={{
+                background: "var(--surface-inset)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <option value="all">All batches</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.subject ? ` · ${b.subject}` : ""}
+                </option>
+              ))}
+            </select>
+            <Users
+              className="w-4 h-4 absolute left-3 top-3 pointer-events-none"
+              style={{ color: "var(--text-muted)" }}
+              aria-hidden="true"
+            />
+            {batches.length === 0 ? (
+              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                No batches yet — everyone is marked together.
+              </p>
+            ) : null}
+          </div>
+
           {/* Date Picker */}
           <div className="relative flex-1 md:w-auto">
             <input

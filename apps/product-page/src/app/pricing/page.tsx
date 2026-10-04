@@ -4,11 +4,21 @@
 // access by hand, so any figure here would be an invented commercial claim.
 // Every price cell is either the site's own published free-plan statement or a
 // marked placeholder with an accessible label.
+// Funnel pass: the closing panel's primary is free self-serve sign-up, with the
+// contracted-plan request as the quiet action beside it
+// (docs/design/marketing-claims-audit.md §4.1). This is the page a visitor
+// reaches *because* they are already comparing plans, so it is the page where
+// "ask a person" used to win by default — and it is the page where it costs the
+// most.
 
 import Link from "next/link";
 import {
+  APP_SIGNUP_URL,
   BILLING_PERIODS,
   BILLING_PERIOD_LABEL,
+  CONTRACTED_PLAN_CTA,
+  FREE_SIGNUP_CTA,
+  FREE_SIGNUP_NOTE,
   NO_CHECKOUT_NOTE,
   PLAN_CATALOGUE,
   PREPAID_NOTE,
@@ -20,7 +30,7 @@ import {
 export const metadata = {
   title: "Pricing. BuddySaradhi.",
   description:
-    "Plans and billing periods for BuddySaradhi. No card, no checkout. Request access and an administrator contracts the plan with you.",
+    "Plans and billing periods for BuddySaradhi. Create your free account and start on the web app, or ask for a contracted plan and an administrator agrees the terms with you. No card, no checkout.",
 };
 
 /** A price we are not publishing, marked as such for screen readers too. */
@@ -133,27 +143,34 @@ export default function PricingPage() {
           <dd className="mt-1 text-[var(--text-secondary)]">{PREPAID_NOTE}</dd>
         </div>
         <div>
-          <dt className="font-semibold">What happens after you ask</dt>
+          <dt className="font-semibold">What happens if you ask for a contracted plan</dt>
           <dd className="mt-1 text-[var(--text-secondary)]">{NO_CHECKOUT_NOTE}</dd>
         </div>
       </dl>
 
       <div className="panel mt-12 flex flex-col items-start gap-4 p-8 md:flex-row md:items-center md:justify-between">
-        <p className="max-w-[46ch] text-pretty text-[var(--text-secondary)]">
-          Tell us which plan and period you want. A person replies with the terms, then provisions
-          your access.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Link href="/request-access" className="btn btn-primary">
-            Request access
-          </Link>
-          <a
-            href="https://buddysaradhi.vercel.app/signup"
-            className="btn btn-secondary"
-            rel="noopener"
-          >
-            Sign up for the free plan
+        <div className="max-w-[46ch]">
+          <p className="text-pretty text-[var(--text-secondary)]">
+            The free plan needs no contract, no request and no reply, so it is the only thing on
+            this page you can finish in one click. If you want the term, the storage quota and the
+            export terms written down first, ask for a contracted plan and an administrator agrees
+            them with you.
+          </p>
+        </div>
+        {/* One primary, and it is the thing that actually completes. Free
+            self-serve sign-up is the only path on this surface that works end to
+            end (src/app/api/access-request/route.ts:9-15,41), so asking a visitor
+            who came to compare plans to wait for a person would be asking for the
+            slower thing first (docs/design/marketing-claims-audit.md §4.1,
+            option (b)). Same words as `/`, `/platforms` and the hero. */}
+        <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
+          <a href={APP_SIGNUP_URL} className="btn btn-primary text-base" rel="noopener">
+            {FREE_SIGNUP_CTA}
           </a>
+          <p className="text-sm text-pretty text-[var(--text-muted)]">{FREE_SIGNUP_NOTE}</p>
+          <Link href="/request-access" className="action inline-flex min-h-[44px] items-center">
+            {CONTRACTED_PLAN_CTA}
+          </Link>
         </div>
       </div>
     </div>

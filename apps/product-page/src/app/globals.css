@@ -61,6 +61,21 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /* Anchor navigation must clear the sticky header. The header is
+       `min-h-16` (4rem) plus its own border, so a target that scrolls to the
+       very top of the viewport lands UNDER it: `#screens` from the primary nav
+       opened with its heading already covered by the nav bar.
+
+       `scroll-padding-top` on the scroll container, not `scroll-margin-top` on
+       each target. It is the robust form: it applies to every in-page anchor
+       from any source (the nav, the hero's way past the story, a `#hash` a
+       visitor types, a link inside a component that no CSS rule knows about),
+       and `scroll-margin-top` only ever fixes the targets someone remembered to
+       annotate. They also ADD, so a `:target { scroll-margin-top }` belt beside
+       it would push every anchor nearly twice the header height down the page —
+       the safe-looking redundancy that reads as a bug. 4rem + 0.75rem of
+       breathing room, once. */
+    scroll-padding-top: 4.75rem;
   }
 
   body {
@@ -69,10 +84,19 @@
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
 
-  /* One focus treatment, everywhere (Rule 10: real focus states). */
+  /* One focus treatment, everywhere (Rule 10: real focus states).
+     The halo is not decoration. `--border-focus` is a mid-tone teal in the
+     `inked` palette, and `.btn-primary` paints the accent emerald right next
+     to it, so a bare ring on the surface's own primary button has too little
+     separation from the thing it is supposed to be distinguishable from. The
+     outer halo is the page canvas, so the ring separates from whatever it
+     surrounds: accent buttons, accent fills, or the open canvas. Nothing in
+     this stylesheet puts a box-shadow on a focusable element, so this cannot
+     swallow an existing elevation. */
   :focus-visible {
     outline: 2px solid var(--border-focus);
     outline-offset: 2px;
+    box-shadow: 0 0 0 5px var(--canvas);
   }
 
   ::selection {

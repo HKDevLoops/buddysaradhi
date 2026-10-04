@@ -30,7 +30,10 @@ export default function AuthLayout({
           className="relative z-10 w-full max-w-md p-8 rounded-2xl shadow-2xl"
           style={{
             background: "var(--surface-overlay)",
-            backdropFilter: "blur(24px) saturate(160%)",
+            // docs/design/material-modes.md §2 — the sign-in card is a floating
+            // role, so it reads the material token like every other floating role.
+            backdropFilter: "var(--mat-filter)",
+            WebkitBackdropFilter: "var(--mat-filter)",
             border: "1px solid var(--border-strong)",
           }}
         >

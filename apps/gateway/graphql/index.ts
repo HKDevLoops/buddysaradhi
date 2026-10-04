@@ -13,6 +13,8 @@
 
 import { createClient as createLibsql } from "@libsql/client";
 import { createClient as createSb } from "@supabase/supabase-js";
+import { corsHeadersForOrigin } from "../lib/errors.ts";
+import { log } from "../lib/log.ts";
 
 type DB = ReturnType<typeof createLibsql>;
 
@@ -301,12 +303,23 @@ async function execLocal(
 }
 
 // ---- server -------------------------------------------------------------------
+// CORS. This used to send `Access-Control-Allow-Origin: *` on the preflight and
+// **echo the caller's own Origin back** on the response. Echoing the request
+// origin IS the textbook CORS bypass: it tells the browser "this origin is
+// allowed", so any page on the internet could issue a credentialed cross-origin
+// request here and read the response — which for a per-tenant database means
+// another tutor's roster. Both now resolve through the one allowlist seam in
+// `lib/errors.ts` (`corsHeadersForOrigin`), which is an exact `Set` lookup, adds
+// `Vary: Origin`, sends no ACAO at all for an unknown or absent origin, and
+// never emits `*`.
 Deno.serve(async (req: Request): Promise<Response> => {
+  const origin = req.headers.get("origin");
+  const cors = corsHeadersForOrigin(origin);
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
+        ...cors,
         "Access-Control-Allow-Headers":
           "authorization, content-type, x-db-url, x-db-token, x-tutor-id",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -356,16 +369,23 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return new Response(JSON.stringify(result), {
       status: 200,
       headers: {
+        ...cors,
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": req.headers.get("origin") ?? "*",
       },
     });
   } catch (err) {
+    // Rule 9 + 10_Security.md §8: the raw `err.message` reaches the client here,
+    // and a libsql/tenant error carries SQL text, column names and file paths.
+    // The detail is logged server-side; the client gets a stable code.
+    log.error("graphql_exec_failed", err instanceof Error ? err.message : String(err));
     return new Response(
       JSON.stringify({
-        errors: [{ message: err instanceof Error ? err.message : "internal_error" }],
+        errors: [{ message: "VALIDATION: the query could not be completed" }],
       }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...cors },
+      },
     );
   }
 });

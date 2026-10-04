@@ -1,13 +1,21 @@
 "use client";
 
+// Implements: 05_Students.md §6.1 (Add Student sheet: duplicate detection,
+// batch enrolment, admission date, fee model). Feedback behaviour matches the
+// fees sheets (docs/design/overhaul-plan.md §2): a real commit says so in a
+// toast, a failure says what to do, and a half-filled form is never thrown away
+// by an Escape key or a stray scrim click.
+
 import React, { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createStudent, checkDuplicateStudentAction } from "@/server/actions/students";
 import { useRouter } from "next/navigation";
-import { X, Loader2 } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
+import { useToast } from "@/components/ui/toast";
+import { useOverlayDismiss, DiscardChangesPrompt, OverlayCloseButton } from "@/components/ui/overlay";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStudentsStore } from "@/stores/students-store";
@@ -39,8 +47,16 @@ export function AddStudentSheet() {
   const [duplicateWarning, setDuplicateWarning] = useState<{ dupKey: string; data: FormValues } | null>(null);
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
-  const { register, control, handleSubmit, formState: { errors }, reset } = useForm<FormValues>({
+  const closeSheet = () => {
+    setDuplicateWarning(null);
+    setError(null);
+    reset();
+    setOpen(false);
+  };
+
+  const { register, control, handleSubmit, formState: { errors, isDirty }, reset } = useForm<FormValues>({
     resolver: zodResolver(FormSchema as any),
     defaultValues: {
       name: "",
@@ -55,6 +71,21 @@ export function AddStudentSheet() {
       address: "",
       fee_model: "postpaid",
     }
+  });
+
+  const {
+    panelRef,
+    onScrimClick,
+    confirmThenClose,
+    setDiscardOpen,
+    discardOpen,
+    discardQuestion,
+  } = useOverlayDismiss({
+    open,
+    onClose: closeSheet,
+    // A submitting form must not be interrupted at all.
+    dirty: isDirty && !submitting,
+    label: "student form",
   });
 
   const doCreate = async (data: FormValues, forceProceed: boolean = false) => {
@@ -110,14 +141,18 @@ export function AddStudentSheet() {
     }, data.batch);
 
     if (res.success) {
+      const addedName = data.name.trim();
       reset();
-      setOpen(false);
       setDuplicateWarning(null);
+      setOpen(false);
+      toast.success(`${addedName} added`, "Their fee record starts empty — raise the first invoice whenever you are ready.");
       await queryClient.invalidateQueries({ queryKey: ["students"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       router.refresh();
     } else {
-      setError(res.error || "Failed to create student");
+      const message = res.error || "The student was not saved.";
+      setError(message);
+      toast.error("Student not added", `${message} Nothing was written — your entry is still on screen.`);
     }
     
     setSubmitting(false);
@@ -131,22 +166,23 @@ export function AddStudentSheet() {
     <>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center md:justify-end">
-          {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm" 
-            onClick={() => !submitting && setOpen(false)}
-          />
+          <div className="absolute inset-0" onClick={onScrimClick} aria-hidden="true" />
 
           {/* Sheet */}
-          <div className="relative w-full max-w-md h-full md:h-[calc(100vh-2rem)] md:m-4 md:rounded-2xl glass-strong border border-[var(--border-default)] shadow-2xl flex flex-col animate-in slide-in-from-right-full md:slide-in-from-right-8 duration-300">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add new student"
+            tabIndex={-1}
+            className="relative w-full max-w-md h-full md:h-[calc(100vh-2rem)] md:m-4 md:rounded-2xl glass-strong border border-[var(--border-default)] flex flex-col"
+          >
             <div className="flex items-center justify-between p-6 border-b border-[var(--border-default)]">
               <h2 className="text-xl font-semibold text-[var(--text-primary)]">Add New Student</h2>
-              <button 
-                onClick={() => !submitting && setOpen(false)}
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <OverlayCloseButton
+                onClick={submitting ? () => undefined : confirmThenClose}
+                label="Close add student sheet"
+              />
             </div>
 
             <div className="p-6 flex-1 overflow-y-auto">
@@ -159,9 +195,9 @@ export function AddStudentSheet() {
               <form id="add-student-form" onSubmit={handleSubmit(onSubmit)} className="space-y-5">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Full Name *</label>
+                    <label htmlFor={"as-name"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Full Name *</label>
                     <input
-                      {...register("name")}
+                      {...register("name")} id={"as-name"}
                       className="glass-input"
                       placeholder="e.g. Aarav Sharma"
                     />
@@ -169,9 +205,9 @@ export function AddStudentSheet() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Phone Number</label>
+                    <label htmlFor={"as-phone"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Phone Number</label>
                     <input
-                      {...register("phone")}
+                      {...register("phone")} id={"as-phone"}
                       className="glass-input"
                       placeholder="e.g. 9876543210"
                     />
@@ -180,9 +216,9 @@ export function AddStudentSheet() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Batch Name *</label>
+                    <label htmlFor={"as-batch"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Batch Name *</label>
                     <input
-                      {...register("batch")}
+                      {...register("batch")} id={"as-batch"}
                       className="glass-input"
                       placeholder="e.g. Class 10 - Maths"
                     />
@@ -190,18 +226,18 @@ export function AddStudentSheet() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Grade/Class</label>
+                    <label htmlFor={"as-grade"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Grade/Class</label>
                     <input
-                      {...register("grade")}
+                      {...register("grade")} id={"as-grade"}
                       className="glass-input"
                       placeholder="e.g. 10th"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Fee Model</label>
+                    <label htmlFor={"as-fee_model"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Fee Model</label>
                     <select
-                      {...register("fee_model")}
+                      {...register("fee_model")} id={"as-fee_model"}
                       className="glass-input"
                     >
                       <option value="postpaid" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Postpaid</option>
@@ -210,11 +246,11 @@ export function AddStudentSheet() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Monthly Fee (₹)</label>
+                    <label htmlFor={"as-baseFee"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Monthly Fee (₹)</label>
                     <input
                       type="number"
                       min="0"
-                      {...register("baseFee")}
+                      {...register("baseFee")} id={"as-baseFee"}
                       className="glass-input"
                       placeholder="e.g. 2000"
                     />
@@ -223,18 +259,18 @@ export function AddStudentSheet() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">School</label>
+                    <label htmlFor={"as-school"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">School</label>
                     <input
-                      {...register("school")}
+                      {...register("school")} id={"as-school"}
                       className="glass-input"
                       placeholder="e.g. DPS"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Board</label>
+                    <label htmlFor={"as-board"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Board</label>
                     <input
-                      {...register("board")}
+                      {...register("board")} id={"as-board"}
                       className="glass-input"
                       placeholder="e.g. CBSE"
                     />
@@ -242,9 +278,9 @@ export function AddStudentSheet() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Address</label>
+                  <label htmlFor={"as-address"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Address</label>
                   <textarea
-                    {...register("address")}
+                    {...register("address")} id={"as-address"}
                     className="glass-input"
                     style={{ minHeight: 'unset', height: 'auto', resize: 'none' }}
                     placeholder="Enter full address"
@@ -253,12 +289,13 @@ export function AddStudentSheet() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Admission Date *</label>
+                  <label htmlFor="as-joined-at" className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Admission Date *</label>
                   <Controller
                     control={control}
                     name="joined_at"
                     render={({ field }) => (
                       <DatePicker
+                        id="as-joined-at"
                         date={field.value ? new Date(field.value) : undefined}
                         setDate={(d) => field.onChange(d?.toISOString() || "")}
                         className="glass-input h-[44px]"
@@ -271,43 +308,65 @@ export function AddStudentSheet() {
                   <Button
                     type="submit"
                     disabled={submitting}
-                    className="w-full py-6 bg-[var(--success)] hover:bg-[var(--success)]/90 text-[var(--accent-on-primary)] font-semibold rounded-xl transition-all cursor-pointer"
+                    aria-busy={submitting}
+                    className="w-full py-6 bg-[var(--accent-primary)] hover:brightness-110 text-[var(--accent-on-primary)] font-semibold rounded-xl transition-all cursor-pointer"
                   >
-                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Student"}
+                    {submitting ? <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" /> : "Save student"}
                   </Button>
+                  {submitting ? (
+                    <p className="mt-2 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+                      Checking for duplicates, then writing the student and their batch…
+                    </p>
+                  ) : null}
                 </div>
               </form>
             </div>
             {duplicateWarning ? (
-              <div className="absolute inset-0 z-10 glass-strong flex flex-col p-8 items-center justify-center animate-in fade-in duration-200">
-                <div className="w-full max-w-sm p-6 rounded-2xl border border-[var(--danger)]/40 bg-[var(--surface-raised)]/95 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
-                  <div className="w-12 h-12 rounded-full bg-[var(--danger)]/15 text-[var(--danger)] flex items-center justify-center mb-4 ring-1 ring-[var(--danger)]/30">
-                    <X className="w-6 h-6" />
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-label="Possible duplicate student"
+                className="absolute inset-0 z-10 glass-strong flex flex-col p-8 items-center justify-center"
+              >
+                <div className="w-full max-w-sm p-6 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-raised)] flex flex-col items-center text-center">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4" style={{ background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)" }}>
+                    <TriangleAlert className="w-6 h-6" aria-hidden="true" />
                   </div>
-                  <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">Duplicate Detected</h3>
+                  <h3 className="text-lg font-bold text-[var(--text-primary)] mb-2">This looks like an existing student</h3>
                   <p className="text-sm text-[var(--text-secondary)] mb-6">
-                    A student with similar details already exists. What would you like to do?
+                    We already have someone with a matching name and phone ending. Adding them twice
+                    splits their fee history in two — check the roster before you continue.
                   </p>
-                  <div className="flex w-full gap-3">
-                    <Button 
-                      variant="ghost" 
-                      className="flex-1 text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] border border-[var(--border-default)]"
+                  <div className="flex w-full flex-col gap-3 sm:flex-row">
+                    <Button
+                      variant="outline"
+                      className="flex-1 min-h-[44px] text-[var(--text-primary)] border-[var(--border-default)]"
                       onClick={() => setDuplicateWarning(null)}
                     >
-                      Cancel
+                      Go back and edit
                     </Button>
-                    <Button 
-                      className="flex-1 bg-[var(--info)] text-[var(--accent-on-primary)] hover:bg-[var(--info)]/90 font-medium"
+                    <Button
+                      className="flex-1 min-h-[44px] bg-[var(--accent-primary)] text-[var(--accent-on-primary)] font-medium"
                       onClick={() => doCreate(duplicateWarning.data, true)}
                       disabled={submitting}
                     >
-                      {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Proceed Anyway"}
+                      {submitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : "They are different people — add anyway"}
                     </Button>
                   </div>
                 </div>
               </div>
             ) : null}
           </div>
+
+          <DiscardChangesPrompt
+            open={discardOpen}
+            question={discardQuestion}
+            onKeep={() => setDiscardOpen(false)}
+            onDiscard={() => {
+              setDiscardOpen(false);
+              closeSheet();
+            }}
+          />
         </div>
       )}
     </>

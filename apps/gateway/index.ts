@@ -1,7 +1,7 @@
 import { getTurso, type DB } from "./lib/db.ts";
 import { ensureSelfRepairingSchema } from "./lib/schema.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
-import { ok, json, fail, securityFail, isTursoAuthFailure } from "./lib/errors.ts";
+import { ok, json, fail, securityFail, isTursoAuthFailure, corsHeadersForOrigin } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
 import {
   enforceIdempotencyPrecondition,
@@ -36,36 +36,16 @@ import { handleSync } from "./routes/sync.ts";
 import { handleSecurity } from "./routes/security.ts";
 import { handleMarketingPublic } from "./routes/marketing.ts";
 
-const ALLOWED_ORIGINS = new Set([
-  "https://buddysaradhi.app",
-  "https://buddysaradhi.vercel.app",
-  "https://buddysaradhi.store",
-  "https://buddysaradhi-product.vercel.app",
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://localhost:3003",
-]);
-
-function getCorsOrigin(req: Request): string {
-  const origin = req.headers.get("Origin") || "";
-  if (ALLOWED_ORIGINS.has(origin)) return origin;
-  // Check env override
-  const envOrigin = Deno.env.get("ALLOWED_ORIGIN") || Deno.env.get("ALLOWED_ORIGINS");
-  if (envOrigin && envOrigin.includes(origin)) return origin;
-  return "https://buddysaradhi.app"; // default
-}
-
+// CORS — the allowlist and the resolver live in lib/errors.ts, which is the ONE
+// place an origin is decided (2026-10-04: this file had its own copy that
+// substring-matched `ALLOWED_ORIGIN` and fell back to a hardcoded origin for
+// unknown callers). `corsHeadersForOrigin` emits NO `Access-Control-Allow-Origin`
+// and NO `Access-Control-Allow-Credentials` for an origin that is not allowlisted
+// — fail closed. The web app is unaffected: it calls the gateway server-side (no
+// `Origin` header at all, which needs no CORS header), and its browser-facing
+// surface is same-origin.
 function getCorsHeaders(req: Request): Record<string, string> {
-  return {
-    "Access-Control-Allow-Origin": getCorsOrigin(req),
-    // RFC-004 C1 — browsers must be allowed to SEND Idempotency-Key, or every
-    // mutating call fails preflight before reaching the gateway.
-    "Access-Control-Allow-Headers":
-      "authorization, content-type, x-db-url, x-db-token, x-tutor-id, x-signature, x-timestamp, x-encrypt-response, x-request-id, x-nonce, x-tenant-id, idempotency-key",
-    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Max-Age": "86400",
-    "Access-Control-Allow-Credentials": "true",
-  };
+  return corsHeadersForOrigin(req.headers.get("Origin"));
 }
 
 const SECURITY_HEADERS = getSecurityHeaders();

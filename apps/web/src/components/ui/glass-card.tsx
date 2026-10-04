@@ -1,9 +1,26 @@
 // Implements: UI/03_Component_Library.md §2 Glass Card Recipe
 // The fundamental surface. Every card in the app is a variant of this base.
 // Glass + neumorphism, never either/or.
+//
+// AGENTS.md §2 Rule 5 + docs/design/material-modes.md §2: the blur is NOT a
+// literal here. The three variants used to hand-write `blur(48px) saturate(150%)`,
+// `blur(20px)` and `blur(36px) saturate(130%)`, which meant the material-mode
+// control changed the shell but left every card frozen at whatever the author
+// typed. All three now read `var(--mat-filter)`, so `minimal` resolves to `none`
+// and the mode switch is real. Note `minimal`'s Layer-A surfaces are opaque by
+// design (material-modes.md §2.0), so `default` and `faint` stay legible there.
 
 import { forwardRef, type HTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+
+/**
+ * The ONE material primitive. Declared once so no variant can reintroduce a
+ * literal blur, and so `-webkit-` and standard stay in lockstep.
+ */
+const MATERIAL: { backdropFilter: string; WebkitBackdropFilter: string } = {
+  backdropFilter: "var(--mat-filter)",
+  WebkitBackdropFilter: "var(--mat-filter)",
+};
 
 export interface GlassCardProps extends HTMLAttributes<HTMLDivElement> {
   /** 'default' = base glass; 'strong' = more opaque for modals; 'faint' = nested cards */
@@ -43,8 +60,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
       variant === "strong"
         ? {
             background: "var(--surface-overlay)",
-            backdropFilter: "blur(48px) saturate(150%)",
-            WebkitBackdropFilter: "blur(48px) saturate(150%)",
+            ...MATERIAL,
             border: "1px solid var(--border-strong)",
             boxShadow: [
               "0 1px 1px 0 rgba(255,255,255,0.20) inset",
@@ -57,8 +73,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
         : variant === "faint"
           ? {
               background: "var(--surface-inset)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
+              ...MATERIAL,
               border: "1px solid var(--border-default)",
               boxShadow: [
                 "0 1px 1px 0 rgba(255,255,255,0.10) inset",
@@ -67,8 +82,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
             }
           : {
               background: "var(--surface-raised)",
-              backdropFilter: "blur(36px) saturate(130%)",
-              WebkitBackdropFilter: "blur(36px) saturate(130%)",
+              ...MATERIAL,
               border: "1px solid var(--border-default)",
               boxShadow: [
                 "0 1px 1px 0 rgba(255,255,255,0.16) inset",

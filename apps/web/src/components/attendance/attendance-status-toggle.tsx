@@ -1,5 +1,11 @@
 "use client";
 
+// Implements: UI/web/05_Attendance.md — the per-student attendance control.
+// AGENTS.md §2 Rule 10 — this is the densest interactive target on the screen (four
+// 44×44 segments per student), so contrast is verified here rather than assumed: the
+// unselected segments read `--text-secondary` at full opacity, with an accent fill plus
+// the raised (`neumo-raised`) pressed state carrying "this is the mark" — an icon and a
+// word carry the meaning, never the accent alone.
 import React from "react";
 import { AttendanceStatus } from "@buddysaradhi/shared";
 import { Check, X, Clock, Plane } from "lucide-react";
@@ -64,7 +70,14 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
             onClick={() => onChange(s)}
             className={cn(
               "min-w-[44px] min-h-[44px] px-2.5 rounded-full flex flex-col items-center justify-center gap-0.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
-              active ? "neumo-raised" : "opacity-55 hover:opacity-100"
+              // The unselected segments used to sit at `opacity-55` on `--text-muted`,
+              // which put the 10px label below the 4.5:1 body-text floor (AGENTS.md §2
+              // Rule 10). The dimming was doing no work the raised active segment does
+              // not already do: the accent fill plus the pressed state are the signal.
+              // Contrast now comes from a full-opacity foreground token instead of an
+              // alpha, so a palette change is measured by the contrast gate rather than
+              // guessed at.
+              active ? "neumo-raised" : "hover:bg-[var(--surface-overlay)]"
             )}
             style={
               active
@@ -72,7 +85,7 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
                     color: meta.accent,
                     boxShadow: `0 0 14px ${meta.glow}, inset 0 1px 1px rgba(255,255,255,0.12)`,
                   }
-                : { color: "var(--text-muted)" }
+                : { color: "var(--text-secondary)" }
             }
           >
             <Icon className="w-4 h-4" aria-hidden="true" />

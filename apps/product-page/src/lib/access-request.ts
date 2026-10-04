@@ -7,6 +7,16 @@
 // contracts the subscription and provisions access by hand
 // (docs/design/overhaul-plan.md §0, "Product-page role").
 //
+// HONESTY CONTRACT (docs/design/marketing-claims-audit.md). Every string in this
+// file is copy a visitor reads, so every string here is a claim. A capability may
+// only be named if some primary source in this repo builds it. The Institute plan
+// therefore does NOT advertise staff accounts or multi-tutor administration: the
+// `tutors` table exists (prisma/schema.prisma:67) but nothing creates a tutor but
+// you (no `db.tutor.*` call anywhere in apps/web/src), the Team surface is a
+// roadmap item behind a P2 amendment (15_Future_Roadmap.md:503), and paid
+// multi-tutor tiers are gated behind a trigger that has not fired
+// (product/01_Product_Positioning.md:70). Do not add one without the code.
+//
 // Validation is hand-rolled, typed, and dependency-free: `zod` is not
 // resolvable from this app's node_modules and adding it would require a root
 // lockfile change, which is outside this task's scope. The shape below is the
@@ -14,6 +24,57 @@
 
 export const PLANS = ["free", "institute"] as const;
 export type PlanId = (typeof PLANS)[number];
+
+/* ------------------------------------------------------------------------- *
+ * ORIGIN OWNERSHIP
+ *
+ * `APP_ORIGIN` is the ONE owner of the signed-in app's origin for this whole
+ * app. `app/layout.tsx` used to hold a second, byte-identical literal for its
+ * footer link, which means the sign-in link and the sign-up link could each be
+ * "correct" while pointing at different hosts after a rename — and neither
+ * build nor tsc fails on a wrong host, it just ships a dead link
+ * (AGENTS.md §15 FM-06).
+ *
+ * Provenance, and it is not a guess: `https://buddysaradhi.vercel.app` is the
+ * app's own committed default, declared in apps/web/src/proxy.ts:17
+ * (`NEXT_PUBLIC_APP_URL`), allowlisted as an origin in the same file at :23,
+ * and repeated in apps/web/src/app/api/v1/[...slug]/route.ts:323. The signed-in
+ * app lives on its own deployment target, separate from this marketing surface
+ * (AGENTS.md §2 Rule 11).
+ * ------------------------------------------------------------------------- */
+export const APP_ORIGIN = "https://buddysaradhi.vercel.app";
+export const APP_LOGIN_URL = `${APP_ORIGIN}/login`;
+export const APP_SIGNUP_URL = `${APP_ORIGIN}/signup`;
+
+/* ------------------------------------------------------------------------- *
+ * FUNNEL COPY
+ *
+ * One primary action per viewport, and one label for it everywhere
+ * (clarify.md: keep the same noun and verb for the same concept throughout the
+ * product). These strings are shared so `/`, `/pricing`, `/platforms`, the hero
+ * panel and the request form cannot drift into five different promises.
+ *
+ * WHY SIGN-UP IS THE PRIMARY (docs/design/marketing-claims-audit.md §4.1,
+ * option (b)). `POST /api/access-request` validates and returns a receipt;
+ * nothing is persisted and nothing is delivered
+ * (src/app/api/access-request/route.ts:9-15,41). Free self-serve sign-up is
+ * therefore the only path on this surface that actually completes, so it is the
+ * only action a first-time visitor should be asked to take first. The contracted
+ * plan stays available and stays honest about what it does.
+ * ------------------------------------------------------------------------- */
+
+/** Primary. A specific verb and an object, because the outcome is the point:
+ *  the visitor leaves this site and ends up with a working tutor account. */
+export const FREE_SIGNUP_CTA = "Create your free account";
+
+/** The honest sentence beside the primary. A cross-origin link must say where it
+ *  goes, and the two facts that decide the click (free, no card) are here rather
+ *  than in a button that has no room for them. */
+export const FREE_SIGNUP_NOTE =
+  "Takes you to the BuddySaradhi app to create your account. Free while our infrastructure stays free, and no card is asked for.";
+
+/** Secondary. Names what the visitor gets, not the page it opens. */
+export const CONTRACTED_PLAN_CTA = "Ask for a contracted plan";
 
 export const BILLING_PERIODS = ["monthly", "quarterly", "annual"] as const;
 export type BillingPeriodId = (typeof BILLING_PERIODS)[number];
@@ -46,13 +107,13 @@ export const PLAN_CATALOGUE: readonly PlanDefinition[] = [
   {
     id: "institute",
     name: "Institute",
-    audience: "A coaching institute with staff to account for.",
+    audience: "An institute that wants the term, the storage and the export terms agreed up front.",
     summary:
-      "Contracted with you directly, so the plan can cover multi-tutor administration and institute-wide reporting.",
+      "Contracted with you directly, so the prepaid period, the storage quota and the export terms can be written down before you start rather than argued about later.",
     includes: [
-      "Everything in Free",
-      "Multi-tutor administration and institute-wide reporting",
-      "Provisioned storage quota and data export on request",
+      "Everything in Free, with no feature gate",
+      "A stated storage quota and data export on request",
+      "Staff accounts, not built yet",
     ],
     pricing: "on-request",
   },
@@ -71,7 +132,24 @@ export const PRICE_PLACEHOLDER_NOTE =
   "Paid plan prices are not published here. We confirm them when we contract a plan with you. Nothing is charged on this site.";
 
 export const NO_CHECKOUT_NOTE =
-  "There is no checkout on this site. Request access, we contract the plan, then an administrator provisions your account.";
+  "There is no checkout on this site and no card is ever asked for. A contracted plan is agreed with you directly, and an administrator provisions your account.";
+
+/**
+ * What is true about delivery today, in the words the request page uses.
+ *
+ * The pipeline a request will travel (entitlements-contract.md §2) is specified,
+ * but the endpoint in `src/app/api/access-request/route.ts` is a validating stub:
+ * it returns a receipt and stops. So the surface may promise the *contract* and
+ * must not promise the *delivery* (AGENTS.md Rule 9). This string is the honest
+ * statement, and it names the path that works right now so the reader is never
+ * left without an action.
+ */
+export const REQUEST_DELIVERY_NOTE =
+  "We write your request to this site and keep your reference. Delivering it to a person by email is not connected yet, so until it is, the free plan is the way in today.";
+
+/** The free plan never expires or downgrades, so nothing runs out under the tutor. */
+export const FREE_PLAN_NOTE =
+  "No checkout, no card, and no clock on your free access. Free stays free, and your access does not lower.";
 
 export interface AccessRequestInput {
   readonly name: string;

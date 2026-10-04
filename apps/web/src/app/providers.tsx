@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { PaletteProvider } from "@/lib/palette-provider";
+import { Toaster } from "@/components/ui/toast";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -23,7 +24,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   
   return (
     <QueryClientProvider client={client}>
-      <PaletteProvider>{children}</PaletteProvider>
+      <PaletteProvider>
+        {children}
+        <Toaster />
+      </PaletteProvider>
     </QueryClientProvider>
   );
 }

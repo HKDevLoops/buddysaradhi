@@ -174,7 +174,9 @@ function pinGateMessage(gate: PinGateResult): string {
   if (typeof gate.attemptsLeft === "number" && gate.attemptsLeft > 0) {
     return `Incorrect PIN — ${gate.attemptsLeft} attempt${gate.attemptsLeft === 1 ? "" : "s"} left before lockout.`;
   }
-  return "Invalid PIN";
+  // The bare "Invalid PIN" carried no taxonomy code, so every client had to
+  // pattern-match a literal to tell a wrong PIN from any other refusal.
+  return "VALIDATION: The security PIN is incorrect.";
 }
 
 export async function createBackupAction(passphrase: string) {

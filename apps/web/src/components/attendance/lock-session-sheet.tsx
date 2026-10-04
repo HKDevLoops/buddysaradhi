@@ -1,127 +1,291 @@
 "use client";
 
-import { useState } from "react";
+// Implements: 06_Attendance.md §5 (session lock — locks a date+batch against
+// further edits) and 12_Business_Rules.md BR-ATT-06 (lock window, default 48h,
+// tutor-configurable); 10_Security.md §4 (lock is a sensitive mutation, so it
+// requires a PIN); 13_UI_Guidelines.md §8.7 (sheet: Escape, focus return,
+// scrim, dirty-form confirm) and AGENTS.md §2 Rule 10 (WCAG 2.1 AA dialog
+// pattern) + Rule 9 (no silent failures).
+//
+// Hardening (docs/design/overhaul-plan.md §2): the sheet closed on a scrim
+// click with no Escape key, its close button had no accessible name at all, and
+// a `{ success: false }` server answer — which is how `lockSessionAction`
+// reports a wrong PIN — hit `onSuccess` and fell through every branch: the sheet
+// stayed open with a spinner cleared and NO message, so a refused lock looked
+// identical to a lock the tutor never pressed. It now composes
+// `useOverlayDismiss` with `dirty` on the PIN, states both outcomes by name, and
+// closes only on confirmed success.
+//
+// Copy: the hint used to read "your PIN (fallback: 1234)". `lockSessionAction`
+// verifies the PIN against `settings.pinHash` and fails closed when no PIN is
+// configured — there is no 1234 fallback, so the hint disclosed a bypass that
+// does not exist. Removed.
+
+import { useCallback, useState } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
-import { AttendanceSession } from "@buddysaradhi/shared";
+import {
+  AttendanceSession,
+  pinFormatError,
+  PIN_INPUT_MAX_LENGTH,
+  PIN_MAX_LENGTH,
+  PIN_MIN_LENGTH,
+} from "@buddysaradhi/shared";
 import { lockSessionAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Lock, AlertTriangle } from "lucide-react";
+import { Lock, AlertTriangle } from "lucide-react";
 import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
-
+import { useToast } from "@/components/ui/toast";
+import {
+  useOverlayDismiss,
+  DiscardChangesPrompt,
+  OverlayCloseButton,
+} from "@/components/ui/overlay";
+import { Explain } from "@/components/ui/explain";
 
 interface LockSessionSheetProps {
   session: AttendanceSession | null;
 }
 
+/**
+ * `lockSessionAction` reports the two ways a tutor gets this wrong — a wrong
+ * PIN, or no PIN configured at all — plus a format rejection. Every other
+ * failure is unexpected and goes through the shared taxonomy mapper, which never
+ * renders raw server text, stacks or Next.js digests.
+ *
+ * The PIN verdicts are matched on a SUBSTRING, not the whole string: the server
+ * now prefixes its answers with a taxonomy code (`VALIDATION: …`), so an
+ * anchored `^invalid pin$` would stop matching and every wrong PIN would fall
+ * through to the generic VALIDATION copy.
+ */
+function lockErrorCopy(raw: string): string {
+  const text = raw.trim();
+  if (/invalid pin|security pin is incorrect/i.test(text))
+    return "That PIN isn't right. Enter your PIN and try again — nothing was written.";
+  if (/no pin configured/i.test(text))
+    return "You haven't set a PIN yet. Add one in Settings → Security, then lock the session.";
+  return `${toAppErrorState(text).message} Nothing was written.`;
+}
+
 export function LockSessionSheet({ session }: LockSessionSheetProps) {
   const { isLockSheetOpen, setLockSheetOpen, selectedDateIso, selectedBatch } = useAttendanceStore();
   const [pin, setPin] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const isLocked = session?.locked_at != null;
 
+  /**
+   * ONE PIN rule, from the shared module (`packages/shared/src/pin.ts`) — the
+   * second site converted after `ledger-table`.
+   *
+   * This input used to carry `maxLength={4}` and gate on `pin.length < 4`, while
+   * `setPinAction` accepts 4–8 digits. A tutor who set a 6-digit PIN therefore
+   * COULD NOT TYPE IT, and locking a session is the control that freezes
+   * attendance for a date. A client bound tighter than the server is a tutor
+   * locked out of their own books — the exact failure that rule exists to
+   * prevent, in a different screen.
+   *
+   * So the client states the bound the server enforces (`pinFormatError`) and
+   * adds no gate of its own beyond it. Verification stays server-side and
+   * unchanged; `maxLength` is the ceiling, never tighter.
+   */
+  const pinError = pinFormatError(pin);
+
+  const closeSheet = useCallback(() => {
+    setLockSheetOpen(false);
+    setPin("");
+    setFormError(null);
+  }, [setLockSheetOpen]);
+
+  // A typed PIN would be silently destroyed by an Escape or a scrim click, so
+  // the shared module asks before discarding it.
+  const {
+    panelRef,
+    onScrimClick,
+    confirmThenClose,
+    setDiscardOpen,
+    discardOpen,
+    discardQuestion,
+  } = useOverlayDismiss({
+    open: isLockSheetOpen,
+    onClose: closeSheet,
+    dirty: pin.length > 0,
+    label: "PIN form",
+  });
+
   const mutation = useMutation({
     mutationFn: (subPin: string) => lockSessionAction(session!.id, subPin),
+    // Rule 9: the outcome is stated, every time, either way. A refused lock keeps
+    // the sheet open with the PIN cleared but the tutor's intent intact.
     onSuccess: (res) => {
-      if (res.success) {
-        queryClient.invalidateQueries({ queryKey: ['attendance'] });
-        setLockSheetOpen(false);
-        setPin("");
+      if (res.success !== true) {
+        const copy = lockErrorCopy(res.error ?? "");
+        setFormError(copy);
+        toast.error("Session not locked", copy);
+        return;
       }
-    }
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      toast.success(
+        `Session locked${session?.session_date ? ` for ${session.session_date}` : ""}`,
+        "Attendance for this date and batch can no longer be edited. Unlock it to make changes.",
+      );
+      closeSheet();
+    },
+    onError: (err) => {
+      const copy = `${toAppErrorState(err).message} Nothing was written — check your connection and try again.`;
+      setFormError(copy);
+      toast.error("Session not locked", copy);
+    },
   });
+
+  const canLock = pinError === null && !mutation.isPending;
 
   if (!isLockSheetOpen) return null;
 
+  const batchLabel = selectedBatch === "all" ? "All Batches" : selectedBatch;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm transition-opacity" 
-        onClick={() => setLockSheetOpen(false)}
+      {/* Scrim — asks first while a PIN is typed. */}
+      <div
+        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm"
+        onClick={onScrimClick}
+        aria-hidden="true"
       />
 
       {/* Sheet Content - .glass-strong */}
-      <div className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6 overflow-hidden">
-        
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lock-session-title"
+        tabIndex={-1}
+        className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6 overflow-hidden"
+      >
         {/* Glow effect */}
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,rgba(0,184,255,0.1)_0%,transparent_70%)] blur-2xl pointer-events-none" />
+        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,color-mix(in_srgb,var(--info)_0.1,transparent)_0%,transparent_70%)] blur-2xl pointer-events-none" aria-hidden="true" />
 
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-            <Lock className="w-5 h-5 text-[var(--info)]" />
+        <div className="flex items-center justify-between mb-6 gap-3">
+          <h2
+            id="lock-session-title"
+            className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2"
+          >
+            <Lock className="w-5 h-5 text-[var(--info)]" aria-hidden="true" />
             Lock Session
           </h2>
-          <button 
-            onClick={() => setLockSheetOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <OverlayCloseButton onClick={confirmThenClose} label="Close lock session sheet" />
         </div>
 
         {isLocked ? (
           <div className="text-center py-8 space-y-4">
-            <Lock className="w-12 h-12 text-[var(--success)] mx-auto opacity-80" />
+            <Lock className="w-12 h-12 text-[var(--success)] mx-auto opacity-80" aria-hidden="true" />
             <p className="text-[var(--text-primary)] text-lg font-medium">Session is already locked.</p>
             <p className="text-[var(--text-muted)] text-sm">Attendance records for this date and batch cannot be modified without unlocking.</p>
-            <button 
-              onClick={() => setLockSheetOpen(false)}
-              className="mt-4 neumo-raised px-6 py-2 rounded-lg text-sm font-medium text-[var(--text-primary)] hover:text-[var(--success)] transition-colors"
+            <button
+              type="button"
+              onClick={closeSheet}
+              className="mt-4 min-h-[44px] neumo-raised px-6 py-2 rounded-lg text-sm font-medium text-[var(--text-primary)] hover:text-[var(--success)] transition-colors"
             >
               Close
             </button>
           </div>
         ) : !session ? (
           <div className="text-center py-8 space-y-4">
-            <AlertTriangle className="w-12 h-12 text-[var(--warning)] mx-auto opacity-80" />
+            <AlertTriangle className="w-12 h-12 text-[var(--warning)] mx-auto opacity-80" aria-hidden="true" />
             <p className="text-[var(--text-primary)] text-lg font-medium">No active session to lock.</p>
-            <p className="text-[var(--text-muted)] text-sm">Please mark attendance for at least one student before locking the session.</p>
+            <p className="text-[var(--text-muted)] text-sm">Mark attendance for at least one student first — a session has to exist before it can be locked.</p>
           </div>
         ) : (
           <div className="space-y-6">
             <div className="bg-[var(--surface-inset)] rounded-xl p-4 border border-[var(--border-default)]">
               <p className="text-sm text-[var(--text-secondary)] mb-2">
-                Locking the session prevents further modifications. You must provide your PIN (fallback: 1234) to confirm this action.
+                Locking freezes attendance for this date and batch — no record can be edited
+                afterwards without unlocking first. Enter your PIN to confirm.
               </p>
               <div className="text-xs text-[var(--text-muted)] flex flex-col gap-1">
                 <span>Date: {selectedDateIso}</span>
-                <span>Batch: {selectedBatch === 'all' ? 'All Batches' : selectedBatch}</span>
+                <span>Batch: {batchLabel}</span>
               </div>
+              {/* The panel states the rule ("no record can be edited afterwards
+                  without unlocking") but never says why a tutor would WANT that,
+                  or what the lock window is for — so it reads as an obstacle put
+                  in front of a correction. The disclosure answers both next to the
+                  date and batch it applies to, and names the escape (unlock with
+                  the PIN). No lock behaviour, gate or payload changed. */}
+              <Explain concept="attendance-lock" className="mt-1" />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">Security PIN</label>
-              <input 
-                type="password" 
+              <label
+                htmlFor="lock-pin"
+                className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2"
+              >
+                Security PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+              </label>
+              <input
+                id="lock-pin"
+                type="password"
                 value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                maxLength={4}
+                onChange={(e) => {
+                  setPin(e.target.value);
+                  setFormError(null);
+                }}
+                inputMode="numeric"
+                maxLength={PIN_INPUT_MAX_LENGTH}
                 autoFocus
                 placeholder="••••"
-                className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-2xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
+                autoComplete="off"
+                aria-describedby={
+                  formError ? "lock-pin-error" : pinError ? "lock-pin-format" : undefined
+                }
+                aria-invalid={formError ? true : pinError ? true : undefined}
+                className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 min-h-[44px] text-2xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
               />
-              {mutation.error && (
-                <p className="text-[var(--danger)] text-xs mt-2 text-center">{toAppErrorState(mutation.error).message}</p>
+              {pinError && (
+                <p id="lock-pin-format" className="text-[var(--danger)] text-xs mt-2 text-center">
+                  {pinError}
+                </p>
+              )}
+              {formError && (
+                <p
+                  id="lock-pin-error"
+                  role="alert"
+                  className="text-[var(--danger)] text-xs mt-2 text-center"
+                >
+                  {formError}
+                </p>
               )}
             </div>
 
-            <button 
+            <button
+              type="button"
               onClick={() => mutation.mutate(pin)}
-              disabled={pin.length < 4 || mutation.isPending}
+              disabled={!canLock}
+              aria-busy={mutation.isPending}
               className={cn(
-                "w-full neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] transition-all",
-                pin.length >= 4 
-                  ? "bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.4, transparent)]"
+                "w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] transition-colors",
+                canLock
+                  ? "bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in_srgb,var(--success)_0.4,transparent)]"
                   : "bg-[var(--surface-inset)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
               )}
             >
-              {mutation.isPending ? "Locking..." : "Confirm & Lock"}
+              {mutation.isPending ? "Locking session…" : "Confirm & Lock"}
             </button>
           </div>
         )}
       </div>
+
+      <DiscardChangesPrompt
+        open={discardOpen}
+        question={discardQuestion}
+        onKeep={() => setDiscardOpen(false)}
+        onDiscard={() => {
+          setDiscardOpen(false);
+          closeSheet();
+        }}
+      />
     </div>
   );
 }

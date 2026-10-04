@@ -35,7 +35,7 @@ function normalize(stmt: unknown): Statement {
   throw new Error("SqliteGatewayDb: unsupported statement shape");
 }
 
-class SqliteGatewayDb {
+export class SqliteGatewayDb {
   readonly raw: DatabaseSync;
   /** Serialises write transactions the way a single-writer DB does. */
   private writeTail: Promise<void> = Promise.resolve();
@@ -70,6 +70,48 @@ class SqliteGatewayDb {
       throw err;
     }
     return new SqliteWriteTransaction(this.raw, release);
+  }
+
+  /**
+   * libsql's `client.batch(stmts, mode)`: every statement in ONE transaction,
+   * committed together or rolled back together. The secure-erase cascade
+   * (routes/security.ts) depends on exactly that guarantee — "an account is
+   * never half-erased" is only true if the batch is atomic.
+   *
+   * `BEGIN` is used rather than `BEGIN IMMEDIATE` because node:sqlite refuses a
+   * nested BEGIN; the surrounding `writeTail` queue already serialises writers,
+   * so the lock is taken by the first statement that needs it.
+   */
+  async batch(
+    stmts: Array<{ sql: string; args?: unknown[] }>,
+    mode: "write" | "read" = "write",
+  ): Promise<{ rows?: Record<string, unknown>[]; rowsAffected?: number }[]> {
+    const previous = this.writeTail;
+    let release!: () => void;
+    this.writeTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    this.raw.exec(mode === "read" ? "BEGIN" : "BEGIN");
+    try {
+      const results: { rows?: Record<string, unknown>[]; rowsAffected?: number }[] = [];
+      for (const stmt of stmts) {
+        results.push(await runStatement(this.raw, { sql: stmt.sql, args: stmt.args ?? [] }));
+      }
+      this.raw.exec("COMMIT");
+      return results;
+    } catch (err) {
+      // All-or-nothing: a mid-batch failure must leave NOTHING deleted, which
+      // is the property the route's comment claims.
+      try {
+        this.raw.exec("ROLLBACK");
+      } catch {
+        // The transaction was already aborted by SQLite; nothing to undo.
+      }
+      throw err;
+    } finally {
+      release();
+    }
   }
 
   /** Convenience for assertions: read rows straight from the fixture DB. */

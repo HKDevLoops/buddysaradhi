@@ -2,18 +2,40 @@
 
 // Implements: UI/web/05_Attendance.md — AttendanceGrid
 // Renders the student list for marking attendance using Cyan Lagoon palette vars.
+//
+// AGENTS.md §2 Rule 9 (no silent failures) + Rule 10 (announce, don't flash) — three
+// hardening changes, each fixing a way this grid could tell a tutor something false:
+//   1. The mutation-failure banner had no `role="alert"`, so a screen-reader user was
+//      never told a save failed — and the banner used to auto-dismiss after 3s, which
+//      meant a tutor looking away from their keyboard never learned the day's marks were
+//      rejected. It now persists until the next successful save, is announced, and also
+//      raises a toast (the shared module owns the timer, so nothing leaks on unmount).
+//   2. "Mark all Absent" was one tap over a whole day of attendance with no confirm and
+//      no undo. Absence feeds fees, so a mis-tap is a financial edit, not a cosmetic one.
+//      It is now a two-step confirm with an explicit cancel, disarmed whenever its target
+//      set changes so it can never fire on a different day.
+//   3. "No students found for this batch" covered three different worlds — an empty batch,
+//      a search that matched nobody, and (before `AttendanceClient` grew a failure
+//      branch) a read that failed. Each now says which, and only the empty case is silent
+//      about recovery.
 
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { type StudentAttendanceRow, type AttendanceSession, type AttendanceStatus, type UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { AttendanceStatusToggle } from "./attendance-status-toggle";
 import { updateAttendanceAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, X, AlertTriangle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Check, X, AlertTriangle, UserX, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
+import { Avatar } from "@/components/ui/avatar";
+import { ScreenSkeleton } from "@/components/ui/screen-state";
+import { useToast } from "@/components/ui/toast";
 import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 import { fuzzySearch } from "@buddysaradhi/shared";
+
+/** How long a disarmed confirm waits before forgetting it was ever armed. */
+const CONFIRM_ARM_MS = 10_000;
 
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
   { key: "present", label: "Present", accent: "var(--success)" },
@@ -25,12 +47,16 @@ const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] =
 interface AttendanceGridProps {
   records: StudentAttendanceRow[];
   session: AttendanceSession | null;
+  /** True while the first read is in flight — the day's rows are not known yet. */
+  isLoading?: boolean;
 }
 
-export function AttendanceGrid({ records, session }: AttendanceGridProps) {
-  const { searchQuery, selectedDateIso, selectedBatch } = useAttendanceStore();
+export function AttendanceGrid({ records, session, isLoading = false }: AttendanceGridProps) {
+  const { searchQuery, setSearchQuery, selectedDateIso, selectedBatch } = useAttendanceStore();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [confirmingAbsent, setConfirmingAbsent] = useState(false);
 
   const isLocked = session?.locked_at != null;
 
@@ -55,34 +81,25 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
 
       return { previousData };
     },
-    onError: (err, newPayload, context) => {
+    onError: (err, _newPayload, context) => {
+      // Roll the optimistic marks back to exactly what the server still holds — the
+      // optimistic rows were a guess, and a failed save must not leave them on screen.
       queryClient.setQueryData(["attendance", selectedDateIso, selectedBatch], context?.previousData);
-      setErrorToast(toAppErrorState(err).message);
-      setTimeout(() => setErrorToast(null), 3000);
+      // A toast carries the same sentence and is announced too; the inline banner stays
+      // until the next save so a tutor who looked away cannot miss it.
+      const copy = toAppErrorState(err).message;
+      setErrorToast(copy);
+      toast.error("Attendance not saved", copy);
+    },
+    onSuccess: () => {
+      // The save landed, so the previous failure is no longer the truth.
+      setErrorToast(null);
+      setConfirmingAbsent(false);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["attendance"] });
     },
   });
-
-  const handleToggle = (studentId: string, status: AttendanceStatus) => {
-    if (isLocked) return;
-    mutation.mutate({
-      session_date: selectedDateIso,
-      batch_id: selectedBatch === "all" ? null : selectedBatch,
-      updates: [{ student_id: studentId, status }],
-    });
-  };
-
-  const handleBulk = (status: AttendanceStatus) => {
-    if (isLocked) return;
-    const updates = filteredRecords.map((r) => ({ student_id: r.student_id, status }));
-    mutation.mutate({
-      session_date: selectedDateIso,
-      batch_id: selectedBatch === "all" ? null : selectedBatch,
-      updates,
-    });
-  };
 
   // docs/design/overhaul-plan.md §3: the toolbar's search box ranks with the shared fzf
   // engine, so the grid must consume the same order — not a second `includes` filter that
@@ -95,8 +112,59 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
     ).map((hit) => hit.item);
   }, [records, searchQuery]);
 
+  /**
+   * The bulk actions act on `filteredRecords`, so that array IS the blast radius. A
+   * confirm that outlives a change to it would fire on rows the tutor never saw; the
+   * cancel path is the same button, so arming twice is not possible either.
+   */
+  const bulkTargetKey = `${selectedDateIso}|${selectedBatch}|${searchQuery.trim()}|${filteredRecords.length}`;
+  useEffect(() => {
+    setConfirmingAbsent(false);
+  }, [bulkTargetKey]);
+
+  useEffect(() => {
+    if (!confirmingAbsent) return;
+    const timer = setTimeout(() => setConfirmingAbsent(false), CONFIRM_ARM_MS);
+    return () => clearTimeout(timer);
+  }, [confirmingAbsent]);
+
+  const handleToggle = (studentId: string, status: AttendanceStatus) => {
+    if (isLocked) return;
+    setConfirmingAbsent(false);
+    mutation.mutate({
+      session_date: selectedDateIso,
+      batch_id: selectedBatch === "all" ? null : selectedBatch,
+      updates: [{ student_id: studentId, status }],
+    });
+  };
+
+  const commitBulk = (status: AttendanceStatus) => {
+    mutation.mutate({
+      session_date: selectedDateIso,
+      batch_id: selectedBatch === "all" ? null : selectedBatch,
+      updates: filteredRecords.map((r) => ({ student_id: r.student_id, status })),
+    });
+  };
+
+  /**
+   * Present is one tap because it is the safe default: nobody came is the common case and
+   * correcting it upward costs one tap per student. Absent is the direction that feeds
+   * fees, so it takes a second, explicit press. The alternative — confirming both —
+   * would train a tutor to click through the dialog that exists to protect them.
+   */
+  const requestBulk = (status: AttendanceStatus) => {
+    if (isLocked || filteredRecords.length === 0) return;
+    if (status === "absent" && !confirmingAbsent) {
+      setConfirmingAbsent(true);
+      return;
+    }
+    setConfirmingAbsent(false);
+    commitBulk(status);
+  };
+
   const isAllPresent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "present");
   const isAllAbsent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "absent");
+  const targetCount = filteredRecords.length;
 
   const counts = SUMMARY_META.reduce(
     (acc, m) => {
@@ -105,6 +173,10 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
     },
     {} as Record<AttendanceStatus, number>
   );
+
+  if (isLoading) {
+    return <ScreenSkeleton shape="roster" label="this day's attendance" rows={6} />;
+  }
 
   return (
     <div className="flex flex-col h-full gap-4">
@@ -127,22 +199,29 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
         ))}
       </div>
 
-      {/* Bulk Action Bar — M1 glass-strong sticky */}
+      {/* Bulk Action Bar — the one floating surface on this screen, so it is the
+          one that earns the material. `var(--mat-filter)` (docs/design/material-modes.md
+          §2) is the ONLY blur source in the app: in Minimal it resolves to `none`,
+          so switching material actually changes this bar instead of leaving a
+          hand-written 24px blur stranded outside the token scale. */}
       <div
         className="p-4 rounded-xl flex items-center justify-between sticky top-0 z-20 shadow-sm"
         style={{
           background: "var(--surface-overlay)",
-          backdropFilter: "blur(24px) saturate(160%)",
+          backdropFilter: "var(--mat-filter)",
+          WebkitBackdropFilter: "var(--mat-filter)",
           border: "1px solid var(--border-strong)",
         }}
       >
         <h2 className="text-sm font-semibold" style={{ color: "var(--text-secondary)", fontFamily: "var(--font-heading)" }}>
-          {filteredRecords.length} Students {searchQuery && "found"}
+          {targetCount} Students {searchQuery.trim().length > 0 && "found"}
         </h2>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button
-            onClick={() => handleBulk("present")}
-            disabled={isLocked}
+            type="button"
+            onClick={() => requestBulk("present")}
+            disabled={isLocked || targetCount === 0}
+            aria-label={`Mark all ${targetCount} students in view present`}
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
               !isAllPresent && "neumo-raised"
@@ -155,52 +234,71 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
               border: isAllPresent
                 ? "1px solid var(--success)"
                 : "1px solid var(--border-default)",
-              boxShadow: isAllPresent
-                ? "0 0 14px color-mix(in srgb, var(--success) 20%, transparent)"
-                : undefined,
-            }}
-            onMouseEnter={(e) => {
-              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--success)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isLocked && !isAllPresent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
             <Check className="w-4 h-4" style={{ color: "var(--success)" }} /> Mark all Present
           </button>
+
           <button
-            onClick={() => handleBulk("absent")}
-            disabled={isLocked}
+            type="button"
+            onClick={() => requestBulk("absent")}
+            disabled={isLocked || targetCount === 0}
+            aria-label={
+              confirmingAbsent
+                ? `Confirm: mark all ${targetCount} students in view absent. This changes their attendance for the whole day.`
+                : `Mark all ${targetCount} students in view absent. Needs a second press to confirm.`
+            }
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
               !isAllAbsent && "neumo-raised"
             )}
             style={{
-              background: isAllAbsent
+              background: isAllAbsent || confirmingAbsent
                 ? "color-mix(in srgb, var(--danger) 15%, transparent)"
                 : "var(--surface-raised)",
               color: "var(--text-primary)",
-              border: isAllAbsent
+              border: isAllAbsent || confirmingAbsent
                 ? "1px solid var(--danger)"
                 : "1px solid var(--border-default)",
-              boxShadow: isAllAbsent
-                ? "0 0 14px color-mix(in srgb, var(--danger) 20%, transparent)"
-                : undefined,
-            }}
-            onMouseEnter={(e) => {
-              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--danger)";
-            }}
-            onMouseLeave={(e) => {
-              if (!isLocked && !isAllAbsent) e.currentTarget.style.color = "var(--text-primary)";
             }}
           >
-            <X className="w-4 h-4" style={{ color: "var(--danger)" }} /> Mark all Absent
+            <X className="w-4 h-4" style={{ color: "var(--danger)" }} />
+            {confirmingAbsent ? `Confirm — mark ${targetCount} absent` : "Mark all Absent"}
           </button>
+
+          {/* The cancel half of the confirm. It exists because a single self-toggling
+              button cannot be escaped: pressing it again is how you commit. */}
+          {confirmingAbsent && (
+            <>
+              <p
+                className="text-xs max-w-[16rem]"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                This marks every student in view absent for the whole day.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmingAbsent(false)}
+                className="neumo-raised inline-flex min-h-[44px] items-center gap-1.5 px-3 rounded-lg text-sm font-semibold transition-all active:translate-y-px cursor-pointer"
+                style={{
+                  background: "var(--surface-raised)",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <XCircle className="w-4 h-4" aria-hidden="true" />
+                Cancel
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {errorToast && (
         <div
+          // Announced: a save that failed while the tutor's attention was on the grid is
+          // the one event here they must not have to poll for (AGENTS.md §2 Rule 10).
+          role="alert"
           className="px-4 py-2 rounded-lg text-sm flex items-center gap-2"
           style={{
             background: "color-mix(in srgb, var(--danger) 15%, transparent)",
@@ -208,16 +306,52 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
             color: "var(--text-primary)",
           }}
         >
-          <AlertTriangle className="w-4 h-4" style={{ color: "var(--danger)" }} /> {errorToast}
+          <AlertTriangle className="w-4 h-4 shrink-0" style={{ color: "var(--danger)" }} aria-hidden="true" />
+          <span>{errorToast}</span>
         </div>
       )}
 
       {/* Grid wrapper */}
       <GlassCard className="p-0 overflow-hidden flex-grow pb-20">
         <div className="overflow-y-auto h-full no-scrollbar">
-          {filteredRecords.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-sm" style={{ color: "var(--text-muted)" }}>
-              No students found for this batch.
+          {records.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 h-48 px-6 text-center"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <UserX className="size-6" style={{ color: "var(--text-muted)" }} aria-hidden="true" />
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                Nobody is enrolled in this batch
+              </p>
+              <p className="text-xs max-w-xs">
+                Add students to the batch on the Students screen, or pick
+                &ldquo;All batches&rdquo; to mark the whole institute.
+              </p>
+            </div>
+          ) : filteredRecords.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center gap-3 h-48 px-6 text-center"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                No student matches that search
+              </p>
+              <p className="text-xs max-w-xs">
+                {records.length} student{records.length === 1 ? " is" : "s are"} in view.
+                Nothing has been marked — clear the search to see everyone.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="neumo-raised inline-flex min-h-[44px] items-center px-3 rounded-lg text-sm font-semibold transition-all active:translate-y-px cursor-pointer"
+                style={{
+                  background: "var(--surface-raised)",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                Clear search
+              </button>
             </div>
           ) : (
             <div className="divide-y" style={{ borderColor: "var(--border-default)" }}>
@@ -233,24 +367,19 @@ export function AttendanceGrid({ records, session }: AttendanceGridProps) {
                     e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  <div className="flex items-center">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shadow-lg shrink-0"
-                      style={{
-                        background: "linear-gradient(135deg, var(--accent-primary), var(--accent-text))",
-                        color: "var(--accent-on-primary)",
-                      }}
-                    >
-                      {record.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="ml-4">
+                  <div className="flex items-center min-w-0">
+                    {/* Avatar — the shared implementation, not a third inline
+                        monogram. Same person, same colour, same weight as the
+                        roster row and the drawer header. */}
+                    <Avatar name={record.name} id={record.student_id} size="md" />
+                    <div className="ml-4 min-w-0">
                       <p
-                        className="text-sm font-semibold transition-colors group-hover:text-[var(--accent-primary)]"
+                        className="text-sm font-semibold truncate transition-colors group-hover:text-[var(--accent-primary)]"
                         style={{ color: "var(--text-primary)" }}
                       >
                         {record.name}
                       </p>
-                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
                         {record.batch || "No batch"}
                       </p>
                     </div>

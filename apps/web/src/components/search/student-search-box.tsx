@@ -320,7 +320,10 @@ export function StudentSearchBox<T>({
           className="absolute z-30 mt-1 w-full max-h-80 overflow-y-auto rounded-xl py-1"
           style={{
             background: "var(--surface-overlay)",
-            backdropFilter: "blur(24px) saturate(160%)",
+            // docs/design/material-modes.md §2 — the palette dropdown takes the
+            // material token, so the mode control is not inert here.
+            backdropFilter: "var(--mat-filter)",
+            WebkitBackdropFilter: "var(--mat-filter)",
             border: "1px solid var(--border-default)",
             boxShadow: "var(--shadow-overlay, 0 18px 40px rgba(0,0,0,0.28))",
           }}

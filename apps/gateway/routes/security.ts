@@ -1,11 +1,16 @@
 import type { RouteHandler } from "./students.ts";
-import { ok, fail } from "../lib/errors.ts";
+import { ok, fail, failValidation } from "../lib/errors.ts";
 import { invalidateTenant } from "../lib/cache.ts";
+import { logWarn } from "../lib/log.ts";
+import { checkRateLimit } from "../lib/crypto.ts";
 import {
   eraseTables,
+  oneRow,
   run,
   stmtEraseTable,
   stmtSecurityAuditInsert,
+  stmtSettingPinPresence,
+  type SqlHandle,
 } from "../lib/sql.ts";
 import {
   idempotencyRoute,
@@ -17,11 +22,33 @@ import {
 
 // POST /api/v1/security/erase — implements contracts/openapi.yaml
 // operationId `secureErase` ("Securely erase all tutor data").
-// Identity: the JWT-derived tenantId must match the body tutorId.
-// Confirmation: typed phrase "ERASE" per 10_Security.md 18.1 step 1 and the
-// auth-svc reference implementation (apps/services/auth-svc). PIN verification
-// is the app layer's gate (web deleteAccountAction, BR-SEC-04) — the edge
-// runtime has no argon2 and must never compare raw client-supplied hashes.
+//
+// Gates, in order, each fail-closed (10_Security.md §18.1 step 1, BR-SEC-04):
+//
+//   1. IDENTITY   — body `tutorId` must equal the JWT-derived tenantId.
+//   2. RATE LIMIT — 5 attempts per tenant per 15 min. The global IP limiter does
+//      not bound a single authenticated tutor hammering the most destructive
+//      endpoint in the product.
+//   3. PIN CONFIGURED — the tenant must HAVE a PIN. Without this gate a tutor
+//      who never set a PIN could wipe their whole institute from a stolen
+//      session, because the only re-auth factor (the PIN) did not exist to be
+//      checked. The web already refuses in that state
+//      (`deleteAccountAction`, apps/web/src/server/actions/settings.ts:638-640);
+//      the edge now refuses too, so the contract does not depend on which client
+//      is driving it.
+//   4. TYPED CONFIRMATION — `confirm` must be exactly "ERASE".
+//
+// KNOWN GAP, deliberately not papered over: the edge CANNOT verify the PIN
+// itself. `settings.pin_hash` is argon2id(m=64MiB, t=3, p=2) + a secret pepper
+// (apps/web/src/lib/crypto.ts:15-34) and the Deno edge runtime has no argon2 —
+// WebCrypto offers PBKDF2/SHKDF only, and the npm `argon2` package is a native
+// Node addon that will not bundle into an edge isolate. Adding a field named
+// `pin` that the gateway then compares against nothing would be decoration that
+// reads as re-authentication, so it is not added. Until a WASM argon2id or a
+// server-side PIN-proof (HMAC over the PIN keyed by GATEWAY_SHARED_SECRET,
+// emitted by the client app) is ratified, gates 1–4 plus the pre-wipe audit row
+// are the strongest set the edge can actually enforce. Escalated to the owner
+// with file:line references — see the worklog entry for 2026-10-04.
 export const handleSecurity: RouteHandler = async (req, db, tenantId, path, method) => {
   if (path === "/api/v1/security/erase" && method === "POST") {
     // RFC-004 C1 — fail-closed like every mutating route. The erase flow is
@@ -42,19 +69,48 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
       return fail("confirm must be 'ERASE'", 400);
     }
 
+    // Gate 2 — rate limit. Keyed on the tenant, not the tenantId alone, so an
+    // erase attempt cannot exhaust another endpoint's budget.
+    if (!checkRateLimit(`erase:${tenantId}`, 5, 15 * 60_000)) {
+      logWarn("security.erase_rate_limited", { tenantId, path });
+      return fail("too many erase attempts; wait and try again", 429);
+    }
+
+    // Gate 3 — fail closed when no PIN is configured. `pin_hash` is read only
+    // for presence; the value never leaves this function and never reaches the
+    // audit metadata (10_Security.md §1/§3.4).
+    const pinStmt = stmtSettingPinPresence(tenantId);
+    const pinRow = await oneRow(
+      // SAFETY: `SqlHandle` is the only capability this route uses; `DB` (the
+      // libsql client) satisfies it structurally.
+      db as unknown as SqlHandle,
+      pinStmt.sql,
+      pinStmt.args,
+    );
+    const pinConfigured = typeof pinRow?.pin_hash === "string" && pinRow.pin_hash.length > 0;
+    if (!pinConfigured) {
+      logWarn("security.erase_pin_unset", { tenantId, path });
+      return failValidation(
+        "No PIN configured. Set a security PIN in Settings → Security before " +
+          "erasing — the erase gate is a PIN confirmation, and there is nothing " +
+          "to confirm against. (10_Security.md §18.1 step 1, BR-SEC-04.)",
+      );
+    }
+
     // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE
     // any deletion, fail-closed — this insert is deliberately uncaught, so a
     // failed audit write aborts the erase while nothing has been destroyed.
-    // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE
-    // any deletion, fail-closed — this insert is deliberately uncaught, so a
-    // failed audit write aborts the erase while nothing has been destroyed.
+    // Committed on its own rather than folded into the cascade batch: a
+    // rollback that took the intent row with it would leave no forensic record
+    // of an erase that was attempted and failed partway.
     // `run()` (lib/sql.ts transport) takes `unknown[]` args, so the audited
     // builder output needs no cast — unlike `db.execute`'s narrow `InArgs`.
+    // Metadata records only that a PIN EXISTS, never anything derived from it.
     const initiatedAt = new Date().toISOString();
     const initiatedStmt = stmtSecurityAuditInsert(
       tenantId,
       "security.erase_initiated",
-      JSON.stringify({ confirm }),
+      JSON.stringify({ confirm, pinConfigured: true }),
       initiatedAt
     );
     await run(db, initiatedStmt.sql, initiatedStmt.args);

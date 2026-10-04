@@ -12,6 +12,34 @@ import { encryptResponse } from "./crypto.ts";
 import { getSecurityHeaders } from "./security.ts";
 import type { ZodError } from "zod";
 
+// ── CORS: the one allowlist, the one resolver ──────────────────────────────────
+// 10_Security.md §8 (no origin is trusted implicitly) + AGENTS.md §2 Rule 10.
+//
+// Why this lives here and not only in index.ts: `Access-Control-Allow-Origin` is
+// the one CORS header that DEPENDS ON THE REQUEST. Everything else
+// (Allow-Headers/Methods/Max-Age) is request-independent, so it can live in the
+// static `CORS_HEADERS` below. The origin cannot — which is precisely why the
+// static constant does not carry it. An origin resolved in two places is an
+// origin resolved inconsistently, and index.ts's copy was doing it wrongly.
+//
+// Three properties this resolver guarantees, each a real finding on 2026-10-04:
+//
+//  1. NO WILDCARD. `*` is never emitted. Combined with a bearer token in a
+//     header it would let any site drive the API; combined with
+//     `Access-Control-Allow-Credentials: true` the browser rejects the response
+//     outright (an invalid pairing that fails *closed* but confusingly).
+//  2. EXACT MATCH ONLY. The previous resolver used
+//     `Deno.env.get("ALLOWED_ORIGIN").includes(origin)` — a SUBSTRING test. With
+//     `ALLOWED_ORIGIN=https://buddysaradhi.app`, the origin
+//     `https://buddysaradhi.app.evil.com` contains that string and was granted
+//     credentialed CORS. `""` also matched, since `"x".includes("")` is true.
+//  3. FAIL CLOSED. An origin that is absent or not allowlisted gets NO
+//     `Access-Control-Allow-Origin` and NO `Access-Control-Allow-Credentials`,
+//     rather than the previous hardcoded `https://buddysaradhi.app` fallback
+//     (which asserted an allowlist membership that was never checked).
+//     Server-to-server callers (the web app's server actions, curl, the mobile
+//     SDK) send no `Origin` and need no CORS header at all, so failing closed
+//     breaks nothing that legitimately exists.
 const CORS_HEADERS: Record<string, string> = {
   // RFC-004 C1 — idempotency-key must survive preflight on route-level
   // responses too (mirrors index.ts getCorsHeaders).
@@ -21,12 +49,94 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Max-Age": "86400",
 };
 
+/** Origins that are the product itself. Allowed in every environment. */
+const PRODUCTION_CORS_ORIGINS = [
+  "https://buddysaradhi.app",
+  "https://www.buddysaradhi.app",
+  "https://buddysaradhi.vercel.app",
+  "https://buddysaradhi.store",
+  "https://buddysaradhi-product.vercel.app",
+] as const;
+
+/** Loopback only. Matches `apps/web/src/proxy.ts:22-29`, which allowlists
+ *  `localhost:3000`/`3001` + `tauri://localhost` for the desktop shell. Admitted
+ *  ONLY when not deployed, so a production gateway can never be driven from a
+ *  developer's machine. `tauri://localhost` is kept: the Tauri webview sends
+ *  this origin, and AGENTS.md §2 Rule 11 keeps desktop on the same contract. */
+const DEVELOPMENT_CORS_ORIGINS = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:3000",
+  "tauri://localhost",
+] as const;
+
+/** Deployment is a positive signal, never the absence of one. The previous
+ *  check treated a missing `SUPABASE_URL` as "local" and skipped the secret
+ *  validation entirely — the fail-open direction (lib/crypto.ts shares this). */
+function isDeployed(): boolean {
+  if (typeof Deno === "undefined") return false;
+  return Boolean(Deno.env.get("DENO_DEPLOYMENT_ID")) ||
+    Deno.env.get("DENO_ENV") === "production";
+}
+
+let originCache: { key: string; set: Set<string> } | null = null;
+
+/** The resolved allowlist for this process. Env overrides are SPLIT on commas
+ *  and whitespace and matched with `Set.has` — never with `String.includes`. */
+export function allowedCorsOrigins(): ReadonlySet<string> {
+  const read = (name: string): string =>
+    typeof Deno === "undefined" ? "" : Deno.env.get(name) || "";
+  // `??` is wrong here: an unset variable reads as `""` (never `undefined`), and
+  // `"" ?? x` is `""`. The singular spelling must fall through to the plural.
+  const env = read("ALLOWED_ORIGINS") || read("ALLOWED_ORIGIN");
+  const key = `${isDeployed() ? "prod" : "dev"}|${env}`;
+  if (originCache && originCache.key === key) return originCache.set;
+
+  const set = new Set<string>(PRODUCTION_CORS_ORIGINS);
+  if (!isDeployed()) for (const o of DEVELOPMENT_CORS_ORIGINS) set.add(o);
+  if (env) {
+    for (const raw of env.split(/[,\s]+/)) {
+      const trimmed = raw.trim();
+      if (trimmed) set.add(trimmed);
+    }
+  }
+  originCache = { key, set };
+  return set;
+}
+
+/** Full CORS header set for a request's `Origin` header value (may be `null`).
+ *
+ *  Returns the request-independent `CORS_HEADERS` plus, ONLY for an allowlisted
+ *  origin, the origin echo + `Vary: Origin` + `Access-Control-Allow-Credentials`.
+ *  `Vary: Origin` is mandatory: without it a shared cache can hand one origin's
+ *  credentialed response to another. */
+export function corsHeadersForOrigin(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = { ...CORS_HEADERS, Vary: "Origin" };
+  if (!origin) return headers;
+  if (!allowedCorsOrigins().has(origin)) return headers;
+  headers["Access-Control-Allow-Origin"] = origin;
+  headers["Access-Control-Allow-Credentials"] = "true";
+  return headers;
+}
+
+/** Test seam: forget the memoised allowlist after a `Deno.env` change. */
+export function resetCorsOriginCache(): void {
+  originCache = null;
+}
+
 const SECURITY_HEADERS = getSecurityHeaders();
 
 function mergeHeaders(extra?: Record<string, string>): Record<string, string> {
   return {
     ...SECURITY_HEADERS,
     ...CORS_HEADERS,
+    // `Access-Control-Allow-Origin` is deliberately NOT set here: it is
+    // request-dependent (see `corsHeadersForOrigin`). index.ts's
+    // `addSecurityHeaders` is the single writer of it, on every response it
+    // returns. A module that answered responses without a request in hand
+    // cannot resolve an origin, and guessing one is the wildcard bug this
+    // comment replaced.
+    Vary: "Origin",
     ...extra,
   };
 }

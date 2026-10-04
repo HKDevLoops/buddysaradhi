@@ -21,3 +21,4 @@ __exportStar(require("./utils/format"), exports);
 __exportStar(require("./outboxPayload"), exports);
 __exportStar(require("./types"), exports);
 __exportStar(require("./fuzzy"), exports);
+__exportStar(require("./pin"), exports);

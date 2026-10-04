@@ -1,186 +1,103 @@
-import React from "react";
-import { format } from "date-fns";
-import { CalendarCheck } from "lucide-react";
+"use client";
+
+// Implements: 05_Students.md §6.4 (Detail Drawer → Attendance tab) + AGENTS.md §2
+// Rule 9 (no silent failures) and Rule 11 (accuracy over decoration).
+//
+// ── Why this file no longer draws a calendar ──────────────────────────────────
+//
+// This tab used to generate the current month's attendance from a PRNG seeded on
+// the student's id (`makeRng(studentId)` → `mockStatus()`), then render the
+// result as hardcoded tutor-facing facts: a "{month} Rate" percentage, a
+// "22/30 days" count, and "Last Attended · Today · On time". Those numbers were
+// plausible, non-zero, and unrelated to anything the tutor had recorded.
+//
+// It was not a placeholder and it was not a loading state. It was a fabricated
+// record of a child's attendance, on the surface a tutor opens specifically to
+// sanity-check one. A tutor who marked 30 days by hand, opened this tab to
+// confirm, saw a confident number, and filed nothing — because a fabricated
+// figure that looks right is the one kind of wrong answer a human being does not
+// distrust. The student who was actually absent 11 times had no way to find out.
+//
+// Every other read-failure defect in this app had the same shape — a failed read
+// rendering as zero — and every one of them is closed by `ErrorState`, whose
+// `dataStatus` is required and undefaulted so a surface that cannot say what is
+// safe for the tutor cannot render. This one was worse in kind: there was no
+// read to fail, so there was no state in which it told the truth.
+//
+// ── Why there is no query here either ─────────────────────────────────────────
+//
+// There is no per-student attendance read. `GET /api/v1/attendance` is by DATE
+// (`apps/gateway/routes/attendance.ts:58`), so assembling a month means up to 31
+// requests — against the free-tier budget in RFC-003 §0 and `AGENTS.md` §1.2.
+// Inventing the numbers client-side was cheaper and wrong. Adding the endpoint
+// is a gateway contract change (RFC per `AGENTS.md` §8), not a UI fix, so it is
+// recorded as owner work rather than smuggled in here.
+//
+// So the tab states the truth, and tells the tutor where the data they want
+// actually lives: the Attendance screen, which does read real records.
+
+import { CalendarCheck, CalendarX } from "lucide-react";
 
 interface AttendanceTabProps {
   studentId: string;
+  /** Optional: the student's display name, so the message can be specific. */
+  studentName?: string;
 }
 
-const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-
-function makeRng(seedStr: string): () => number {
-  let h = 2166136261;
-  for (let i = 0; i < seedStr.length; i++) {
-    h ^= seedStr.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return () => {
-    h += 0x6d2b79f5;
-    let t = h;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function mockStatus(date: Date, rng: () => number): number {
-  const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-  if (isWeekend) return 3; // no class
-  const rand = rng();
-  if (rand > 0.18) return 1; // present
-  if (rand > 0.09) return 2; // late
-  return 0; // absent
-}
-
-export function AttendanceTab({ studentId }: AttendanceTabProps) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstWeekday = new Date(year, month, 1).getDay();
-
-  const cells: { day: number | null; date: Date | null; status: number }[] = [];
-  const rng = makeRng(studentId);
-  for (let i = 0; i < firstWeekday; i++) {
-    cells.push({ day: null, date: null, status: -1 });
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(year, month, d);
-    cells.push({ day: d, date, status: mockStatus(date, rng) });
-  }
-
-  const monthDays = cells.filter((c) => c.date);
-  const presentDays = monthDays.filter(
-    (c) => c.status === 1 || c.status === 2
-  ).length;
-  const classDays = monthDays.filter((c) => c.status !== 3).length;
-  const rate = classDays > 0 ? Math.round((presentDays / classDays) * 100) : 0;
-
-  const statusColor = (status: number) => {
-    switch (status) {
-      case 1:
-        return "bg-[var(--success)]/80 shadow-[0_0_6px_color-mix(in srgb, var(--success) 0.35, transparent)]";
-      case 2:
-        return "bg-[var(--warning)]/80";
-      case 0:
-        return "bg-[var(--danger)]/80";
-      default:
-        return "bg-[var(--surface-inset)]";
-    }
-  };
-  const statusLabel = (status: number) =>
-    status === 1
-      ? "Present"
-      : status === 2
-      ? "Late"
-      : status === 0
-      ? "Absent"
-      : "No Class";
+export function AttendanceTab({ studentId, studentName }: AttendanceTabProps) {
+  const who = studentName?.trim();
 
   return (
-    <div className="space-y-5">
-      {/* Metrics */}
-      <div className="grid grid-cols-2 gap-4">
-        <div
-          className="p-4 rounded-xl border flex flex-col justify-between"
-          style={{
-            background: "var(--surface-inset)",
-            borderColor: "var(--border-default)",
-          }}
-        >
-          <div className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--text-muted)" }}>
-            {format(now, "MMMM yyyy")} Rate
-          </div>
-          <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
-              {rate}%
-            </span>
-            <span className="text-sm mb-1" style={{ color: "var(--text-muted)" }}>
-              {presentDays}/{classDays} days
-            </span>
-          </div>
-        </div>
-        <div
-          className="p-4 rounded-xl border flex flex-col justify-between"
-          style={{
-            background: "var(--surface-inset)",
-            borderColor: "var(--border-default)",
-          }}
-        >
-          <div className="text-xs uppercase tracking-wider font-semibold mb-2" style={{ color: "var(--text-muted)" }}>
-            Last Attended
-          </div>
-          <div className="flex flex-col">
-            <span className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-              Today
-            </span>
-            <span className="text-sm font-medium" style={{ color: "var(--success)" }}>
-              On time
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Mini calendar */}
+    <div className="space-y-4">
       <div
-        className="p-5 rounded-xl border space-y-4"
+        className="flex flex-col items-center gap-3 rounded-xl border px-5 py-8 text-center"
         style={{
           background: "var(--surface-inset)",
           borderColor: "var(--border-default)",
         }}
       >
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
-            Attendance Calendar
+        <span
+          className="flex size-11 items-center justify-center rounded-full"
+          style={{
+            background: "color-mix(in srgb, var(--warning) 15%, transparent)",
+            color: "var(--warning)",
+          }}
+          aria-hidden="true"
+        >
+          <CalendarX className="size-5" />
+        </span>
+
+        <div>
+          <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+            Per-student attendance history isn&rsquo;t read yet
           </h3>
-          <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--success)]/80" /> Present
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--warning)]/80" /> Late
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[var(--danger)]/80" /> Absent
-            </span>
-          </div>
+          <p className="mx-auto mt-2 max-w-[46ch] text-sm" style={{ color: "var(--text-secondary)" }}>
+            This tab used to draw a month from made-up numbers, which is worse
+            than an empty tab — it looked like your records. Nothing is shown here
+            now because nothing real is available here yet.
+          </p>
         </div>
 
-        <div className="grid grid-cols-7 gap-1.5 text-center">
-          {WEEKDAYS.map((w, i) => (
-            <div
-              key={i}
-              className="text-xs font-semibold py-1"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {w}
-            </div>
-          ))}
-          {cells.map((c, i) => (
-            <div
-              key={i}
-              className={`aspect-square rounded-md flex items-center justify-center text-xs ${
-                c.day ? statusColor(c.status) : ""
-              } ${c.day ? "text-[var(--accent-on-primary)]" : ""}`}
-              style={!c.day ? { background: "transparent" } : undefined}
-              title={
-                c.date
-                  ? `${format(c.date, "MMM d, yyyy")}: ${statusLabel(c.status)}`
-                  : undefined
-              }
-            >
-              {c.day ?? ""}
-            </div>
-          ))}
-        </div>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          {who ? `${who}&rsquo;s` : "This student&rsquo;s"} marked days live on the{" "}
+          <strong style={{ color: "var(--text-primary)" }}>Attendance</strong> screen —
+          pick the date and the batch, and the grid shows what was actually marked.
+        </p>
+
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <span className="num" data-student-id={studentId}>
+            Showing no figures is not the same as showing zero.
+          </span>
+        </p>
       </div>
 
-      <div className="flex justify-center">
-        <button className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors" style={{ background: "var(--surface-inset)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }} onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}>
-          <CalendarCheck className="w-4 h-4" />
-          Open in Attendance &rarr;
-        </button>
-      </div>
+      <p className="flex items-start gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+        <CalendarCheck className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>
+          Owner work: add a per-student attendance read to the gateway, then replace
+          this panel with the real month. Tracked in the session worklog.
+        </span>
+      </p>
     </div>
   );
 }

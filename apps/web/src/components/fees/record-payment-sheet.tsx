@@ -13,17 +13,26 @@
 // amount, method, reference, date, description — which the server action
 // re-validates with the same Zod schema before any DB call. Nothing is
 // re-derived between preview and post. The receipt NUMBER is issued on
-// commit (monotonic per BR-RC-01, never reused); the preview says so
-// instead of fabricating a number. Attribution follows §9.6 step 5
-// (earliest-due-first; surplus auto-invoiced) — stated, not picked.
+// commit (monotonic, never reused); the preview says so instead of
+// fabricating a number. Attribution is earliest-due-first with any surplus
+// auto-invoiced as advance — stated, not picked.
+//
+// Feedback (docs/design/overhaul-plan.md §2): the sheet used to close inside
+// `onMutate`, so the typed ₹5,000 vanished before the server had answered and a
+// failure looked exactly like a success. It now closes on success, toasts the
+// receipt number, toasts the failure and keeps the sheet open with the values
+// intact, and refuses to discard a filled-in form on Escape or a scrim click.
 
 import { useMemo, useState } from "react";
 import { useFeesStore } from "@/stores/fees-store";
 import { recordPaymentAction } from "@/server/actions/fees";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { X, Wallet, AlertTriangle } from "lucide-react";
+import { Wallet, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { formatINR } from "@buddysaradhi/shared";
+import { useToast } from "@/components/ui/toast";
+import { useOverlayDismiss, DiscardChangesPrompt, OverlayCloseButton } from "@/components/ui/overlay";
+import { Explain } from "@/components/ui/explain";
 import type { getLedgerForStudent } from "@/server/queries/fees";
 import type { getStudentsForFees } from "@/server/queries/fees";
 import {
@@ -55,6 +64,7 @@ function todayIso(): string {
 export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: RecordPaymentSheetProps) {
   const { isPaymentSheetOpen, setPaymentSheetOpen } = useFeesStore();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
@@ -63,6 +73,43 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
   const [dateIso, setDateIso] = useState(todayIso);
   const [advanceAck, setAdvanceAck] = useState(false);
   const [backdatePin, setBackdatePin] = useState("");
+
+  const resetForm = () => {
+    setAmount("");
+    setMethod("cash");
+    setReference("");
+    setDescription("Tuition Fee Payment");
+    setDateIso(todayIso());
+    setAdvanceAck(false);
+    setBackdatePin("");
+  };
+
+  const closeSheet = () => {
+    setPaymentSheetOpen(false);
+    resetForm();
+  };
+
+  // Any typed value makes the form dirty; the untouched default description is
+  // not the tutor's work.
+  const dirty =
+    amount.trim().length > 0 ||
+    reference.trim().length > 0 ||
+    backdatePin.trim().length > 0 ||
+    description.trim() !== "Tuition Fee Payment";
+
+  const {
+    panelRef,
+    onScrimClick,
+    confirmThenClose,
+    setDiscardOpen,
+    discardOpen,
+    discardQuestion,
+  } = useOverlayDismiss({
+    open: isPaymentSheetOpen,
+    onClose: closeSheet,
+    dirty,
+    label: "payment form",
+  });
 
   const mutation = useMutation({
     mutationFn: (args: {
@@ -73,11 +120,14 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       method: PaymentMethod;
       reference: string;
       advanceAcknowledged: boolean;
+      /** BR-SEC-04 — present only when `receivedOn` is before today. */
+      backdatePin?: string;
     }) =>
       recordPaymentAction(args.studentIdSafe, args.amountPaise, args.description, args.receivedOn, {
         method: args.method,
         reference: args.reference,
         advanceAcknowledged: args.advanceAcknowledged,
+        pin: args.backdatePin,
       }),
     onMutate: async (args) => {
       await queryClient.cancelQueries({ queryKey: ["ledger"] });
@@ -127,33 +177,45 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
         };
       });
 
-      closeSheet();
-
       return { prevLedger, prevStudents };
     },
-    onError: (_err, _args, context) => {
+    // Rule 9: the outcome is stated, every time, either way. A rejected payment
+    // keeps the sheet open with every value intact; only a real commit closes it.
+    onSuccess: (result, args) => {
+      if (result.success !== true) {
+        toast.error("Payment not saved", `${result.error} Nothing was written.`);
+        return;
+      }
+      const { applied, autoInvoiceNumber } = result.data;
+      const detail =
+        applied.length > 0
+          ? `Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`
+          : autoInvoiceNumber
+            ? `Held as advance against new invoice ${autoInvoiceNumber}`
+            : "Held as advance — no unpaid invoice to apply it to";
+      toast.success(
+        `Payment recorded — ${formatINR(args.amountPaise)}`,
+        `${PAYMENT_METHOD_LABELS[args.method]} · ${detail}`,
+      );
+      closeSheet();
+    },
+    onError: (error, _args, context) => {
       const ctx = context as
         | { prevLedger?: LedgerQueryData; prevStudents?: FeesStudentsQueryData }
         | undefined;
       if (ctx?.prevLedger) queryClient.setQueryData(["ledger", studentId], ctx.prevLedger);
       if (ctx?.prevStudents) queryClient.setQueryData(["fees-students"], ctx.prevStudents);
+      // The sheet stays open with every value intact so the tutor can retry.
+      toast.error(
+        "Payment not saved",
+        `${error.message} Nothing was written — check your connection and try again.`,
+      );
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["ledger"] });
       queryClient.invalidateQueries({ queryKey: ["fees-students"] });
     },
   });
-
-  const closeSheet = () => {
-    setPaymentSheetOpen(false);
-    setAmount("");
-    setMethod("cash");
-    setReference("");
-    setDescription("Tuition Fee Payment");
-    setDateIso(todayIso());
-    setAdvanceAck(false);
-    setBackdatePin("");
-  };
 
   // Live receipt preview — pure, client-side, zero network (free-tier: no
   // per-keystroke remote calls). The submit below posts these exact values.
@@ -179,15 +241,35 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
     return { amountPaise, refError, backdated, balanceKnown, split, excess, errors };
   }, [amount, method, reference, dateIso, balanceDuePaise, advanceAck, backdatePin]);
 
+  // A server rejection arrives as a resolved `{success:false}` payload, not a
+  // thrown error, so it is surfaced inline here as well as in the toast — the
+  // tutor is looking at the sheet, not the corner of the screen.
+  const serverError =
+    mutation.isSuccess && mutation.data && mutation.data.success !== true
+      ? mutation.data.error
+      : mutation.isError && mutation.error instanceof Error
+        ? mutation.error.message
+        : null;
+
+  /**
+   * A payment must NAME its subject. `studentId` arriving without a resolvable
+   * name is not a cosmetic gap — it renders an empty Student field over an
+   * enabled Save button, and a payment that names nobody is a payment the tutor
+   * cannot find, reconcile, or reverse (Rule 9). Both props are part of one
+   * fact, so they resolve together: no id, or no name, means no subject.
+   */
+  const subjectName = studentName?.trim() ?? "";
+  const subjectResolved = studentId !== null && studentId.length > 0 && subjectName.length > 0;
+
   const canSubmit =
-    studentId !== null &&
+    subjectResolved &&
     preview.amountPaise !== null &&
     preview.errors.length === 0 &&
     !mutation.isPending;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentId || preview.amountPaise === null || preview.errors.length > 0) return;
+    if (!studentId || !subjectResolved || preview.amountPaise === null || preview.errors.length > 0) return;
     // Posts EXACTLY what was previewed — no silent recompute.
     mutation.mutate({
       studentIdSafe: studentId,
@@ -197,6 +279,11 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       method,
       reference: reference.trim(),
       advanceAcknowledged: advanceAck,
+      // BR-SEC-04: the PIN is only posted when the payment is backdated. It used
+      // to be collected, shown behind a "fresh PIN required" panel, and dropped
+      // here — so the server never saw it and the gate was decoration. The
+      // server re-derives `isBackdated` from the date rather than trusting this.
+      backdatePin: preview.backdated ? backdatePin : undefined,
     });
   };
 
@@ -211,39 +298,61 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-[var(--surface-scrim)] backdrop-blur-sm transition-opacity"
-        onClick={closeSheet}
-      />
+      {/* Scrim — clicking asks first when the form holds typed work. */}
+      <div className="absolute inset-0" onClick={onScrimClick} aria-hidden="true" />
 
       {/* Sheet Content - .glass-strong */}
-      <div className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] shadow-2xl flex flex-col transform transition-transform duration-300">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Record payment"
+        tabIndex={-1}
+        className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] flex flex-col"
+      >
         <div className="p-6 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
-            <Wallet className="w-5 h-5 text-[var(--success)]" />
+            <Wallet className="w-5 h-5 text-[var(--success)]" aria-hidden="true" />
             Record Payment
           </h2>
-          <button
-            onClick={closeSheet}
-            aria-label="Close record payment sheet"
-            className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-[var(--surface-overlay)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <OverlayCloseButton onClick={confirmThenClose} label="Close record payment sheet" />
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-          {!studentId ? (
-            <div className="text-[var(--text-muted)] text-sm text-center py-8">
-              Please select a student from the sidebar first.
+          {!subjectResolved ? (
+            /* Blocking, not a hint. Two different causes land here — no student
+               selected at all, or a selected student the current roster can no
+               longer resolve — and both name the recovery. The Save button below
+               stays disabled; nothing is posted, so nothing can half-post. */
+            <div role="alert" className="flex flex-col items-center gap-3 text-center py-10">
+              <AlertTriangle className="w-9 h-9 shrink-0" style={{ color: "var(--warning)" }} aria-hidden="true" />
+              <p className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+                No student to record this payment against.
+              </p>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                {studentId === null || studentId.length === 0
+                  ? "Close this sheet, choose a student from the list, then record the payment."
+                  : "The student this payment was opened for is no longer in your list. Close this sheet, choose the student again, then record the payment."}
+              </p>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Nothing has been recorded. A payment is always saved against a named student, so this
+                one cannot be saved until you pick one.
+              </p>
+              <button
+                type="button"
+                onClick={closeSheet}
+                className="mt-2 min-h-[44px] neumo-raised px-5 py-2 rounded-lg text-sm font-semibold"
+                style={{ color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+              >
+                Close and pick a student
+              </button>
             </div>
           ) : (
             <form id="payment-form" onSubmit={handleSubmit} className="space-y-6">
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">Student</label>
                 <div className="neumo-inset bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-[var(--text-primary)]">
-                  {studentName}
+                  {subjectName}
                 </div>
               </div>
 
@@ -327,6 +436,13 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       aria-label="Fresh PIN for backdated payment"
                       className="neumo-inset mt-2 w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none"
                     />
+                    {/* BR-SEC-04 asks for a PIN on a backdated payment and the panel
+                        above states the requirement, but not the reason — so a tutor
+                        reads it as an obstacle and a 4-8 digit PIN they cannot set from
+                        this sheet as a dead end. The explanation sits under the input
+                        it explains and states both, in place, with nowhere to click
+                        away to. Nothing in the payment path changed. */}
+                    <Explain concept="backdated-payment-pin" className="mt-1" />
                   </div>
                 )}
               </div>
@@ -354,7 +470,8 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   <span className="text-[var(--text-primary)]">
                     Mark as advance payment
                     <span className="block text-xs text-[var(--text-muted)]">
-                      Surplus beyond balance goes to the advance wallet (EC-F-02)
+                      Anything beyond the balance due is kept as advance and used against the next
+                      invoice.
                     </span>
                   </span>
                 </label>
@@ -380,10 +497,11 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                         )}
                       </p>
                     )}
-                    <p className="text-xs text-[var(--text-muted)]">
-                      Applies earliest-due-first (§9.6 step 5)
-                      {preview.split?.isAdvance ? "; surplus auto-invoiced as advance" : ""} · Receipt
-                      number issued on commit — monotonic, never reused (BR-RC-01)
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      Applied to the oldest unpaid invoice first
+                      {preview.split?.isAdvance ? "; anything left over is held as advance on a new invoice" : ""}.
+                      Your receipt number is issued the moment this saves, and no receipt number is ever
+                      reused.
                     </p>
                   </>
                 ) : (
@@ -391,9 +509,10 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                 )}
               </div>
 
-              {mutation.error && (
-                <div role="alert" className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
-                  {mutation.error.message}
+              {serverError && (
+                <div role="alert" className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/25 text-[var(--danger)] text-sm">
+                  <span className="font-semibold">Not saved. </span>
+                  {serverError} Nothing was written — your entry is still here, fix it and try again.
                 </div>
               )}
               {preview.errors.length > 0 && preview.amountPaise !== null && (
@@ -410,12 +529,28 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
             type="submit"
             form="payment-form"
             disabled={!canSubmit}
-            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-gradient-to-r from-[var(--success)] to-[var(--info)] shadow-[0_0_15px_color-mix(in srgb, var(--success) 0.3, transparent)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
+            aria-busy={mutation.isPending}
+            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-[var(--accent-primary)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
           >
-            {mutation.isPending ? "Recording..." : "Save Payment"}
+            {mutation.isPending ? "Saving payment…" : "Save payment"}
           </button>
+          {mutation.isPending ? (
+            <p className="mt-2 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+              Writing to your ledger. Keep this window open.
+            </p>
+          ) : null}
         </div>
       </div>
+
+      <DiscardChangesPrompt
+        open={discardOpen}
+        question={discardQuestion}
+        onKeep={() => setDiscardOpen(false)}
+        onDiscard={() => {
+          setDiscardOpen(false);
+          closeSheet();
+        }}
+      />
     </div>
   );
 }
