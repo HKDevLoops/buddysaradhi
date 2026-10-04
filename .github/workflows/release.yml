@@ -80,7 +80,7 @@ jobs:
         if: ${{ inputs.promote_desktop }}
         run: |
           VERSION=${{ inputs.version }}
-          bun run scripts/promote-manifest.mjs \
+          node scripts/promote-manifest.ts \
             --from manifests/desktop-staging.json \
             --to manifests/desktop-stable.json \
             --version "$VERSION"
@@ -89,12 +89,12 @@ jobs:
 
       - name: Verify stable manifest
         if: ${{ inputs.promote_desktop }}
-        run: bun run scripts/verify-manifest.mjs --manifest manifests/desktop-stable.json
+        run: node scripts/verify-manifest.ts --manifest manifests/desktop-stable.json
 
       - name: Upload changelog to Blob
         run: |
           VERSION=${{ inputs.version }}
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path CHANGELOG_ENTRY.md \
             --blob-pathname "changelogs/${VERSION}.md" \
             --content-type "text/markdown"

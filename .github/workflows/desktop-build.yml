@@ -140,7 +140,7 @@ jobs:
             ubuntu-22.04)   BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}" ;;
           esac
           # Upload
-          UPLOAD_RESULT=$(bun run scripts/blob-upload.mjs \
+          UPLOAD_RESULT=$(node scripts/blob-upload.ts \
             --local-path "$INSTALLER" \
             --blob-pathname "$BLOB_PATH" \
             --content-type "application/octet-stream" \
@@ -168,7 +168,7 @@ jobs:
             macos-latest)   SIG_BLOB_PATH="desktop/macos/Buddysaradhi-${VERSION}-universal.${{ matrix.installer_ext }}.sig" ;;
             ubuntu-22.04)   SIG_BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}.sig" ;;
           esac
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path "$SIG_FILE" \
             --blob-pathname "$SIG_BLOB_PATH" \
             --content-type "application/octet-stream"
@@ -198,7 +198,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           # The build job's outputs are arrays (one per matrix entry); iterate
-          bun run scripts/build-manifest.mjs \
+          node scripts/build-manifest.ts \
             --version "$VERSION" \
             --commit "${{ github.sha }}" \
             --output manifests/desktop-staging.json
@@ -206,7 +206,7 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Verify manifest
-        run: bun run scripts/verify-manifest.mjs --manifest manifests/desktop-staging.json
+        run: node scripts/verify-manifest.ts --manifest manifests/desktop-staging.json
 
       - name: Notify on completion
         run: |

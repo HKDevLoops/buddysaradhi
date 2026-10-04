@@ -153,7 +153,7 @@ jobs:
       - name: Mirror APK to Vercel Blob
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          bun run scripts/blob-upload.mjs \
+          node scripts/blob-upload.ts \
             --local-path Buddysaradhi.apk \
             --blob-pathname "mobile/android/Buddysaradhi-${VERSION}-universal.apk" \
             --content-type "application/vnd.android.package-archive"
