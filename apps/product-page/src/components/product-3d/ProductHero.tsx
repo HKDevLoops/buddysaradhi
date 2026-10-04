@@ -22,7 +22,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "./Poster";
@@ -97,8 +97,18 @@ const BEATS = [
 
 /** Oddy-pattern headline: letters scatter in on every beat change (CSS, cheap).
  *  The per-character spans are hidden from assistive tech; the sr-only copy is
- *  the single accessible reading of the headline. */
+ *  the single accessible reading of the headline.
+ *
+ *  Word integrity (P0 fix): each word is one `inline-block nowrap` unit and the
+ *  gaps between words are real space text nodes, so line breaks happen ONLY
+ *  between words. The previous shape mapped every character (with NBSP glued
+ *  inside `inline-block` char spans and no inter-word text node), which gave
+ *  every char boundary an equal break opportunity — `text-balance` then split
+ *  inside words ("engin es", "ledge r") and the NBSP-glued line overflowed the
+ *  panel. Animation delay still runs on the global char index. */
 function ScatterTitle({ text, beat }: { text: string; beat: number }) {
+  const words = text.split(" ");
+  let charIndex = 0;
   return (
     <h1
       key={beat}
@@ -106,15 +116,26 @@ function ScatterTitle({ text, beat }: { text: string; beat: number }) {
       style={{ color: "var(--text-primary)" }}
     >
       <span aria-hidden="true">
-        {text.split("").map((ch, i) => (
-          <span
-            key={i}
-            className="scatter-char"
-            style={{ animationDelay: `${Math.min(i * 12, 400)}ms` }}
-          >
-            {ch === " " ? " " : ch}
-          </span>
-        ))}
+        {words.map((word, wi) => {
+          const start = charIndex;
+          charIndex += word.length + 1;
+          return (
+            <Fragment key={wi}>
+              <span className="scatter-word">
+                {word.split("").map((ch, ci) => (
+                  <span
+                    key={ci}
+                    className="scatter-char"
+                    style={{ animationDelay: `${Math.min((start + ci) * 12, 400)}ms` }}
+                  >
+                    {ch}
+                  </span>
+                ))}
+              </span>
+              {wi < words.length - 1 ? " " : null}
+            </Fragment>
+          );
+        })}
       </span>
       <span className="sr-only">{text}</span>
     </h1>
@@ -244,9 +265,13 @@ export function ProductHero() {
 
         {/* DOM overlay: the accessible surface (canvas is aria-hidden). This is
             the one floating region on the page besides the nav, which is what
-            material-modes.md §5.2 cap 2 allows. */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-center p-6 md:p-12">
-          <div className="mat mat-fresnel pointer-events-auto w-full max-w-xl rounded-panel p-6 md:p-8">
+            material-modes.md §5.2 cap 2 allows.
+            P1 fix: the bottom reserve (`pb-44` / `md:pb-40`) holds room for the
+            pins + skip-link cluster below, so the centred panel can never slide
+            under it at 1280x720. The panel scrolls internally on very short
+            viewports instead of overlapping (`max-h-full overflow-y-auto`). */}
+        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-12 md:pb-40">
+          <div className="mat mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
             <p className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
               {current.kicker}
             </p>
@@ -338,6 +363,7 @@ export function ProductHero() {
 
       <style>{`
         .scatter-in { overflow: hidden; }
+        .scatter-word { display: inline-block; white-space: nowrap; }
         .scatter-char {
           display: inline-block;
           opacity: 0;

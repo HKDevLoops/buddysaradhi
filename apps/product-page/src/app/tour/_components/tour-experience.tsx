@@ -8,7 +8,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "@/components/product-3d/Poster";
@@ -33,8 +33,18 @@ const TourCanvas = dynamic(() => import("./tour-canvas").then((m) => m.TourCanva
 
 /** Stop heading: the hero's scatter-in treatment, one level down. The `/tour`
  *  H1 lives in the server page (FM-13: H1-in-SSR-HTML), so every overlay
- *  heading here is an H2 - one H1 per document. */
+ *  heading here is an H2 - one H1 per document.
+ *
+ *  Word integrity (P0 fix, mirrors ProductHero ScatterTitle): each word is
+ *  one `inline-block nowrap` unit and the gaps between words are real space
+ *  text nodes, so line breaks happen ONLY between words. The previous shape
+ *  mapped every character (NBSP glued inside `inline-block` char spans, no
+ *  inter-word text node), giving every char boundary an equal break
+ *  opportunity — `text-balance` then split inside words. Animation delay
+ *  still runs on the global char index. */
 function StopTitle({ text, stop }: { text: string; stop: number }) {
+  const words = text.split(" ");
+  let charIndex = 0;
   return (
     <h2
       key={stop}
@@ -42,15 +52,26 @@ function StopTitle({ text, stop }: { text: string; stop: number }) {
       style={{ color: "var(--text-primary)" }}
     >
       <span aria-hidden="true">
-        {text.split("").map((ch, i) => (
-          <span
-            key={i}
-            className="scatter-char"
-            style={{ animationDelay: `${Math.min(i * 12, 400)}ms` }}
-          >
-            {ch === " " ? " " : ch}
-          </span>
-        ))}
+        {words.map((word, wi) => {
+          const start = charIndex;
+          charIndex += word.length + 1;
+          return (
+            <Fragment key={wi}>
+              <span className="scatter-word">
+                {word.split("").map((ch, ci) => (
+                  <span
+                    key={ci}
+                    className="scatter-char"
+                    style={{ animationDelay: `${Math.min((start + ci) * 12, 400)}ms` }}
+                  >
+                    {ch}
+                  </span>
+                ))}
+              </span>
+              {wi < words.length - 1 ? " " : null}
+            </Fragment>
+          );
+        })}
       </span>
       <span className="sr-only">{text}</span>
     </h2>
@@ -239,9 +260,14 @@ export function TourExperience() {
           </div>
         )}
 
-        {/* DOM overlay: the accessible surface (canvas is aria-hidden). */}
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-center p-6 md:p-12">
-          <div className="mat mat-fresnel pointer-events-auto w-full max-w-xl rounded-panel p-6 md:p-8">
+        {/* DOM overlay: the accessible surface (canvas is aria-hidden).
+            P1 fix (mirrors ProductHero): the bottom reserve (`pb-44` /
+            `md:pb-40`) holds room for the pins + prev/next + skip-link
+            cluster below, so the centred panel can never slide under it at
+            1280x720. The panel scrolls internally on very short viewports
+            instead of overlapping (`max-h-full overflow-y-auto`). */}
+        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-12 md:pb-40">
+          <div className="mat mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
             <p className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
               {current.kicker}
             </p>
@@ -329,6 +355,7 @@ export function TourExperience() {
 
       <style>{`
         .scatter-in { overflow: hidden; }
+        .scatter-word { display: inline-block; white-space: nowrap; }
         .scatter-char {
           display: inline-block;
           opacity: 0;
