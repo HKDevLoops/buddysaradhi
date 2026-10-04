@@ -2002,3 +2002,43 @@ for the first time.
 - Single-tenant build, so no bulk actions on the roster (needs gateway mutations).
 - Nothing has been verified by rendered pixel, computed size or contrast ratio —
   no browser was available in any of these sessions.
+---
+
+**Task ID**: `VISUAL-WORLD-03-CI` **Agent**: Kilo **Task**: Fix the CI failure
+introduced by shipping design-system consumers, found by pushing.
+
+**Work Log**:
+
+Pushing `da3d0d7` turned `lint`, `Production Gate (P1)` and `CI / Testing` red —
+all three with the same TS2307: `Cannot find module '@buddysaradhi/design-system'`
+from `apps/web/src/lib/palettes.ts`.
+
+Root cause, and it is not a code defect in the change: **`packages/design-system/dist/`
+is gitignored** (`.gitignore:27`), and the root `typecheck` script ran
+`pnpm --filter web typecheck` without building it. A consumer's types must exist
+before the consumer typechecks; locally I had `dist/` only because an earlier
+session had built it, so every local gate passed while a clean runner had nothing
+to resolve. This would have broken on any fresh clone, and it was introduced when
+the web app first imported the package specifier.
+
+Fixed at both call sites:
+- `package.json` — `typecheck` and `build` now run
+  `pnpm --filter @buddysaradhi/design-system build` first.
+- `.github/workflows/web-prod-gate.yml:81` — the `Web / Typecheck` step called
+  the filter directly, bypassing the root script, so it builds explicitly. Caught
+  a YAML indentation break in my own first edit and fixed it; all workflow files
+  now parse.
+
+**Verified against the exact CI condition**, not by inspection: deleted
+`packages/design-system/dist/`, then ran both paths. `pnpm run typecheck` → 0,
+and `design-system build && web typecheck` → 0.
+
+**Stage Summary**:
+
+- State: COMPLETED
+- Files touched: 2 (`package.json`, `.github/workflows/web-prod-gate.yml`)
+- Verification: all workflow YAML parses; both CI typecheck paths pass from a
+  clean tree with `dist/` absent.
+- Lesson recorded: a gitignored build output consumed through a package
+  specifier needs an explicit build step in every consumer's gate. The local
+  green was an accident of a warm working directory.

@@ -79,7 +79,11 @@ jobs:
         run: pnpm --filter web lint
 
       - name: Web / Typecheck
-        run: pnpm --filter web typecheck
+        # `@buddysaradhi/design-system` ships types from `dist/`, which is
+        # gitignored, so a clean runner has no declarations for it. The root
+        # `typecheck` script builds it first; calling the filter directly skipped
+        # that and failed with TS2307 on every consumer.
+        run: pnpm --filter @buddysaradhi/design-system build && pnpm --filter web typecheck
 
       - name: Web / Unit Tests (Vitest)
         run: pnpm --filter web test -- run
