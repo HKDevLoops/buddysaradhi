@@ -30,7 +30,11 @@ async function authenticate(page: import("@playwright/test").Page) {
   // Handle auto-provision redirect for existing users without a real DB
   await page.waitForURL(/\/(dashboard|signup\/provision)/, { timeout: 25000 });
   if (page.url().includes("signup/provision")) {
-    await page.waitForURL("**/dashboard", { timeout: 30000 });
+    // A Playwright URL *glob* does not match across a query string, and the
+    // screen is carried as `?screen=` on the single user-facing route
+    // (AGENTS.md §3.1), so `**/dashboard` would never match a deep link. `**`
+    // at the end tolerates it.
+    await page.waitForURL("**/dashboard**", { timeout: 30000 });
   }
 }
 

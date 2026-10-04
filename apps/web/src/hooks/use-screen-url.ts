@@ -36,6 +36,7 @@
 import { useEffect } from "react";
 import {
   useShellStore,
+  DEFAULT_SCREEN,
   SCREEN_QUERY_PARAM,
   screenParam,
   screenFromParam,
@@ -53,8 +54,18 @@ export const REQUEST_SCREEN_EVENT = "buddysaradhi:request-screen";
  *  unrelated query survives a screen change. */
 function urlForScreen(screen: string): string {
   const params = new URLSearchParams(window.location.search);
-  params.set(SCREEN_QUERY_PARAM, screen);
-  return `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+  if (screen === DEFAULT_SCREEN) {
+    // The default screen carries NO parameter. `/dashboard` is the honest URL for
+    // the dashboard; rewriting it to `/dashboard?screen=dashboard` says "you are
+    // on a non-default screen" when you are not, and it broke
+    // `waitForURL('**/dashboard')` in both a11y specs (a Playwright glob does not
+    // match across a query string), so every screen timed out at 15s in CI.
+    params.delete(SCREEN_QUERY_PARAM);
+  } else {
+    params.set(SCREEN_QUERY_PARAM, screen);
+  }
+  const query = params.toString();
+  return `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
 }
 
 /** The screen the CURRENT url asks for, or null when it asks for none. */
@@ -101,7 +112,12 @@ export function useScreenUrlSync(): void {
 
   useEffect(() => {
     const wanted = screenParam(activeScreen);
-    if (screenFromLocation() === wanted) return;
+    const asked = screenFromLocation();
+    // "No param" and "the default screen" are the same request, so treat them as
+    // agreement. Without this the default screen fires a pointless replaceState
+    // on every arrival and consumes the one normalising write.
+    const urlAgrees = asked === wanted || (asked === null && wanted === screenParam(DEFAULT_SCREEN));
+    if (urlAgrees) return;
 
     if (!arrivalUrlNormalized) {
       // The first write is a REPLACE. The URL the tutor arrived on IS that

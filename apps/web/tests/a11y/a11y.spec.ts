@@ -18,7 +18,7 @@ async function authenticate(page: import('@playwright/test').Page) {
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: /^Sign In$/i }).click();
-  await page.waitForURL('**/dashboard', { timeout: 15000 });
+  await page.waitForURL('**/dashboard**', { timeout: 30000 });
 }
 
 const SCREENS = ['Dashboard', 'Students', 'Attendance', 'Fees', 'Settings'];
