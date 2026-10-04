@@ -72,6 +72,7 @@ scratch_*.js
 
 # Session dumps (agent transcripts pasted as context — stay on disk, never pushed)
 previous_session_back.md
+session-ses_ef88.md
 
 # Agents 
 ./.agent/
