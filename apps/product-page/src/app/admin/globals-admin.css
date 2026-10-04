@@ -25,6 +25,7 @@
  */
 
 @import "../../../../../packages/design-system/tokens.css";
+@import "tailwindcss";
 
 /* ---- Shell -----------------------------------------------------------------
  * The product root layout (src/app/layout.tsx) renders the marketing header
@@ -35,6 +36,7 @@
  * sign-in form and a grant table) is worse. Verified support: Chrome 105+,
  * Safari 15.4+, Firefox 121+.
  */
+@layer base {
 body:has(.adm-root) > header,
 body:has(.adm-root) > footer {
   display: none;
@@ -43,7 +45,9 @@ body:has(.adm-root) > footer {
 body:has(.adm-root) {
   background: var(--canvas);
 }
+} /* close shell @layer base */
 
+@layer components {
 .adm-root {
   display: grid;
   grid-template-columns: 13rem minmax(0, 1fr);
@@ -689,3 +693,4 @@ body:has(.adm-root) {
     top: 0.5rem;
   }
 }
+} /* close admin @layer components */

@@ -280,6 +280,7 @@
 
 /* ---- FALLBACK 1: no backdrop-filter support. Remap to the paired -solid
    tokens the generated file already ships (legibility before material). ---- */
+@layer components {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .mat,
   .mat-nav,
@@ -371,3 +372,4 @@
     scroll-behavior: auto !important;
   }
 }
+} /* close fallbacks @layer components */

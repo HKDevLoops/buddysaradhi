@@ -100,6 +100,7 @@
 /* ============================================================================
    GLOBAL DESIGN TOKENS (palette-independent)
    ============================================================================ */
+@layer base {
 :root {
   /* Typography */
   --font-heading: 'Sora', 'Onest', system-ui, sans-serif;
@@ -145,6 +146,7 @@
   /* shadcn/ui radius compat */
   --radius: 0.875rem;
 }
+} /* close tokens @layer base */
 
 /* ============================================================================
 
@@ -615,10 +617,12 @@
 /* ============================================================================
    ANIMATIONS
    ============================================================================ */
+@layer utilities {
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+} /* close animations @layer utilities */
 
 /* ============================================================================
    REDUCED MOTION CONTRACT (accessibility)
@@ -638,6 +642,7 @@
    are compensated either way; a spinner is not — it gets a non-animated
    indicator instead.
    ============================================================================ */
+@layer base {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -670,6 +675,7 @@ html[data-reduced-motion="1"] .animate-pulse {
     opacity: 0.65;
   }
 }
+} /* close reduced-motion @layer base */
 
 /* ============================================================================
    LIQUID GLASS BACKGROUND BLOB ANIMATIONS — DELETED
@@ -688,7 +694,7 @@ html[data-reduced-motion="1"] .animate-pulse {
       at. `--canvas` already carries the gradient.
 
    The classes are removed rather than left inert so the next agent does not
-   rediscover them as an available effect. `scripts/audit-dead-css-tokens.mjs`
+    rediscover them as an available effect. `scripts/audit-dead-css-tokens.ts`
    gates dead custom properties; this was dead animation, which it does not see.
    ============================================================================ */
 
@@ -699,6 +705,7 @@ html[data-reduced-motion="1"] .animate-pulse {
    one that touches the immutable ledger, "hard to read" is a correctness
    problem, not a taste one. On a coarse pointer the reveal has nothing to
    reveal, so the control rests at full strength. */
+@layer utilities {
 .reveal-on-hover {
   opacity: 0.6;
 }
@@ -707,12 +714,14 @@ html[data-reduced-motion="1"] .animate-pulse {
     opacity: 1;
   }
 }
+} /* close reveal @layer utilities */
 
 /* ============================================================================
    DISPLAY DENSITY SCALING RULES
    ============================================================================ */
 
 /* Comfortable spacing offsets - defaults */
+@layer base {
 :root {
   --space-header-height: 64px;
   --space-footer-height: 48px;
@@ -794,3 +803,4 @@ html[data-density="compact"] .sticky.bottom-4 {
   margin-top: 16px !important;
   padding: 8px !important;
 }
+} /* close density @layer base */

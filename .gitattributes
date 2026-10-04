@@ -1,0 +1,24 @@
+# Buddysaradhi linguist map — TypeScript is the product language.
+# First-party code is .ts/.tsx everywhere (AGENTS.md §6.1). What remains
+# JavaScript is either vendored agent tooling, generated output, or a
+# tool-mandated entry config (eslint/postcss/babel/metro must be JS to load).
+# This file keeps those out of the language bar without deleting them.
+
+# Vendor agent/skill tooling — third-party scripts, not product code.
+.github/skills/** linguist-vendored
+.agent/** linguist-vendored
+.agents/** linguist-vendored
+.claude/** linguist-vendored
+.kilo/** linguist-vendored
+.opencode/** linguist-vendored
+
+# Generated output — rebuilt by `pnpm build`, never hand-edited.
+**/dist/** linguist-generated
+packages/design-system/tokens.json linguist-generated
+packages/design-system/tokens.css linguist-generated
+apps/mobile/tokens.css linguist-generated
+apps/mobile/tailwind-theme.generated.js linguist-generated
+apps/desktop/src/styles/tokens.css linguist-generated
+
+# Reference mockups — design evidence, not shipped code.
+UI_Design_Master_Plan/** linguist-documentation
