@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "$comment": "Non-canonical mirror. Canonical vercel.json is the repo-root vercel.json (Rule 11: one directory, one deployment target). Do NOT delete either without owner sign-off — see deployment/05_CI_CD_GitHub_Actions.md §15.",
   "framework": "nextjs",
   "buildCommand": "npx prisma generate --schema=../../prisma/schema.prisma && pnpm --filter @buddysaradhi/design-system build && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build && next build",
   "installCommand": "pnpm install",
