@@ -10,9 +10,9 @@
 // decision seen from two sides. `settings.plan` is server-managed and
 // denylisted in the web app, so this console is the only place it is written.
 
-import type { BooleanGrant, FeatureFlag, NumericGrant } from "./types";
-import { BOOLEAN_GRANTS, FEATURE_FLAGS } from "./types";
-import { AdminRecordNotFound } from "./subscriptions";
+import type { BooleanGrant, FeatureFlag, NumericGrant } from "./types.ts";
+import { BOOLEAN_GRANTS, FEATURE_FLAGS } from "./types.ts";
+import { AdminRecordNotFound } from "./subscriptions.ts";
 
 export interface InfrastructureGrants {
   readonly dbProvisioned: boolean;

@@ -10,11 +10,11 @@
 import { adminAudit } from "../../_lib/audit";
 import { currentAdminIdentity } from "../../_lib/auth";
 import { subscriptions } from "../../_lib/subscriptions";
-import { DEFAULT_REMINDER_POLICY, reminderDue, reminders } from "../../_lib/reminders";
+import { DEFAULT_REMINDER_POLICY, evaluateDueReminders, reminderDue, reminders } from "../../_lib/reminders";
 import { advanceReminderAction } from "../../actions";
 import { errorSentence, formatDate, formatDateTime, readErrorCode, readNoticeText } from "../../_lib/format";
 import { ADMIN_NOTICE_TEXT, PLAN_LABEL, REMINDER_ADVANCE_LABEL, REMINDER_STAGE_LABEL } from "../../_lib/types";
-import type { ReminderAdvance, ReminderStage } from "../../_lib/types";
+import type { ReminderAdvance } from "../../_lib/types";
 import { AdminPageHeader, DataTable, EmptyState, KeyValues, Notice, REMINDER_STAGE_TONE, StatusTag } from "../../_lib/ui";
 import type { Tone } from "../../_lib/ui";
 
@@ -60,10 +60,31 @@ export default async function AdminRemindersPage({
     return { scheduleRow, subscription, due };
   });
 
-  const owed = ladder.filter(
-    (row): row is (typeof ladder)[number] & { readonly due: NonNullable<typeof row.due> & { readonly nextAdvance: ReminderAdvance } } =>
-      row.due !== null && row.due.nextAdvance !== null,
-  );
+  const owed = (() => {
+    // The dry run the engine's tick calls: pure, no writes, no mail. The
+    // "Take the next step" table renders exactly what it returns, so this
+    // console, the JSON dry-run endpoint and the future scheduler can never
+    // disagree about what is owed.
+    const inputs = schedule.flatMap((scheduleRow) => {
+      const subscription = subscriptionRows.find((candidate) => candidate.tenantId === scheduleRow.tenantId);
+      if (subscription === undefined) return [];
+      return [
+        {
+          tenantId: scheduleRow.tenantId,
+          status: subscription.status,
+          expiresOn: subscription.expiresOn,
+          stage: scheduleRow.stage,
+        },
+      ];
+    });
+    const byTenant = new Map(schedule.map((scheduleRow) => [scheduleRow.tenantId, scheduleRow] as const));
+    return evaluateDueReminders(inputs, nowIso).flatMap((due) => {
+      const scheduleRow = byTenant.get(due.tenantId);
+      const next = due.nextAdvance;
+      if (scheduleRow === undefined || next === null) return [];
+      return [{ scheduleRow, due: { ...due, nextAdvance: next } }];
+    });
+  })();
 
   return (
     <>

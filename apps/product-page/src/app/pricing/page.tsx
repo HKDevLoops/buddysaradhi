@@ -159,10 +159,11 @@ export default function PricingPage() {
         </div>
         {/* One primary, and it is the thing that actually completes. Free
             self-serve sign-up is the only path on this surface that works end to
-            end (src/app/api/access-request/route.ts:9-15,41), so asking a visitor
-            who came to compare plans to wait for a person would be asking for the
-            slower thing first (docs/design/marketing-claims-audit.md §4.1,
-            option (b)). Same words as `/`, `/platforms` and the hero. */}
+            end (the access-request endpoint persists to the console store; mail
+            delivery is not connected), so asking a visitor who came to compare
+            plans to wait for a person would be asking for the slower thing
+            first (docs/design/marketing-claims-audit.md §4.1, option (b)). Same
+            words as `/`, `/platforms` and the hero. */}
         <div className="flex w-full flex-col items-start gap-2 md:w-auto md:items-stretch">
           <a href={APP_SIGNUP_URL} className="btn btn-primary text-base" rel="noopener">
             {FREE_SIGNUP_CTA}

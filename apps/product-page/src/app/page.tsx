@@ -208,10 +208,12 @@ export default async function ProductPage() {
           <div className="flex flex-col items-start justify-center gap-3 md:items-stretch">
             {/* The primary action of this page, and the only one in the section.
                 Free self-serve sign-up is the only path on this surface that
-                completes: `POST /api/access-request` validates, returns a receipt
-                and delivers nothing (src/app/api/access-request/route.ts:9-15,41),
-                so an access request is a genuine offer — it just is not the
-                first thing to ask a visitor who has not decided
+                completes immediately: `POST /api/access-request` validates,
+                persists to the console store and returns a receipt, while mail
+                delivery to a person is not connected
+                (src/app/api/access-request/route.ts), so an access request is
+                a genuine offer — it just is not the first thing to ask a
+                visitor who has not decided
                 (docs/design/marketing-claims-audit.md §4.1, option (b)). The
                 words are shared with `/pricing`, `/platforms` and the hero so the
                 same offer is never spelled two ways. */}

@@ -3,8 +3,8 @@
 // Implements: docs/design/overhaul-plan.md §4.1 (`/request-access`: name, email,
 // institute, plan, prepaid billing period, note) + AGENTS.md Rule 10 (44px
 // targets, real focus states, errors that name the problem and the recovery).
-// Rules live in src/lib/access-request.ts and are shared with the stub endpoint
-// at src/app/api/access-request/route.ts, so the browser and the endpoint can
+// Rules live in src/lib/access-request.ts and are shared with the console-backed
+// endpoint at src/app/api/access-request/route.ts, so the browser and the endpoint can
 // never disagree about what is valid.
 // Claims-audit pass (docs/design/marketing-claims-audit.md rows 5–6):
 //   · a transport failure is NOT a field error. It used to be reported against
@@ -17,6 +17,7 @@
 import Link from "next/link";
 import { useId, useState, type FormEvent } from "react";
 import {
+  APP_LOGIN_URL,
   APP_SIGNUP_URL,
   BILLING_PERIODS,
   BILLING_PERIOD_LABEL,
@@ -41,7 +42,9 @@ interface SentCopy {
   /** Two complete, standalone sentences. No interpolation, so a translator can
    *  reorder them without dragging variables along (clarify.md, Voice). */
   readonly outcome: readonly string[];
-  /** True when nothing was queued anywhere, so a correction is a plain re-send. */
+  /** True when a correction is a plain re-send because nothing persisted. False
+   *  when the request is on file: a correction is a second send that must
+   *  mention the first reference. */
   readonly correctionIsSafe: boolean;
 }
 
@@ -51,25 +54,26 @@ interface SentCopy {
  * `delivery` is a closed union on `AccessRequestReceipt`. Implementing one member
  * and throwing on the rest means `tsc` fails the moment delivery is widened —
  * the state cannot be shipped with a missing sentence (AGENTS.md Rule 9, and the
- * no-orphan-code rule). Today the only outcome is the stub: validated, receipt
- * returned, request NOT delivered. So we say that, instead of promising an
- * administrator will email a person who has not been told anything.
+ * no-orphan-code rule). Today the outcome is the console: validated, persisted
+ * to the access-request store, readable by the owner. Mail delivery to a person
+ * is not connected, so we say the request is recorded and will be read — never
+ * that an administrator has already been emailed.
  */
 function sentCopy(receipt: AccessRequestReceipt): SentCopy {
   switch (receipt.delivery) {
-    case "stub":
+    case "console":
       return {
-        heading: "Recorded here, not yet sent to us.",
+        heading: "Received. We will reply by email.",
         outcome: [
-          "Nothing was charged, and nothing has been delivered.",
-          "The step that emails a request to a person is not connected yet.",
+          "Your request is recorded under the reference below.",
+          "An administrator reads every request in the operations console. Nothing is charged.",
         ],
-        correctionIsSafe: true,
+        correctionIsSafe: false,
       };
     default:
-      // SAFETY: unreachable while `delivery` is the literal "stub". Widen the
+      // SAFETY: unreachable while `delivery` is the literal "console". Widen the
       // union in access-request.ts and this becomes the branch that must be
-      // written before a request can claim to have reached anyone.
+      // written before a request can claim to have reached anyone new.
       throw new Error(
         `access-request.delivery "${String(receipt.delivery)}" has no submitted-state copy`,
       );
@@ -188,10 +192,15 @@ export function AccessRequestForm() {
           </div>
         </dl>
 
-        {copy.correctionIsSafe && (
+        {copy.correctionIsSafe ? (
           <p className="mt-5 max-w-[62ch] text-pretty text-[var(--text-secondary)]">
             If that address is a typo, correct it and send again: nothing is queued, so there is
             nothing to cancel.
+          </p>
+        ) : (
+          <p className="mt-5 max-w-[62ch] text-pretty text-[var(--text-secondary)]">
+            If that address is a typo, send the request again with the right address and mention
+            this reference. Both stay on file, so the wrong one is never mistaken for you.
           </p>
         )}
 
@@ -199,9 +208,16 @@ export function AccessRequestForm() {
           <a href={APP_SIGNUP_URL} className="btn btn-primary" rel="noopener">
             {FREE_SIGNUP_CTA}
           </a>
-          {/* The correction path. Because nothing was queued, a fix is a plain
-              re-send: the fields are untouched and only the address needs
-              editing. */}
+          {/* The account the visitor may already hold, or will hold the moment
+              they take the primary. Same single owner for the destination as
+              every other app-ward link (APP_LOGIN_URL), plain anchor, no new
+              origin. */}
+          <a href={APP_LOGIN_URL} className="action inline-flex min-h-[44px] items-center" rel="noopener">
+            Sign in
+          </a>
+          {/* The correction path. The fields are untouched and only the address
+              needs editing; sending again records a second row, so the panel
+              above says to mention this reference. */}
           <button
             type="button"
             className="action inline-flex min-h-[44px] items-center"

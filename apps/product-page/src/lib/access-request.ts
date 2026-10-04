@@ -55,12 +55,13 @@ export const APP_SIGNUP_URL = `${APP_ORIGIN}/signup`;
  * panel and the request form cannot drift into five different promises.
  *
  * WHY SIGN-UP IS THE PRIMARY (docs/design/marketing-claims-audit.md §4.1,
- * option (b)). `POST /api/access-request` validates and returns a receipt;
- * nothing is persisted and nothing is delivered
- * (src/app/api/access-request/route.ts:9-15,41). Free self-serve sign-up is
- * therefore the only path on this surface that actually completes, so it is the
- * only action a first-time visitor should be asked to take first. The contracted
- * plan stays available and stays honest about what it does.
+ * option (b)). `POST /api/access-request` validates, persists the request to
+ * the console store and returns a receipt; mail delivery to a person is not
+ * connected (src/app/api/access-request/route.ts, src/app/admin/_lib/
+ * access-requests.ts). Free self-serve sign-up is therefore the only path on
+ * this surface that completes immediately, so it is the only action a
+ * first-time visitor should be asked to take first. The contracted plan stays
+ * available and stays honest about what it does.
  * ------------------------------------------------------------------------- */
 
 /** Primary. A specific verb and an object, because the outcome is the point:
@@ -137,15 +138,18 @@ export const NO_CHECKOUT_NOTE =
 /**
  * What is true about delivery today, in the words the request page uses.
  *
- * The pipeline a request will travel (entitlements-contract.md §2) is specified,
- * but the endpoint in `src/app/api/access-request/route.ts` is a validating stub:
- * it returns a receipt and stops. So the surface may promise the *contract* and
- * must not promise the *delivery* (AGENTS.md Rule 9). This string is the honest
- * statement, and it names the path that works right now so the reader is never
- * left without an action.
+ * The pipeline a request will travel (entitlements-contract.md §2) is
+ * persisted: the endpoint in `src/app/api/access-request/route.ts` validates
+ * the request, stores it in the console store
+ * (`src/app/admin/_lib/access-requests.ts`) and returns a receipt, and an
+ * administrator reads it in the console. What is NOT connected is mail
+ * delivery to a person, so the surface may promise the *record* and must not
+ * promise the *email* (AGENTS.md Rule 9). This string is the honest statement,
+ * and it names the path that works right now so the reader is never left
+ * without an action.
  */
 export const REQUEST_DELIVERY_NOTE =
-  "We write your request to this site and keep your reference. Delivering it to a person by email is not connected yet, so until it is, the free plan is the way in today.";
+  "We record your request with a reference and an administrator reads it in the operations console. Delivering it to a person by email is not connected yet, so until it is, the free plan is the way in today.";
 
 /** The free plan never expires or downgrades, so nothing runs out under the tutor. */
 export const FREE_PLAN_NOTE =
@@ -281,13 +285,15 @@ export function validateAccessRequest(raw: unknown): Result<AccessRequestInput, 
   };
 }
 
-/** What the stub endpoint returns on acceptance. `delivery` names the pipe the
- *  request actually went down, so the UI never implies a delivery that has not
- *  been built (AGENTS.md Rule 9: no silent failures). */
+/** What the console-backed endpoint returns on acceptance. `delivery` names the
+ *  pipe the request actually went down, so the UI never implies a delivery that
+ *  has not been built (AGENTS.md Rule 9: no silent failures). `console` means:
+ *  validated, persisted to the access-request store, readable by the owner in
+ *  the console; mail delivery to a person is still not connected. */
 export interface AccessRequestReceipt {
   readonly reference: string;
   readonly receivedAt: string;
-  readonly delivery: "stub";
+  readonly delivery: "console";
 }
 
 export type AccessRequestResponse =

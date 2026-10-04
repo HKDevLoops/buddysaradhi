@@ -2,9 +2,11 @@
 
 > Implements: `docs/design/overhaul-plan.md` §4.2. Owner directive 2026-10-02.
 > Code: `apps/product-page/src/app/admin/**`.
-> Status: UI + auth + audit scaffolding shipped. The entitlement ENGINE (scheduled
-> reminders, zip packaging, mail delivery, downgrade enforcement) is specified in
-> [`entitlements-contract.md`](./entitlements-contract.md) and is NOT implemented.
+> Status: UI + auth + audit scaffolding shipped, plus the first engine slice:
+> access-request persistence, reminder dry-run evaluation, export metadata
+> transitions, and downgrade enforcement (flag-flip + audit). Scheduled
+> execution, zip packaging, and mail delivery remain specified in
+> [`entitlements-contract.md`](./entitlements-contract.md) and are NOT implemented.
 
 ---
 
@@ -135,9 +137,13 @@ type Entitlements = {
 ## 6. What this pass does NOT include
 
 - No payment processing (by design — manual contracting).
-- No scheduled reminder execution, zip packaging, mail delivery or downgrade
-  enforcement: those are the engine in
-  [`entitlements-contract.md`](./entitlements-contract.md).
-- The `/api/access-request` endpoint behind `/request-access` is a validating stub;
-  delivery to an administrator is part of the same contract.
+- No scheduled reminder execution, zip packaging, or mail delivery: those remain
+  the specified-only engine in
+  [`entitlements-contract.md`](./entitlements-contract.md). Downgrade
+  enforcement (entitlement flag-flip + audit) and the export metadata
+  transitions are implemented; artefact bytes are not, and the console has no
+  reader for them.
+- The `/api/access-request` endpoint behind `/request-access` validates,
+  persists to the console store, and returns a receipt; mail delivery to an
+  administrator remains specified-only.
 - Prices and plan names are placeholders the owner must set.

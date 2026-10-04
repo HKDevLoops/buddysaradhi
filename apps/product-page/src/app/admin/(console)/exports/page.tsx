@@ -12,11 +12,13 @@
 
 import { adminAudit } from "../../_lib/audit";
 import { currentAdminIdentity } from "../../_lib/auth";
-import { exportRequests, exportStateSentence, pendingExports } from "../../_lib/exports";
+import { exportRequests, exportStateSentence, isExportTransitionLegal, pendingExports } from "../../_lib/exports";
 import { subscriptions } from "../../_lib/subscriptions";
-import { requestExportAction, revokeExportAction } from "../../actions";
+import { advanceExportAction, requestExportAction, revokeExportAction } from "../../actions";
 import { errorSentence, formatBytes, formatDateTime, readErrorCode, readNoticeText, windowSentence } from "../../_lib/format";
 import { DEFAULT_REMINDER_POLICY } from "../../_lib/reminders";
+import { EXPORT_REQUEST_STATES, EXPORT_STATE_LABEL } from "../../_lib/types";
+import type { ExportRequestState } from "../../_lib/types";
 import { AdminPageHeader, DataTable, EmptyState, Notice, StatusTag } from "../../_lib/ui";
 import type { Tone } from "../../_lib/ui";
 
@@ -113,6 +115,35 @@ export default async function AdminExportsPage({
             },
           },
           { header: "Requested", cell: (row) => formatDateTime(row.requestedAt) },
+          {
+            header: "Next step",
+            cell: (row) => {
+              const steps = (EXPORT_REQUEST_STATES as readonly ExportRequestState[]).filter((candidate) =>
+                isExportTransitionLegal(row.state, candidate),
+              );
+              // `expired` is the revoke path, which has its own audited control
+              // in the Link column; this column moves the packaging queue.
+              const packaging = steps.filter((step) => step !== "expired");
+              if (packaging.length === 0) return <span className="adm-cell-sub">terminal</span>;
+              return (
+                <span className="adm-cell-id">
+                  {packaging.map((step) => (
+                    <form key={step} className="adm-inline" method="post" action={advanceExportAction}>
+                      <input type="hidden" name="exportId" value={row.id} />
+                      <input type="hidden" name="advance" value={step} />
+                      <button
+                        className="adm-btn-quiet"
+                        type="submit"
+                        aria-label={`Move ${row.id} to ${EXPORT_STATE_LABEL[step]}`}
+                      >
+                        To {EXPORT_STATE_LABEL[step]}
+                      </button>
+                    </form>
+                  ))}
+                </span>
+              );
+            },
+          },
           {
             header: "Link",
             cell: (row) =>

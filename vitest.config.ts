@@ -11,6 +11,9 @@ export default defineConfig({
       '**/dist/**',
       'apps/services/**',
       'apps/web/**',
+      // node:test suites (not vitest) — run via `pnpm --filter product-page test`.
+      'apps/product-page/src/app/admin/_lib/access-requests.test.ts',
+      'apps/product-page/src/app/admin/_lib/engine.test.ts',
     ],
     // Gateway tests need Deno shims (stdout.writeSync, env.get, serve).
     // The setup file is a no-op for tests that don't use Deno APIs.

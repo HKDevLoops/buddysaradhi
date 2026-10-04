@@ -15,6 +15,10 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Contract tests import their subject with an explicit `.ts` extension so
+    // `node --test` (type stripping) resolves them with no loader. Allowed only
+    // because `noEmit` is true; it changes no runtime resolution.
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "incremental": true,
     "plugins": [

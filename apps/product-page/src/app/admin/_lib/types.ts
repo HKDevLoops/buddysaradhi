@@ -22,20 +22,26 @@ export type AdminAuditAction =
   | "admin.sign_in"
   | "admin.sign_in_denied"
   | "admin.sign_out"
+  | "admin.access_request.received"
+  | "admin.access_request.view"
+  | "admin.access_request.state_set"
   | "admin.subscriptions.view"
   | "admin.subscription.update"
   | "admin.entitlements.view"
   | "admin.entitlement.flag_set"
   | "admin.entitlement.grant_set"
+  | "admin.entitlement.downgrade"
   | "admin.exports.view"
   | "admin.export.request"
+  | "admin.export.advance"
   | "admin.export.revoke"
   | "admin.reminders.view"
+  | "admin.reminder.evaluated"
   | "admin.reminder.advance"
   | "admin.audit.view";
 
 /** Reference kinds an audit row can point at. */
-export type AdminRefType = "admin_session" | "subscription" | "entitlement" | "export_request" | "reminder" | "audit_log";
+export type AdminRefType = "admin_session" | "access_request" | "subscription" | "entitlement" | "export_request" | "reminder" | "audit_log";
 
 /** Plan catalogue. Prepaid only; `free` is the downgraded destination. */
 export type PlanId = "free" | "solo" | "batch" | "institute";
@@ -160,10 +166,13 @@ export const REMINDER_ADVANCE_LABEL: Readonly<Record<ReminderAdvance, string>> =
 
 /** Notice codes a redirect may carry, so a confirmation says what happened. */
 export type AdminNoticeCode =
+  | "access-request-advanced"
   | "subscription-updated"
   | "entitlement-flag-set"
   | "entitlement-grant-set"
+  | "entitlement-downgraded"
   | "export-requested"
+  | "export-advanced"
   | "export-revoked"
   | "reminder-advanced";
 
@@ -209,10 +218,13 @@ export const ADMIN_ERROR_TEXT: Readonly<Record<AdminErrorCode, { readonly title:
 };
 
 export const ADMIN_NOTICE_TEXT: Readonly<Record<AdminNoticeCode, string>> = {
+  "access-request-advanced": "Access request updated. The row and the actor are recorded in the audit log.",
   "subscription-updated": "Subscription updated. The row and the actor are recorded in the audit log.",
   "entitlement-flag-set": "Feature flag updated. The row and the actor are recorded in the audit log.",
   "entitlement-grant-set": "Infrastructure grant updated. The row and the actor are recorded in the audit log.",
+  "entitlement-downgraded": "Account downgraded to free and an export was queued. Every write is recorded in the audit log.",
   "export-requested": "Export request queued. The engine fills the size and digest once the archive is packed.",
+  "export-advanced": "Export state advanced. The row and the actor are recorded in the audit log.",
   "export-revoked": "Download link revoked. The record keeps its metadata for the audit trail.",
   "reminder-advanced": "Reminder step recorded. Enforcement is the entitlement engine's job, not the console's.",
 };

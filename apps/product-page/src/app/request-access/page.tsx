@@ -2,7 +2,7 @@
 // ACCESS REQUEST, not a checkout: the product is sold manually and an
 // administrator provisions access after contracting the plan
 // (docs/design/overhaul-plan.md §0 and §4.2). The endpoint it posts to is the
-// stub at src/app/api/access-request/route.ts.
+// console-backed route at src/app/api/access-request/route.ts.
 // Claims-audit pass (docs/design/marketing-claims-audit.md rows 5–6): this page
 // no longer promises a delivery the build does not make, and it always leaves
 // the visitor with a path that works today.

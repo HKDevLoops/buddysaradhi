@@ -4,9 +4,13 @@
 > 2026-10-02. UI: `apps/product-page/src/app/admin/**` (see
 > [`admin-console.md`](./admin-console.md)). This file specifies the **engine**.
 >
-> **Status: specified, not implemented.** Nothing in this file is built. It exists
-> so the implementation is a transcription rather than a re-invention, and so the
-> §8#1 security review has something concrete to review.
+> **Status: partially implemented in the product-page console.** The
+> access-request store (persistence, per-IP + per-email rate limiting,
+> no-enumeration response, audit), the reminder dry-run evaluation, the export
+> metadata transitions, and the downgrade flag-flip + audit are built
+> (`apps/product-page/src/app/admin/_lib/`). Mail sending, scheduled execution,
+> and artefact bytes remain specified-only, and the §8#1 security review still
+> owns those before they ship.
 
 ---
 
@@ -31,7 +35,9 @@ moment they are unhappy.
 ## 2. The access-request → access pipeline
 
 ```
-POST /api/access-request          (product page, validated stub today)
+POST /api/access-request          (product page: validated, rate-limited,
+                                   persisted to the console store; mail
+                                   delivery to a person not connected)
         │  rate-limited per IP + per email, audited
         ▼
 access_request (state: new → contacted → contracted | declined)

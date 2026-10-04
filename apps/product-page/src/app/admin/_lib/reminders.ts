@@ -11,9 +11,9 @@
 // The state machine below is the contract that engine implements, expressed
 // once so neither side has to re-invent it.
 
-import type { ReminderAdvance, ReminderStage } from "./types";
-import { REMINDER_ADVANCE_LABEL, REMINDER_STAGE_LABEL } from "./types";
-import { AdminRecordNotFound } from "./subscriptions";
+import type { ReminderAdvance, ReminderStage } from "./types.ts";
+import { REMINDER_ADVANCE_LABEL, REMINDER_STAGE_LABEL } from "./types.ts";
+import { AdminRecordNotFound } from "./subscriptions.ts";
 
 export interface ReminderPolicy {
   /** Days after expiry before the gentle reminder goes out. */
@@ -41,7 +41,7 @@ export interface ReminderScheduleRow {
 
 export interface ReminderRepository {
   list(nowIso: string): Promise<readonly ReminderScheduleRow[]>;
-  get(tenantId: string): Promise<ReminderScheduleRow | null>;
+  get(tenantId: string, nowIso: string): Promise<ReminderScheduleRow | null>;
   advance(tenantId: string, to: ReminderAdvance, actor: string, nowIso: string): Promise<ReminderScheduleRow>;
 }
 
@@ -131,8 +131,8 @@ const memoryRepository: ReminderRepository = {
     return [...store(nowIso)].sort((a, b) => a.tenantId.localeCompare(b.tenantId));
   },
 
-  async get(tenantId) {
-    return store(new Date().toISOString()).find((row) => row.tenantId === tenantId) ?? null;
+  async get(tenantId, nowIso) {
+    return store(nowIso).find((row) => row.tenantId === tenantId) ?? null;
   },
 
   async advance(tenantId, to, actor, nowIso) {
@@ -239,4 +239,35 @@ export function reminderDue(expiry: ExpiryContext, stage: ReminderStage, nowIso:
     };
   }
   return { tenantId: expiry.tenantId, stage, daysPastExpiry, nextAdvance: null, reason: "No further step" };
+}
+
+export interface EvaluateRemindersInput {
+  readonly tenantId: string;
+  readonly status: string;
+  readonly expiresOn: string;
+  readonly stage: ReminderStage;
+}
+
+/**
+ * DRY-RUN evaluation of the whole ladder (entitlements-contract.md §5,
+ * "Reminder tick"). Pure: it reads expiry dates and stages and returns what is
+ * owed, writing nothing, sending nothing, touching no grant. The scheduled job
+ * and the console's dry-run panel call this and get the same answer; only rows
+ * with a non-null `nextAdvance` are returned, newest debt first. The stage
+ * field stays the idempotency key: re-running this changes nothing.
+ */
+export function evaluateDueReminders(
+  rows: readonly EvaluateRemindersInput[],
+  nowIso: string,
+): readonly ReminderDue[] {
+  const owed: ReminderDue[] = [];
+  for (const row of rows) {
+    const due = reminderDue(
+      { tenantId: row.tenantId, status: row.status, expiresOn: row.expiresOn },
+      row.stage,
+      nowIso,
+    );
+    if (due.nextAdvance !== null) owed.push(due);
+  }
+  return owed.sort((a, b) => b.daysPastExpiry - a.daysPastExpiry || a.tenantId.localeCompare(b.tenantId));
 }

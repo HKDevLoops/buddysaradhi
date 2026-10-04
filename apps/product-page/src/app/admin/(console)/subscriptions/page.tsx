@@ -218,7 +218,7 @@ async function SubscriptionDetail({ tenantId }: { readonly tenantId: string }) {
   }
 
   const entitlementRow = await entitlements().get(tenantId);
-  const scheduleRow = await reminders().get(tenantId);
+  const scheduleRow = await reminders().get(tenantId, new Date().toISOString());
   const grants = entitlementRow?.infrastructure ?? null;
   const enabledFlags =
     entitlementRow === null

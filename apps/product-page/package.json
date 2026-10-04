@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start -p 3003",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/app/admin/_lib/access-requests.test.ts src/app/admin/_lib/engine.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "10.7.8",

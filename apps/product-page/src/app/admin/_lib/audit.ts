@@ -19,8 +19,8 @@
 // refuses.
 
 import { randomUUID } from "node:crypto";
-import type { AdminAuditAction, AdminRefType } from "./types";
-import { adminLogError } from "./log";
+import type { AdminAuditAction, AdminRefType } from "./types.ts";
+import { adminLogError } from "./log.ts";
 
 /** Row scope for console-owned audit entries. */
 export const ADMIN_SCOPE_ID = "platform-admin";

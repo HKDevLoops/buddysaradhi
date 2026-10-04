@@ -12,8 +12,8 @@
 // Rule 1: no ledger accessor exists here. Rule 2: no outbound call. Rule 6: no
 // money is modelled, so there are no paise types to get wrong.
 
-import type { BillingPeriod, PlanId, SubscriptionStatus } from "./types";
-import { PLAN_IDS, BILLING_PERIODS, SUBSCRIPTION_STATUSES, SUBSCRIPTION_STATUS_LABEL } from "./types";
+import type { BillingPeriod, PlanId, SubscriptionStatus } from "./types.ts";
+import { PLAN_IDS, BILLING_PERIODS, SUBSCRIPTION_STATUSES, SUBSCRIPTION_STATUS_LABEL } from "./types.ts";
 
 /** Thrown when a repository is asked for a row that is not there. Rule 9. */
 export class AdminRecordNotFound extends Error {

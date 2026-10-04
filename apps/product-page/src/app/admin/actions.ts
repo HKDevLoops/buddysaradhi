@@ -44,8 +44,15 @@ import {
   subscriptions,
 } from "./_lib/subscriptions";
 import { entitlements, isBooleanGrant, isFeatureFlag, readGrant } from "./_lib/entitlements";
-import { exportRequests } from "./_lib/exports";
+import { exportRequests, isExportRequestState, ExportTransitionRefused } from "./_lib/exports";
 import { ReminderTransitionRefused, isReminderAdvance, reminders } from "./_lib/reminders";
+import {
+  AccessRequestNotFound,
+  AccessRequestTransitionRefused,
+  accessRequests,
+  isAccessRequestAdvance,
+} from "./_lib/access-requests";
+import { enforceDowngrade } from "./_lib/engine";
 import { isIsoDate } from "./_lib/format";
 import { NUMERIC_GRANTS, NUMERIC_GRANT_BOUNDS } from "./_lib/types";
 import type { AdminErrorCode, NumericGrant } from "./_lib/types";
@@ -338,6 +345,49 @@ export async function setInfrastructureGrantAction(formData: FormData): Promise<
   redirect(nextPath);
 }
 
+// --- access requests (console-owned inbox) ------------------------------------
+
+export async function advanceAccessRequestAction(formData: FormData): Promise<void> {
+  const requestId = field(formData, "requestId");
+  let nextPath: string;
+  try {
+    const admin = await currentAdminIdentity();
+    const to = field(formData, "advance");
+    if (requestId.length === 0) throw new AdminInputRefused("An access request id is required.");
+    if (!isAccessRequestAdvance(to)) throw new AdminInputRefused(`Unknown access request step: ${to || "(empty)"}`);
+
+    const before = await accessRequests().get(requestId);
+    if (before === null) throw new AccessRequestNotFound(`No access request ${requestId}.`);
+
+    const after = await accessRequests().setState(requestId, to, admin.email, new Date().toISOString());
+    await adminAudit({
+      actor: admin.email,
+      action: "admin.access_request.state_set",
+      refType: "access_request",
+      refId: requestId,
+      metadata: { reference: before.reference, from: before.state, to: after.state },
+    });
+
+    nextPath = backTo("/admin/requests", { notice: "access-request-advanced" });
+  } catch (error) {
+    if (error instanceof AdminAuthError) {
+      redirect(loginRedirect(error));
+    }
+    if (error instanceof AccessRequestTransitionRefused) {
+      redirect(backTo("/admin/requests", { error: "conflict", detail: error.message.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AdminInputRefused) {
+      redirect(backTo("/admin/requests", { error: "invalid_input", detail: error.detail.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AccessRequestNotFound) {
+      redirect(backTo("/admin/requests", { error: "not_found" }));
+    }
+    throw error;
+  }
+
+  redirect(nextPath);
+}
+
 // --- export requests (metadata only) ----------------------------------------
 
 export async function requestExportAction(formData: FormData): Promise<void> {
@@ -421,7 +471,7 @@ export async function advanceReminderAction(formData: FormData): Promise<void> {
     if (tenantId.length === 0) throw new AdminInputRefused("A tenant id is required.");
     if (!isReminderAdvance(to)) throw new AdminInputRefused(`Unknown reminder step: ${to || "(empty)"}`);
 
-    const before = await reminders().get(tenantId);
+    const before = await reminders().get(tenantId, new Date().toISOString());
     if (before === null) throw new AdminRecordNotFound(`No reminder schedule for ${tenantId}.`);
 
     const after = await reminders().advance(tenantId, to, admin.email, new Date().toISOString());
@@ -446,6 +496,85 @@ export async function advanceReminderAction(formData: FormData): Promise<void> {
     }
     if (error instanceof AdminRecordNotFound) {
       redirect(backTo("/admin/reminders", { error: "not_found" }));
+    }
+    throw error;
+  }
+
+  redirect(nextPath);
+}
+
+// --- export packaging queue (metadata transitions) ----------------------------
+
+export async function advanceExportAction(formData: FormData): Promise<void> {
+  const exportId = field(formData, "exportId");
+  let nextPath: string;
+  try {
+    const admin = await currentAdminIdentity();
+    const to = field(formData, "advance");
+    if (exportId.length === 0) throw new AdminInputRefused("An export request id is required.");
+    if (!isExportRequestState(to)) throw new AdminInputRefused(`Unknown export state: ${to || "(empty)"}`);
+
+    const before = await exportRequests().get(exportId);
+    if (before === null) throw new AdminRecordNotFound(`No export request ${exportId}.`);
+
+    // The console moves metadata only: no bytes, no digest, no link. Size and
+    // digest stay whatever the packaging engine wrote (or blank until it has).
+    const after = await exportRequests().advance(exportId, to, admin.email, new Date().toISOString());
+    await adminAudit({
+      actor: admin.email,
+      action: "admin.export.advance",
+      refType: "export_request",
+      refId: exportId,
+      metadata: { tenantId: before.tenantId, from: before.state, to: after.state },
+    });
+
+    nextPath = backTo("/admin/exports", { notice: "export-advanced" });
+  } catch (error) {
+    if (error instanceof AdminAuthError) {
+      redirect(loginRedirect(error));
+    }
+    if (error instanceof ExportTransitionRefused) {
+      redirect(backTo("/admin/exports", { error: "conflict", detail: error.message.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AdminInputRefused) {
+      redirect(backTo("/admin/exports", { error: "invalid_input", detail: error.detail.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AdminRecordNotFound) {
+      redirect(backTo("/admin/exports", { error: "not_found" }));
+    }
+    throw error;
+  }
+
+  redirect(nextPath);
+}
+
+// --- downgrade enforcement ----------------------------------------------------
+
+export async function enforceDowngradeAction(formData: FormData): Promise<void> {
+  const tenantId = field(formData, "tenantId");
+  let nextPath: string;
+  try {
+    const admin = await currentAdminIdentity();
+    if (tenantId.length === 0) throw new AdminInputRefused("A tenant id is required.");
+
+    // The engine owns its audit row (`admin.entitlement.downgrade`): one
+    // enforcement, one traceable write, even though the memory store applies it
+    // as five sequential writes (see _lib/engine.ts for the atomicity limit).
+    await enforceDowngrade({ tenantId, actor: admin.email, nowMs: Date.now() });
+
+    nextPath = backTo("/admin/entitlements", { tenant: tenantId, notice: "entitlement-downgraded" });
+  } catch (error) {
+    if (error instanceof AdminAuthError) {
+      redirect(loginRedirect(error));
+    }
+    if (error instanceof ReminderTransitionRefused) {
+      redirect(backTo("/admin/entitlements", { tenant: tenantId, error: "conflict", detail: error.message.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AdminInputRefused) {
+      redirect(backTo("/admin/entitlements", { tenant: tenantId, error: "invalid_input", detail: error.detail.slice(0, MAX_DETAIL_LENGTH) }));
+    }
+    if (error instanceof AdminRecordNotFound) {
+      redirect(backTo("/admin/entitlements", { tenant: tenantId, error: "not_found" }));
     }
     throw error;
   }

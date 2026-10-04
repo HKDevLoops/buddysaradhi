@@ -8,9 +8,9 @@
 // content. The interface returns metadata and nothing else, so a future
 // implementation cannot widen it by accident: there is no accessor to widen.
 
-import type { ExportRequestState } from "./types";
-import { EXPORT_REQUEST_STATES, EXPORT_STATE_LABEL } from "./types";
-import { AdminRecordNotFound } from "./subscriptions";
+import type { ExportRequestState } from "./types.ts";
+import { EXPORT_REQUEST_STATES, EXPORT_STATE_LABEL } from "./types.ts";
+import { AdminRecordNotFound } from "./subscriptions.ts";
 
 export interface ExportRequestMetadata {
   readonly id: string;
@@ -32,7 +32,38 @@ export interface ExportRepository {
   list(nowIso: string): Promise<readonly ExportRequestMetadata[]>;
   get(id: string): Promise<ExportRequestMetadata | null>;
   request(tenantId: string, windowHours: number, actor: string, nowIso: string): Promise<ExportRequestMetadata>;
+  advance(id: string, to: ExportRequestState, actor: string, nowIso: string): Promise<ExportRequestMetadata>;
   revoke(id: string, actor: string, nowIso: string): Promise<ExportRequestMetadata>;
+}
+
+/**
+ * The only legal metadata moves (entitlements-contract.md §3). The ladder is
+ * forward-only: `queued → packaging → mailed → downloaded → expired`, with
+ * `expired` reachable from any live state (revoke, or the hourly sweep closing
+ * the window). `expired` is terminal. Artefact bytes never travel this path:
+ * the size and digest stay whatever the packaging engine wrote, and a console
+ * advance never invents them.
+ */
+export function isExportTransitionLegal(from: ExportRequestState, to: ExportRequestState): boolean {
+  if (from === to) return false;
+  if (to === "expired") return from !== "expired";
+  if (from === "queued") return to === "packaging";
+  if (from === "packaging") return to === "mailed";
+  if (from === "mailed") return to === "downloaded";
+  return false;
+}
+
+/** Typed refusal. Rule 9: the console says why, it does not silently no-op. */
+export class ExportTransitionRefused extends Error {
+  readonly from: ExportRequestState;
+  readonly to: ExportRequestState;
+
+  constructor(from: ExportRequestState, to: ExportRequestState) {
+    super(`Cannot move an export request from ${EXPORT_STATE_LABEL[from]} to ${EXPORT_STATE_LABEL[to]}.`);
+    this.name = "ExportTransitionRefused";
+    this.from = from;
+    this.to = to;
+  }
 }
 
 function isoHoursFromNow(nowIso: string, hours: number): string {
@@ -134,6 +165,27 @@ const memoryRepository: ExportRepository = {
     const previous = current.find((row) => row.id === id);
     if (previous === undefined) throw new AdminRecordNotFound(`No export request ${id}.`);
     const next: ExportRequestMetadata = { ...previous, state: "expired", linkExpiresAt: nowIso };
+    write(current.map((row) => (row.id === id ? next : row)));
+    return next;
+  },
+
+  async advance(id, to, _actor, nowIso) {
+    const current = store(nowIso);
+    const previous = current.find((row) => row.id === id);
+    if (previous === undefined) throw new AdminRecordNotFound(`No export request ${id}.`);
+    if (!isExportTransitionLegal(previous.state, to)) {
+      throw new ExportTransitionRefused(previous.state, to);
+    }
+    // The console moves metadata only. Mailing starts the download window;
+    // expiring closes it now. Size and digest are the packaging engine's
+    // fields: a console advance carries them over untouched, never computed.
+    const linkExpiresAt =
+      to === "mailed"
+        ? isoHoursFromNow(nowIso, previous.windowHours)
+        : to === "expired"
+          ? nowIso
+          : previous.linkExpiresAt;
+    const next: ExportRequestMetadata = { ...previous, state: to, linkExpiresAt };
     write(current.map((row) => (row.id === id ? next : row)));
     return next;
   },

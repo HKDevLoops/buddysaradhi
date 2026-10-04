@@ -12,7 +12,7 @@ import { adminAudit } from "../../_lib/audit";
 import { currentAdminIdentity } from "../../_lib/auth";
 import { entitlements, isIrreversibleGrant } from "../../_lib/entitlements";
 import { subscriptions } from "../../_lib/subscriptions";
-import { setFeatureFlagAction, setInfrastructureGrantAction } from "../../actions";
+import { setFeatureFlagAction, setInfrastructureGrantAction, enforceDowngradeAction } from "../../actions";
 import { errorSentence, formatDateTime, readErrorCode, readNoticeText } from "../../_lib/format";
 import {
   BOOLEAN_GRANTS,
@@ -200,6 +200,33 @@ export default async function AdminEntitlementsPage({
         A grant change takes effect when the entitlement engine applies it. This console records the decision and
         audits it; the engine is what the gateway reads.
       </p>
+
+      <h2 className="adm-h2">Enforce a downgrade to free</h2>
+      <div className="panel">
+        <div className="adm-aside-body">
+          <p className="adm-prose">
+            The terminal step of the non-payment ladder. The contract moves to free, every flag but the web app is
+            withdrawn, background jobs and the export grant are withdrawn, the reminder stage moves to downgraded,
+            and an export request is queued for the packaging job. One audited enforcement, recorded with your
+            address.
+          </p>
+          <form className="adm-filters" method="post" action={enforceDowngradeAction} style={{ marginTop: "0.875rem" }}>
+            <div className="adm-field adm-field-grow">
+              <label className="field-label" htmlFor="downgrade-tenant">
+                Tenant id
+              </label>
+              <input className="input" id="downgrade-tenant" name="tenantId" type="text" required />
+            </div>
+            <button className="btn btn-primary" type="submit">
+              Downgrade to free
+            </button>
+          </form>
+          <p className="adm-inline-note" style={{ marginTop: "0.5rem", maxWidth: "68ch" }}>
+            Only an account at the hard-reminder stage can be downgraded; anything else is refused as a conflict.
+            Downgrading twice is a no-op: the second run writes nothing.
+          </p>
+        </div>
+      </div>
     </>
   );
 }

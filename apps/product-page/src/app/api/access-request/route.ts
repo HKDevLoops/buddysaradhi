@@ -1,18 +1,41 @@
-// Implements: docs/design/overhaul-plan.md §4.1 (`/request-access`). Validation
-// is shared with the stub endpoint in ./route.ts, so the browser and the
-// server agree on every rule (src/lib/access-request.ts). No payment is
+// Implements: docs/design/overhaul-plan.md §4.1 (`/request-access`) +
+// docs/design/entitlements-contract.md §2 (the access-request → access
+// pipeline: validated, rate-limited per IP + per email, persisted, audited).
+// Validation is shared with the browser form
+// (src/lib/access-request.ts), so the two agree on every rule. No payment is
 // collected here and no card is asked for.
+//
+// HONESTY. `delivery: "console"` in the receipt means exactly what
+// `AccessRequestReceipt` says: the request is persisted to the access-request
+// store and readable by the owner in the console. Mail delivery to a person is
+// NOT connected, and nothing here claims it is (AGENTS.md Rule 9).
+//
+// FAIL CLOSED. A half-configured Supabase env refuses with 503 (see
+// `resolveAccessRequestStore`); a failed write is a 503, never a silent drop.
+// The visitor keeps their answers and can retry: nothing is charged either way.
+//
+// NO ENUMERATION. A duplicate email is stored as a second row and answered
+// with the same 201 shape. The response never reveals whether an address was
+// already known, and the 429 message is identical for both windows.
 
 import { NextResponse } from "next/server";
-import { validateAccessRequest } from "@/lib/access-request";
+import { headers } from "next/headers";
+import { adminAudit } from "@/app/admin/_lib/audit";
+import {
+  AccessRequestStoreError,
+  resolveAccessRequestStore,
+  submitAccessRequest,
+} from "@/app/admin/_lib/access-requests";
 
-/** STUB ENDPOINT. docs/design/overhaul-plan.md §4.2: the entitlement engine
- *  (storage, mail delivery, plan activation) is specified in
- *  docs/design/entitlements-contract.md and is NOT implemented in this pass.
- *  This route validates the request and returns a typed result; the request is
- *  not yet delivered to an administrator. `delivery: "stub"` says so in the
- *  response so the UI cannot claim a delivery that has not happened.
- *  Follow-up: replace the body with a call to the entitlement API. */
+function clientIp(source: Headers): string {
+  const forwarded = source.get("x-forwarded-for");
+  if (forwarded !== null && forwarded.length > 0) {
+    const first = forwarded.split(",")[0];
+    if (first !== undefined && first.trim().length > 0) return first.trim();
+  }
+  return "unknown";
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   let body: unknown;
   try {
@@ -24,23 +47,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const parsed = validateAccessRequest(body);
-  if (!parsed.ok) {
-    return NextResponse.json({ ok: false, errors: parsed.error }, { status: 422 });
+  let store;
+  try {
+    store = resolveAccessRequestStore();
+  } catch (error) {
+    if (error instanceof AccessRequestStoreError) {
+      return NextResponse.json(
+        { ok: false, errors: { note: "This site could not record the request right now. Nothing was sent and nothing was charged." } },
+        { status: error.httpStatus },
+      );
+    }
+    throw error;
   }
 
-  // SAFETY: the validated shape is the only shape that reaches this point.
-  const reference = `AR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  // SAFETY: submitAccessRequest never throws for a validation, rate-limit or
+  // store failure: every one of those is a typed status the route returns
+  // as-is. Only a programmer error (a bug) escapes as a throw.
+  const outcome = await submitAccessRequest({
+    body,
+    ip: clientIp(await headers()),
+    nowMs: Date.now(),
+    store,
+    audit: (input) => adminAudit(input),
+  });
 
-  return NextResponse.json(
-    {
-      ok: true,
-      receipt: {
-        reference,
-        receivedAt: new Date().toISOString(),
-        delivery: "stub" as const,
-      },
-    },
-    { status: 201 },
-  );
+  return NextResponse.json(outcome.body, { status: outcome.status });
 }
