@@ -2042,3 +2042,74 @@ and `design-system build && web typecheck` → 0.
 - Lesson recorded: a gitignored build output consumed through a package
   specifier needs an explicit build step in every consumer's gate. The local
   green was an accident of a warm working directory.
+---
+
+**Task ID**: `VISUAL-WORLD-03-CI2` **Agent**: Kilo (swarm: 1 + tools) **Task**: Make CI green, fix the latency-test flake properly, and enable LSP diagnostics.
+
+**Work Log**:
+
+**1. `fees-actions.test.ts` asserted the OLD, INSECURE contract.** 5 failures. The
+tests required "PIN presence" and asserted a hardcoded `"123456"` voided a
+receipt — which is exactly the hole closed in VISUAL-WORLD-03. Rather than
+weaken the fix, the tests were rewritten to encode the new contract with a real
+argon2id `pin_hash` in the fixture: a wrong PIN refused, an unset PIN fails
+closed, an invalid PIN rejected before the DB is touched, the correct PIN
+accepted, and the PIN still never crossing the wire. Added a BR-SEC-04 suite
+proving a backdated payment is refused with no PIN, refused with a wrong PIN,
+accepted with the right one, and that a payment dated **today** is not asked for
+a PIN at all — so the gate has an opening rather than being a wall. 10 → 17
+tests, all passing. 275/275 in the web suite.
+
+Also fixed a stutter I introduced: the backdate refusal read "Recording a
+backdated payment needs your PIN. Enter your PIN."
+
+**2. `low-latency.test.ts` was measuring the machine, not the code.** It timed
+ONE `Map.get` per `performance.now()` pair and took a p95. For work costing
+~200ns that measures whether the OS descheduled the runner mid-measurement. A
+single 900µs outlier among 500 samples became a p95 breach, which is why it
+flaipped in CI for weeks while being green locally. Rewritten to time a BATCH of
+200 and divide, discarding one warm-up batch, budgets unchanged. Verified it
+still detects a real regression: a deliberately 5000x-heavier op reads **254x**
+slower under the same harness, so the figure tracks the code. Stable across 5
+consecutive runs.
+
+**3. LSP enabled — the real finding was that `tsc` and the editor disagreed.**
+`typescript-language-server`, `deno` and `rust-analyzer` are all installed, but
+the repo configured none of them. Two non-obvious blockers:
+
+- **TypeScript 7 has no language service.** The workspace runs TS 7.0.2 (the
+  native port); `node_modules/typescript/lib` contains only `tsc.js`,
+  `getExePath.js` and `version.cjs`. tsls loads `typescript.js` and exits during
+  `initialize` with "Could not find a valid TypeScript installation". Wired it to
+  the 5.9.3 language service already in the pnpm store via
+  `initializationOptions.tsserver.path`. **TS 7 `tsc --noEmit` remains the
+  gate**; the LSP is a second pair of eyes, and a disagreement means TS 7 is
+  right.
+- **The npm `.cmd` shim cannot be spawned on Windows** without a shell (EINVAL,
+  AGENTS.md §15 FM-18) and buffers stdio, which stalls the handshake. The config
+  invokes `node <cli.mjs> --stdio` directly.
+
+`scripts/verify-lsp.mjs` is the gate: it performs a real LSP `initialize`
+handshake against each server and asserts `textDocumentSync` is advertised,
+surfacing a JSON-RPC `error` frame as a failure. A server that starts but never
+answers is worse than an absent one, because it looks configured while
+surfacing nothing. **Both servers verified OK.**
+
+`deno lsp` covers `apps/gateway` (its authority is `deno check`, not tsc);
+`rust-analyzer` covers `apps/desktop/src-tauri`.
+
+**Gates — all green**: `tsc --noEmit` web / product-page / mobile / desktop = 0;
+web tests 275/275; unit 1041/1041; integration 523/523; `test:a11y` 4/4;
+`pnpm run lint` + 6/6 principle lints; `deno lint` 59 files + `deno check` clean;
+dead-token audit 0 dangling; design-system verify 0 findings; LSP 2/2.
+
+**Stage Summary**:
+
+- State: COMPLETED
+- Files touched: 6 (`kilo.json`, `scripts/verify-lsp.mjs`,
+  `apps/gateway/__tests__/low-latency.test.ts`,
+  `apps/web/src/components/fees/fees-actions.test.ts`,
+  `apps/web/src/server/actions/fees.ts`, `worklog.md`)
+- Note: `apps/gateway/__tests__/low-latency.test.ts` is now a real regression
+  gate rather than a machine-speed gauge. Any future edit that loosens a budget
+  should be rejected.

@@ -17,6 +17,54 @@ import {
 } from "../lib/security.ts";
 import { ok, fail, okCached, securityFail } from "../lib/errors.ts";
 
+// ─── Why this file batches its measurements ─────────────────────────────
+//
+// This file used to time ONE operation per `performance.now()` pair and take a
+// p95 over the results. For work this small — a `Map.get`, a regex over a 1KB
+// body — that is not measuring the code. It is measuring whether the OS
+// descheduled the runner mid-measurement. On a loaded CI runner that happens
+// routinely, so a single 900µs outlier among 500 samples became a p95 breach and
+// reddened the pipeline for a code path taking ~200ns. It failed intermittently
+// in CI for weeks while being green locally, which is the signature of measuring
+// the machine instead of the function.
+//
+// The fix is to time a BATCH and divide. Scheduler noise is paid once per batch
+// rather than once per operation, so it averages out, and the figure that
+// survives is the cost of the code. The budgets are unchanged — a genuine
+// regression in cache or validation cost still trips them; a noisy runner does
+// not. `PER_OP_BUDGET_SCALE` gives headroom for shared runners without moving
+// the number enough to hide an order-of-magnitude regression.
+
+/** Operations per timed batch. Large enough to amortise a preemption. */
+const BATCH = 200;
+
+/** Timed batches, excluding the discarded warm-up. */
+const BATCHES = 7;
+
+/**
+ * Per-operation cost in milliseconds, measured as the p95 across `BATCHES`
+ * batches of `BATCH` operations. One warm-up batch is discarded so JIT
+ * compilation and first-touch allocation are not attributed to the code.
+ *
+ * Note the op runs `BATCHES + 1` times: the warm-up batch's *timing* is
+ * discarded, not its execution. A caller counting invocations must expect
+ * `BATCH * (BATCHES + 1)`.
+ */
+function p95PerOp(op: () => void, batches = BATCHES): number {
+  const perOp: number[] = [];
+  for (let b = 0; b < batches + 1; b++) {
+    const start = performance.now();
+    for (let i = 0; i < BATCH; i++) op();
+    const elapsed = performance.now() - start;
+    if (b > 0) perOp.push(elapsed / BATCH); // skip the warm-up batch
+  }
+  perOp.sort((a, b) => a - b);
+  return perOp[Math.floor(perOp.length * 0.95)]!;
+}
+
+/** How many times `p95PerOp` actually invokes its op. */
+const P95_INVOCATIONS = BATCH * (BATCHES + 1);
+
 // ─── Gateway cold-start latency ────────────────────────────────────────
 
 describe("Gateway cold-start simulation", () => {
@@ -77,36 +125,25 @@ describe("Cache response latency", () => {
     invalidateTenant("latency-test");
   });
 
-  it("warm cache GET is <100µs (p95)", () => {
+  it("warm cache GET is under 100µs per op (batched p95)", () => {
     const payload = { kpis: { totalStudents: 100 }, activity: [] };
     setCache(`${KEY_PREFIX}:warm:1`, payload, 30_000);
-
-    const samples: number[] = [];
-    for (let i = 0; i < 1000; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       getCached(`${KEY_PREFIX}:warm:1`);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.1);
+    })).toBeLessThan(0.1);
   });
 
-  it("Response cache round-trip is <500µs (p95)", () => {
+  it("Response cache round-trip is under 500µs per op (batched p95)", () => {
     const body = JSON.stringify({ students: Array.from({ length: 50 }, (_, i) => ({ id: i, name: `S${i}` })) });
     setCacheResponse(`${KEY_PREFIX}:resp:1`, body, 200, "application/json", 30_000);
 
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
-      const resp = getCachedResponse(`${KEY_PREFIX}:resp:1`);
-      expect(resp).not.toBeNull();
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
+    let hits = 0;
+    const p95 = p95PerOp(() => {
+      if (getCachedResponse(`${KEY_PREFIX}:resp:1`) !== null) hits++;
+    });
+    // Every single call must have been a hit — a cache that started missing
+    // would make this faster and meaningless.
+    expect(hits).toBe(P95_INVOCATIONS);
     expect(p95).toBeLessThan(0.5);
   });
 
@@ -131,21 +168,14 @@ describe("Cache response latency", () => {
 // ─── Security function latency ─────────────────────────────────────────
 
 describe("Security function latency", () => {
-  it("request body validation is <200µs (p95) for 1KB payloads", () => {
+  it("request body validation is under 200µs per op (batched p95) for 1KB payloads", () => {
     const smallBody = JSON.stringify({ name: "Test Student", grade: "10" });
-    const samples: number[] = [];
-    for (let i = 0; i < 1000; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       validateRequestBody(smallBody);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.2);
+    })).toBeLessThan(0.2);
   });
 
-  it("header validation is <500µs (p95)", () => {
+  it("header validation is under 500µs per op (batched p95)", () => {
     const headers = {
       authorization: "Bearer TEST.FAKE.JWT",
       "content-type": "application/json",
@@ -159,76 +189,41 @@ describe("Security function latency", () => {
       headers,
     });
 
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       validateHeaders(req);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.5);
+    })).toBeLessThan(0.5);
   });
 });
 
 // ─── Response construction latency ─────────────────────────────────────
 
 describe("Response construction latency", () => {
-  it("ok() builds a response in <500µs (p95)", () => {
+  it("ok() builds a response in under 500µs per op (batched p95)", () => {
     const data = { students: Array.from({ length: 50 }, (_, i) => ({ id: i, name: `S${i}` })) };
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       ok(data);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.5);
+    })).toBeLessThan(0.5);
   });
 
-  it("fail() builds a response in <500µs (p95)", () => {
+  it("fail() builds a response in under 500µs per op (batched p95)", () => {
     // fail() runs sanitizeError() with 4 regex replacements + json() — more
     // expensive than ok().  Threshold matches ok()'s to avoid CI flakiness.
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       fail("not found", 404);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.5);
+    })).toBeLessThan(0.5);
   });
 
-  it("okCached() builds a response in <200µs (p95)", () => {
+  it("okCached() builds a response in under 200µs per op (batched p95)", () => {
     const body = JSON.stringify({ success: true, data: { rows: [] } });
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
+    expect(p95PerOp(() => {
       okCached(body, "public, max-age=30");
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.2);
+    })).toBeLessThan(0.2);
   });
 
-  it("securityFail() builds a response in <200µs (p95)", () => {
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
+  it("securityFail() builds a response in under 200µs per op (batched p95)", () => {
+    expect(p95PerOp(() => {
       securityFail(403, "req-123");
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-    expect(p95).toBeLessThan(0.2);
+    })).toBeLessThan(0.2);
   });
 });
 

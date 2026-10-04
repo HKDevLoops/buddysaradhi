@@ -124,10 +124,10 @@ export async function recordPaymentAction(
       log.audit("fee_record_payment_pin_rejected", "Backdated payment refused on PIN", {
         studentId,
       });
-      return {
-        success: false as const,
-        error: `Recording a backdated payment needs your PIN. ${pinProblem}`,
-      };
+      // `pinProblem` is already a complete sentence ("Enter your PIN.",
+      // "Your PIN is at most 8 digits."), so it must not be wrapped in a
+      // sentence that also asks for the PIN — that reads as a stutter.
+      return { success: false as const, error: pinProblem };
     }
     const { db, tenantId } = await getAuthenticatedPrisma();
     const settingsRow = await db.setting.findFirst({ where: { tenantId } });
