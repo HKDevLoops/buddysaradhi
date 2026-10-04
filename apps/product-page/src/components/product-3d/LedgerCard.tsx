@@ -8,18 +8,22 @@
 
 import { Edges, Float, MeshTransmissionMaterial } from "@react-three/drei";
 import type { SceneTokens } from "./hooks";
+import { resolveFloatProps, resolveTransmissionSamples } from "./scene-tiers";
 
 interface LedgerCardProps {
   tokens: SceneTokens;
   frozen?: boolean;
+  /** Low-end → transmission samples drop to 1 (§7.1 degradation lever). */
+  lowEnd?: boolean;
 }
 
-export function LedgerCard({ tokens, frozen = false }: LedgerCardProps) {
+export function LedgerCard({ tokens, frozen = false, lowEnd = false }: LedgerCardProps) {
+  const floatProps = resolveFloatProps(frozen);
   return (
     <Float
-      speed={frozen ? 0 : 1.2}
-      rotationIntensity={frozen ? 0 : 0.4}
-      floatIntensity={frozen ? 0 : 1.2}
+      speed={floatProps.speed}
+      rotationIntensity={floatProps.rotationIntensity}
+      floatIntensity={floatProps.floatIntensity}
     >
       <mesh rotation={[-0.26, 0.2, 0]} position={[0, 0.4, 0]}>
         <boxGeometry args={[3.2, 2, 0.12]} />
@@ -30,7 +34,7 @@ export function LedgerCard({ tokens, frozen = false }: LedgerCardProps) {
           ior={1.25}
           chromaticAberration={0.02}
           backside={false}
-          samples={1}
+          samples={resolveTransmissionSamples(lowEnd)}
           resolution={256}
           color={tokens.row}
         />

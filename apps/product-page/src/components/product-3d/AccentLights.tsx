@@ -9,6 +9,7 @@
 
 import { Float } from "@react-three/drei";
 import type { SceneTokens } from "./hooks";
+import { resolveFloatProps } from "./scene-tiers";
 
 interface AccentLightsProps {
   tokens: SceneTokens;
@@ -16,9 +17,7 @@ interface AccentLightsProps {
 }
 
 export function AccentLights({ tokens, frozen = false }: AccentLightsProps) {
-  const floatProps = frozen
-    ? { speed: 0, rotationIntensity: 0, floatIntensity: 0 }
-    : { speed: 1.2, rotationIntensity: 0.4, floatIntensity: 1.2 };
+  const floatProps = resolveFloatProps(frozen);
   return (
     <group>
       {/* Ambient + key/fill are never pure black or pure white (20_3D §7.2). */}

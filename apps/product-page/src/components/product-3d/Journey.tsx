@@ -13,6 +13,7 @@ import { AccentLights } from "./AccentLights";
 import { LedgerCard } from "./LedgerCard";
 import { ParticleField } from "./ParticleField";
 import { World } from "./World";
+import { resolveParticleCount } from "./scene-tiers";
 import type { SceneTokens } from "./hooks";
 
 export interface ProgressProxy {
@@ -66,8 +67,8 @@ export function Journey({ progressRef, tokens, frozen = false, lowEnd = false }:
   return (
     <group>
       <AccentLights tokens={tokens} frozen={frozen} />
-      <ParticleField tokens={tokens} count={lowEnd ? 80 : 200} frozen={frozen} />
-      <LedgerCard tokens={tokens} frozen={frozen} />
+      <ParticleField tokens={tokens} count={resolveParticleCount(lowEnd)} frozen={frozen} />
+      <LedgerCard tokens={tokens} frozen={frozen} lowEnd={lowEnd} />
       <World tokens={tokens} lowEnd={lowEnd} />
     </group>
   );

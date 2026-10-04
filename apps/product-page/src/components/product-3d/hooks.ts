@@ -5,6 +5,7 @@
 // the generated tokens instead of hardcoded colours).
 
 import { useEffect, useState } from "react";
+import { WIDE_DESKTOP_MIN_WIDTH } from "./scene-tiers";
 
 /** Tri-state WebGL gate: null = probing (render poster/veil), false = poster, true = canvas. */
 export function useWebGLAvailable(): boolean | null {
@@ -50,6 +51,22 @@ export function useLowEnd(): boolean {
     setLowEnd(saveData || weakCpu || weakRam || smallScreen);
   }, []);
   return lowEnd;
+}
+
+/** Desktop-class viewport gate for the §11.3 discrete DPR tier.
+ *  True only when the viewport is wider than {@link WIDE_DESKTOP_MIN_WIDTH}
+ *  (1280px). The hero keeps its `[1, 1.5]` cap below that width and only opens
+ *  `[1, 2]` above it on non-low-end devices - see `resolveDpr`. */
+export function useWideDesktop(): boolean {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${WIDE_DESKTOP_MIN_WIDTH}px)`);
+    setWide(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setWide(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return wide;
 }
 
 /** The palette values the WebGL scene needs. No literals: three.js needs real

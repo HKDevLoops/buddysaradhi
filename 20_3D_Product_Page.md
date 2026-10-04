@@ -18,7 +18,7 @@ audit so the implementing agent does not waste a cycle.
 
 | Package       | npm status                                                                                                                                                                                            | Decision                                                                                                                                                                                                                          |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `boneyard-js` | **EXISTS** — `boneyard-js@1.8.2`, "Pixel-perfect skeleton loading screens. Wrap your component in `<Skeleton>` and boneyard snapshots the real DOM layout — no manual descriptors, no configuration." | **Use it.** It is the skeleton loader for the 3D scene's asset-load phase (§4). Perfect fit: it snapshots the _real_ hero layout and shows a pixel-perfect skeleton until the WebGL canvas hydrates, so there is no layout shift. |
+| `boneyard-js` | **EXISTS** — `boneyard-js@1.8.2`, "Pixel-perfect skeleton loading screens. Wrap your component in `<Skeleton>` and boneyard snapshots the real DOM layout — no manual descriptors, no configuration." | **DROPPED (amended 2026-10-04).** The Poster veil (§2.2) covers the same load with zero deps: the canvas mounts immediately and the pixel-identical Poster overlays it until the first frame, so there is no layout shift to snapshot. One fewer dependency, one fewer hydration owner. Kept here so a future agent does not re-propose it. |
 | `3d-js`       | **DOES NOT EXIST** on the npm registry (`npm view 3d-js` → 404).                                                                                                                                      | **Do not install.** Use the de-facto React 3D stack instead (§1.1). Document this decision in the PR so a future agent does not re-attempt `npm i 3d-js`.                                                                         |
 
 ### 1.1 The Verified 3D Stack
@@ -26,13 +26,15 @@ audit so the implementing agent does not waste a cycle.
 | Package              | Verified version         | Role                                                                                                    |
 | -------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `three`              | `0.182.0` (spec `0.185`) | The WebGL engine                                                                                        |
-| `@react-three/fiber` | `9.5.0` (spec `9.6`)     | React renderer for three.js (declarative scene graph)                                                   |
+| `@react-three/fiber` | `9.8.0` (spec `9.6`)     | React renderer for three.js (declarative scene graph)                                                   |
 | `@react-three/drei`  | `10.7.8` (spec `10.7`)   | Helpers: `ScrollControls`, `Float`, `ContactShadows`, `MeshTransmissionMaterial`, `Html`, `AdaptiveDpr` |
-| `boneyard-js`        | `1.8.2`                  | Pixel-perfect skeleton during asset load                                                                |
-| `maath`              | (drei peer)              | Easing + damp for FOV whip + float                                                                      |
+| `boneyard-js`        | DROPPED (see §0)         | Replaced by the Poster veil (§2.2) — zero-dep discipline                                                |
+| `maath`              | DROPPED                  | Easing is `THREE.MathUtils.damp` (already in the bundle); no new 3D deps per FM-09                       |
 
-All five resolve. Actual pins at `^0.182.0 / ^9.5.0 / ^10.7.8` per
-`apps/product-page/package.json` (dedupe single React 19.2).
+All three resolve. Actual pins at `0.182.0 / 9.8.0 / 10.7.8` per
+`apps/product-page/package.json` (dedupe single React 19.2). No new 3D deps:
+no `maath`, no `boneyard-js`, no `anime` — damp comes from `THREE.MathUtils`,
+scrub from `gsap` (already present).
 
 ### 1.2 Penguin Living — Isometric Stage (Reference: penguin.music)
 
@@ -107,22 +109,24 @@ system expressed in three dimensions:
 ## 2. Component Architecture (Web)
 
 ```
-   apps/web/src/components/hero/
-   ├── Hero3D.tsx              ← the <Canvas> + scene root (client component)
-   ├── scene/
-   │   ├── LedgerCard.tsx      ← the floating neumorphic-glass card (R3F mesh)
-   │   ├── AccentLights.tsx    ← the 3 orbiting bioluminescent point lights
-   │   ├── ParticleField.tsx   ← 200-point parallax field (instanced)
-   │   └── ContactShadow.tsx   ← drei <ContactShadows> grounding the card
-   ├── materials/
-   │   ├── glassMaterial.ts    ← MeshTransmissionMaterial config (the glass)
-   │   └── neumoEdgeMaterial.ts← dual-light edge shader (the neumorphic rim)
-   ├── hooks/
-   │   ├── useWebGLAvailable.ts← feature-detect; returns false → poster fallback
-   │   ├── useReducedMotion.ts ← prefers-reduced-motion → freeze orbit, static
-   │   └── useHeroKPI.ts       ← the live "₹0 owed · 0 students" numbers
-   ├── Skeleton.tsx            ← <boneyard-js> <Skeleton> wrapping the canvas
-   └── Poster.tsx              ← the static PNG fallback (no-WebGL / reduced-data)
+    apps/product-page/src/components/product-3d/
+    ├── ProductHero.tsx           ← the sticky stage + GSAP scrub proxy (client component)
+    ├── ProductScene.tsx          ← the <Canvas> + scene root (client, ssr:false)
+    ├── scene/
+    │   ├── LedgerCard.tsx      ← the floating neumorphic-glass card (R3F mesh)
+    │   ├── AccentLights.tsx    ← the 3 orbiting bioluminescent point lights
+    │   ├── ParticleField.tsx   ← 200-point parallax field (instanced)
+    │   └── ContactShadow.tsx   ← drei <ContactShadows> grounding the card
+    ├── materials/
+    │   ├── glassMaterial.ts    ← MeshTransmissionMaterial config (the glass)
+    │   └── neumoEdgeMaterial.ts← dual-light edge shader (the neumorphic rim)
+    ├── hooks/
+    │   ├── useWebGLAvailable.ts← feature-detect; returns false → poster fallback
+    │   ├── useReducedMotion.ts ← prefers-reduced-motion → freeze orbit, static
+    │   └── useHeroKPI.ts       ← the live "₹0 owed · 0 students" numbers
+    ├── scene-tiers.ts            ← the pure tier map (DPR/samples/stage/FOV/beat ids)
+    ├── Poster.tsx                ← the static fallback AND the loading veil (§2.2)
+    └── (no Skeleton.tsx — boneyard-js dropped, §0; the veil is the pattern)
 ```
 
 ### 2.1 The Load Sequence + Zacamil Pins (Reference: coloniazacamil.com)
@@ -131,35 +135,49 @@ Zacamil teaches **story as spatial pins, not linear tunnel**: 25 pins + `flyTo`
 camera `lerp` + `Raycaster` + CMS copy (`Discover`, `swipe/drag/pinch`).
 Buddysaradhi maps it as 5 beats → 5 fly-to pins along alley + 3 sub-pins in
 Exploration. Both `useScroll offset 0→1` **and**
-`onPointerDown pin → targetScroll lerp 0.06` drive `anime.timeline seek`. Spec
+`onPointerDown pin → targetScroll lerp 0.06` drive the GSAP scrub proxy (§12 —
+`anime.timeline` dropped with `anime` itself). Spec
 mapping `20_3D §2 flyTo`.
 
-### 2.2 The Load Sequence (boneyard-js is the hero here)
+### 2.2 The Load Sequence (the Poster veil is the pattern — amended 2026-10-04)
+
+`boneyard-js` was specified here, then dropped (§0): the veil covers the same
+load with zero deps and zero hydration owners. Rationale: a skeleton library
+snapshots DOM to hide a mount gap, but FM-10 removes the gap instead — the
+canvas mounts immediately inside the final box and the pixel-identical Poster
+overlays it until `onCreated` fires. Nothing to snapshot, nothing to shift.
 
 ```
-   / loads
-     │
-     ├─ <Hero3D/> renders <Skeleton> (boneyard-js) immediately
-     │     boneyard snapshots the real hero DOM layout → pixel-perfect skeleton
-     │     (no manual descriptors; it reads the rendered box tree)
-     │
-     ├─ <Canvas> mounts (R3F); three.js + drei hydrate
-     │     ├─ environment HDRI loads (drei <Environment preset="city">)
-     │     ├─ glass material compiles (MeshTransmissionMaterial shader)
-     │     └─ particle field instanced
-     │
-     ├─ on first frame rendered (onCreated) → swap <Skeleton> out, <Canvas> in
-     │     (boneyard's snapshot guarantees zero layout shift on swap)
-     │
-     └─ if WebGL unavailable (useWebGLAvailable === false) → render <Poster/>
-           (a pre-rendered PNG of the same scene, served via next/image)
+    / loads
+      │
+      ├─ <ProductHero/> renders <Poster/> immediately (static HTML, no JS)
+      │
+      ├─ <Canvas> mounts at once (R3F, ssr:false); three.js + drei hydrate
+      │     ├─ NO environment HDRI (dropped — see below)
+      │     ├─ glass material compiles (MeshTransmissionMaterial shader)
+      │     └─ particle field instanced
+      │
+      ├─ on first frame rendered (onCreated) → veil lifts, canvas live
+      │     (veil and canvas share one h-[100dvh] w-full box: ZERO pixel shift;
+      │      asserted in apps/product-page/tests/ssr.test.ts)
+      │
+      └─ if WebGL unavailable (useWebGLAvailable === false) → <Poster/> stays
+            (the same component, no second asset, no JS)
 ```
 
 The key property: **the user never sees a blank box or a layout jump.**
-boneyard-js snapshots the _final_ layout (the card + KPI text boxes) and shows a
-glass-tinted skeleton that occupies the exact pixels; the WebGL canvas swaps in
-underneath without shifting a pixel. This is why `boneyard-js` was the right
-pick over a hand-rolled skeleton.
+The veil occupies the exact pixels the canvas takes over, because it _is_ the
+same box. This is why the veil replaced `boneyard-js`: one fewer dependency
+for an identical guarantee.
+
+**Environment / HDRI: DROPPED (amended 2026-10-04).** `<Environment
+preset="city">` fetches a remote HDRI at runtime — a new outbound network call
+carrying user timing data, forbidden by AGENTS.md Rule 2 (only the blob store
+and the update ping may call out). The palette-lit alternative is the §7.2 rig:
+abyss ambient + neumo key/fill directionals + three palette accent points,
+with `ACESFilmicToneMapping` + exposure 1.1 (FM-12) so the render never comes
+out dark and muddy. No reflections are lost that the transmission material
+needs: the card refracts the lit scene itself.
 
 ---
 
@@ -355,19 +373,22 @@ the implementing agent has no ambiguity.
 ## 9. Implementation Order (within Web phase, `16_Platform_Delivery_Sequence.md` §10.1 step 6)
 
 ```
-   3D PRODUCT PAGE BUILD-OUT (part of P1: WEB IN-FLIGHT):
+    3D PRODUCT PAGE BUILD-OUT (part of P1: WEB IN-FLIGHT):
 
-   1. npm i three @react-three/fiber @react-three/drei boneyard-js maath
-        (do NOT attempt `3d-js` — it 404s; see §0)
-   2. apps/web/src/components/hero/ skeleton (§2) — Canvas + Poster + Skeleton
-   3. LedgerCard + AccentLights + ParticleField + ContactShadow (§7 materials)
-   4. useWebGLAvailable + useReducedMotion + useHeroKPI hooks; degradation ladder (§3.1)
-   5. boneyard-js <Skeleton> wrapping the canvas; verify zero layout shift on swap
-   6. Performance: AdaptiveDpr, instanced particles, dynamic import; hit ≥50 fps mid-tier
-   7. Accessibility: aria-hidden canvas, KPI as DOM text, reduced-motion frozen (§4)
-   8. Lighthouse ≥ 90 on / (W5); the 3D bundle isolated from main chunk
-   9. Agent Browser verify: hero renders, skeleton→canvas swap clean, poster on no-WebGL
-   ─── W6 of the Web Production Gate clears ───
+    1. three 0.182.0 + @react-three/fiber 9.8.0 + @react-three/drei 10.7.8
+         (do NOT attempt `3d-js` — it 404s, see §0; do NOT add boneyard-js or
+         maath — dropped, see §0/§1.1; do NOT add anime — GSAP scrubs, see §12)
+    2. apps/product-page/src/components/product-3d/ (§2) — Canvas + Poster + veil
+    3. LedgerCard + AccentLights + ParticleField + ContactShadow (§7 materials)
+    4. useWebGLAvailable + useReducedMotion hooks; degradation ladder (§3.1,
+       decided in code by scene-tiers.ts — one ladder, two routes)
+    5. Poster veil over the mounting canvas; zero layout shift on lift
+         (asserted in apps/product-page/tests/ssr.test.ts)
+    6. Performance: AdaptiveDpr, instanced particles, dynamic import; hit ≥50 fps mid-tier
+    7. Accessibility: aria-hidden canvas, KPI as DOM text, reduced-motion frozen (§4)
+    8. Lighthouse ≥ 90 on / (W5); the 3D bundle isolated from main chunk
+    9. Agent Browser verify: hero renders, veil→canvas swap clean, poster on no-WebGL
+    ─── W6 of the Web Production Gate clears ───
 ```
 
 ---
@@ -420,33 +441,28 @@ the implementing agent has no ambiguity.
            --accent-amber #FFB300 · text rgba(255,255,255,0.95)  (13_UI_Guidelines §2.1)
 ```
 
-### 11.2 The Load Sequence (boneyard-js → canvas swap)
+### 11.2 The Load Sequence (Poster veil — boneyard-js dropped, see §2.2)
 
 ```
-   t=0ms     / loads. <Hero3D/> renders <Skeleton> (boneyard-js).
-             boneyard snapshots the real hero DOM box tree → pixel-perfect
-             glass-tinted skeleton occupies the exact card + KPI pixels.
-             ┌─────────────────────────────────────┐
-             │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │  ← skeleton (no layout shift)
-             │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
-             └─────────────────────────────────────┘
+    t=0ms     / loads. <ProductHero/> renders <Poster/> (static HTML, no JS).
+              ┌─────────────────────────────────────┐
+              │  canvas-coloured backdrop           │  ← veil (no layout shift)
+              └─────────────────────────────────────┘
 
-   t=200ms   <Canvas> mounts (ssr:false, dynamic). three + drei hydrate.
-             environment HDRI + transmission shader compile.
+    t=200ms   <Canvas> mounts at once (ssr:false, dynamic). three + drei
+              hydrate INSIDE the same box; transmission shader compiles.
+              No HDRI fetch (dropped per Rule 2 — palette-lit rig, §2.2).
 
-   t=~1.8s   first frame rendered → onCreated fires.
-             <Skeleton> fades out (120ms), <Canvas> fades in (120ms).
-             boneyard's snapshot guarantee: ZERO pixel shift on swap.
-             ┌─────────────────────────────────────┐
-             │  ╔═══════════════════════════════╗  │  ← live WebGL canvas
-             │  ║ ₹0 owed · 0 students · 1 ledger║  │
-             │  ╚═══════════════════════════════╝  │
-             └─────────────────────────────────────┘
+    t=~1.8s   first frame rendered → onCreated fires → veil lifts.
+              Veil and canvas share one h-[100dvh] w-full box: ZERO pixel shift.
+              ┌─────────────────────────────────────┐
+              │  ╔═══════════════════════════════╗  │  ← live WebGL canvas
+              │  ║ ₹0 owed · 0 students · 1 ledger║  │
+              │  ╚═══════════════════════════════╝  │
+              └─────────────────────────────────────┘
 
-   no-WebGL  useWebGLAvailable === false → <Poster/> (static PNG, same scene)
-             ┌─────────────────────────────────────┐
-             │  [pre-rendered PNG of the hero]     │  ← instant, no JS
-             └─────────────────────────────────────┘
+    no-WebGL  useWebGLAvailable === false → the SAME <Poster/> stays
+              (no second asset, no JS)
 ```
 
 ### 11.3 The Degradation Ladder (decision tree)
@@ -467,17 +483,31 @@ the implementing agent has no ambiguity.
                                     yes                        no
                                      │                          │
                                      ▼                          ▼
-                          full scene, FROZEN         full scene, orbit + float
-                          (static beauty)            DPR cap by GPU tier:
-                                                     discrete → [1, 2]
-                                                     integrated → [0.75, 1.5]
+                           full scene, FROZEN         full scene, orbit + float
+                           (static beauty)            DPR cap by GPU tier:
+                                                      discrete → [1, 2]
+                                                      integrated → [0.75, 1.5]
 ```
+
+DPR cap note (amended 2026-10-04, decided in `resolveDpr`): the hero keeps
+`[1, 1.5]` below 1280px viewport width even on capable GPUs — a phone-width
+frame gains nothing from more pixels. `[1, 2]` opens only above 1280px on
+non-low-end devices; `<AdaptiveDpr>` still sheds load under pressure either
+way.
 
 ---
 
 ## 12. 3D Narrative Story — Kurious Bastard 5 Beats, Shonen (Penguin×Zacamil×Graffico)
 
-Shonen pacing (Naruto/DBZ/One Piece): fast ease-in, whip-pan on punch, `FOV 55->75->55` 200ms via `maath/damp`, speed-lines on chaos, impact frame.
+Shonen pacing (Naruto/DBZ/One Piece): fast ease-in, whip-pan on punch, `FOV 55->75->55` 200ms via `THREE.MathUtils.damp` (in-bundle; `maath` stays dropped), speed-lines on chaos, impact frame.
+
+**Animation driver: GSAP scrub (amended 2026-10-04).** The sticky stage owns one
+GSAP `ScrollTrigger` scrub proxy (section scroll → 0..1 progress ref); the
+camera damps toward it per frame. No `anime` dep: GSAP 3.15 is already present
+and does the scrub, so a second timeline library would be a second owner for
+one job. `ScrollTrigger.refresh()` after settle (~600ms + font-ready) per
+FM-21; `gsap.context` + `ctx.revert()` + `io.disconnect()` per FM-15;
+`frameloop` suspends off-screen per FM-16.
 
 **Canonical beats (scroll map, no overlap):**
 1. **Hook `0.00-0.25`** — seeker finds tuition, phone in hand (Penguin living idle at `y=0`).
@@ -486,4 +516,42 @@ Shonen pacing (Naruto/DBZ/One Piece): fast ease-in, whip-pan on punch, `FOV 55->
 4. **Climax `0.70-0.85`** — Staffroom cluster, every tutor on BuddySaradhi.
 5. **Reveal `0.85-1.00`** — zoom into 5 screens: Dashboard->Students->Attendance->Fees->Settings + optional `WASD/E` walk (Graffico).
 
-**Assets:** Nano Banana stills (`public/nano/seeker.png, hallway-a/b/c.png, crowd.png` as `CanvasTexture` on `Plane` with `dispose()`) + Veo 10s alley roam (`public/veo/alley-roam.mp4` as `VideoTexture` on `Plane` at `ptChaos`, `crossOrigin Anonymous` only if CORS, `currentTime clamp duration-0.15`, `dispose()`). Code-first: `LedgerCard, AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls pages=3 damping 0.25` drives `anime.timeline seek`.
+**Assets:** code-first ONLY (amended 2026-10-04). `LedgerCard,
+AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls`-style
+pinning is DOM buttons → `scrollTo` plus the GSAP scrub proxy (no
+`anime.timeline`). Nano Banana stills and Veo clips were specced here
+(`public/nano/*`, `public/veo/alley-roam.mp4`) but are recorded as DROPPED for
+this build: they cannot be generated in this environment, and shipping
+`CanvasTexture`/`VideoTexture` planes against assets that do not exist would
+404 on the hero path. If the assets ever exist, they arrive as `CanvasTexture`
+on `Plane` with `dispose()`, `crossOrigin="anonymous"` only if CORS-clean, and
+`currentTime` clamped to `duration - 0.15` — until then the alley is desks,
+screens, thread and light. No remote fetch either way (Rule 2).
+
+### 12.1 The `/tour` Route (amended 2026-10-04)
+
+The five beats get a second, longer telling at
+`apps/product-page/src/app/tour/`: a 600vh pinned stage walking the five
+screens in order (Dashboard → Students → Attendance → Fees → Settings), over
+the SAME shared world (`ProductScene` / `Journey` / `World` / `LedgerCard` /
+`AccentLights` / `ParticleField` / hooks — reused, never forked). Route-local
+code lives in `src/app/tour/_components/` and only there:
+
+- `tour-copy.ts` — the five stop texts (audited mechanism language, no
+  headcounts). Rendered twice: as the pinned overlay AND as a static list in
+  the server page for no-JS/search visitors.
+- `tour-tube.tsx` — the NEW code-first set piece: the ledger thread, a
+  `THREE.TubeGeometry` (48 tubular × 6 radial) along a fixed CatmullRom curve
+  from the hero card to the five reveal screens, palette accent material,
+  geometry disposed on unmount. No new deps, no new assets.
+- `tour-fov-rig.tsx` — the shonen whip: scroll velocity damps FOV 55→75→55
+  via `THREE.MathUtils.damp`; parked at 55 under reduced motion.
+- `tour-canvas.tsx` + `tour-experience.tsx` — the `ssr:false` canvas wrapper
+  and the stage (pins pattern, Poster veil, poster/reduced/low-end paths,
+  skip + back links, prev/next, `?beat=` deep links with `pushState` on
+  explicit visits / `replaceState` on scrub / `popstate` for back-forward).
+
+Constraints inherited, not repeated: Poster veil (§2.2), DPR tiers (§11.3 via
+`resolveDpr`), single ladder (`scene-tiers.ts`), H1-in-SSR-HTML (server H1;
+overlay headings are H2 — one H1 per document), 44px targets, canvas
+`aria-hidden`, CTA as the keyboard target (Rule 10).

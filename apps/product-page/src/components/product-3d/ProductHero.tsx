@@ -10,9 +10,10 @@
 // viewport, and a button with that label that jumps 400vh is an action the
 // visitor cannot predict (docs/design/marketing-claims-audit.md rows 3–4).
 // Funnel pass: that one primary is now free self-serve sign-up, because it is the
-// only action on this surface that completes — `POST /api/access-request`
-// validates, returns a receipt and delivers nothing
-// (src/app/api/access-request/route.ts:9-15,41). The contracted-plan request
+// only action on this surface that completes immediately — `POST
+// /api/access-request` validates, persists to the console store and returns a
+// receipt, while mail delivery to a person is not connected
+// (src/app/api/access-request/route.ts). The contracted-plan request
 // moved to the quiet text action beside it.
 // Way past the story pass: the way past 500vh is now a real anchor link at the
 // bottom of the stage, on BOTH canvas paths, so it cannot land a keyboard or
@@ -25,7 +26,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "./Poster";
-import { useLowEnd, useReducedMotion, useSceneTokens, useWebGLAvailable } from "./hooks";
+import { useLowEnd, useReducedMotion, useSceneTokens, useWebGLAvailable, useWideDesktop } from "./hooks";
+import { resolveBeatIndex } from "./scene-tiers";
 import {
   APP_SIGNUP_URL,
   CONTRACTED_PLAN_CTA,
@@ -38,6 +40,12 @@ const ProductScene = dynamic(() => import("./ProductScene").then((m) => m.Produc
   ssr: false,
 });
 
+// FM-13: these literals are safe as client state ONLY because the beat-0 H1
+// prerenders into the static HTML (this is a client component, but Next still
+// emits its initial tree at build time - only the `ssr: false` ProductScene is
+// omitted). `tests/ssr.test.ts` asserts an H1 is present in
+// `.next/server/app/index.html`; if that test ever goes red, these literals
+// must move to server copy first and this comment is wrong.
 const BEATS = [
   {
     id: "hook",
@@ -117,6 +125,7 @@ export function ProductHero() {
   const webgl = useWebGLAvailable();
   const reduced = useReducedMotion();
   const lowEnd = useLowEnd();
+  const wide = useWideDesktop();
   const tokens = useSceneTokens();
   const [ready, setReady] = useState(false);
   const [beat, setBeat] = useState(0);
@@ -145,7 +154,7 @@ export function ProductHero() {
         scrub: 1,
         onUpdate: (self) => {
           progressRef.current.current = self.progress;
-          const b = Math.min(BEATS.length - 1, Math.floor(self.progress * BEATS.length));
+          const b = resolveBeatIndex(self.progress, BEATS.length);
           setBeat((prev) => (prev === b ? prev : b));
         },
       });
@@ -220,6 +229,7 @@ export function ProductHero() {
                 tokens={tokens}
                 frozen={reduced}
                 lowEnd={lowEnd}
+                wide={wide}
                 inView={inView}
                 onReady={() => setReady(true)}
               />
