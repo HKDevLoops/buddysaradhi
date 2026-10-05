@@ -66,15 +66,17 @@ describe("rupeesStringToPaise (BR-M-01 — never float)", () => {
   });
 });
 
-describe("validateReferenceForMethod (07 §6.4)", () => {
+describe("validateReferenceForMethod (07 §6.4, amended: optional for all)", () => {
   it("cash/card/other keep reference optional", () => {
     expect(validateReferenceForMethod("cash", "")).toBeNull();
     expect(validateReferenceForMethod("card", "last4 1234")).toBeNull();
     expect(validateReferenceForMethod("other", "")).toBeNull();
   });
 
-  it("requires UTR for upi/bank and 6 digits for cheque", () => {
-    expect(validateReferenceForMethod("upi", "")).not.toBeNull();
+  it("empty reference is valid for upi/bank/cheque, provided values still patterned", () => {
+    expect(validateReferenceForMethod("upi", "")).toBeNull();
+    expect(validateReferenceForMethod("bank", "")).toBeNull();
+    expect(validateReferenceForMethod("cheque", "")).toBeNull();
     expect(validateReferenceForMethod("upi", "AXISBK123456789")).toBeNull();
     expect(validateReferenceForMethod("bank", "short")).not.toBeNull();
     expect(validateReferenceForMethod("cheque", "12345")).not.toBeNull();
@@ -178,7 +180,7 @@ describe("RecordPaymentPayloadSchema (receipt-before-post pass-through)", () => 
     if (parsed.success) expect(parsed.data).toEqual({ ...preview });
   });
 
-  it("rejects non-enum method, float paise, bad date", () => {
+  it("rejects non-enum method, float paise, bad date — but accepts empty reference", () => {
     const base = {
       studentId,
       amountPaise: 150000,
@@ -198,8 +200,13 @@ describe("RecordPaymentPayloadSchema (receipt-before-post pass-through)", () => 
     expect(
       RecordPaymentPayloadSchema.safeParse({ ...base, receivedOn: "02/10/2026" }).success
     ).toBe(false);
+    // Amended 07 §6.4: reference is optional for every method (malformed
+    // values still rejected — see validateReferenceForMethod suite above).
     expect(
       RecordPaymentPayloadSchema.safeParse({ ...base, method: "upi", reference: "" }).success
+    ).toBe(true);
+    expect(
+      RecordPaymentPayloadSchema.safeParse({ ...base, method: "cheque", reference: "abc" }).success
     ).toBe(false);
   });
 });

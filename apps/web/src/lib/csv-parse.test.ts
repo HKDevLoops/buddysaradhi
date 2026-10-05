@@ -11,8 +11,12 @@ import {
   STUDENT_IMPORT_HEADERS,
   buildCsv,
   buildStudentsTemplate,
+  excelSerialToIso,
   findMoneyHeaders,
+  isoToExcelSerial,
+  normalizeFlexibleDate,
   parseCsv,
+  parseTsv,
   partitionDuplicates,
   splitImportGrid,
   studentDupKey,
@@ -23,6 +27,27 @@ const HEADERS = [...STUDENT_IMPORT_HEADERS];
 
 function row(cells: string[]): string[] {
   return cells;
+}
+
+/** Fourteen-cell row with valid defaults; override any column by name. */
+function fullRow(overrides: Record<string, string> = {}): string[] {
+  const base: Record<string, string> = {
+    first_name: "Aarav",
+    last_name: "Sharma",
+    phone: "9876543210",
+    gender: "M",
+    dob: "2015-04-12",
+    address: "21 MG Road, Pune",
+    school: "Delhi Public School",
+    grade: "10",
+    board: "CBSE",
+    batch: "Class 10 Maths 6pm",
+    admission_date: "2026-06-01",
+    fee_model: "postpaid",
+    base_fee_rupees: "2000",
+    status: "active",
+  };
+  return HEADERS.map((header) => overrides[header] ?? base[header] ?? "");
 }
 
 describe("parseCsv", () => {
@@ -58,6 +83,109 @@ describe("parseCsv", () => {
 
   it("keeps a stray mid-field quote literally", () => {
     expect(parseCsv("a\"b,c\n")).toEqual([['a"b', "c"]]);
+  });
+});
+
+describe("import headers (Add Student parity)", () => {
+  it("ships fourteen columns, name split into first and last", () => {
+    expect(HEADERS).toEqual([
+      "first_name",
+      "last_name",
+      "phone",
+      "gender",
+      "dob",
+      "address",
+      "school",
+      "grade",
+      "board",
+      "batch",
+      "admission_date",
+      "fee_model",
+      "base_fee_rupees",
+      "status",
+    ]);
+  });
+
+  it("leaves the money-guard silent on the fee columns", () => {
+    expect(findMoneyHeaders(HEADERS)).toEqual([]);
+    expect(findMoneyHeaders(["fee_model", "base_fee_rupees"])).toEqual([]);
+  });
+});
+
+describe("parseTsv", () => {
+  it("splits Excel clipboard text on tabs and newlines", () => {
+    expect(parseTsv("Aarav\tSharma\t9876543210\nDiya\t\t9123456789\n")).toEqual([
+      ["Aarav", "Sharma", "9876543210"],
+      ["Diya", "", "9123456789"],
+    ]);
+  });
+
+  it("handles quoted tabs and newlines inside a pasted cell", () => {
+    expect(parseTsv("a\t\"line1\nline2\tstill\"\tc\n")).toEqual([
+      ["a", "line1\nline2\tstill", "c"],
+    ]);
+  });
+
+  it("handles CRLF endings and a leading BOM", () => {
+    expect(parseTsv("﻿a\tb\r\n1\t2\r\n")).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
+  });
+});
+
+describe("flexible dates (migrated sheets)", () => {
+  it("passes ISO through untouched", () => {
+    expect(normalizeFlexibleDate("2015-04-12", "dob")).toEqual({ ok: true, iso: "2015-04-12" });
+  });
+
+  it("converts DD/MM/YYYY to ISO", () => {
+    expect(normalizeFlexibleDate("12/04/2015", "dob")).toEqual({ ok: true, iso: "2015-04-12" });
+    expect(normalizeFlexibleDate("3/6/2026", "admission_date")).toEqual({
+      ok: true,
+      iso: "2026-06-03",
+    });
+  });
+
+  it("converts Excel serials to ISO", () => {
+    expect(normalizeFlexibleDate("44927", "dob")).toEqual({ ok: true, iso: "2023-01-01" });
+    expect(normalizeFlexibleDate("44197", "admission_date")).toEqual({
+      ok: true,
+      iso: "2021-01-01",
+    });
+  });
+
+  it("names the cell on garbage input", () => {
+    const parsed = normalizeFlexibleDate("not a date", "dob");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.reason).toContain("dob");
+      expect(parsed.reason).toContain("YYYY-MM-DD");
+    }
+  });
+
+  it("rejects impossible DD/MM dates as not real", () => {
+    const parsed = normalizeFlexibleDate("31/02/2024", "dob");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.reason).toContain("real date");
+  });
+
+  it("rejects MM/DD/YYYY-style values instead of guessing", () => {
+    const parsed = normalizeFlexibleDate("12/31/2015", "dob");
+    expect(parsed.ok).toBe(false);
+  });
+
+  it("rejects out-of-range serials instead of guessing", () => {
+    const parsed = normalizeFlexibleDate("99999999", "dob");
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.reason).toContain("dob");
+  });
+
+  it("round-trips ISO through Excel serials", () => {
+    expect(isoToExcelSerial("2023-01-01")).toBe(44927);
+    expect(excelSerialToIso(44927)).toBe("2023-01-01");
+    expect(excelSerialToIso(0)).toBe(null);
+    expect(excelSerialToIso(60001)).toBe(null);
   });
 });
 
@@ -158,7 +286,7 @@ describe("validateImportRows", () => {
 
   it("reports per-row errors with row number, column, and reason", () => {
     const result = validateImportRows(HEADERS, [
-      ["", "", "abc", "X", "12-31-2015", "", "Active"],
+      fullRow({ first_name: "", phone: "abc", gender: "X", dob: "12-31-2015", status: "Active" }),
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -170,7 +298,7 @@ describe("validateImportRows", () => {
       expect(reasonsFor("phone").some((reason) => reason.includes("10 to 15 digits"))).toBe(true);
       expect(reasonsFor("gender").some((reason) => reason.includes("M"))).toBe(true);
       expect(
-        reasonsFor("dob_yyyy_mm_dd").some((reason) => reason.includes("YYYY-MM-DD")),
+        reasonsFor("dob").some((reason) => reason.includes("YYYY-MM-DD")),
       ).toBe(true);
       expect(reasonsFor("status").some((reason) => reason.includes("active"))).toBe(true);
       for (const error of result.invalid) {
@@ -181,9 +309,10 @@ describe("validateImportRows", () => {
   });
 
   it("rejects an impossible date", () => {
-    const result = validateImportRows(HEADERS, [
-      ["Aarav", "", "", "", "2024-02-30", "", ""],
-    ]);
+    const result = validateImportRows(
+      HEADERS,
+      [fullRow({ dob: "2024-02-30" })],
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.invalid).toHaveLength(1);
@@ -191,19 +320,103 @@ describe("validateImportRows", () => {
     }
   });
 
-  it("blanks out optional columns and defaults status to active", () => {
-    const result = validateImportRows(HEADERS, [["Aarav", "", "", "", "", "", ""]]);
+  it("accepts DD/MM/YYYY and Excel serials in date columns", () => {
+    const result = validateImportRows(HEADERS, [
+      fullRow({ dob: "12/04/2015", admission_date: "44927" }),
+    ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.valid[0]?.data).toMatchObject({ first_name: "Aarav", status: "active" });
-      expect(result.valid[0]?.data.phone).toBeUndefined();
-      expect(result.valid[0]?.data.gender).toBeUndefined();
+      expect(result.invalid).toEqual([]);
+      expect(result.valid[0]?.data).toMatchObject({ dob: "2015-04-12", admission_date: "2023-01-01" });
+    }
+  });
+
+  it("reports an unparseable date with the cell named", () => {
+    const result = validateImportRows(HEADERS, [fullRow({ dob: "sometime" })]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid).toHaveLength(0);
+      const dobErrors = result.invalid.filter((error) => error.column === "dob");
+      expect(dobErrors).toHaveLength(1);
+      expect(dobErrors[0]?.reason).toContain("dob");
+    }
+  });
+
+  it("requires batch like the Add Student sheet", () => {
+    const result = validateImportRows(HEADERS, [fullRow({ batch: "" })]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid).toHaveLength(0);
+      expect(result.invalid.some((error) => error.column === "batch")).toBe(true);
+    }
+  });
+
+  it("defaults fee_model, base fee, status, and blanks out dates", () => {
+    const result = validateImportRows(
+      HEADERS,
+      [fullRow({ fee_model: "", base_fee_rupees: "", status: "", dob: "", admission_date: "" })],
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid[0]?.data).toMatchObject({
+        first_name: "Aarav",
+        fee_model: "postpaid",
+        base_fee_rupees: "0",
+        status: "active",
+      });
+      expect(result.valid[0]?.data.phone).toBe("9876543210");
+      expect(result.valid[0]?.data.dob).toBeUndefined();
+      expect(result.valid[0]?.data.admission_date).toBeUndefined();
+    }
+  });
+
+  it("rejects an unknown fee_model instead of guessing", () => {
+    const result = validateImportRows(HEADERS, [fullRow({ fee_model: "yearly" })]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid).toHaveLength(0);
+      expect(result.invalid.some((error) => error.column === "fee_model")).toBe(true);
+    }
+  });
+
+  it("rejects non-decimal monthly fees (negative, letters, sub-paisa)", () => {
+    for (const fee of ["-5", "abc", "12.3456789"]) {
+      const result = validateImportRows(HEADERS, [fullRow({ base_fee_rupees: fee })]);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.valid).toHaveLength(0);
+        expect(
+          result.invalid.some((error) => error.column === "base_fee_rupees"),
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("caps the new text fields at the manual create limits", () => {
+    const cases: Array<[string, string, number]> = [
+      ["address", "Address", 1000],
+      ["school", "School", 300],
+      ["grade", "Grade", 64],
+      ["board", "Board", 64],
+    ];
+    for (const [column, label, limit] of cases) {
+      const tooLong = "x".repeat(limit + 1);
+      const result = validateImportRows(HEADERS, [fullRow({ [column]: tooLong })]);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.valid).toHaveLength(0);
+        expect(
+          result.invalid.some(
+            (error) => error.column === column && error.reason.includes(label),
+          ),
+        ).toBe(true);
+      }
     }
   });
 
   it("cleans phone punctuation before validating", () => {
     const result = validateImportRows(HEADERS, [
-      ["Aarav", "", "+91 98765-43210", "", "", "", ""],
+      fullRow({ phone: "+91 98765-43210" }),
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -219,11 +432,24 @@ describe("studentDupKey + partitionDuplicates", () => {
     );
   });
 
+  it("matches the Add Student sheet dup key (name plus last four digits)", () => {
+    // add-student-sheet.tsx doCreate: (first + last + phoneLast4).toLowerCase()
+    // with non-alphanumerics stripped. A pasted row collides exactly when the
+    // sheet would warn, so the same name+phone always means the same student.
+    const manualDupKey = ("Aarav" + "Sharma" + "9876543210".slice(-4))
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    expect(studentDupKey("Aarav", "Sharma", "9876543210")).toBe(manualDupKey);
+    expect(manualDupKey).toBe("aaravsharma3210");
+    expect(studentDupKey("Aarav", "Sharma", "+91-98765-43210")).toBe(manualDupKey);
+    expect(studentDupKey("Aarav", "Sharma", "9123456789")).not.toBe(manualDupKey);
+  });
+
   it("marks the second within-file occurrence a duplicate", () => {
     const result = validateImportRows(HEADERS, [
-      ["Aarav", "Sharma", "9876543210", "", "", "", ""],
-      ["Aarav", "Sharma", "9876543210", "", "", "", ""],
-      ["Diya", "", "9123456789", "", "", "", ""],
+      fullRow(),
+      fullRow(),
+      fullRow({ first_name: "Diya", last_name: "", phone: "9123456789", gender: "F", dob: "", batch: "Class 9 Science 5pm" }),
     ]);
     expect(result.ok).toBe(true);
     if (result.ok) {

@@ -64,6 +64,7 @@ import { StudentSearchBox } from "@/components/search/student-search-box";
 import { useSearchCandidates } from "@/components/search/use-search-candidates";
 import { ErrorState } from "@/components/ui/screen-state";
 import { ShortcutHelpButton } from "@/components/ui/shortcut-help";
+import { PinSetupGate } from "@/components/settings/pin-setup-gate";
 import { DiscardChangesPrompt, findDirtyOverlay } from "@/components/ui/overlay";
 import {
   SHORTCUT_REGISTRY,
@@ -341,6 +342,11 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
         className="min-h-[100dvh] flex flex-col md:flex-row overflow-hidden selection:bg-success/30 relative z-10 w-full"
         style={{ background: "transparent", color: "var(--text-primary)" }}
       >
+        {/* Mandatory PIN gate (08 BR-SEC-02): accounts without a PIN see
+            nothing but the setup form until one is verified. Renders null
+            while loading, on transport errors, and once a PIN exists — an
+            offline tutor keeps their data in all three cases. */}
+        <PinSetupGate />
         {/* Sidebar — glass panel */}
         <aside
           className="hidden md:flex md:w-64 md:flex-col z-20 shrink-0"
@@ -554,6 +560,14 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                   error={searchError}
                 />
               </div>
+            </div>
+            {/* Right cluster: help + account. `ml-auto` pins them to the right
+                edge on every screen at every width (the header's
+                justify-between only separates two children, so the cluster
+                must be its own flex child — previously both buttons sat in
+                the left group). Order is help-then-account (reading order),
+                both 44px targets with visible focus. */}
+            <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
               {/* Discoverability for the accelerators themselves. The `?`
                   button is the one thing that makes the other nine chords
                   findable by a tutor who does not know they exist; it is in the
@@ -596,15 +610,18 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden="true" />
                     
                     {/* Dropdown Menu */}
-                    <div
-                      className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-default)] overflow-hidden shadow-2xl"
-                      style={{
-                        background: "var(--surface-overlay)",
-                        backdropFilter: "var(--mat-filter)",
-                      }}
-                      role="menu"
-                      aria-label="User menu"
-                    >
+                      <div
+                        className="absolute right-0 mt-2 w-48 rounded-xl z-50 animate-in fade-in slide-in-from-top-2 duration-150 border border-[var(--border-default)] overflow-hidden shadow-2xl"
+                        style={{
+                          // Menus sit at ~0.8 solidity (see search palette):
+                          // texture without see-through.
+                          background:
+                            "color-mix(in srgb, var(--surface-overlay) 80%, var(--surface-sunken))",
+                          backdropFilter: "var(--mat-filter)",
+                        }}
+                        role="menu"
+                        aria-label="User menu"
+                      >
                       <button
                         role="menuitem"
                         onClick={() => {

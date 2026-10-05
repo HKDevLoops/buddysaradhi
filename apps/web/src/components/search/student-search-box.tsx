@@ -319,7 +319,9 @@ export function StudentSearchBox<T>({
           aria-label={label}
           className="absolute z-30 mt-1 w-full max-h-80 overflow-y-auto rounded-xl py-1"
           style={{
-            background: "var(--surface-overlay)",
+            // Menus sit at ~0.8 solidity: translucent enough for material
+            // texture, opaque enough that rows behind never bleed through.
+            background: "color-mix(in srgb, var(--surface-overlay) 80%, var(--surface-sunken))",
             // docs/design/material-modes.md §2 — the palette dropdown takes the
             // material token, so the mode control is not inert here.
             backdropFilter: "var(--mat-filter)",

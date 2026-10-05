@@ -172,13 +172,25 @@ describe("recordPaymentAction — method-enum rejects (07 §7)", () => {
     expect(mocks.getAuthenticatedDb).not.toHaveBeenCalled();
   });
 
-  it("rejects UPI without a UTR reference", async () => {
-    const res = await recordPaymentAction(randomUUID(), 150000, "Tuition", "2026-10-02", {
+  it("accepts UPI without a UTR reference (optional, amended 07 §6.4) and posts", async () => {
+    const studentId = randomUUID();
+    ({ client, dir } = await createTestDb());
+    await seedTenant(client, studentId, 300000);
+    mocks.getAuthenticatedDb.mockResolvedValue({ client, userId: TENANT, tenantId: TENANT });
+    mocks.getAuthenticatedPrisma.mockResolvedValue({
+      db: createLibsqlProxy(client),
+      userId: TENANT,
+      tenantId: TENANT,
+    });
+    const res = await recordPaymentAction(studentId, 150000, "Tuition", TODAY_ISO, {
       method: "upi",
       reference: "",
     });
-    expect(res.success).toBe(false);
-    expect(mocks.getAuthenticatedDb).not.toHaveBeenCalled();
+    if (!res.success) {
+      throw new Error(`payment without reference failed: ${res.error}`);
+    }
+    expect(res.success).toBe(true);
+    expect(res.data.reference).toBe("");
   });
 
   it("rejects float paise and bad dates", async () => {

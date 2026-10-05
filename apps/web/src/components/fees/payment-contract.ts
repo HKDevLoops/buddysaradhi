@@ -90,15 +90,20 @@ export function rupeesStringToPaise(raw: string): number | null {
 }
 
 /**
- * 07 §6.4 reference rules, enforced both client-side (sheet hint) and
- * server-side (superRefine): optional for cash, required + patterned for
- * upi/bank/cheque. Returns an error string or null when valid.
+ * 07 §6.4 reference rules (amended: references are OPTIONAL for every method —
+ * tutors often record before the UTR/cheque number arrives; reconciliation
+ * happens later), enforced both client-side (sheet hint) and server-side
+ * (superRefine). Empty is always valid; a PROVIDED value must still match its
+ * method pattern (upi/bank: 10–22 letter/digit UTR; cheque: 6 digits; others:
+ * ≤32 chars). Optional never means unvalidated. Returns an error string or
+ * null when valid.
  */
 export function validateReferenceForMethod(
   method: PaymentMethod,
   reference: string,
 ): string | null {
   const ref = reference.trim();
+  if (ref.length === 0) return null;
   if (method === "cash" || method === "card" || method === "other") {
     if (ref.length > 32) return "Reference must be 32 characters or fewer";
     return null;

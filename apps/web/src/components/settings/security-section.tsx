@@ -3,11 +3,15 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateSettingAction } from "@/server/actions/settings";
+import { updateSettingAction, setPinAction } from "@/server/actions/settings";
 import { Shield, Lock, Fingerprint, Timer, Loader2 } from "lucide-react";
 import { SecurityPanel } from "./security-panel";
 import { NeumoToggle } from "./neumo-toggle";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { pinFormatError, PIN_MIN_LENGTH, PIN_MAX_LENGTH, PIN_INPUT_MAX_LENGTH } from "@buddysaradhi/shared";
+import { useToast } from "@/components/ui/toast";
+import { toAppErrorState } from "@/lib/app-errors";
+import { cn } from "@/lib/utils";
 
 import type { Settings } from "@/types/settings";
 
@@ -53,6 +57,60 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordStatus, setPasswordStatus] = useState<"idle" | "success" | "error">("idle");
   const [passwordError, setPasswordError] = useState("");
+
+  // Change-PIN flow (setPinAction existed with no caller — the button below
+  // was dead). PIN-gated sensitive mutation per 10_Security.md §4 /
+  // 08_Settings.md BR-SEC-02: current PIN re-verified server-side (with the
+  // PIN ladder: lockout/wipe states surface as typed codes), new PIN
+  // confirmed client-side before anything is posted.
+  const toast = useToast();
+  const [pinFormOpen, setPinFormOpen] = useState(false);
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinFormError, setPinFormError] = useState<string | null>(null);
+  const [pinOk, setPinOk] = useState(false);
+
+  const newPinFormatProblem = pinFormatError(newPin);
+  const pinsMatch = newPin.length === 0 || newPin === confirmPin;
+
+  const pinMutation = useMutation({
+    mutationFn: (args: { next: string; current: string }) =>
+      setPinAction(args.next, args.current.length > 0 ? args.current : undefined),
+    onSuccess: (res) => {
+      if (res.success !== true) {
+        // Ladder states (PIN_LOCKED / PIN_WIPE_REQUIRED) arrive as server
+        // copy via pinGateMessage — surface verbatim, keep the form open.
+        const copy = res.error || "Could not change the PIN.";
+        setPinFormError(copy);
+        const code = (res as { code?: string }).code;
+        toast.error(
+          code === "PIN_LOCKED" ? "PIN locked — try again shortly" : "PIN not changed",
+          copy,
+        );
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setPinFormOpen(false);
+      setCurrentPin("");
+      setNewPin("");
+      setConfirmPin("");
+      setPinFormError(null);
+      setPinOk(true);
+      toast.success("PIN changed", "Use the new PIN next time you unlock.");
+    },
+    onError: (err) => {
+      const copy = `${toAppErrorState(err).message} Nothing was changed.`;
+      setPinFormError(copy);
+      toast.error("PIN not changed", copy);
+    },
+  });
+
+  const canChangePin =
+    newPin.length > 0 &&
+    newPinFormatProblem === null &&
+    pinsMatch &&
+    !pinMutation.isPending;
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,11 +172,121 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
             </div>
             <button
               type="button"
-              className="py-2.5 px-4 rounded-xl text-sm font-semibold text-[var(--accent-primary)] border border-[var(--accent-primary)] bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent-primary)_15%,transparent)] hover:brightness-110 cursor-pointer transition-all"
+              onClick={() => {
+                setPinFormOpen((open) => !open);
+                setPinFormError(null);
+                setPinOk(false);
+              }}
+              aria-expanded={pinFormOpen}
+              aria-controls="change-pin-form"
+              className="py-2.5 px-4 min-h-[44px] rounded-xl text-sm font-semibold text-[var(--accent-primary)] border border-[var(--accent-primary)] bg-[color-mix(in_srgb,var(--accent-primary)_15%,transparent)] shadow-[0_0_12px_color-mix(in_srgb,var(--accent-primary)_15%,transparent)] hover:brightness-110 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
             >
-              Change PIN
+              {pinFormOpen ? "Close" : "Change PIN"}
             </button>
           </div>
+
+          {pinFormOpen && (
+            <form
+              id="change-pin-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!canChangePin) return;
+                pinMutation.mutate({ next: newPin, current: currentPin });
+              }}
+              className="mt-4 space-y-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-inset)] p-4"
+            >
+              <div>
+                <label htmlFor="pin-current" className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                  Current PIN <span className="normal-case font-normal">(leave blank for first-time setup)</span>
+                </label>
+                <input
+                  id="pin-current"
+                  type="password"
+                  value={currentPin}
+                  onChange={(e) => {
+                    setCurrentPin(e.target.value);
+                    setPinFormError(null);
+                  }}
+                  inputMode="numeric"
+                  maxLength={PIN_INPUT_MAX_LENGTH}
+                  autoComplete="off"
+                  placeholder="••••"
+                  className="neumo-inset w-full px-4 py-3 min-h-[44px] text-sm text-center tracking-[0.5em] font-mono text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="pin-new" className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                  New PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+                </label>
+                <input
+                  id="pin-new"
+                  type="password"
+                  value={newPin}
+                  onChange={(e) => {
+                    setNewPin(e.target.value);
+                    setPinFormError(null);
+                    setPinOk(false);
+                  }}
+                  inputMode="numeric"
+                  maxLength={PIN_INPUT_MAX_LENGTH}
+                  autoComplete="off"
+                  placeholder="••••"
+                  aria-describedby={newPinFormatProblem ? "pin-new-format" : undefined}
+                  aria-invalid={newPinFormatProblem ? true : undefined}
+                  className="neumo-inset w-full px-4 py-3 min-h-[44px] text-sm text-center tracking-[0.5em] font-mono text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]"
+                />
+                {newPinFormatProblem && (
+                  <p id="pin-new-format" className="text-[var(--danger)] text-xs mt-2">
+                    {newPinFormatProblem}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="pin-confirm" className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                  Confirm new PIN
+                </label>
+                <input
+                  id="pin-confirm"
+                  type="password"
+                  value={confirmPin}
+                  onChange={(e) => {
+                    setConfirmPin(e.target.value);
+                    setPinFormError(null);
+                  }}
+                  inputMode="numeric"
+                  maxLength={PIN_INPUT_MAX_LENGTH}
+                  autoComplete="off"
+                  placeholder="••••"
+                  aria-invalid={!pinsMatch ? true : undefined}
+                  className="neumo-inset w-full px-4 py-3 min-h-[44px] text-sm text-center tracking-[0.5em] font-mono text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]"
+                />
+                {!pinsMatch && (
+                  <p className="text-[var(--danger)] text-xs mt-2">PINs do not match.</p>
+                )}
+              </div>
+
+              {pinOk && (
+                <p role="status" className="text-[var(--success)] text-sm font-semibold">PIN changed successfully.</p>
+              )}
+              {pinFormError && (
+                <p role="alert" className="text-[var(--danger)] text-sm font-semibold">{pinFormError}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={!canChangePin}
+                aria-busy={pinMutation.isPending}
+                className={cn(
+                  "w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold transition-colors",
+                  canChangePin
+                    ? "text-[var(--accent-on-primary)] bg-gradient-to-r from-[var(--success)] to-[var(--info)]"
+                    : "bg-[var(--surface-inset)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
+                )}
+              >
+                {pinMutation.isPending ? "Changing PIN…" : "Save new PIN"}
+              </button>
+            </form>
+          )}
 
           <div className="flex items-center justify-between bg-[var(--surface-inset)] border border-[var(--border-default)] p-5 rounded-xl hover:bg-[var(--surface-raised)] transition-colors">
             <div className="flex items-center gap-4">

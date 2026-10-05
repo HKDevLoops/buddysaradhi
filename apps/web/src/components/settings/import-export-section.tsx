@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
@@ -20,12 +20,17 @@ import {
 import { log } from "@/lib/logger";
 import {
   MAX_IMPORT_BYTES,
+  MAX_IMPORT_ROWS,
+  STUDENT_IMPORT_HEADERS,
   STUDENT_TEMPLATE_FILENAME,
+  STUDENT_XLSX_TEMPLATE_FILENAME,
   buildCsv,
   buildStudentsTemplate,
   downloadCsv,
   exportFilename,
+  normalizeFlexibleDate,
   parseCsv,
+  parseTsv,
   partitionDuplicates,
   splitImportGrid,
   validateImportRows,
@@ -33,6 +38,7 @@ import {
   type ImportRowError,
   type ValidImportRow,
 } from "@/lib/csv-parse";
+import { buildStudentsXlsxTemplate, downloadXlsx } from "@/lib/xlsx-template";
 import { importStudentsAction } from "@/server/actions/settings";
 import { fetchStudentsAction } from "@/server/actions/students";
 import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
@@ -71,6 +77,66 @@ const EXPORT_ENTITIES: Array<{ id: ExportEntity; label: string }> = [
 
 const ALL_STATUSES: StudentFilters["status"] = ["active", "inactive", "graduated", "archived"];
 const ALL_FEE_MODELS: StudentFilters["feeModels"] = ["postpaid", "prepaid", "mixed"];
+
+// Excel-like paste grid (Settings bulk import). Columns are the fourteen
+// import headers; the grid posts through the same preview + action as a file
+// upload, so file and paste can never disagree about what a valid row is.
+const GRID_COLUMNS: string[] = [...STUDENT_IMPORT_HEADERS];
+const GRID_START_ROWS = 4;
+const GRID_ENUM_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  gender: [
+    { value: "", label: "—" },
+    { value: "M", label: "M" },
+    { value: "F", label: "F" },
+    { value: "O", label: "O" },
+  ],
+  fee_model: [
+    { value: "", label: "Auto: postpaid" },
+    { value: "postpaid", label: "postpaid" },
+    { value: "prepaid", label: "prepaid" },
+    { value: "mixed", label: "mixed" },
+  ],
+  status: [
+    { value: "", label: "Auto: active" },
+    { value: "active", label: "active" },
+    { value: "inactive", label: "inactive" },
+    { value: "graduated", label: "graduated" },
+    { value: "archived", label: "archived" },
+  ],
+};
+const GRID_DATE_COLUMNS: ReadonlySet<string> = new Set(["dob", "admission_date"]);
+const GRID_LABELS: Record<string, string> = {
+  first_name: "First name",
+  last_name: "Last name",
+  phone: "Phone",
+  gender: "Gender",
+  dob: "Date of birth",
+  address: "Address",
+  school: "School",
+  grade: "Grade",
+  board: "Board",
+  batch: "Batch",
+  admission_date: "Admission date",
+  fee_model: "Fee model",
+  base_fee_rupees: "Monthly fee (₹)",
+  status: "Status",
+};
+
+function gridLabel(header: string): string {
+  return GRID_LABELS[header] ?? header;
+}
+
+interface GridCheck {
+  filled: number;
+  validCount: number;
+  invalidCount: number;
+  cellErrors: Map<string, string>;
+  fileIssue: ImportFileIssue | null;
+}
+
+function emptyGridRow(): string[] {
+  return Array(GRID_COLUMNS.length).fill("");
+}
 
 function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -224,6 +290,211 @@ export function ImportExportSection() {
       log.error("settings_template_download_failed", "Failed to build the students template");
       setBulkError("Could not build the template. Try again.");
     }
+  };
+
+  const handleXlsxTemplateDownload = () => {
+    try {
+      downloadXlsx(STUDENT_XLSX_TEMPLATE_FILENAME, buildStudentsXlsxTemplate());
+    } catch {
+      log.error("settings_template_xlsx_download_failed", "Failed to build the Excel students template");
+      setBulkError("Could not build the Excel template. Try again.");
+    }
+  };
+
+  // Paste-grid state: one string per cell, always fourteen cells per row.
+  const [grid, setGrid] = useState<string[][]>(() =>
+    Array.from({ length: GRID_START_ROWS }, emptyGridRow),
+  );
+  const [pasteNotice, setPasteNotice] = useState("");
+
+  /** Live validation of the filled grid rows (empty rows are ignored). */
+  const gridCheck: GridCheck = useMemo(() => {
+    const positions: number[] = [];
+    grid.forEach((cells, index) => {
+      if (cells.some((cell) => cell.trim() !== "")) positions.push(index);
+    });
+    const rows = positions.map((index) => grid[index] ?? emptyGridRow());
+    const checked = validateImportRows(GRID_COLUMNS, rows);
+    if (!checked.ok) {
+      return { filled: positions.length, validCount: 0, invalidCount: 0, cellErrors: new Map(), fileIssue: checked.issue };
+    }
+    const cellErrors = new Map<string, string>();
+    for (const error of checked.invalid) {
+      const gridIndex = positions[error.row - 2];
+      if (gridIndex === undefined) continue;
+      const key = `${gridIndex}:${error.column}`;
+      const prior = cellErrors.get(key);
+      cellErrors.set(key, prior ? `${prior} | ${error.reason}` : error.reason);
+    }
+    return {
+      filled: positions.length,
+      validCount: checked.valid.length,
+      invalidCount: checked.invalid.length,
+      cellErrors,
+      fileIssue: null,
+    };
+  }, [grid]);
+
+  const updateGridCell = (rowIndex: number, colIndex: number, value: string) => {
+    setGrid((current) =>
+      current.map((cells, index) => {
+        if (index !== rowIndex) return cells;
+        const next = [...cells];
+        next[colIndex] = value;
+        return next;
+      }),
+    );
+  };
+
+  const addGridRow = () => {
+    setGrid((current) => [...current, emptyGridRow()]);
+  };
+
+  const removeGridRow = (rowIndex: number) => {
+    setGrid((current) => (current.length <= 1 ? current.map(() => emptyGridRow()) : current.filter((_, index) => index !== rowIndex)));
+  };
+
+  /**
+   * Excel paste: tab-separated cells land from the focused cell outward.
+   * Single-cell text pastes fall through to the browser default; anything
+   * with a tab or newline is a grid paste. Date cells normalize through the
+   * same flexible parser as file upload (DD/MM/YYYY and Excel serials become
+   * YYYY-MM-DD); a date Excel wrote that still will not parse is left blank
+   * and named in the notice below, never silently kept.
+   */
+  const handleGridPaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData("text");
+    if (!text || (!text.includes("\t") && !text.includes("\n") && !text.includes("\r"))) return;
+    const target = e.target as HTMLElement | null;
+    const originRow = Number(target?.dataset?.gridRow ?? 0);
+    const originCol = Number(target?.dataset?.gridCol ?? 0);
+    if (!Number.isInteger(originRow) || !Number.isInteger(originCol)) return;
+    e.preventDefault();
+    const pasted = parseTsv(text).filter((cells) => cells.some((cell) => cell.trim() !== ""));
+    if (pasted.length === 0) return;
+    const room = MAX_IMPORT_ROWS - originRow;
+    const usable = pasted.slice(0, Math.max(0, room));
+    const unreadable: string[] = [];
+    const next = grid.map((cells) => [...cells]);
+    usable.forEach((cells, r) => {
+      const rowIndex = originRow + r;
+      while (next.length <= rowIndex) next.push(emptyGridRow());
+      const row = next[rowIndex] ?? emptyGridRow();
+      cells.forEach((value, c) => {
+        const colIndex = originCol + c;
+        if (colIndex >= GRID_COLUMNS.length) return;
+        const header = GRID_COLUMNS[colIndex] ?? "";
+        if (GRID_DATE_COLUMNS.has(header)) {
+          const trimmed = value.trim();
+          if (trimmed === "") {
+            row[colIndex] = "";
+            return;
+          }
+          const parsed = normalizeFlexibleDate(trimmed, header);
+          if (parsed.ok) {
+            row[colIndex] = parsed.iso;
+          } else {
+            row[colIndex] = "";
+            unreadable.push(`row ${rowIndex + 1}, ${gridLabel(header)} ("${trimmed.slice(0, 24)}")`);
+          }
+          return;
+        }
+        row[colIndex] = value;
+      });
+      next[rowIndex] = row;
+    });
+    setGrid(next);
+    const notices: string[] = [];
+    if (usable.length < pasted.length) {
+      notices.push(`Pasted ${pasted.length} rows, kept ${usable.length}: one import holds 2,000 rows.`);
+    }
+    if (unreadable.length > 0) {
+      notices.push(`These pasted dates would not parse, left blank: ${unreadable.join("; ")}.`);
+    }
+    setPasteNotice(notices.join(" "));
+  };
+
+  /** Grid rows enter the same preview + confirm path as a file upload. */
+  const handleGridReview = () => {
+    const rows = grid.filter((cells) => cells.some((cell) => cell.trim() !== ""));
+    if (rows.length === 0) {
+      setBulkError("The grid is empty. Paste rows from Excel or add a row first.");
+      return;
+    }
+    const checked = validateImportRows(GRID_COLUMNS, rows);
+    setBulkResult(null);
+    if (!checked.ok) {
+      setPreview({ headers: GRID_COLUMNS, rows, valid: [], duplicateCount: 0, invalid: [], fileIssue: checked.issue });
+    } else {
+      const { unique, duplicates } = partitionDuplicates(checked.valid);
+      setPreview({
+        headers: GRID_COLUMNS,
+        rows,
+        valid: unique,
+        duplicateCount: duplicates.length,
+        invalid: checked.invalid,
+        fileIssue: null,
+      });
+    }
+    setBulkError("");
+    setBulkPhase("preview");
+  };
+
+  /** One grid cell: enum columns are selects, date columns are date inputs. */
+  const renderGridCell = (rowIndex: number, colIndex: number) => {
+    const header = GRID_COLUMNS[colIndex] ?? "";
+    const value = grid[rowIndex]?.[colIndex] ?? "";
+    const reason = gridCheck.cellErrors.get(`${rowIndex}:${header}`);
+    const invalid = reason !== undefined;
+    const tone = invalid
+      ? "border-[var(--danger)] ring-2 ring-[var(--danger)]/40"
+      : "border-[var(--border-default)]";
+    const shared = {
+      "data-grid-row": rowIndex,
+      "data-grid-col": colIndex,
+      "aria-label": `${gridLabel(header)}, row ${rowIndex + 1}`,
+      "aria-invalid": invalid || undefined,
+      title: reason ?? undefined,
+      className: `min-h-[44px] w-full rounded-lg bg-[var(--surface-inset)] border px-2 text-xs text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--info)] ${tone}`,
+    };
+    const options = GRID_ENUM_OPTIONS[header];
+    if (options) {
+      return (
+        <select
+          key={`${rowIndex}-${colIndex}`}
+          value={options.some((option) => option.value === value) ? value : ""}
+          onChange={(e) => updateGridCell(rowIndex, colIndex, e.target.value)}
+          {...shared}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (GRID_DATE_COLUMNS.has(header)) {
+      return (
+        <input
+          key={`${rowIndex}-${colIndex}`}
+          type="date"
+          value={/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ""}
+          onChange={(e) => updateGridCell(rowIndex, colIndex, e.target.value)}
+          {...shared}
+        />
+      );
+    }
+    return (
+      <input
+        key={`${rowIndex}-${colIndex}`}
+        type="text"
+        value={value}
+        placeholder={gridLabel(header)}
+        onChange={(e) => updateGridCell(rowIndex, colIndex, e.target.value)}
+        {...shared}
+      />
+    );
   };
 
   const handleBulkFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -565,13 +836,14 @@ export function ImportExportSection() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Bulk import students</p>
               <p className="text-sm text-[var(--text-muted)] mb-3 leading-relaxed">
-                Add many students at once from a CSV file. Download the template, fill it in Excel
-                or Google Sheets, then upload it here for a row-by-row check before anything is saved.
-                Imports never touch money or the ledger.
+                Add many students at once. Download the template (CSV or Excel), fill it in,
+                then upload the CSV or paste the rows into the grid below for a row-by-row
+                check before anything is saved. Imports add students only and never touch
+                the ledger.
               </p>
               <ol className="text-xs text-[var(--text-muted)] mb-4 space-y-1 list-decimal list-inside">
-                <li>Download the template and keep its seven headers.</li>
-                <li>Upload the CSV here and review every row below.</li>
+                <li>Download the template and keep its fourteen headers.</li>
+                <li>Upload the CSV, or paste rows into the grid, and review every row below.</li>
                 <li>Confirm, and your students are added. Matching names and phones are skipped, never merged.</li>
               </ol>
 
@@ -595,6 +867,14 @@ export function ImportExportSection() {
                 </button>
                 <button
                   type="button"
+                  onClick={handleXlsxTemplateDownload}
+                  className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
+                >
+                  <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
+                  Download Excel template (.xlsx)
+                </button>
+                <button
+                  type="button"
                   onClick={() => bulkInputRef.current?.click()}
                   className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--info)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
                 >
@@ -603,6 +883,89 @@ export function ImportExportSection() {
                 </button>
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-2">CSV only, under 2 MB, up to 2,000 rows.</p>
+
+              <div className="mt-6 rounded-xl border border-[var(--border-default)] p-4">
+                <p className="text-sm font-semibold text-[var(--text-primary)]">Or paste rows from Excel</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+                  Copy rows in Excel, click any grid cell, and paste. Dates accept YYYY-MM-DD,
+                  DD/MM/YYYY, or Excel date numbers. Gender, fee model, and status are dropdowns.
+                </p>
+                <div className="overflow-x-auto mt-3 rounded-xl border border-[var(--border-default)]">
+                  <table className="border-collapse" onPaste={handleGridPaste}>
+                    <caption className="sr-only">
+                      Paste grid with the fourteen student columns. Paste Excel rows from any cell.
+                    </caption>
+                    <thead>
+                      <tr>
+                        {GRID_COLUMNS.map((header) => (
+                          <th
+                            key={header}
+                            scope="col"
+                            className="px-2 py-2 text-left text-xs font-semibold text-[var(--text-muted)] whitespace-nowrap"
+                          >
+                            {gridLabel(header)}
+                          </th>
+                        ))}
+                        <th scope="col" className="px-2 py-2">
+                          <span className="sr-only">Row actions</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {grid.map((cells, rowIndex) => (
+                        <tr key={rowIndex} className="border-t border-[var(--border-default)]">
+                          {GRID_COLUMNS.map((header, colIndex) => (
+                            <td key={`${rowIndex}-${header}`} className="px-1 py-1 align-top" style={{ minWidth: header === "address" ? 180 : 120 }}>
+                              {renderGridCell(rowIndex, colIndex)}
+                            </td>
+                          ))}
+                          <td className="px-1 py-1 align-top">
+                            <button
+                              type="button"
+                              onClick={() => removeGridRow(rowIndex)}
+                              aria-label={`Remove grid row ${rowIndex + 1}`}
+                              className="min-h-[44px] min-w-[44px] rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--danger)] cursor-pointer flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--danger)]"
+                            >
+                              <XCircle className="w-4 h-4" aria-hidden="true" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={addGridRow}
+                    className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--info)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
+                  >
+                    Add a row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGridReview}
+                    disabled={gridCheck.filled === 0}
+                    className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
+                  >
+                    <ListChecks className="w-4 h-4" aria-hidden="true" />
+                    Review {gridCheck.filled} {gridCheck.filled === 1 ? "row" : "rows"}
+                  </button>
+                </div>
+                <div aria-live="polite">
+                  <p className="text-xs text-[var(--text-secondary)] mt-3">
+                    {gridCheck.filled === 0
+                      ? "The grid is empty. Nothing to review yet."
+                      : `${gridCheck.validCount} ready${gridCheck.invalidCount > 0 ? `, ${gridCheck.invalidCount} need fixes (hover a ringed cell for the reason)` : ""}.`}
+                  </p>
+                  {pasteNotice && (
+                    <p className="text-xs text-[var(--warning)] mt-1 flex items-start gap-1.5">
+                      <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span>{pasteNotice}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <div aria-live="polite">
                 {bulkError && (

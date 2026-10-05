@@ -842,6 +842,21 @@ export async function verifyPinAction(pin: string) {
   }
 }
 
+export async function getPinStatusAction() {
+  // Implements: 08_Settings.md BR-SEC-02 (mandatory app PIN) — the first-run
+  // gate needs to know whether a PIN exists WITHOUT guessing one. Returns a
+  // boolean only: the hash never crosses the boundary (10_Security.md §3).
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const configured = ((settingsRow?.pinHash ?? null) as string | null) !== null;
+    return { success: true, configured };
+  } catch (error) {
+    log.error('pin_status_action_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: "Failed to read PIN status" };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Bulk students import (Settings → Bulk import card).
 // Implements: 09_Backup_and_Import_Export.md §6.4 Pipeline D (students-only
@@ -897,6 +912,22 @@ function generateImportStudentCode(): string {
 
 function proxyText(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+/**
+ * BR-M-01: exact rupee decimal string → integer paise with integer math only
+ * (BigInt), so no float ever touches a money value. Mirrors `rupeesToPaise`
+ * in server/actions/students.ts line-for-line (that helper is module-private
+ * in a `"use server"` file, which may only export async functions, so the
+ * import flow carries its own copy rather than a second dialect). The import
+ * schema caps the whole part at 12 digits, so the result stays inside
+ * Number.MAX_SAFE_INTEGER.
+ */
+function importRupeesToPaise(rupees: string): number {
+  const [whole, frac = ""] = rupees.split(".");
+  // BigInt() calls (not 100n literals): tsconfig target is ES2017.
+  const paise = BigInt(whole) * BigInt(100) + BigInt((frac + "00").slice(0, 2));
+  return Number(paise);
 }
 
 export async function importStudentsAction(input: unknown): Promise<ImportStudentsResult> {
@@ -1015,7 +1046,9 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
     // Chunked writes: each chunk commits its students plus their outbox and
     // audit rows together. A chunk failure rolls back that chunk only; prior
     // chunks stay committed and the counts report exactly what landed.
-    // Students carry no money (base and balance start at 0 paise, Rule 6).
+    // Imported money is the fee-model base only (Rule 6: the rupee decimal
+    // converts to integer paise above with integer math; balances start at 0
+    // paise). No ledger row is written anywhere on this path (09 §6.4).
     let created = 0;
     for (let start = 0; start < fresh.length; start += IMPORT_CHUNK_SIZE) {
       const slice = fresh.slice(start, start + IMPORT_CHUNK_SIZE);
@@ -1025,6 +1058,7 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
           const id = crypto.randomUUID();
           const code = generateImportStudentCode();
           const stamped = new Date().toISOString();
+          const admissionDate = rowData.admission_date ?? today;
           const batchId =
             rowData.batch === undefined ? undefined : batchIdByName.get(rowData.batch);
           await tx.student.create({
@@ -1034,13 +1068,17 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
               code,
               firstName: rowData.first_name,
               lastName: rowData.last_name ?? null,
-              dob: rowData.dob_yyyy_mm_dd ?? null,
+              dob: rowData.dob ?? null,
               gender: rowData.gender ?? null,
               phone: rowData.phone ?? null,
-              admissionDate: today,
+              address: rowData.address ?? null,
+              school: rowData.school ?? null,
+              grade: rowData.grade ?? null,
+              board: rowData.board ?? null,
+              admissionDate,
               status: rowData.status,
-              feeModel: "postpaid",
-              baseFeePaise: 0,
+              feeModel: rowData.fee_model,
+              baseFeePaise: importRupeesToPaise(rowData.base_fee_rupees),
               balancePaise: 0,
               dupKey: studentDupKey(rowData.first_name, rowData.last_name, rowData.phone),
               createdAt: stamped,
@@ -1078,7 +1116,7 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
                 tenantId,
                 studentId: id,
                 batchId,
-                joinedOn: today,
+                joinedOn: admissionDate,
                 createdAt: stamped,
                 updatedAt: stamped,
               },

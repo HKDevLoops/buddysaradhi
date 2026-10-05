@@ -11,19 +11,36 @@
 
 import { z } from "zod";
 
-/** Exact headers of the students import template (order matters in the file). */
+/**
+ * Exact headers of the students import template (order matters in the file).
+ * Fourteen columns for the thirteen Add Student properties: the sheet's full
+ * name splits into first_name + last_name on import (05_Students.md §6.1,
+ * add-student-sheet.tsx FormSchema). Names mirror the canonical create path
+ * (server/actions/students.ts CreateStudentInputSchema: dob, admission_date,
+ * fee_model, status) so a pasted row and a hand-typed student validate alike.
+ */
 export const STUDENT_IMPORT_HEADERS = [
   "first_name",
   "last_name",
   "phone",
   "gender",
-  "dob_yyyy_mm_dd",
+  "dob",
+  "address",
+  "school",
+  "grade",
+  "board",
   "batch",
+  "admission_date",
+  "fee_model",
+  "base_fee_rupees",
   "status",
 ] as const;
 
-/** Filename of the client-generated template (no server roundtrip). */
+/** Filename of the client-generated CSV template (no server roundtrip). */
 export const STUDENT_TEMPLATE_FILENAME = "students-template.csv";
+
+/** Filename of the client-generated Excel template (no server roundtrip). */
+export const STUDENT_XLSX_TEMPLATE_FILENAME = "students-template.xlsx";
 
 /** Client-side upload cap (09 §15.6 allows 50 MB; Settings bulk flow caps at 2 MB). */
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
@@ -150,6 +167,65 @@ export function parseCsv(text: string): string[][] {
 }
 
 /**
+ * Split pasted TSV text (what Excel puts on the clipboard: tab-separated
+ * cells, newline-separated rows) into a grid. Same quoting rules as the CSV
+ * parser: double-quote escapes ("") and quoted tabs/newlines. CRLF and LF
+ * endings both split rows; a leading BOM is stripped.
+ */
+export function parseTsv(text: string): string[][] {
+  const src = text.replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let i = 0;
+  while (i < src.length) {
+    const char = src[i] ?? "";
+    if (inQuotes) {
+      if (char === '"') {
+        if (src[i + 1] === '"') {
+          field += '"';
+          i += 2;
+        } else {
+          inQuotes = false;
+          i += 1;
+        }
+      } else {
+        field += char;
+        i += 1;
+      }
+      continue;
+    }
+    if (char === '"') {
+      if (field === "") {
+        inQuotes = true;
+      } else {
+        field += char;
+      }
+      i += 1;
+    } else if (char === "\t") {
+      row.push(field);
+      field = "";
+      i += 1;
+    } else if (char === "\r" || char === "\n") {
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+      i += char === "\r" && src[i + 1] === "\n" ? 2 : 1;
+    } else {
+      field += char;
+      i += 1;
+    }
+  }
+  if (row.length > 0 || field !== "") {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
  * Split a parsed grid into headers plus data rows. Drops blank lines and
  * `#` comment lines (the template documents its columns in trailing `#`
  * lines, so they must never parse as student rows).
@@ -204,8 +280,38 @@ export function exportFilename(entity: string): string {
 
 /** The two fictional sample rows shipped inside the template. */
 const TEMPLATE_SAMPLES: string[][] = [
-  ["Aarav", "Sharma", "9876543210", "M", "2015-04-12", "Class 10 Maths 6pm", "active"],
-  ["Diya", "", "9123456789", "F", "2016-11-03", "Class 9 Science 5pm", "active"],
+  [
+    "Aarav",
+    "Sharma",
+    "9876543210",
+    "M",
+    "2015-04-12",
+    "21 MG Road, Pune",
+    "Delhi Public School",
+    "10",
+    "CBSE",
+    "Class 10 Maths 6pm",
+    "2026-06-01",
+    "postpaid",
+    "2000",
+    "active",
+  ],
+  [
+    "Diya",
+    "",
+    "9123456789",
+    "F",
+    "2016-11-03",
+    "",
+    "Kendriya Vidyalaya",
+    "9",
+    "CBSE",
+    "Class 9 Science 5pm",
+    "2026-06-01",
+    "postpaid",
+    "1800",
+    "active",
+  ],
 ];
 
 /**
@@ -221,10 +327,17 @@ export function buildStudentsTemplate(): string {
     "# last_name: optional, up to 80 characters.",
     "# phone: optional, 10 to 15 digits with optional leading +. Spaces, dashes and brackets are removed.",
     "# gender: optional, one of M, F, O. Leave blank if unknown.",
-    "# dob_yyyy_mm_dd: optional, date of birth as YYYY-MM-DD, example 2015-04-12.",
-    "# batch: optional, batch name. Your student is enrolled in that batch. A missing batch is created on import.",
+    "# dob: optional date of birth. Accepts YYYY-MM-DD (2015-04-12), DD/MM/YYYY (12/04/2015), or an Excel date number.",
+    "# address: optional, up to 1000 characters.",
+    "# school: optional, up to 300 characters.",
+    "# grade: optional, up to 64 characters, example 10th.",
+    "# board: optional, up to 64 characters, example CBSE.",
+    "# batch: required, batch name. Your student is enrolled in that batch. A missing batch is created on import.",
+    "# admission_date: optional, defaults to today when blank. Same date formats as dob.",
+    "# fee_model: optional, one of postpaid, prepaid, mixed. Blank means postpaid.",
+    "# base_fee_rupees: optional monthly fee as a rupee decimal like 2000 or 2000.50. Blank means 0. Converted to integer paise on the server, never as a float.",
     "# status: optional, one of active, inactive, graduated, archived. Blank means active.",
-    "# Exact duplicates (same name and phone) are skipped, never merged.",
+    "# Exact duplicates (same name and phone ending) are skipped, never merged.",
     "# Financial columns (amount, balance, receipt, invoice, ledger) are never imported. This template has none.",
   ];
   return (
@@ -235,10 +348,16 @@ export function buildStudentsTemplate(): string {
 const emptyToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
 
-const dobPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+const isoPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+const dmyPattern = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+const serialPattern = /^\d{1,6}(\.\d+)?$/;
+
+/** Excel serial bounds: 1900-01-01 (1) to 2064-03-05 (60000). */
+export const MIN_EXCEL_SERIAL = 1;
+export const MAX_EXCEL_SERIAL = 60000;
 
 function isRealDate(value: string): boolean {
-  const match = dobPattern.exec(value);
+  const match = isoPattern.exec(value);
   if (!match) return false;
   const year = Number(match[1]);
   const month = Number(match[2]);
@@ -251,10 +370,118 @@ function isRealDate(value: string): boolean {
 }
 
 /**
- * One imported student row (09 §14.1 StudentImportSchema, narrowed to the
- * seven template headers). Blank means absent for every optional column;
- * status blanks to active; status and gender vocab is strict lowercase
- * (09 §14.4: a typo is a row error, not a guess).
+ * Excel date serial (days since 1899-12-30) to ISO YYYY-MM-DD. Fractions are
+ * time-of-day and drop off for a date column. Returns null outside the sane
+ * serial range so a stray number like a phone fragment is a row error, never
+ * a guessed date.
+ */
+export function excelSerialToIso(serial: number): string | null {
+  if (!Number.isFinite(serial)) return null;
+  const whole = Math.floor(serial);
+  if (whole < MIN_EXCEL_SERIAL || whole > MAX_EXCEL_SERIAL) return null;
+  return new Date(Date.UTC(1899, 11, 30) + whole * 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * ISO YYYY-MM-DD to Excel date serial (for the .xlsx template writer, which
+ * stores sample dates the way Excel does: numbers with a date format).
+ */
+export function isoToExcelSerial(iso: string): number {
+  const match = isoPattern.exec(iso);
+  if (!match || !isRealDate(iso)) throw new Error(`isoToExcelSerial: not a real date ${iso}`);
+  const ms =
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) -
+    Date.UTC(1899, 11, 30);
+  return Math.round(ms / 86400000);
+}
+
+export type FlexibleDateResult = { ok: true; iso: string } | { ok: false; reason: string };
+
+function shortValue(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.length > 32 ? `${trimmed.slice(0, 32)}…` : trimmed;
+}
+
+/**
+ * Migrated-sheet dates (09 §14.2 + owner order): YYYY-MM-DD, DD/MM/YYYY, or
+ * an Excel serial number. Normalizes to YYYY-MM-DD. Anything else is a row
+ * error that names the cell and the value, so the tutor knows which cell to
+ * fix. MM/DD/YYYY is deliberately not a fourth format (09 §14.2: ambiguous);
+ * a value like 31/12/2015 parses as DD/MM/YYYY, while 12/31/2015 fails as an
+ * impossible DD/MM date with the same message.
+ */
+export function normalizeFlexibleDate(raw: string, column: string): FlexibleDateResult {
+  const value = raw.trim();
+  const iso = isoPattern.exec(value);
+  if (iso) {
+    if (!isRealDate(value)) {
+      return { ok: false, reason: `${column}: "${shortValue(value)}" is not a real date` };
+    }
+    return { ok: true, iso: value };
+  }
+  const dmy = dmyPattern.exec(value);
+  if (dmy) {
+    const candidate = `${dmy[3]}-${dmy[2]?.padStart(2, "0")}-${dmy[1]?.padStart(2, "0")}`;
+    if (!isRealDate(candidate)) {
+      return { ok: false, reason: `${column}: "${shortValue(value)}" is not a real date` };
+    }
+    return { ok: true, iso: candidate };
+  }
+  if (serialPattern.test(value)) {
+    const converted = excelSerialToIso(Number(value));
+    if (converted === null) {
+      return {
+        ok: false,
+        reason: `${column}: "${shortValue(value)}" is not a readable Excel date number`,
+      };
+    }
+    return { ok: true, iso: converted };
+  }
+  return {
+    ok: false,
+    reason: `${column}: "${shortValue(value)}" is not a date. Use YYYY-MM-DD or DD/MM/YYYY.`,
+  };
+}
+
+/**
+ * Zod field for a flexible date column: blank means absent (the caller
+ * defaults it — admission_date blanks to today server-side), otherwise the
+ * value normalizes to YYYY-MM-DD or the row fails with the cell named.
+ */
+function flexibleDateField(column: string) {
+  return z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .max(32, `${column} must be 32 characters or fewer`)
+      .transform((value, ctx) => {
+        const parsed = normalizeFlexibleDate(value, column);
+        if (!parsed.ok) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.reason });
+          return z.NEVER;
+        }
+        return parsed.iso;
+      })
+      .optional(),
+  );
+}
+
+/**
+ * One imported student row (09 §14.1 StudentImportSchema, extended to the
+ * fourteen template headers). Field parity with the Add Student sheet
+ * (add-student-sheet.tsx FormSchema) and the canonical create path
+ * (server/actions/students.ts CreateStudentInputSchema): same required
+ * columns (first_name, batch), same enum vocabs, same length caps on the
+ * shared text fields (address 1000, school 300, grade 64, board 64), same
+ * fee_model default (postpaid), same status default (active), same base-fee
+ * decimal-string shape converted to integer paise server-side with integer
+ * math only (Rule 6, BR-M-01). Blank means absent for every optional column.
+ *
+ * Two deliberate supersets of the manual sheet, both from 09 §14: phone keeps
+ * the strict 10-to-15-digit rule (§14.5; the sheet accepts any short string),
+ * and first_name keeps the 80-character import cap (§14.1). A stricter import
+ * can never smuggle in a row the sheet would reject for these two fields.
  */
 export const StudentImportRowSchema = z.object({
   first_name: z
@@ -280,18 +507,41 @@ export const StudentImportRowSchema = z.object({
       .optional(),
   ),
   gender: z.preprocess(emptyToUndefined, z.enum(["M", "F", "O"]).optional()),
-  dob_yyyy_mm_dd: z.preprocess(
+  dob: flexibleDateField("dob"),
+  address: z.preprocess(
     emptyToUndefined,
-    z
-      .string()
-      .trim()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD")
-      .refine(isRealDate, "Date of birth is not a real date")
-      .optional(),
+    z.string().trim().max(1000, "Address must be 1000 characters or fewer").optional(),
+  ),
+  school: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(300, "School must be 300 characters or fewer").optional(),
+  ),
+  grade: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(64, "Grade must be 64 characters or fewer").optional(),
+  ),
+  board: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(64, "Board must be 64 characters or fewer").optional(),
   ),
   batch: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(120, "Batch must be 120 characters or fewer").optional(),
+    z.string().trim().min(1, "Batch is required").max(120, "Batch must be 120 characters or fewer"),
+  ),
+  admission_date: flexibleDateField("admission_date"),
+  fee_model: z.preprocess(
+    (value: unknown) => (typeof value === "string" && value.trim() === "" ? "postpaid" : value),
+    z.enum(["postpaid", "prepaid", "mixed"]),
+  ),
+  base_fee_rupees: z.preprocess(
+    (value: unknown) => (typeof value === "string" && value.trim() === "" ? "0" : value),
+    z
+      .string()
+      .trim()
+      .regex(
+        /^\d{1,12}(\.\d{1,6})?$/,
+        "Monthly fee must be a non-negative rupee amount like 2000 or 2000.50",
+      ),
   ),
   status: z.preprocess(
     (value: unknown) => (typeof value === "string" && value.trim() === "" ? "active" : value),
@@ -342,7 +592,7 @@ export function validateImportRows(headers: string[], rows: string[][]): Validat
       ok: false,
       issue: {
         code: "EMPTY_FILE",
-        message: "This file has no headers. Download students-template.csv and keep its seven headers.",
+        message: "This file has no headers. Download students-template.csv and keep its fourteen headers.",
       },
     };
   }
@@ -368,7 +618,7 @@ export function validateImportRows(headers: string[], rows: string[][]): Validat
       issue: {
         code: "HEADER_MISMATCH",
         message:
-          "Headers do not match the students template. Download students-template.csv and keep its seven headers.",
+          "Headers do not match the students template. Download students-template.csv and keep its fourteen headers.",
         detail: [
           ...(missing.length > 0 ? [`missing: ${missing.join(", ")}`] : []),
           ...(unexpected.length > 0 ? [`unexpected: ${unexpected.join(", ")}`] : []),
@@ -423,16 +673,21 @@ export function dupPhoneDigits(phone: string | null | undefined): string {
 }
 
 /**
- * Duplicate key for exact-duplicate detection (same name and phone, 09 §14.6
- * shape, full phone for exactness). Case and surrounding space never create
- * a second student.
+ * Duplicate key for exact-duplicate detection (09 §14.6 shape). This is the
+ * SAME recipe as the manual Add Student flow (add-student-sheet.tsx doCreate:
+ * first + last + last-4-of-phone, lowercased, non-alphanumeric stripped), so
+ * a pasted row collides with a hand-typed student exactly when the sheet
+ * would warn about it. Case, spacing, punctuation, and phone formatting never
+ * create a second student; only the last four phone digits count, so a tutor
+ * retyping +91 or a leading 0 still matches.
  */
 export function studentDupKey(
   firstName: string,
   lastName: string | null | undefined,
   phone: string | null | undefined,
 ): string {
-  return `${firstName.trim().toLowerCase()}|${(lastName ?? "").trim().toLowerCase()}|${dupPhoneDigits(phone)}`;
+  const last4 = dupPhoneDigits(phone).slice(-4);
+  return `${firstName ?? ""}${lastName ?? ""}${last4}`.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /**

@@ -298,17 +298,26 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      {/* Scrim — clicking asks first when the form holds typed work. */}
-      <div className="absolute inset-0" onClick={onScrimClick} aria-hidden="true" />
+      {/* Scrim — dims the page behind so the sheet reads as a surface, not an
+          overlay collage. The missing dim is what made ledger cards bleed
+          through the panel edges on wide screens. */}
+      <div
+        className="absolute inset-0 bg-black/60"
+        onClick={onScrimClick}
+        aria-hidden="true"
+      />
 
-      {/* Sheet Content - .glass-strong */}
+      {/* Sheet Content - .glass-strong, near-opaque so rows behind never show
+          through the panel (menus/sheets sit at ~0.85+ solidity; translucency
+          is texture, not see-through). */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Record payment"
         tabIndex={-1}
-        className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] flex flex-col"
+        style={{ background: "color-mix(in srgb, var(--surface-overlay) 88%, transparent)" }}
+        className="relative w-full max-w-md h-full glass-strong border-l border-[var(--border-default)] flex flex-col overflow-x-clip"
       >
         <div className="p-6 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2">
@@ -397,14 +406,15 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
 
               <div>
                 <label htmlFor="payment-ref" className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-                  Reference (UTR / Cheque no.){method === "upi" || method === "bank" || method === "cheque" ? " *" : ""}
+                  Reference (UTR / Cheque no.) <span className="normal-case font-normal">— optional</span>
                 </label>
                 <input
                   id="payment-ref"
                   type="text"
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
-                  placeholder={method === "cheque" ? "6-digit cheque no." : method === "cash" ? "Optional" : "10–22 character UTR"}
+                  placeholder={method === "cheque" ? "6-digit cheque no., if you have it" : method === "cash" ? "Optional" : "UTR, if you have it"}
+                  aria-describedby={preview.refError ? "payment-ref-error" : undefined}
                   className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                 />
                 {preview.refError && (
@@ -517,7 +527,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
               )}
               {preview.errors.length > 0 && preview.amountPaise !== null && (
                 <div role="alert" className="p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-[var(--warning)] text-sm">
-                  {preview.errors.join(" ")}
+                  {preview.errors.join(" · ")}
                 </div>
               )}
             </form>
@@ -530,7 +540,9 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
             form="payment-form"
             disabled={!canSubmit}
             aria-busy={mutation.isPending}
-            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-[var(--accent-primary)] hover:brightness-110 transition-all disabled:opacity-50 disabled:shadow-none"
+            aria-disabled={!canSubmit}
+            title={!canSubmit ? "Fill the highlighted fields to enable saving" : undefined}
+            className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-[var(--accent-primary)] hover:brightness-110 transition-all disabled:opacity-70 disabled:shadow-none disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:bg-[var(--surface-inset)]"
           >
             {mutation.isPending ? "Saving payment…" : "Save payment"}
           </button>
