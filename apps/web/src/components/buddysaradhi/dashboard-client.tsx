@@ -64,6 +64,7 @@ import {
   fetchDashboardSummaryAction,
   type DashboardActivityItem,
 } from "@/server/actions/dashboard";
+import { DashboardAnalyticsSection } from "@/components/buddysaradhi/dashboard-analytics";
 
 const DAY_MS = 86_400_000;
 
@@ -333,6 +334,10 @@ export function DashboardClient() {
         />
       </div>
 
+      {/* Analytics: read-only visualizations + filtered CSV export of the same
+          books above. Mounted inside the Dashboard (Rule 4: no new screen). */}
+      <DashboardAnalyticsSection />
+
       {/* Overview tab content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Due Today */}
@@ -559,7 +564,7 @@ function QuickAction({
     <button
       type="button"
       onClick={onClick}
-      className="btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-all cursor-pointer hover:bg-[var(--surface-raised)] hover:border-[var(--info)]/30 active:scale-[0.98]"
+      className="btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] min-h-[44px] px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-all cursor-pointer hover:bg-[var(--surface-raised)] hover:border-[var(--info)]/30 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
     >
       <span style={{ color: accent }} aria-hidden="true">
         {icon}

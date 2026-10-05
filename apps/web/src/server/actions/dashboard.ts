@@ -30,6 +30,13 @@
 import { gatewayGet } from "@/server/get-db";
 import { log } from "@/lib/logger";
 import { z } from "zod";
+import {
+  AnalyticsFilterSchema,
+} from "@/lib/dashboard-analytics-calc";
+import {
+  getDashboardAnalytics,
+  type DashboardAnalytics,
+} from "@/server/queries/dashboard-analytics";
 
 /* ------------------------------------------------------------------ *
  * Boundary schemas
@@ -274,6 +281,52 @@ export async function fetchDashboardSummaryAction(): Promise<
       ok: false,
       code: "DASHBOARD_FETCH_FAILED",
       error: `DASHBOARD_FETCH_FAILED: ${message}`,
+    };
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Analytics read (visualizations + filtered export source)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Implements: 04_Dashboard.md §6.2 + §10 (BR-RPT-01/03/08, BR-CALC-10/11) and
+ * the dashboard visualizations pass. Read-only like the summary above: the
+ * filter is Zod-parsed first, the fan-out lives in
+ * `server/queries/dashboard-analytics.ts`, and the client receives derived
+ * view data it may render and export but never recomputes money from.
+ */
+export async function fetchDashboardAnalyticsAction(
+  filter: unknown,
+): Promise<
+  { ok: true; value: DashboardAnalytics } | { ok: false; error: string; code: string }
+> {
+  const parsedFilter = AnalyticsFilterSchema.safeParse(filter ?? {});
+  if (!parsedFilter.success) {
+    const detail = parsedFilter.error.issues
+      .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+      .join("; ");
+    log.error("dashboard_analytics_filter_invalid", detail);
+    return {
+      ok: false,
+      code: "DASHBOARD_FILTER_INVALID",
+      error: `DASHBOARD_FILTER_INVALID: analytics filter is unreadable. ${detail}`,
+    };
+  }
+  try {
+    const result = await getDashboardAnalytics(parsedFilter.data);
+    if (!result.success) {
+      log.error("dashboard_analytics_query_failed", result.error);
+      return { ok: false, code: "DASHBOARD_ANALYTICS_FAILED", error: result.error };
+    }
+    return { ok: true, value: result.data };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.error("dashboard_analytics_failed", message);
+    return {
+      ok: false,
+      code: "DASHBOARD_ANALYTICS_FAILED",
+      error: `DASHBOARD_ANALYTICS_FAILED: ${message}`,
     };
   }
 }
