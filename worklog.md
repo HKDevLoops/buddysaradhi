@@ -2256,3 +2256,28 @@ verified by CI on this commit.
 - Verification: edge boots (401s not 500s) on gateway + graphql; digests match; provision-db deployed (unchanged code path). Awaiting: user reloads app → screens populate → Vercel logs show gateway 2xx.
 - Resume point: if any screen still errors after reload, paste the fresh Vercel log line (timestamp + `gateway_get_failed` detail) — that names the next layer (tenant creds vs route bug).
 - Blocker: none on my side; user reload is the verification step.
+---
+
+**Task ID**: `WEBAPP-WAVE-01` **Agent**: build (Muse Spark) + 4 subagents (web-engineer/storage, web-engineer/import-export, code-checker/audit, web-engineer/analytics+fix) **Task**: User-ordered webapp wave — storage permission, attendance unlock, payment health, dashboard analytics, full UI audit+fixes, palette/Pantone questions.
+
+**Work Log**:
+
+- **Unlock (self, full stack).** Spec 06 §10.6 BR-ATT-07 ladder: unlock never clears `lockedAt` — Tier 2 (PIN) / Tier 3 (reason ≥20 + PIN) open a 60-min window recorded as audit rows; in-window edits double-audit (`attendance_edit_locked`); expiry lazily writes `attendance_relock` (a throw inside the edit's own tx would roll the relock back with it — caught during gateway tests, fixed by writing the close in a separate tx first, then re-checking inside); backgrounding relocks via new `relockSessionAction`; HARD_LOCKED/NOT_HARD_LOCKED typed routing; both audit vocabularies read; shared Zod `AttendanceSessionSchema` extended (optional window fields) + shared dist rebuilt. Files: web window helper + 3 actions + edit gate + fetch fields, gateway window lib + unlock/request routes + mark gate + GET fields, sheet/toolbar/grid/client/countdown hook. Tests: web 16/16, gateway 12/12, shared 2 new.
+- **Payment diagnosis (self).** Money engine healthy (web fees 36/36, gateway fee set 42/42, core 192/192). Live gateway routes return 200 with real data (settings/students/dashboard, verified with tenant headers). Production failures were downstream of the gateway outage. Payment read-path smoke (login → fees → ledger, zero console/page errors, screenshots) GREEN after the analytics boundary fix below.
+- **Analytics boundary fix (self, on subagent's feature).** The analytics agent's `queries/dashboard-analytics.ts` exported sync pure functions + a Zod object from a `"use server"` file → `next build` failed ("only async functions") while tsc/tests stayed green. Split derivations + filter schema into isomorphic `lib/dashboard-analytics-calc.ts`; query keeps async-only exports + type re-exports. Build green, 26/26 green.
+- **Session hardening (self).** Every server action re-validated the Supabase session (N Auth round trips/page behind a silent 1.5s guillotine that nulled the session): memoized per request via React `cache` (same checks, no auth weakened), 5s bound with warn, catch path logs. Added precise no-session diagnostics (user-vs-token legs).
+- **Storage permission (subagent).** `lib/storage-persist.ts` (support/persisted/request/estimate, SSR-safe, typed) + Diagnostics "Device storage" card + 27 tests.
+- **Bulk import/export (subagent).** Dependency-free CSV parse/build, students template download, per-row Zod validation with line errors, duplicate skip, money-header refusal, ledger never touched, outbox+audit per import; 24 + 5 tests. Follow-up noted: 09 §15.4 PIN for >100-row imports.
+- **Dashboard analytics (subagent).** Research plan + 8 panels (hand-built charts, text equivalents), per-view CSV export, read-only; 26 tests.
+- **UI audit (subagent audit → subagent fixes).** 45 findings (7 P0 invisible focus/unannounced errors, 26 P1, 12 P2), all applied surgically (rings, roles, targets, tokens; dead badge primitive deleted); no behavior/layout/color/copy changes.
+- **Palette question (answered, no code).** Verified 10 dark + 10 light palettes in schemes.ts and on web/mobile/desktop/tokens — no 2v3 exists in code. Asked user for the surface/screenshot where they see it. **Pantone "literal values": REFUSED per AGENTS.md §2 Rule 5 + AP-6** (no hand-picked colour; contrast-gate system). Principled alternative offered: Pantone-anchored 21st scheme through the generator (hue anchor documented, solver + gate decide roles) — needs owner to name the Pantone color(s) + tier.
+- Gates: principle-lints 7/7, deno lint/check clean, web tsc+lint clean, web unit 38/373 green, gateway 535/536 (1 known p95 perf flake, green in isolation, pre-existing), integration same flake only, shared 288/288, product-page 14/14 + typecheck, web + product-page builds green.
+- Commits pushed: `bb8e554` unlock, `f0bdba8` storage, `d822c0e` import/export, `a55c7fc` analytics, `7536aaa` a11y-45, `1381234` session perf. Deno.lock churn reverted (mobile entries, from local deno runs).
+
+**Stage Summary**:
+
+- State: COMPLETED (pending: user reload confirmation in prod; PIN-for-large-imports follow-up; RFC/review items unchanged).
+- Files touched: ~70 (see commits). Mobile/desktop untouched (§9.3). No §2 violation; §8 triggers: none (no ledger/crypto/schema/route-shape change; auth middleware untouched — hardening stayed in get-db).
+- Verification: every gate above green (local). Live: gateway 200s with real data; login→fees smoke green with screenshots.
+- Resume point: (1) prod reload check; (2) user sends palette screenshot + Pantone refs; (3) PIN-gate for >100-row imports; (4) pre-existing owner queue (product-page relink, Blob token, GH secrets, RFC picks).
+- Blocker: none.
