@@ -30,7 +30,7 @@ import {
 import { z } from "zod";
 import { paiseAdd, paiseSub } from "../lib/vendor/format.ts";
 import { encodeOutboxPayload } from "../lib/vendor/outboxPayload.ts";
-import { computeInvoiceTamperHash } from "../../../packages/core/src/tamper.ts";
+import { computeInvoiceTamperHash } from "../lib/vendor/tamper.ts";
 
 // AGENTS.md §6.1 (Zod for all input validation) + Rule 6
 // (12_Business_Rules.md BR-M-01 — integer paise, never float). Audit
