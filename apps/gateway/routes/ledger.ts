@@ -28,8 +28,8 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { z } from "zod";
-import { paiseAdd, paiseSub } from "../../../packages/shared/src/utils/format.ts";
-import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
+import { paiseAdd, paiseSub } from "../lib/vendor/format.ts";
+import { encodeOutboxPayload } from "../lib/vendor/outboxPayload.ts";
 import { computeInvoiceTamperHash } from "../../../packages/core/src/tamper.ts";
 
 // AGENTS.md §6.1 (Zod for all input validation) + Rule 6

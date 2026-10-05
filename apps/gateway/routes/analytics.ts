@@ -43,7 +43,7 @@
 import type { RouteHandler } from "./students.ts";
 import { ok, failValidation } from "../lib/errors.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
-import { paiseAdd, paiseSub } from "../../../packages/shared/src/utils/format.ts";
+import { paiseAdd, paiseSub } from "../lib/vendor/format.ts";
 
 /** `invoices.status` vocabulary, from the CHECK in lib/schema.ts:205. `paid`
  *  and `void` are the two states in which no money is owed. */

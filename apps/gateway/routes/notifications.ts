@@ -10,7 +10,7 @@ import {
   requireIdempotencyKey,
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
-import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
+import { encodeOutboxPayload } from "../lib/vendor/outboxPayload.ts";
 import { z } from "zod";
 
 const NOTIFICATION_CATEGORIES = ["fee", "attendance", "student", "system", "reminder"] as const;

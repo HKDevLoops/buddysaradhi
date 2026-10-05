@@ -12,7 +12,7 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { CasConflictError, casConflictResponse, readCasBase } from "../lib/cas.ts";
-import { encodeOutboxPayload } from "../../../packages/shared/src/outboxPayload.ts";
+import { encodeOutboxPayload } from "../lib/vendor/outboxPayload.ts";
 import { z } from "zod";
 
 export type RouteHandler = (
