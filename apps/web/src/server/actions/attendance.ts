@@ -6,6 +6,15 @@ import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
+import {
+  DEFAULT_LOCK_HOURS,
+  HARD_LOCK_DAYS,
+  HARD_UNLOCK_REASON_MIN_LENGTH,
+  UNLOCK_WINDOW_MINUTES,
+  ageHours,
+  hardLocked,
+  readUnlockWindow,
+} from "@/server/attendance-window";
 
 export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
   try {
@@ -53,8 +62,60 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
     });
 
     let sessionId: string;
+    let inUnlockWindow = false;
     if (existingSession) {
-      if (existingSession.lockedAt) throw new Error("Session is locked. Unlock it to edit.");
+      if (existingSession.lockedAt) {
+        // 06 §10.6 BR-ATT-07 Tier 2/3: a locked session edits only inside an
+        // open unlock window (latest grant audit row < 60 min, no newer
+        // relock). The window is read here, outside the per-update
+        // transactions: a lock racing the first update is handled by the
+        // row-level update guard below re-checking inside each tx.
+        const window = await readUnlockWindow(db, tenantId, existingSession.id as string, now);
+        if (!window.open) {
+          if (window.expiredGrant) {
+            // Lazy relock: the grant aged out with no relock row, so this
+            // attempt records the close (reason `unlock_window_expired`,
+            // 06 §10.8) in its own transaction, then rejects like any
+            // out-of-window edit. Separate transaction ON PURPOSE: the edit
+            // below throws, and a throw inside the edit's own transaction
+            // would roll the relock row back with it. The relock carries an
+            // outbox row like every other window mutation (Rule 7) so the
+            // close replicates cross-device.
+            await db.$transaction(async (tx) => {
+              await tx.auditLog.create({
+                data: {
+                  id: crypto.randomUUID(),
+                  tenantId,
+                  actor: tenantId,
+                  refType: "attendance_session",
+                  refId: existingSession.id as string,
+                  action: "attendance_relock",
+                  metadata: JSON.stringify({ reason: "unlock_window_expired" }),
+                  createdAt: now,
+                },
+              });
+              await tx.syncOutbox.create({
+                data: {
+                  id: crypto.randomUUID(),
+                  tenantId,
+                  tableName: "attendance_sessions",
+                  rowId: existingSession.id as string,
+                  op: "update",
+                  payload: JSON.stringify({ relocked_at: now, reason: "unlock_window_expired" }),
+                  createdAt: now,
+                },
+              });
+            });
+          }
+          if (hardLocked(payload.session_date, now)) {
+            throw new Error(
+              "HARD_LOCKED: This session is more than 30 days old. Direct unlock is disabled — file an unlock request with a reason."
+            );
+          }
+          throw new Error("Session is locked. Unlock it to edit.");
+        }
+        inUnlockWindow = true;
+      }
       sessionId = existingSession.id as string;
     } else {
       sessionId = crypto.randomUUID();
@@ -77,6 +138,16 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
 
       // Rule 7: record write + outbox row land in one write transaction.
       await db.$transaction(async (tx) => {
+        // 06 §10.6/§10.8 Tier 2+3: in-window edits are double-audited — one
+        // `attendance_edit_locked` row per changed row, carrying old/new
+        // status, inside the same transaction as the record write.
+        let oldStatus: string | null = null;
+        if (inUnlockWindow) {
+          const current = await tx.attendanceRecord.findFirst({
+            where: { sessionId, studentId: update.student_id },
+          });
+          oldStatus = (current?.status as string | null) ?? null;
+        }
         await tx.attendanceRecord.upsert({
           where: { sessionId, studentId: update.student_id },
           create: {
@@ -105,6 +176,25 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
             createdAt: now,
           },
         });
+        if (inUnlockWindow) {
+          await tx.auditLog.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              actor: tenantId,
+              refType: "attendance_record",
+              refId: recordId,
+              action: "attendance_edit_locked",
+              metadata: JSON.stringify({
+                student_id: update.student_id,
+                old_status: oldStatus,
+                new_status: update.status,
+                window: "unlock",
+              }),
+              createdAt: now,
+            },
+          });
+        }
       });
     }
 
@@ -380,5 +470,245 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
   } catch (error) {
     log.error('attendance_summary_failed', error instanceof Error ? error.message : String(error));
     return { ok: false, error: error instanceof Error ? error.message : "Failed to fetch attendance summary" };
+  }
+}
+
+async function requireUnlockPin(
+  db: { setting: { findFirst(args: unknown): Promise<{ pinHash?: unknown } | null> } },
+  tenantId: string,
+  pin: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  // PIN gate mirrors lockSessionAction exactly (10_Security.md §4 sensitive
+  // mutation; 08_Settings.md BR-SEC-02 fresh PIN): no-PIN, format, verify —
+  // same taxonomy codes so `lockErrorCopy`-style clients classify identically.
+  const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+  const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+  if (!pinHash) {
+    return { success: false, error: "No PIN configured. Set one in Settings → Security." };
+  }
+  const pinFormatProblem = pinFormatError(pin);
+  if (pinFormatProblem) {
+    return { success: false, error: `VALIDATION: ${pinFormatProblem}` };
+  }
+  const pinValid = await verifyPin(pin, pinHash);
+  if (!pinValid) {
+    return { success: false, error: "VALIDATION: The security PIN is incorrect." };
+  }
+  return { success: true };
+}
+
+async function readLockHours(
+  db: { setting: { findFirst(args: unknown): Promise<{ attendanceLockHours?: unknown } | null> } },
+  tenantId: string,
+): Promise<number> {
+  // Mirrors the gateway mark path (`attendanceLockHours ?? 48`): the Tier 2
+  // auto-lock boundary is tutor-configurable, so unlock must use the same
+  // number or web and gateway disagree on what "locked" means.
+  const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+  const raw = settingsRow?.attendanceLockHours;
+  const parsed = typeof raw === "number" ? raw : Number(raw ?? NaN);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LOCK_HOURS;
+}
+
+export async function unlockSessionAction(sessionId: string, pin: string) {
+  // Implements: 06_Attendance.md §10.6 BR-ATT-07 Tier 2 (PIN/biometric →
+  // `attendance_unlock`, 60-minute window), §10.3 phases, §10.8 audit;
+  // 03_User_Flows.md §4.3 Flow 11; 10_Security.md §4 (PIN-gated sensitive
+  // mutation); 08_Settings.md BR-SEC-02.
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const now = new Date().toISOString();
+
+    const pinGate = await requireUnlockPin(db, tenantId, pin);
+    if (!pinGate.success) return pinGate;
+
+    const session = await db.attendanceSession.findFirst({
+      where: { id: sessionId, tenantId },
+    });
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+    const sessionDate = String(session.sessionDate ?? "");
+    if (hardLocked(sessionDate, now)) {
+      // 06 §10.6 Tier 3: no direct unlock past 30 days — the request flow
+      // (`requestHardUnlockAction`) is the only door. The HARD_LOCKED code
+      // lets the client route to the request sheet instead of an error toast.
+      return {
+        success: false,
+        error:
+          "HARD_LOCKED: This session is more than 30 days old. Direct unlock is disabled — file an unlock request with a reason.",
+      };
+    }
+    const lockHours = await readLockHours(db, tenantId);
+    const autoLocked = !session.lockedAt && ageHours(sessionDate, now) > lockHours;
+    if (!session.lockedAt && !autoLocked) {
+      // Tier 1: nothing to unlock. Say so (Rule 9) instead of writing a
+      // meaningless window row.
+      return { success: false, error: "Session is not locked." };
+    }
+
+    // Unlock changes no data column (`lockedAt` stays set — the window
+    // overlays the lock so expiry needs no cron), but Rule 7 still gets its
+    // outbox row: the window must replicate cross-device, and the audit row
+    // alone cannot carry that contract where readers only drain outbox. The
+    // payload is informational (window bounds), never a column write.
+    const windowExpiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
+    await db.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "attendance_session",
+          refId: sessionId,
+          action: "attendance_unlock",
+          metadata: JSON.stringify({
+            method: "pin",
+            window_minutes: UNLOCK_WINDOW_MINUTES,
+            window_expires_at: windowExpiresAt,
+            was_locked: Boolean(session.lockedAt),
+            auto_locked: autoLocked,
+          }),
+          createdAt: now,
+        },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "attendance_sessions",
+          rowId: sessionId,
+          op: "update",
+          payload: JSON.stringify({ unlock_window_until: windowExpiresAt }),
+          createdAt: now,
+        },
+      });
+    });
+
+    invalidateTenant(tenantId, "attendance:");
+    return { success: true, data: { window_expires_at: windowExpiresAt } };
+  } catch (error) {
+    log.error('unlock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
+    return { success: false, error: error instanceof Error ? error.message : "Failed to unlock session" };
+  }
+}
+
+export async function requestHardUnlockAction(sessionId: string, reason: string, pin: string) {
+  // Implements: 06_Attendance.md §10.6 Tier 3 (§10.6 sheet), §10.8
+  // (`attendance_hard_unlock_request`); 03 §5.4 request-unlock flow.
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const now = new Date().toISOString();
+
+    const pinGate = await requireUnlockPin(db, tenantId, pin);
+    if (!pinGate.success) return pinGate;
+
+    const cleanReason = reason.trim();
+    if (cleanReason.length < HARD_UNLOCK_REASON_MIN_LENGTH) {
+      return {
+        success: false,
+        error: `VALIDATION: Tell us why in at least ${HARD_UNLOCK_REASON_MIN_LENGTH} characters.`,
+      };
+    }
+    const session = await db.attendanceSession.findFirst({
+      where: { id: sessionId, tenantId },
+    });
+    if (!session) {
+      return { success: false, error: "Session not found." };
+    }
+    if (!hardLocked(String(session.sessionDate ?? ""), now)) {
+      // Tier 2 sessions unlock directly — a request here would be theatre.
+      return {
+        success: false,
+        error: "NOT_HARD_LOCKED: This session is under 30 days old — unlock it directly with your PIN.",
+      };
+    }
+
+    // Single-user app: the tutor IS the authority, so the audited request
+    // opens the 60-minute window immediately (06 §10.6: "System unlocks for 60
+    // minutes"). The request row doubles as the window grant — same window
+    // mechanics as Tier 2, plus the reason for the double-audit trail.
+    const windowExpiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
+    await db.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "attendance_session",
+          refId: sessionId,
+          action: "attendance_hard_unlock_request",
+          metadata: JSON.stringify({
+            reason: cleanReason,
+            method: "pin",
+            window_minutes: UNLOCK_WINDOW_MINUTES,
+            window_expires_at: windowExpiresAt,
+          }),
+          createdAt: now,
+        },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "attendance_sessions",
+          rowId: sessionId,
+          op: "update",
+          payload: JSON.stringify({ unlock_window_until: windowExpiresAt }),
+          createdAt: now,
+        },
+      });
+    });
+
+    invalidateTenant(tenantId, "attendance:");
+    return { success: true, data: { window_expires_at: windowExpiresAt } };
+  } catch (error) {
+    log.error('request_hard_unlock_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
+    return { success: false, error: error instanceof Error ? error.message : "Failed to request unlock" };
+  }
+}
+
+export async function relockSessionAction(sessionId: string, reason = "app_backgrounded") {
+  // Implements: 06 §10.6 Tier 2 ("re-lock on backgrounding") + §10.8
+  // (`attendance_relock`). Safe direction (removes rights), so no PIN —
+  // BR-SEC-02 gates privilege GRANTS, not revocations. Idempotent and
+  // honest: reports whether a window was actually open.
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const now = new Date().toISOString();
+    const window = await readUnlockWindow(db, tenantId, sessionId, now);
+    if (!window.open) {
+      return { success: true, relocked: false as const };
+    }
+    await db.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "attendance_session",
+          refId: sessionId,
+          action: "attendance_relock",
+          metadata: JSON.stringify({ reason }),
+          createdAt: now,
+        },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "attendance_sessions",
+          rowId: sessionId,
+          op: "update",
+          payload: JSON.stringify({ relocked_at: now, reason }),
+          createdAt: now,
+        },
+      });
+    });
+    invalidateTenant(tenantId, "attendance:");
+    return { success: true, relocked: true as const };
+  } catch (error) {
+    log.error('relock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
+    return { success: false, error: error instanceof Error ? error.message : "Failed to re-lock session" };
   }
 }

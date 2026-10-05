@@ -22,9 +22,10 @@
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { type StudentAttendanceRow, type AttendanceSession, type AttendanceStatus, type UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { AttendanceStatusToggle } from "./attendance-status-toggle";
+import { useUnlockWindow } from "./use-unlock-window";
 import { updateAttendanceAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, X, AlertTriangle, UserX, XCircle } from "lucide-react";
+import { Check, X, AlertTriangle, UserX, XCircle, Clock, Plane } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
@@ -37,11 +38,11 @@ import { fuzzySearch } from "@buddysaradhi/shared";
 /** How long a disarmed confirm waits before forgetting it was ever armed. */
 const CONFIRM_ARM_MS = 10_000;
 
-const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string }[] = [
-  { key: "present", label: "Present", accent: "var(--success)" },
-  { key: "absent", label: "Absent", accent: "var(--danger)" },
-  { key: "late", label: "Late", accent: "var(--warning)" },
-  { key: "excused", label: "Leave", accent: "var(--info)" },
+const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string; Icon: typeof Check }[] = [
+  { key: "present", label: "Present", accent: "var(--success)", Icon: Check },
+  { key: "absent", label: "Absent", accent: "var(--danger)", Icon: X },
+  { key: "late", label: "Late", accent: "var(--warning)", Icon: Clock },
+  { key: "excused", label: "Leave", accent: "var(--info)", Icon: Plane },
 ];
 
 interface AttendanceGridProps {
@@ -58,7 +59,12 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [confirmingAbsent, setConfirmingAbsent] = useState(false);
 
-  const isLocked = session?.locked_at != null;
+  // 06 §10.6: the lock freezes edits EXCEPT inside an open unlock window.
+  // `locked_at` stays set for the session's life; the window overlays it, so
+  // every guard below keys off `isLocked` and the window flips them all at
+  // once (marking, bulk bar, per-row toggles).
+  const { windowOpen } = useUnlockWindow(session);
+  const isLocked = session?.locked_at != null && !windowOpen;
 
   const mutation = useMutation({
     mutationFn: (payload: UpdateAttendancePayload) => updateAttendanceAction(payload),
@@ -189,6 +195,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
             style={{ border: `1px solid color-mix(in srgb, ${m.accent} 30%, transparent)` }}
           >
             <span className="w-2 h-2 rounded-full" style={{ background: m.accent }} aria-hidden="true" />
+            <m.Icon className="w-3 h-3" style={{ color: m.accent }} aria-hidden="true" />
             <span className="text-sm font-semibold num" style={{ color: m.accent }}>
               {counts[m.key]}
             </span>
@@ -223,7 +230,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
             disabled={isLocked || targetCount === 0}
             aria-label={`Mark all ${targetCount} students in view present`}
             className={cn(
-              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
+              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
               !isAllPresent && "neumo-raised"
             )}
             style={{
@@ -249,7 +256,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
                 : `Mark all ${targetCount} students in view absent. Needs a second press to confirm.`
             }
             className={cn(
-              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer",
+              "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
               !isAllAbsent && "neumo-raised"
             )}
             style={{
@@ -374,8 +381,9 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
                     <Avatar name={record.name} id={record.student_id} size="md" />
                     <div className="ml-4 min-w-0">
                       <p
-                        className="text-sm font-semibold truncate transition-colors group-hover:text-[var(--accent-primary)]"
+                        className="text-sm font-semibold sm:truncate transition-colors group-hover:text-[var(--accent-primary)]"
                         style={{ color: "var(--text-primary)" }}
+                        title={record.name}
                       >
                         {record.name}
                       </p>

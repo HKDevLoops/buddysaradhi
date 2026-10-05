@@ -87,6 +87,39 @@ describe("AttendanceSessionSchema", () => {
     };
     expect(AttendanceSessionSchema.safeParse(s).success).toBe(false);
   });
+
+  it("accepts unlock-window view state when present", () => {
+    const s = {
+      id: UUID_A,
+      tenant_id: UUID_B,
+      session_date: "2026-09-05",
+      batch_id: UUID_C,
+      locked_at: DT,
+      created_at: DT,
+      updated_at: DT,
+      unlock_window_expires_at: DT,
+      hard_locked: false,
+    };
+    const parsed = AttendanceSessionSchema.safeParse(s);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("treats absent window fields as no open window", () => {
+    const s = {
+      id: UUID_A,
+      tenant_id: UUID_B,
+      session_date: "2026-09-05",
+      batch_id: UUID_C,
+      locked_at: DT,
+      created_at: DT,
+      updated_at: DT,
+    };
+    const parsed = AttendanceSessionSchema.safeParse(s);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.unlock_window_expires_at ?? null).toBeNull();
+    }
+  });
 });
 
 describe("AttendanceRecordSchema", () => {

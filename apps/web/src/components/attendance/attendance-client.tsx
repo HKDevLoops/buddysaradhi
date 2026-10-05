@@ -13,10 +13,11 @@
 // marking could be skipped entirely and never noticed. The failure now gets its own branch:
 // `ErrorState`, with a data status that says the day's marks are untouched.
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
-import { useQuery } from "@tanstack/react-query";
-import { fetchAttendanceAction } from "@/server/actions/attendance";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchAttendanceAction, relockSessionAction } from "@/server/actions/attendance";
+import { useUnlockWindow } from "./use-unlock-window";
 import { AttendanceToolbar } from "./attendance-toolbar";
 import { AttendanceGrid } from "./attendance-grid";
 import { LockSessionSheet } from "./lock-session-sheet";
@@ -44,6 +45,28 @@ export function AttendanceClient() {
   const session = hasFailed ? null : (data?.data?.session ?? null);
   const records = hasFailed ? [] : (data?.data?.records ?? []);
   const isLocked = session?.locked_at != null;
+  const { windowOpen } = useUnlockWindow(session);
+  const queryClient = useQueryClient();
+
+  // 06 §10.6 Tier 2 ("re-lock ... on backgrounding the app"): hiding the tab
+  // with an open window closes it server-side (`attendance_relock`, reason
+  // `app_backgrounded`) and refreshes the day, so a tutor who walks away
+  // leaves locked books behind. No-op when no window is open (the action
+  // reports honestly and writes nothing).
+  useEffect(() => {
+    if (!windowOpen || !session) return;
+    const sessionId = session.id;
+    const onVisibility = (): void => {
+      if (document.visibilityState !== "hidden") return;
+      void relockSessionAction(sessionId, "app_backgrounded").then((res) => {
+        if (res.success) {
+          queryClient.invalidateQueries({ queryKey: ["attendance"] });
+        }
+      });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [windowOpen, session, queryClient]);
 
   const roster = useMemo<SearchCandidate<string>[]>(
     () => records.map((r) => ({ item: r.student_id, text: r.name, meta: r.batch ?? undefined })),

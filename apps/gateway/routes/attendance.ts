@@ -12,6 +12,14 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { z } from "zod";
+import {
+  UNLOCK_WINDOW_MINUTES,
+  HARD_UNLOCK_REASON_MIN_LENGTH,
+  DEFAULT_LOCK_HOURS,
+  ageHours,
+  hardLocked,
+  readUnlockWindow,
+} from "../lib/attendance-window.ts";
 
 // 06_Attendance.md §status enum (present | absent | late | excused | holiday) —
 // AGENTS.md §6.1 Zod-before-DB-touch parity for every mutating route.
@@ -94,7 +102,20 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         status: null,
       }));
     }
-    return ok({ session: session ?? null, records });
+    // 06 §10.6: the day view needs the unlock window to render countdowns
+    // and route tier-3 sessions to the request sheet. Computed per read (no
+    // column to go stale); null when no window is open.
+    let enrichedSession: unknown = session ?? null;
+    if (session) {
+      const nowIso = new Date().toISOString();
+      const window = await readUnlockWindow(orm, String((session as { id: unknown }).id), nowIso);
+      enrichedSession = {
+        ...(session as Record<string, unknown>),
+        unlock_window_expires_at: window.open ? window.expiresAt : null,
+        hard_locked: hardLocked(String((session as { sessionDate?: unknown }).sessionDate ?? ""), nowIso),
+      };
+    }
+    return ok({ session: enrichedSession, records });
   }
 
   // POST /api/v1/attendance
@@ -114,6 +135,46 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
     // and audit share ONE write transaction (fail-closed on any write
     // failure). The lock read sits inside the same transaction so a
     // lock racing this mark cannot be missed.
+    //
+    // Lazy-relock ordering (06 §10.8): an EXPIRED grant's relock row is
+    // written in its OWN transaction BEFORE the main one. A throw inside the
+    // main transaction rolls back everything it wrote — including a relock
+    // row — so the close must commit separately. The main transaction then
+    // re-reads the window fresh (race-safe: a concurrent unlock between the
+    // two reads opens the window instead of double-relocking).
+    const preTx = await (async () => {
+      const preExisting = await orm.attendanceSession.findFirst({
+        where: {
+          sessionDate: parsed.data.session_date,
+          ...(parsed.data.batch_id ? { batchId: parsed.data.batch_id } : {}),
+        },
+      });
+      if (!preExisting) return null;
+      const preDate = String(preExisting.sessionDate ?? "");
+      // Same predicate as the in-transaction gate below (flag OR age): the
+      // pre-check exists only to commit the lazy relock outside the doomed
+      // transaction; the gate itself re-decides inside.
+      const preSetting = await orm.setting.findFirst({ where: {} });
+      const preLockHours = Number(preSetting?.attendanceLockHours ?? DEFAULT_LOCK_HOURS);
+      const preNow = new Date().toISOString();
+      const preLocked = Boolean(preExisting.lockedAt) ||
+        ageHours(preDate, preNow) > preLockHours;
+      if (!preLocked) return null;
+      const preWindow = await readUnlockWindow(orm, String(preExisting.id), preNow);
+      return { id: String(preExisting.id), expired: !preWindow.open && preWindow.expiredGrant };
+    })();
+    if (preTx?.expired) {
+      await withWriteTransaction(db, async (tx) => {
+        await recordAudit(tx, tenantId, tenantId, "attendance.relock", "session", preTx.id, {
+          reason: "unlock_window_expired",
+        });
+        await recordOutbox(tx, tenantId, "attendance_sessions", preTx.id, "update", {
+          sessionId: preTx.id,
+          relocked_at: new Date().toISOString(),
+          reason: "unlock_window_expired",
+        });
+      });
+    }
     try {
       const sessionId = await withWriteTransaction(db, async (tx) => {
         const txOrm = createPrismaOrm(tx, tenantId);
@@ -125,13 +186,29 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         });
 
         const lockSetting = await txOrm.setting.findFirst({ where: {} });
-        const lockHours = Number(lockSetting?.attendanceLockHours ?? 48);
+        const lockHours = Number(lockSetting?.attendanceLockHours ?? DEFAULT_LOCK_HOURS);
+        const nowIso = new Date().toISOString();
 
+        // 06 §10.6 BR-ATT-07: a locked session (flag OR age) edits only inside
+        // an open unlock window (re-read fresh: the pre-tx check above may
+        // have written a relock, and a concurrent unlock may have opened).
+        let inWindow = false;
         if (existing) {
-          const ageHours =
-            (Date.now() - new Date(existing.sessionDate as string).getTime()) / 3_600_000;
-          if (existing.lockedAt || ageHours > lockHours) {
-            throw new AttendanceRouteError("CONFLICT: session is locked; unlock it to edit", 409);
+          const sessionDate = String(existing.sessionDate ?? "");
+          const locked = Boolean(existing.lockedAt) ||
+            ageHours(sessionDate, nowIso) > lockHours;
+          if (locked) {
+            const window = await readUnlockWindow(txOrm, String(existing.id), nowIso);
+            if (!window.open) {
+              if (hardLocked(sessionDate, nowIso)) {
+                throw new AttendanceRouteError(
+                  "HARD_LOCKED: session is more than 30 days old; unlock it to edit",
+                  409,
+                );
+              }
+              throw new AttendanceRouteError("CONFLICT: session is locked; unlock it to edit", 409);
+            }
+            inWindow = true;
           }
         }
 
@@ -148,6 +225,19 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
 
         const updates = parsed.data.updates;
         if (updates.length > 0) {
+          // 06 §10.8 Tier 2+3 double-audit: in-window edits each carry an
+          // `attendance.edit_locked` row (student + old/new status) in the
+          // same transaction as the record write. Old statuses come from one
+          // pre-read so the batch stays a single write wave.
+          const priors = inWindow
+            ? await txOrm.attendanceRecord.findMany({ where: { sessionId: sid! } })
+            : [];
+          const priorByStudent = new Map(
+            (priors as Array<{ studentId: unknown; status: unknown }>).map((r) => [
+              String(r.studentId),
+              String(r.status),
+            ]),
+          );
           await txOrm.attendanceRecord.createMany({
             data: updates.map((u) => ({
               sessionId: sid!,
@@ -155,6 +245,16 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
               status: u.status,
             })),
           });
+          if (inWindow) {
+            for (const u of updates) {
+              await recordAudit(tx, tenantId, tenantId, "attendance.edit_locked", "record", String(sid), {
+                student_id: u.student_id,
+                old_status: priorByStudent.get(u.student_id) ?? null,
+                new_status: u.status,
+                window: "unlock",
+              });
+            }
+          }
         }
 
         await recordOutbox(tx, tenantId, "attendance_sessions", String(sid), "update", body);
@@ -226,6 +326,116 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
 
     invalidateTenant(tenantId);
     return ok({ locked: true });
+  }
+
+  // POST /api/v1/attendance/unlock — 06 §10.6 BR-ATT-07 Tier 2: PIN-verified
+  // client opens a 60-minute window (audit `attendance.unlock`); lockedAt
+  // stays set. Mirrors /lock (same tx shape, same idempotency envelope).
+  // Tier 3 (>30d) is refused with 409 HARD_LOCKED — see /request-unlock.
+  if (path === "/api/v1/attendance/unlock" && method === "POST") {
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
+    const body = await req.json().catch(() => ({}));
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(body);
+    if (!parsed.success) return failZod(parsed.error);
+    const sessionId = parsed.data.sessionId;
+    const now = new Date().toISOString();
+    try {
+      const windowExpiresAt = await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        const session = await txOrm.attendanceSession.findFirst({ where: { id: sessionId } });
+        if (!session) {
+          throw new AttendanceRouteError("session_not_found", 404);
+        }
+        const sessionDate = String(session.sessionDate ?? "");
+        if (hardLocked(sessionDate, now)) {
+          throw new AttendanceRouteError(
+            "HARD_LOCKED: session is more than 30 days old; direct unlock is disabled",
+            409,
+          );
+        }
+        const lockSetting = await txOrm.setting.findFirst({ where: {} });
+        const lockHours = Number(lockSetting?.attendanceLockHours ?? DEFAULT_LOCK_HOURS);
+        const autoLocked = !session.lockedAt && ageHours(sessionDate, now) > lockHours;
+        if (!session.lockedAt && !autoLocked) {
+          throw new AttendanceRouteError("session_not_locked", 409);
+        }
+        const expiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
+        await recordAudit(tx, tenantId, tenantId, "attendance.unlock", "session", sessionId, {
+          method: "pin",
+          window_minutes: UNLOCK_WINDOW_MINUTES,
+          window_expires_at: expiresAt,
+        });
+        await recordOutbox(tx, tenantId, "attendance_sessions", sessionId, "update", {
+          sessionId,
+          unlock_window_until: expiresAt,
+        });
+        const env = okEnvelope(200, { unlocked: true, window_expires_at: expiresAt });
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return expiresAt;
+      });
+      invalidateTenant(tenantId);
+      return ok({ unlocked: true, window_expires_at: windowExpiresAt });
+    } catch (err) {
+      if (err instanceof AttendanceRouteError) return fail(err.message, err.status);
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
+  }
+
+  // POST /api/v1/attendance/request-unlock — 06 §10.6 Tier 3: hard-locked
+  // sessions unlock only via audited request (reason ≥ 20 chars). Single-user
+  // app: the tutor is the authority, so the request opens the 60-minute
+  // window immediately; the request row doubles as the grant.
+  if (path === "/api/v1/attendance/request-unlock" && method === "POST") {
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
+    const body = await req.json().catch(() => ({}));
+    const parsed = z
+      .object({ sessionId: z.string().uuid(), reason: z.string().trim().min(HARD_UNLOCK_REASON_MIN_LENGTH) })
+      .safeParse(body);
+    if (!parsed.success) return failZod(parsed.error);
+    const { sessionId, reason } = parsed.data;
+    const now = new Date().toISOString();
+    try {
+      const windowExpiresAt = await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        const session = await txOrm.attendanceSession.findFirst({ where: { id: sessionId } });
+        if (!session) {
+          throw new AttendanceRouteError("session_not_found", 404);
+        }
+        if (!hardLocked(String(session.sessionDate ?? ""), now)) {
+          throw new AttendanceRouteError(
+            "NOT_HARD_LOCKED: session is under 30 days old; unlock it directly",
+            409,
+          );
+        }
+        const expiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
+        await recordAudit(tx, tenantId, tenantId, "attendance.hard_unlock_request", "session", sessionId, {
+          reason,
+          method: "pin",
+          window_minutes: UNLOCK_WINDOW_MINUTES,
+          window_expires_at: expiresAt,
+        });
+        await recordOutbox(tx, tenantId, "attendance_sessions", sessionId, "update", {
+          sessionId,
+          unlock_window_until: expiresAt,
+        });
+        const env = okEnvelope(200, { unlocked: true, window_expires_at: expiresAt });
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        return expiresAt;
+      });
+      invalidateTenant(tenantId);
+      return ok({ unlocked: true, window_expires_at: windowExpiresAt });
+    } catch (err) {
+      if (err instanceof AttendanceRouteError) return fail(err.message, err.status);
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
   }
 
   return null;

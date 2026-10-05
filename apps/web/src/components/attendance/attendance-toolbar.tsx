@@ -23,6 +23,7 @@ import type { SearchCandidate } from "@/components/search/student-search-box";
 import { getBatches } from "@/server/queries/attendance";
 import { type AttendanceSession } from "@buddysaradhi/shared";
 import { Calendar, Lock, Unlock, Users } from "lucide-react";
+import { useUnlockWindow } from "./use-unlock-window";
 import { format, parseISO } from "date-fns";
 
 export interface AttendanceToolbarProps {
@@ -60,6 +61,10 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
   };
 
   const isLocked = session?.locked_at != null;
+  // 06 §10.6: the badge names the live state — locked, window-open with
+  // countdown, or unlocked — and always opens the sheet (the unlock entry
+  // point). min-h + focus ring per Rule 10 (audit: the gate button).
+  const { windowOpen, minutesLeft } = useUnlockWindow(session);
   // A stable identity keeps the debounced query from re-ranking on every roster churn.
   const candidates = useMemo(() => roster, [roster]);
 
@@ -103,7 +108,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
               id="attendance-batch"
               value={selectedBatch}
               onChange={(e) => setBatch(e.target.value)}
-              className="neumo-inset min-h-[44px] pl-9 pr-3 text-sm appearance-none cursor-pointer focus:outline-none"
+              className="neumo-inset min-h-[44px] pl-9 pr-3 text-sm appearance-none cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{
                 background: "var(--surface-inset)",
                 border: "1px solid var(--border-default)",
@@ -123,12 +128,12 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
               style={{ color: "var(--text-muted)" }}
               aria-hidden="true"
             />
-            {batches.length === 0 ? (
-              <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                No batches yet — everyone is marked together.
-              </p>
-            ) : null}
           </div>
+          {batches.length === 0 ? (
+            <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              No batches yet — everyone is marked together.
+            </p>
+          ) : null}
 
           {/* Date Picker */}
           <div className="relative flex-1 md:w-auto">
@@ -137,7 +142,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
               aria-label="Select Date"
               value={selectedDateIso}
               onChange={handleDateChange}
-              className="neumo-inset px-3 py-2 pl-10 text-sm w-full appearance-none focus:outline-none"
+              className="neumo-inset px-3 py-2 pl-10 text-sm w-full appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{
                 background: "var(--surface-inset)",
                 border: "1px solid var(--border-default)",
@@ -168,7 +173,14 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
 
         <button
           onClick={() => setLockSheetOpen(true)}
-          className="neumo-raised px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap"
+          aria-label={
+            isLocked
+              ? windowOpen
+                ? `Session unlocked, ${minutesLeft ?? 0} minutes left. Open unlock options.`
+                : "Session locked. Open unlock options."
+              : "Lock this session."
+          }
+          className="neumo-raised px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
           style={{
             background: "var(--surface-raised)",
             border: "1px solid var(--border-default)",
@@ -182,12 +194,18 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
           }}
         >
           {isLocked ? (
-            <>
-              <Lock className="w-4 h-4" /> Locked
-            </>
+            windowOpen ? (
+              <>
+                <Unlock className="w-4 h-4" aria-hidden="true" /> Unlocked · {minutesLeft ?? 0} min
+              </>
+            ) : (
+              <>
+                <Lock className="w-4 h-4" aria-hidden="true" /> Locked
+              </>
+            )
           ) : (
             <>
-              <Unlock className="w-4 h-4" /> Lock Session
+              <Unlock className="w-4 h-4" aria-hidden="true" /> Lock Session
             </>
           )}
         </button>

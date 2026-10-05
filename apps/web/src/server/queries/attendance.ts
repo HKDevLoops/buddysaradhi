@@ -7,6 +7,7 @@
 "use server";
 import { cache } from "react";
 import { gatewayGet, getAuthenticatedDb, createLibsqlProxy, getGatewayHeaders } from "@/server/get-db";
+import { hardLocked, readUnlockWindow } from "@/server/attendance-window";
 import {
   QUERY_TIMEOUT_MS,
   getCached,
@@ -23,6 +24,11 @@ interface AttendanceSession {
   locked_at: string | null;
   created_at: string;
   updated_at: string;
+  // 06 §10.6: unlock window surfaced for countdowns + tier-3 routing. The
+  // gateway computes these on its GET; the direct-DB fallback computes them
+  // here so both shapes agree (Rule 9: no divergent contracts).
+  unlock_window_expires_at?: string | null;
+  hard_locked?: boolean;
 }
 
 interface StudentAttendanceRow {
@@ -113,6 +119,13 @@ export const getAttendanceForDate = cache(
             locked_at: session.lockedAt ?? null,
             created_at: String(session.createdAt),
             updated_at: String(session.updatedAt),
+            unlock_window_expires_at: (
+              await readUnlockWindow(proxy, tenantId, String(session.id), new Date().toISOString())
+            ).expiresAt,
+            hard_locked: hardLocked(
+              String(session.sessionDate ?? ""),
+              new Date().toISOString(),
+            ),
           }
         : null;
 

@@ -13,6 +13,12 @@ export const AttendanceSessionSchema = z.object({
   locked_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  // 06 §10.6: unlock-window view state. Optional so every previously valid
+  // session still parses; absent means "no open window" (fail-closed read).
+  // The gateway GET and the web direct-DB fallback both populate these, so
+  // the two read shapes never diverge (Rule 9).
+  unlock_window_expires_at: z.string().nullable().optional(),
+  hard_locked: z.boolean().optional(),
 });
 export type AttendanceSession = z.infer<typeof AttendanceSessionSchema>;
 
