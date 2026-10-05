@@ -1,9 +1,9 @@
 import { createSupabaseServer } from "@/lib/supabase/server";
+import { cache } from "react";
 import { getDb, getDbCredentials } from "@/lib/db";
 import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
-import { createLibsqlProxy } from "@/lib/libsql-proxy";
-import {
+import { createLibsqlProxy } from "@/lib/libsql-proxy";import {
   authError,
   buildProvisionUrl,
   classifyCredentialProbeError,
@@ -14,27 +14,50 @@ import type { AppErrorCode } from "@/lib/app-errors";
 
 const LOCAL_TENANT = "local-dev";
 
-// Resolve the current Supabase user without throwing. In local/dev there is
-// no session, so we return null and callers fall back to a local-dev identity.
-async function getUserAndSession() {
+// Resolve the current Supabase user without throwing. Memoized per request
+// (React `cache`): a single dashboard render fans out to settings, students,
+// attendance, ledger and analytics actions, EACH of which called
+// `getUser()+getSession()` before — N sequential Supabase Auth round trips
+// (no connection reuse across invocations) behind a 1.5s guillotine. Past
+// that guillotine the session silently became null and every downstream read
+// failed as AUTH_REQUIRED, which is exactly the production "Couldn't reach
+// the database" wall: not a database outage, an auth-read bottleneck that
+// also added seconds to every page. Memoization keeps ONE validation per
+// request (same checks, same failure modes — no auth is weakened, the calls
+// are only deduplicated); the timeout is raised to 5s so transient slowness
+// degrades to a slow read instead of a lost session, and a timeout is now
+// logged (Rule 9: the old silent null is gone).
+const getUserAndSession = cache(async (): Promise<{
+  user: { id: string; user_metadata: Record<string, unknown> } | null;
+  accessToken: string | null;
+}> => {
   try {
     const supabase = await createSupabaseServer();
     const fetchUser = Promise.all([
       supabase.auth.getUser(),
       supabase.auth.getSession(),
     ]);
-    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500));
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
     const result = await Promise.race([fetchUser, timeout]);
-    if (!result) return { user: null, accessToken: null };
+    if (!result) {
+      log.warn("getUserAndSession_timeout", "Supabase auth read exceeded 5000ms; treating session as absent for this request");
+      return { user: null, accessToken: null };
+    }
     const [userRes, sessionRes] = result;
     return {
-      user: userRes.data.user ?? null,
+      user: (userRes.data.user ?? null) as { id: string; user_metadata: Record<string, unknown> } | null,
       accessToken: sessionRes.data.session?.access_token ?? null,
     };
-  } catch {
+  } catch (err) {
+    // Rule 9: the old silent null hid every session-transport fault (this
+    // exact silence cost a full outage investigation). Message only, no PII.
+    log.warn(
+      "getUserAndSession_failed",
+      err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+    );
     return { user: null, accessToken: null };
   }
-}
+});
 
 async function getUser() {
   const { user } = await getUserAndSession();
@@ -167,6 +190,13 @@ export async function getGatewayHeaders(): Promise<{
   const nonce = generateNonce();
   // SECURITY: mock-token is dev-only. In production, unauthenticated requests must not reach gateway with mock.
   if (!accessToken && process.env.NODE_ENV === 'production') {
+    // Debuggability (Rule 9): user-null (session unreadable) and token-null
+    // (user known, session token missing) are different faults with different
+    // fixes — cookie transport vs token assembly. Booleans only, never ids.
+    log.warn("getGatewayHeaders_no_session", "No usable session for gateway headers", {
+      hasUser: Boolean(user),
+      hasAccessToken: Boolean(accessToken),
+    });
     throw authError("AUTH_REQUIRED", "No session — mock tokens not permitted in production.");
   }
   const tokenHeader = accessToken ? `Bearer ${accessToken}` : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
