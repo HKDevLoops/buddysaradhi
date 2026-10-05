@@ -90,7 +90,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
               value={autoArchiveInactiveDays}
               onChange={(e) => updateMutation.mutate({ field: "autoArchiveInactiveDays", value: parseInt(e.target.value) })}
               aria-label="Auto-archive inactive students after"
-              className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--info)]"
+              className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
             >
               <option value={30} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">After 30 days</option>
               <option value={60} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">After 60 days</option>
@@ -160,7 +160,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     value={typedConfirm}
                     onChange={(e) => setTypedConfirm(e.target.value)}
                     placeholder="DELETE"
-                    className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)]"
+                    className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                   />
                 </div>
 
@@ -174,7 +174,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     onChange={(e) => setPin(e.target.value)}
                     maxLength={4}
                     placeholder="••••"
-                    className="glass-input w-full sm:w-48 px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)]"
+                    className="glass-input w-full sm:w-48 px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                   />
                 </div>
               </div>
@@ -245,7 +245,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     value={typedConfirmAccount}
                     onChange={(e) => setTypedConfirmAccount(e.target.value)}
                     placeholder="DELETE MY ACCOUNT FOREVER"
-                    className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)]"
+                    className="glass-input w-full px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                   />
                 </div>
 
@@ -260,7 +260,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     maxLength={4}
                     placeholder="••••"
                     aria-label="Security PIN for account deletion"
-                    className="glass-input w-full sm:w-48 px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)]"
+                    className="glass-input w-full sm:w-48 px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                   />
                 </div>
               </div>

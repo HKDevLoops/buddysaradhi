@@ -369,7 +369,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
                     aria-describedby="payment-preview"
-                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
+                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                   />
                 </div>
               </div>
@@ -405,7 +405,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
                   placeholder={method === "cheque" ? "6-digit cheque no." : method === "cash" ? "Optional" : "10–22 character UTR"}
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                 />
                 {preview.refError && (
                   <p className="text-xs mt-1 text-[var(--danger)]">{preview.refError}</p>
@@ -420,7 +420,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   required
                   value={dateIso}
                   onChange={(e) => setDateIso(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--success)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                 />
                 {preview.backdated && (
                   <div className="mt-2 p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-sm text-[var(--warning)]">
@@ -434,7 +434,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       onChange={(e) => setBackdatePin(e.target.value)}
                       placeholder="Enter PIN"
                       aria-label="Fresh PIN for backdated payment"
-                      className="neumo-inset mt-2 w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none"
+                      className="neumo-inset mt-2 w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                     />
                     {/* BR-SEC-04 asks for a PIN on a backdated payment and the panel
                         above states the requirement, but not the reason — so a tutor
@@ -455,7 +455,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                 />
               </div>
 

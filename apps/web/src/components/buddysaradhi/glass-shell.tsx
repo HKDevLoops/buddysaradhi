@@ -593,7 +593,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                 {menuOpen && (
                   <>
                     {/* Backdrop to close dropdown on click outside */}
-                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} aria-hidden="true" />
                     
                     {/* Dropdown Menu */}
                     <div

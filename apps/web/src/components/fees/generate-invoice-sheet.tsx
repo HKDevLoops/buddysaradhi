@@ -289,7 +289,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                     placeholder="0.00"
                     aria-invalid={amountError ? true : undefined}
                     aria-describedby={amountError ? "invoice-amount-error" : undefined}
-                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
+                    className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 pl-8 text-lg font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
                   />
                 </div>
                 {amountError && (
@@ -312,7 +312,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                   required
                   value={dateIso}
                   onChange={(e) => setDateIso(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--info)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
                 />
               </div>
 
@@ -329,7 +329,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
                 />
               </div>
 

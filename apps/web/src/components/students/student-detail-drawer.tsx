@@ -405,6 +405,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               <h2
                 className="text-2xl font-bold truncate"
                 style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}
+                title={fullName}
               >
                 {fullName}
               </h2>
@@ -421,7 +422,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                 setShowDeleteConfirm(true);
               }}
               aria-label="Delete student"
-              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{ color: "var(--danger)" }}
               onMouseEnter={(e) => (e.currentTarget.style.background = "var(--danger)/10")}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -432,7 +433,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               type="button"
               onClick={closeDrawer}
               aria-label="Close student detail"
-              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              className="p-2 -mr-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{ color: "var(--text-muted)" }}
               onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
               onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}

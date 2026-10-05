@@ -269,7 +269,7 @@ export function FeesClient() {
                       key={s.id}
                       onClick={() => setSelectedStudentId(s.id)}
                       className={cn(
-                        "w-full flex items-center gap-3 px-3 py-3 text-left transition-all min-h-[64px] rounded-lg cursor-pointer",
+                        "w-full flex items-center gap-3 px-3 py-3 text-left transition-all min-h-[64px] rounded-lg cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
                         isActive
                           ? "bg-[var(--surface-overlay)] shadow-sm ring-1 ring-[var(--success)]/30"
                           : "hover:bg-[var(--surface-inset)]"
@@ -293,6 +293,7 @@ export function FeesClient() {
                         <p
                           className="text-sm font-semibold truncate"
                           style={{ color: "var(--text-primary)" }}
+                          title={s.name}
                         >
                           {s.name}
                         </p>
@@ -318,7 +319,7 @@ export function FeesClient() {
                 </div>
               ) : students.length === 0 ? (
                 <div className="glass-panel rounded-2xl h-full flex flex-col items-center justify-center gap-3" style={{ color: "var(--text-muted)" }}>
-                  <Receipt className="w-8 h-8 opacity-50" />
+                  <Receipt className="w-8 h-8 opacity-50" aria-hidden="true" />
                   <p className="text-sm">No students yet. Add a student to start a ledger.</p>
                 </div>
               ) : (

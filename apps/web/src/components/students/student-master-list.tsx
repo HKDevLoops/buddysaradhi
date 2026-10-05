@@ -193,7 +193,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
               onClick={() => openDrawer(s.id)}
               aria-label={`Open ${s.name}`}
               aria-pressed={isSelected}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors min-h-[64px]"
+              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors min-h-[64px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{
                 background: isSelected
                   ? "color-mix(in srgb, var(--accent-primary) 10%, transparent)"
@@ -217,6 +217,7 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
                 <p
                   className="text-sm font-semibold truncate"
                   style={{ color: "var(--text-primary)" }}
+                  title={s.name}
                 >
                   {s.name}
                 </p>

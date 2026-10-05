@@ -409,6 +409,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                           color: meta.accent,
                         }}
                       >
+                        <meta.Icon className="w-3 h-3" aria-hidden="true" />
                         {meta.label}
                       </span>
                       <p
@@ -463,7 +464,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                         // rests at FULL strength on coarse pointers, where hover
                         // never fires (`.reveal-on-hover` in globals.css — the
                         // comment here used to claim such a rule existed; it did not).
-                        className="reveal-on-hover mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors focus-visible:opacity-100 motion-safe:hover:opacity-100"
+                        className="reveal-on-hover mt-1 min-h-[44px] flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--danger)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] motion-safe:hover:opacity-100"
                         style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
                         aria-label={`Void receipt for ${entry.description || "payment"}`}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)"; }}

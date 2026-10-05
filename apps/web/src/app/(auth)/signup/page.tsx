@@ -143,7 +143,7 @@ export default function SignupPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-[var(--danger)] text-left">{error}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--danger)] text-left">{error}</p>}
           {successMsg && <p className="text-sm text-[var(--success)] text-left">{successMsg}</p>}
 
           <div className="pt-2">

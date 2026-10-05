@@ -178,7 +178,7 @@ function ToastCard({ toast }: { toast: ToastRecord }) {
               toast.action?.onAction();
               dismissToast(toast.id);
             }}
-            className="mt-2 min-h-[44px] rounded-md px-2 text-sm font-semibold underline underline-offset-4"
+            className="mt-2 min-h-[44px] rounded-md px-2 text-sm font-semibold underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
             style={{ color: "var(--accent-text)" }}
           >
             {toast.action.label}
@@ -189,7 +189,7 @@ function ToastCard({ toast }: { toast: ToastRecord }) {
         type="button"
         onClick={() => dismissToast(toast.id)}
         aria-label={`Dismiss: ${toast.title}`}
-        className="flex size-11 shrink-0 items-center justify-center rounded-lg"
+        className="flex size-11 shrink-0 items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
         style={{ color: "var(--text-muted)" }}
       >
         <X className="size-4" aria-hidden="true" />

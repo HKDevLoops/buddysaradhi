@@ -43,7 +43,8 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
         }}
         title={meta ? `${studentName}: ${meta.label}` : `${studentName}: Unmarked`}
       >
-        {meta && <span className="w-1.5 h-1.5 rounded-full" style={{ background: meta.accent }} />}
+        {meta && <meta.Icon className="w-3.5 h-3.5" aria-hidden="true" />}
+        {meta && <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full" style={{ background: meta.accent }} />}
         {meta ? meta.label : "Unmarked"}
       </div>
     );
@@ -89,7 +90,7 @@ export function AttendanceStatusToggle({ status, onChange, isLocked, studentName
             }
           >
             <Icon className="w-4 h-4" aria-hidden="true" />
-            <span className="text-[10px] font-semibold leading-none">{meta.label}</span>
+            <span className="text-[11px] font-semibold leading-none">{meta.label}</span>
           </button>
         );
       })}

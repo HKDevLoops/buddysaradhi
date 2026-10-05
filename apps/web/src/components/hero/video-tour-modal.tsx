@@ -90,17 +90,17 @@ export function VideoTourModal({ isOpen, onClose }: VideoTourModalProps) {
             <div className="p-3 rounded-lg" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}>
               <Layers className="w-4 h-4 mb-1" style={{ color: "var(--success)" }} aria-hidden="true" />
               <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>Five screens, no sprawl</p>
-              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Dashboard, students, attendance, fees, settings</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Dashboard, students, attendance, fees, settings</p>
             </div>
             <div className="p-3 rounded-lg" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}>
               <Zap className="w-4 h-4 mb-1" style={{ color: "var(--warning)" }} aria-hidden="true" />
               <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>Offline-first</p>
-              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Your own database, writes replay on reconnect</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Your own database, writes replay on reconnect</p>
             </div>
             <div className="p-3 rounded-lg" style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}>
               <ShieldCheck className="w-4 h-4 mb-1" style={{ color: "var(--info)" }} aria-hidden="true" />
               <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>Append-only ledger</p>
-              <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>Corrections are new rows, never edits</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Corrections are new rows, never edits</p>
             </div>
           </div>
         </div>

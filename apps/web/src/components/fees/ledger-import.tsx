@@ -91,9 +91,9 @@ export function LedgerImport() {
         role="button"
         tabIndex={0}
         aria-label="Upload CSV file"
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") inputRef.current?.click(); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputRef.current?.click(); } }}
         className={cn(
-          "flex flex-col items-center justify-center gap-2 p-8 rounded-xl cursor-pointer transition-colors text-center",
+          "flex flex-col items-center justify-center gap-2 p-8 rounded-xl cursor-pointer transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
           dragging ? "bg-[var(--surface-raised)]" : "bg-[var(--surface-inset)]"
         )}
         style={{ border: `1px dashed ${dragging ? "var(--info)" : "var(--border-default)"}` }}
@@ -121,6 +121,11 @@ export function LedgerImport() {
             )}
           </div>
           <div className="flex-1 overflow-auto no-scrollbar rounded-xl" style={{ border: "1px solid var(--border-default)" }}>
+            {rows.length > 50 && (
+              <p className="px-4 pt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                Showing first 50 of {rows.length} rows
+              </p>
+            )}
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 [backdrop-filter:var(--mat-filter)]" style={{ background: "var(--surface-overlay)" }}>
                 <tr style={{ color: "var(--text-muted)" }}>

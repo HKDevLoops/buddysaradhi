@@ -297,7 +297,7 @@ export function OverlayCloseButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex size-11 shrink-0 items-center justify-center rounded-full"
+      className="flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
       style={{ color: "var(--text-muted)" }}
     >
       <X className="size-5" aria-hidden="true" />

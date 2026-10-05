@@ -304,6 +304,7 @@ export function TourExperience() {
                       type="button"
                       onClick={() => goToStop(i, "push")}
                       aria-current={active ? "step" : undefined}
+                      aria-label={`Stop ${i + 1} of ${TOUR_STOPS.length}: ${s.pin}`}
                       className="min-h-[44px] rounded-full px-4 text-sm font-medium"
                       style={{
                         background: active ? "var(--surface-sheet)" : "transparent",

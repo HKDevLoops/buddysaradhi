@@ -82,7 +82,7 @@ export function SecurityPanel() {
                   value={typedConfirm}
                   onChange={(e) => setTypedConfirm(e.target.value)}
                   placeholder="DELETE"
-                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)]"
+                  className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                 />
               </div>
 
@@ -96,7 +96,7 @@ export function SecurityPanel() {
                   onChange={(e) => setPin(e.target.value)}
                   maxLength={4}
                   placeholder="••••"
-                  className="neumo-inset w-full sm:w-48 bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)]"
+                  className="neumo-inset w-full sm:w-48 bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-xl text-center tracking-[1em] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-primary)]/20 focus:outline-none focus:border-[var(--danger)] focus:ring-1 focus:ring-[var(--danger)]"
                 />
               </div>
             </div>

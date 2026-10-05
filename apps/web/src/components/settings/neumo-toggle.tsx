@@ -23,7 +23,7 @@ export function NeumoToggle({ checked, onChange, label, disabled }: NeumoToggleP
       disabled={disabled}
       onClick={onChange}
       className={cn(
-        "flex items-center justify-center min-h-[44px] min-w-[44px] shrink-0 rounded-full transition-opacity cursor-pointer",
+        "flex items-center justify-center min-h-[44px] min-w-[44px] shrink-0 rounded-full transition-opacity cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
         disabled && "opacity-50 cursor-not-allowed"
       )}
     >

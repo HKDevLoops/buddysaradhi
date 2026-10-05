@@ -135,7 +135,7 @@ export function PendingTab() {
               placeholder="Search dues..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="neumo-inset w-full md:w-56 min-h-[44px] bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-3 py-2 pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)]"
+              className="neumo-inset w-full md:w-56 min-h-[44px] bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-3 py-2 pl-9 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
             />
             <Search
               className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"

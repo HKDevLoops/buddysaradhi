@@ -19,7 +19,7 @@ import React from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle, Clock, Plane } from "lucide-react";
 import { useOverlayDismiss, OverlayCloseButton } from "@/components/ui/overlay";
 import { toAppErrorState, type AppErrorState } from "@/lib/app-errors";
 import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
@@ -167,10 +167,10 @@ export function AttendanceReportClient({
               aria-pressed={activePreset === p.id}
               onClick={() => setActivePreset(p.id)}
               className={cn(
-                "min-h-[44px] flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                "min-h-[44px] flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
                 activePreset === p.id
                   ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-sm ring-1 ring-white/10"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               )}
             >
               <span aria-hidden="true">{p.icon}</span>
@@ -277,32 +277,32 @@ export function AttendanceReportClient({
                       {s.student_name}
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--success)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ color: "var(--success)" }}>
                         {s.present}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--danger)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ color: "var(--danger)" }}>
                         {s.absent}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--warning)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ color: "var(--warning)" }}>
                         {s.late}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--info)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ color: "var(--info)" }}>
                         {s.excused}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: "var(--text-secondary)" }}>
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ color: "var(--text-secondary)" }}>
                         {s.total_sessions}
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ 
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-xs font-bold transition-colors num" style={{ 
                         color: s.percentage >= 75 ? "var(--success)" : s.percentage >= 50 ? "var(--warning)" : "var(--danger)" 
                       }}>
                         {s.percentage}%
@@ -319,18 +319,22 @@ export function AttendanceReportClient({
         <div className="flex flex-wrap items-center gap-4 mt-5 pt-4" style={{ borderTop: "1px solid var(--border-default)" }}>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--success)" }} aria-hidden="true" />
+            <CheckCircle className="w-3 h-3" style={{ color: "var(--success)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Present</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--danger)" }} aria-hidden="true" />
+            <XCircle className="w-3 h-3" style={{ color: "var(--danger)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Absent</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--warning)" }} aria-hidden="true" />
+            <Clock className="w-3 h-3" style={{ color: "var(--warning)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Late</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--info)" }} aria-hidden="true" />
+            <Plane className="w-3 h-3" style={{ color: "var(--info)" }} aria-hidden="true" />
             <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Leave</span>
           </div>
         </div>

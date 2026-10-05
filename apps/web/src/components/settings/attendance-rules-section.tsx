@@ -68,7 +68,7 @@ export function AttendanceRulesSection({ settings }: AttendanceRulesSectionProps
                 value={attendanceLockHours}
                 onChange={(e) => updateMutation.mutate({ field: "attendanceLockHours", value: parseInt(e.target.value) })}
                 aria-label="Lock attendance after"
-                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--info)]"
+                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
               >
                 <option value={12} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">12 Hours</option>
                 <option value={24} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">24 Hours</option>

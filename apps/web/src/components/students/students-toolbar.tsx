@@ -433,7 +433,7 @@ export function StudentsToolbar() {
                     type="button"
                     onClick={() => toggleStatus(value)}
                     aria-pressed={on}
-                    className="w-full flex items-center gap-2.5 min-h-[44px] px-2 rounded-lg text-sm text-left transition-colors cursor-pointer hover:bg-[var(--surface-raised)]"
+                    className="w-full flex items-center gap-2.5 min-h-[44px] px-2 rounded-lg text-sm text-left transition-colors cursor-pointer hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
                     style={{ color: "var(--text-primary)" }}
                   >
                     {/* Tick + label: the state is never carried by the tick's colour alone. */}
@@ -460,7 +460,7 @@ export function StudentsToolbar() {
                 <button
                   type="button"
                   onClick={clearStatuses}
-                  className="w-full min-h-[44px] px-2 rounded-lg text-sm text-left transition-colors cursor-pointer hover:bg-[var(--surface-raised)]"
+                  className="w-full min-h-[44px] px-2 rounded-lg text-sm text-left transition-colors cursor-pointer hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
                   style={{ color: "var(--text-secondary)" }}
                 >
                   Show all four
@@ -493,7 +493,8 @@ export function StudentsToolbar() {
               setSort(col, col === sort.col ? opposite(sort.dir) : defaultDirFor(col));
             }}
             title={`Roster is sorted by ${sortLabel(sort.col)}, ${sort.dir === "asc" ? "ascending" : "descending"}. Choose a column to sort by it; choose it again to reverse.`}
-            className="neumo-inset min-h-[44px] px-2.5 text-sm cursor-pointer focus:outline-none"
+            aria-label="Sort roster by"
+            className="neumo-inset min-h-[44px] px-2.5 text-sm cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
             style={{
               background: "var(--surface-inset)",
               border: "1px solid var(--border-default)",
@@ -516,7 +517,7 @@ export function StudentsToolbar() {
                 ? "Ascending — tap for descending"
                 : "Descending — tap for ascending"
             }
-            className="neumo-raised inline-flex size-11 shrink-0 items-center justify-center rounded-xl transition-all active:translate-y-px cursor-pointer"
+            className="neumo-raised inline-flex size-11 shrink-0 items-center justify-center rounded-xl transition-all active:translate-y-px cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
             style={{
               background: "var(--surface-raised)",
               border: "1px solid var(--border-default)",

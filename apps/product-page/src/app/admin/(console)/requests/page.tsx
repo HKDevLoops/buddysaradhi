@@ -87,7 +87,7 @@ export default async function AdminRequestsPage({
 
       <form className="adm-filters" method="get" action="/admin/requests">
         <FilterField label="State" name="state">
-          <select className="input" id="state" name="state" defaultValue={state ?? ""}>
+          <select id="state" name="state" defaultValue={state ?? ""} style={{ minHeight: 44, width: "100%", padding: "0.375rem 0.5rem", borderRadius: "0.5rem", border: "1px solid var(--border-default)", background: "var(--surface-inset)", color: "var(--text-primary)", font: "inherit", fontSize: "0.8125rem" }}>
             <option value="">Every state</option>
             {ACCESS_REQUEST_STATES.map((candidate) => (
               <option key={candidate} value={candidate}>
@@ -97,9 +97,9 @@ export default async function AdminRequestsPage({
           </select>
         </FilterField>
         <FilterField label="Search" name="q" grow>
-          <input className="input" id="q" name="q" type="search" defaultValue={query} placeholder="Reference, email or institute" />
+          <input id="q" name="q" type="search" defaultValue={query} placeholder="Reference, email or institute" style={{ minHeight: 44, width: "100%", padding: "0.375rem 0.5rem", borderRadius: "0.5rem", border: "1px solid var(--border-default)", background: "var(--surface-inset)", color: "var(--text-primary)", font: "inherit", fontSize: "0.8125rem" }} />
         </FilterField>
-        <button className="btn btn-secondary" type="submit">
+        <button className="adm-btn-quiet" type="submit">
           Apply
         </button>
         <a className="adm-btn-quiet" href="/admin/requests">

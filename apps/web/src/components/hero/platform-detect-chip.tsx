@@ -53,7 +53,7 @@ export function PlatformDetectChip({ detectedPlatform }: { detectedPlatform: Pla
         </Link>
         <Link
           href="/download"
-          className="text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          className="min-h-[44px] inline-flex items-center px-2 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
         >
           Other platforms ↓
         </Link>

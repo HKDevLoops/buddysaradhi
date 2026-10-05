@@ -58,7 +58,7 @@ export function BackupSection() {
               onChange={(e) => setPassphrase(e.target.value)}
               placeholder="Min. 8 characters"
               aria-label="Encryption passphrase"
-              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--info)]"
+              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
             />
           </div>
           {mutation.error && <p className="text-[var(--danger)] text-xs mt-2">{mutation.error.message}</p>}

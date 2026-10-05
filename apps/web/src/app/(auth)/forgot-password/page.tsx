@@ -82,7 +82,7 @@ export default function ForgotPasswordPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-[var(--danger)] text-left font-semibold">{error}</p>}
+          {error && <p role="alert" className="text-sm text-[var(--danger)] text-left font-semibold">{error}</p>}
           {successMsg && <p className="text-sm text-[var(--success)] text-left font-semibold">{successMsg}</p>}
 
           <div className="pt-2">

@@ -104,7 +104,7 @@ export function BalanceStatusChip({ balanceDuePaise, className }: BalanceStatusC
   const suffix = status === "none" ? "" : ` ${formatINR(amountStatedPaise(balanceDuePaise))}`;
   return (
     <span
-      className={`chip ${copy.chip} num shrink-0 text-[10px] px-2 py-0.5${className ? ` ${className}` : ""}`}
+      className={`chip ${copy.chip} num shrink-0 text-[11px] px-2 py-1${className ? ` ${className}` : ""}`}
       title={balanceStatusTitle(balanceDuePaise)}
     >
       <Icon className="w-3 h-3" aria-hidden="true" />

@@ -51,7 +51,7 @@ export function DatabaseSection() {
               }}
               placeholder="libsql://your-db.turso.io"
               aria-label="Database connection string"
-              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition font-mono focus:border-[var(--info)]"
+              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition font-mono focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
             />
           </div>
         </div>

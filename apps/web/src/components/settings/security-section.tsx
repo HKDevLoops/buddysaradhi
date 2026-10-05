@@ -153,7 +153,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
                 value={sessionTimeoutMin}
                 onChange={(e) => updateMutation.mutate({ field: "sessionTimeoutMin", value: parseInt(e.target.value) })}
                 aria-label="Auto-lock timeout"
-                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--warning)]"
+                className="neumo-inset w-full pl-4 pr-10 py-3 text-sm text-[var(--text-primary)] rounded-xl appearance-none cursor-pointer focus:outline-none focus:border-[var(--warning)] focus:ring-1 focus:ring-[var(--warning)]"
               >
                 <option value={1} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">1 minute</option>
                 <option value={5} className="bg-[var(--surface-raised)] text-[var(--text-primary)]">5 minutes</option>
@@ -188,7 +188,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder="Min. 8 characters"
               required
-              className="neumo-inset w-full px-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)]"
+              className="neumo-inset w-full px-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]"
             />
           </div>
           <div>
@@ -200,7 +200,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm new password"
               required
-              className="neumo-inset w-full px-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)]"
+              className="neumo-inset w-full px-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)]"
             />
           </div>
 

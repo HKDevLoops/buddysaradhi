@@ -98,7 +98,7 @@ export const GlassCard = forwardRef<HTMLDivElement, GlassCardProps>(
         ref={ref}
         className={cn(
           glassStyles[variant],
-          interactive && "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_16px_48px_0_rgba(0,0,0,0.28),0_4px_16px_0_rgba(0,0,0,0.18)]",
+          interactive && "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_16px_48px_0_rgba(0,0,0,0.28),0_4px_16px_0_rgba(0,0,0,0.18)] focus-visible:-translate-y-0.5 focus-visible:shadow-[0_16px_48px_0_rgba(0,0,0,0.28),0_4px_16px_0_rgba(0,0,0,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
           accentEdge && "glass-card-accent-edge",
           className
         )}

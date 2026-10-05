@@ -286,7 +286,7 @@ export function StudentSearchBox<T>({
               setOpen(false);
               inputRef.current?.focus();
             }}
-            className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center cursor-pointer"
+            className="absolute right-1 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
             style={{ color: "var(--text-muted)", background: "transparent", border: "none" }}
           >
             <X className="w-4 h-4" aria-hidden="true" />

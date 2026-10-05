@@ -440,7 +440,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
+    padding: 6px 10px;
     border-radius: var(--radius-full);
     font-size: var(--text-xs);
     font-weight: 500;
@@ -550,7 +550,8 @@
 
   /* ---- Tabs ---- */
   .tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
-  .tab { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all var(--motion-fast) var(--ease-out); }
+  .tab { padding: var(--space-3) var(--space-4); font-size: var(--text-sm); font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all var(--motion-fast) var(--ease-out); min-height: 44px; }
+  .tab:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
   .tab:hover { color: var(--text-primary); }
   .tab-active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
 
@@ -707,7 +708,7 @@ html[data-reduced-motion="1"] .animate-pulse {
    reveal, so the control rests at full strength. */
 @layer utilities {
 .reveal-on-hover {
-  opacity: 0.6;
+  opacity: 0.85;
 }
 @media (pointer: coarse) {
   .reveal-on-hover {
