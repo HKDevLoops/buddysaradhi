@@ -6,6 +6,15 @@ import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { z } from "zod";
 import { verifyPin, encryptBackup } from "@/lib/crypto";
+import {
+  IMPORT_CHUNK_SIZE,
+  MAX_IMPORT_ROWS,
+  partitionDuplicates,
+  studentDupKey,
+  validateImportRows,
+  type ImportRowError,
+  type ValidImportRow,
+} from "@/lib/csv-parse";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
 import type { LibsqlProxy } from "@/lib/libsql-proxy";
 import {
@@ -830,5 +839,308 @@ export async function verifyPinAction(pin: string) {
   } catch (error) {
     log.error('verify_pin_action_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to verify PIN" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk students import (Settings → Bulk import card).
+// Implements: 09_Backup_and_Import_Export.md §6.4 Pipeline D (students-only
+// import: parse, validate, dedup, preview, transactional write) + §14.1 (row
+// schema) + §15.4 (audit action import_students);
+// 12_Business_Rules.md BR-IMP-03 (CSV contract), BR-STU-02 (skip duplicates,
+// never merge), BR-STU-04 (code auto-generation), BR-SYN-01 (outbox row in the
+// same transaction as its mutation), BR-M-01 (no money path exists here);
+// AGENTS.md §2 Rules 6/7/9 + §3.4 (Prisma ORM only, no raw SQL) + §6.1
+// (Zod-parse every input before any DB call).
+//
+// The client parses and previews with the shared validator in
+// `@/lib/csv-parse`; this action re-validates the posted headers and rows
+// with the same validator before touching the DB, so a crafted request can
+// never bypass the preview. Writes land in chunks of IMPORT_CHUNK_SIZE rows,
+// each chunk one write transaction holding the student rows, their outbox
+// rows, and their audit rows together (Rule 7, same shape as
+// createStudent/deleteTenantDataAction above).
+//
+// Typed refusals (nothing is written for any of these): financial headers
+// (Rule 6 — an import never touches money or the ledger, so a money-shaped
+// file is refused, not coerced), header mismatch, row cap. Exact duplicates
+// (same name and phone, in-file or already in the roster) are skipped and
+// counted, never merged (BR-STU-02).
+// ---------------------------------------------------------------------------
+
+/** Transport guard only; the product row cap is the typed TOO_MANY_ROWS below. */
+const ImportStudentsPayloadSchema = z.object({
+  headers: z.array(z.string().max(120)).min(1).max(20),
+  rows: z.array(z.array(z.string().max(4096)).max(20)).max(10000),
+});
+
+export interface ImportStudentsSummary {
+  created: number;
+  skipped: number;
+  invalid: ImportRowError[];
+  batchesCreated: number;
+}
+
+export type ImportStudentsResult =
+  | { success: true; data: ImportStudentsSummary }
+  | { success: false; error: string; code: string };
+
+/**
+ * BR-STU-04: blank codes auto-generate. Same collision-free recipe as the
+ * single-create path in students.ts (4 random bytes as hex, S- prefix, no
+ * DB roundtrip, so two devices never hand out the same code).
+ */
+function generateImportStudentCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return `S-${Array.from(bytes, (byte) => byte.toString(16).toUpperCase().padStart(2, "0")).join("")}`;
+}
+
+function proxyText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export async function importStudentsAction(input: unknown): Promise<ImportStudentsResult> {
+  try {
+    const parsed = ImportStudentsPayloadSchema.safeParse(input);
+    if (!parsed.success) {
+      log.warn("import_students_invalid_payload", "Bulk import payload failed Zod parse");
+      return {
+        success: false,
+        error: "Invalid import payload. Re-upload the CSV file.",
+        code: "VALIDATION",
+      };
+    }
+    const checked = validateImportRows(parsed.data.headers, parsed.data.rows);
+    if (!checked.ok) {
+      log.warn("import_students_refused", checked.issue.message, { code: checked.issue.code });
+      return { success: false, error: checked.issue.message, code: checked.issue.code };
+    }
+
+    const { unique, duplicates } = partitionDuplicates(checked.valid);
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Exact-duplicate screen (BR-STU-02): one roster read, in-memory keys, so
+    // the check stays one query no matter how many rows arrive.
+    const existing = await db.student.findMany({ where: { tenantId } });
+    const seen = new Set(
+      existing.map((entry: { firstName?: unknown; lastName?: unknown; phone?: unknown }) =>
+        studentDupKey(
+          proxyText(entry.firstName) ?? "",
+          proxyText(entry.lastName),
+          proxyText(entry.phone),
+        ),
+      ),
+    );
+    const fresh: ValidImportRow[] = [];
+    let skipped = duplicates.length;
+    for (const item of unique) {
+      const key = studentDupKey(item.data.first_name, item.data.last_name, item.data.phone);
+      if (seen.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      seen.add(key);
+      fresh.push(item);
+    }
+
+    // Batch names resolve before any student write: known batches link by id,
+    // missing batches are created once (subject General, same fallback as the
+    // single-create path) with their own outbox and audit rows.
+    const batchNames = [
+      ...new Set(
+        fresh
+          .map((item) => item.data.batch)
+          .filter((name): name is string => typeof name === "string"),
+      ),
+    ];
+    const batchIdByName = new Map<string, string>();
+    let batchesCreated = 0;
+    if (batchNames.length > 0) {
+      const batchRows: Array<{ id?: unknown; name?: unknown }> = await db.batch.findMany({
+        where: { tenantId },
+      });
+      for (const entry of batchRows) {
+        const id = proxyText(entry.id);
+        const name = proxyText(entry.name);
+        if (id !== null && name !== null) batchIdByName.set(name, id);
+      }
+      const missing = batchNames.filter((name) => !batchIdByName.has(name));
+      if (missing.length > 0) {
+        await db.$transaction(async (tx) => {
+          for (const name of missing) {
+            const id = crypto.randomUUID();
+            const stamped = new Date().toISOString();
+            await tx.batch.create({
+              data: {
+                id,
+                tenantId,
+                tutorId: null,
+                name,
+                subject: "General",
+                createdAt: stamped,
+                updatedAt: stamped,
+              },
+            });
+            await tx.syncOutbox.create({
+              data: {
+                id: crypto.randomUUID(),
+                tenantId,
+                tableName: "batches",
+                rowId: id,
+                op: "insert",
+                payload: JSON.stringify({ name, source: "import" }),
+                createdAt: stamped,
+              },
+            });
+            await tx.auditLog.create({
+              data: {
+                id: crypto.randomUUID(),
+                tenantId,
+                actor: tenantId,
+                action: "batch.create",
+                refType: "batch",
+                refId: id,
+                metadata: JSON.stringify({ source: "import", name }),
+                createdAt: stamped,
+              },
+            });
+            batchIdByName.set(name, id);
+          }
+        });
+        batchesCreated = missing.length;
+      }
+    }
+
+    // Chunked writes: each chunk commits its students plus their outbox and
+    // audit rows together. A chunk failure rolls back that chunk only; prior
+    // chunks stay committed and the counts report exactly what landed.
+    // Students carry no money (base and balance start at 0 paise, Rule 6).
+    let created = 0;
+    for (let start = 0; start < fresh.length; start += IMPORT_CHUNK_SIZE) {
+      const slice = fresh.slice(start, start + IMPORT_CHUNK_SIZE);
+      await db.$transaction(async (tx) => {
+        for (const item of slice) {
+          const rowData = item.data;
+          const id = crypto.randomUUID();
+          const code = generateImportStudentCode();
+          const stamped = new Date().toISOString();
+          const batchId =
+            rowData.batch === undefined ? undefined : batchIdByName.get(rowData.batch);
+          await tx.student.create({
+            data: {
+              id,
+              tenantId,
+              code,
+              firstName: rowData.first_name,
+              lastName: rowData.last_name ?? null,
+              dob: rowData.dob_yyyy_mm_dd ?? null,
+              gender: rowData.gender ?? null,
+              phone: rowData.phone ?? null,
+              admissionDate: today,
+              status: rowData.status,
+              feeModel: "postpaid",
+              baseFeePaise: 0,
+              balancePaise: 0,
+              dupKey: studentDupKey(rowData.first_name, rowData.last_name, rowData.phone),
+              createdAt: stamped,
+              updatedAt: stamped,
+            },
+          });
+          await tx.syncOutbox.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              tableName: "students",
+              rowId: id,
+              op: "insert",
+              payload: JSON.stringify({ id, code, first_name: rowData.first_name, source: "import" }),
+              createdAt: stamped,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              actor: tenantId,
+              action: "student.create",
+              refType: "student",
+              refId: id,
+              metadata: JSON.stringify({ source: "import", code }),
+              createdAt: stamped,
+            },
+          });
+          if (batchId !== undefined) {
+            const enrollmentId = crypto.randomUUID();
+            await tx.studentEnrollment.create({
+              data: {
+                id: enrollmentId,
+                tenantId,
+                studentId: id,
+                batchId,
+                joinedOn: today,
+                createdAt: stamped,
+                updatedAt: stamped,
+              },
+            });
+            await tx.syncOutbox.create({
+              data: {
+                id: crypto.randomUUID(),
+                tenantId,
+                tableName: "student_enrollments",
+                rowId: enrollmentId,
+                op: "insert",
+                payload: JSON.stringify({ student_id: id, batch_id: batchId, source: "import" }),
+                createdAt: stamped,
+              },
+            });
+          }
+        }
+      });
+      created += slice.length;
+    }
+
+    // Summary audit row (09 §15.4 action import_students). The import already
+    // committed, so this row is diagnostics: a failure is logged loudly
+    // (Rule 9) without rewriting the counts already returned below.
+    try {
+      await db.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "import_students",
+          refType: "tenant",
+          refId: tenantId,
+          metadata: JSON.stringify({
+            created,
+            skipped,
+            invalid: checked.invalid.length,
+            batches_created: batchesCreated,
+            source: "settings_bulk_import",
+          }),
+          createdAt: new Date().toISOString(),
+        },
+      });
+    } catch (auditError) {
+      log.error(
+        "import_students_summary_audit_failed",
+        auditError instanceof Error ? auditError.message : String(auditError),
+      );
+    }
+
+    if (batchesCreated > 0) invalidateTenant(tenantId, "attendance:");
+    revalidatePath("/students");
+    revalidatePath("/dashboard");
+    return {
+      success: true,
+      data: { created, skipped, invalid: checked.invalid, batchesCreated },
+    };
+  } catch (error) {
+    log.error(
+      "import_students_action_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+    return { success: false, error: "Failed to import students", code: "IMPORT_FAILED" };
   }
 }

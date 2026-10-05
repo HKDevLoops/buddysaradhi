@@ -2,14 +2,315 @@
 
 import React, { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload, Download, FileJson, AlertCircle, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Upload,
+  Download,
+  FileJson,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  FileSpreadsheet,
+  ListChecks,
+  ReceiptText,
+  Users,
+  CalendarDays,
+  FileUp,
+} from "lucide-react";
 import { log } from "@/lib/logger";
+import {
+  MAX_IMPORT_BYTES,
+  STUDENT_TEMPLATE_FILENAME,
+  buildCsv,
+  buildStudentsTemplate,
+  downloadCsv,
+  exportFilename,
+  parseCsv,
+  partitionDuplicates,
+  splitImportGrid,
+  validateImportRows,
+  type ImportFileIssue,
+  type ImportRowError,
+  type ValidImportRow,
+} from "@/lib/csv-parse";
+import { importStudentsAction } from "@/server/actions/settings";
+import { fetchStudentsAction } from "@/server/actions/students";
+import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
+import { formatINR, type StudentListRow } from "@buddysaradhi/shared";
+import type { StudentFilters } from "@/types/students";
+
+// Implements: 09_Backup_and_Import_Export.md §6.4 Pipeline D (preview before
+// any write) + §10.4 (template) + §14 (validation) + §15.4 (no PIN for the
+// template); 13_UI_Guidelines.md §8.4 (preview table), §8.5 (segmented
+// control), §8.7 (cards), §10 (44px targets, live regions, focus rings).
+
+type ExportEntity = "students" | "attendance" | "fees";
+type BulkPhase = "idle" | "preview" | "confirming" | "done";
+
+interface BulkPreview {
+  headers: string[];
+  rows: string[][];
+  valid: ValidImportRow[];
+  duplicateCount: number;
+  invalid: ImportRowError[];
+  fileIssue: ImportFileIssue | null;
+}
+
+interface BulkResult {
+  created: number;
+  skipped: number;
+  invalid: ImportRowError[];
+  batchesCreated: number;
+}
+
+const EXPORT_ENTITIES: Array<{ id: ExportEntity; label: string }> = [
+  { id: "students", label: "Students" },
+  { id: "attendance", label: "Attendance" },
+  { id: "fees", label: "Fees statements" },
+];
+
+const ALL_STATUSES: StudentFilters["status"] = ["active", "inactive", "graduated", "archived"];
+const ALL_FEE_MODELS: StudentFilters["feeModels"] = ["postpaid", "prepaid", "mixed"];
+
+function formatFileSize(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function ImportExportSection() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+
+  // Records export (entity choice) + bulk import preview flow.
+  const [exportEntity, setExportEntity] = useState<ExportEntity>("students");
+  const [exportStatus, setExportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [exportMessage, setExportMessage] = useState("");
+  const bulkInputRef = useRef<HTMLInputElement>(null);
+  const [bulkPhase, setBulkPhase] = useState<BulkPhase>("idle");
+  const [bulkError, setBulkError] = useState("");
+  const [preview, setPreview] = useState<BulkPreview | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkResult | null>(null);
+
+  /** Full roster via the existing students action (paginated, honest total). */
+  const collectRoster = async (): Promise<StudentListRow[]> => {
+    const filters: StudentFilters = {
+      status: ALL_STATUSES,
+      batchIds: [],
+      feeModels: ALL_FEE_MODELS,
+      tagIds: [],
+      balanceRange: "all",
+      admittedInLast: "all",
+    };
+    const pageSize = 200;
+    const collected: StudentListRow[] = [];
+    for (let page = 1; ; page += 1) {
+      const res = await fetchStudentsAction(filters, "", page, pageSize, { col: "name", dir: "asc" });
+      if (!res.success || !res.data) {
+        throw new Error(res.error ?? "Could not load your students.");
+      }
+      collected.push(...res.data.students);
+      if (collected.length >= res.data.total || res.data.students.length < pageSize) break;
+    }
+    return collected;
+  };
+
+  const handleExportRecords = async () => {
+    setExportStatus("loading");
+    setExportMessage("");
+    try {
+      if (exportEntity === "students") {
+        const roster = await collectRoster();
+        if (roster.length === 0) {
+          setExportStatus("error");
+          setExportMessage("No students to export yet. Add your first student on the Students screen.");
+          return;
+        }
+        downloadCsv(
+          exportFilename("students"),
+          buildCsv(
+            ["code", "name", "grade", "batch", "fee_model", "status"],
+            roster.map((student) => [
+              student.code,
+              student.name,
+              student.grade,
+              student.batch,
+              student.fee_model,
+              student.status,
+            ]),
+          ),
+        );
+        setExportStatus("success");
+        setExportMessage(`Saved ${roster.length} students.`);
+      } else if (exportEntity === "attendance") {
+        const res = await fetchAttendanceSummaryAction("current_month");
+        if (!res.ok || !res.value) {
+          throw new Error("Could not load attendance.");
+        }
+        const summaries = res.value.summaries;
+        if (summaries.length === 0) {
+          setExportStatus("error");
+          setExportMessage("No attendance marked this month, so there is nothing to export.");
+          return;
+        }
+        downloadCsv(
+          exportFilename("attendance"),
+          buildCsv(
+            ["student_id", "student_name", "present", "absent", "late", "excused", "total_sessions", "percentage"],
+            summaries.map((entry) => [
+              entry.student_id,
+              entry.student_name,
+              entry.present,
+              entry.absent,
+              entry.late,
+              entry.excused,
+              entry.total_sessions,
+              entry.percentage,
+            ]),
+          ),
+        );
+        setExportStatus("success");
+        setExportMessage(`Saved ${summaries.length} attendance rows.`);
+      } else {
+        // Fees export is a read-only snapshot (Rule 1: ledger rows never
+        // leave the app as editable data, and this flow never reads them).
+        const roster = await collectRoster();
+        if (roster.length === 0) {
+          setExportStatus("error");
+          setExportMessage("No students to export yet. Add your first student on the Students screen.");
+          return;
+        }
+        downloadCsv(
+          exportFilename("fees_statements"),
+          buildCsv(
+            ["code", "name", "balance_due_paise", "balance_due_inr_read_only"],
+            roster.map((student) => [
+              student.code,
+              student.name,
+              student.balance_due,
+              formatINR(student.balance_due),
+            ]),
+          ),
+        );
+        setExportStatus("success");
+        setExportMessage(`Saved ${roster.length} read-only statements.`);
+      }
+    } catch (error) {
+      log.error(
+        "settings_records_export_failed",
+        error instanceof Error ? error.message : String(error),
+      );
+      setExportStatus("error");
+      setExportMessage("Export failed. Check your connection and try again.");
+    }
+  };
+
+  const resetBulkInput = () => {
+    if (bulkInputRef.current) bulkInputRef.current.value = "";
+  };
+
+  const resetBulkFlow = () => {
+    setBulkPhase("idle");
+    setBulkError("");
+    setPreview(null);
+    setBulkResult(null);
+    resetBulkInput();
+  };
+
+  const handleTemplateDownload = () => {
+    try {
+      downloadCsv(STUDENT_TEMPLATE_FILENAME, buildStudentsTemplate());
+    } catch {
+      log.error("settings_template_download_failed", "Failed to build the students template");
+      setBulkError("Could not build the template. Try again.");
+    }
+  };
+
+  const handleBulkFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkResult(null);
+    setPreview(null);
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setBulkError("That is not a CSV file. Choose a file ending in .csv.");
+      resetBulkInput();
+      return;
+    }
+    if (file.size > MAX_IMPORT_BYTES) {
+      setBulkError(
+        `This file is ${formatFileSize(file.size)}. Choose a CSV under 2 MB (about 2,000 rows).`,
+      );
+      resetBulkInput();
+      return;
+    }
+    try {
+      const text = await file.text();
+      const { headers, rows } = splitImportGrid(parseCsv(text));
+      const checked = validateImportRows(headers, rows);
+      if (!checked.ok) {
+        setPreview({ headers, rows, valid: [], duplicateCount: 0, invalid: [], fileIssue: checked.issue });
+      } else {
+        const { unique, duplicates } = partitionDuplicates(checked.valid);
+        setPreview({
+          headers,
+          rows,
+          valid: unique,
+          duplicateCount: duplicates.length,
+          invalid: checked.invalid,
+          fileIssue: null,
+        });
+      }
+      setBulkError("");
+      setBulkPhase("preview");
+    } catch {
+      log.error("settings_bulk_parse_failed", "Failed to read the uploaded CSV file");
+      setBulkError("Could not read this file. Re-save it as CSV and try again.");
+    } finally {
+      resetBulkInput();
+    }
+  };
+
+  const handleBulkConfirm = async () => {
+    if (!preview || preview.fileIssue) return;
+    setBulkPhase("confirming");
+    setBulkError("");
+    try {
+      const result = await importStudentsAction({ headers: preview.headers, rows: preview.rows });
+      if (!result.success) {
+        setBulkError(result.error);
+        setBulkPhase("preview");
+        return;
+      }
+      setBulkResult(result.data);
+      setBulkPhase("done");
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+    } catch {
+      log.error("settings_bulk_import_failed", "Bulk import request failed");
+      setBulkError("Import failed. Check your connection and try again.");
+      setBulkPhase("preview");
+    }
+  };
+
+  /** Error report: original rows plus one errors column, grouped by row. */
+  const handleInvalidDownload = () => {
+    const invalid = bulkResult?.invalid ?? preview?.invalid ?? [];
+    if (invalid.length === 0 || !preview) return;
+    const headers = preview.headers;
+    const byRow = new Map<number, string[]>();
+    for (const error of invalid) {
+      const list = byRow.get(error.row) ?? [];
+      list.push(`${error.column}: ${error.reason}`);
+      byRow.set(error.row, list);
+    }
+    const body = buildCsv(
+      [...headers, "errors"],
+      [...byRow.entries()].map(([rowNumber, reasons]) => [
+        ...(preview.rows[rowNumber - 2] ?? headers.map(() => "")),
+        reasons.join(" | "),
+      ]),
+    );
+    downloadCsv(exportFilename("import_errors"), body);
+  };
 
   const handleExportJSON = () => {
     try {
@@ -118,6 +419,83 @@ export function ImportExportSection() {
             </div>
           </button>
         </div>
+
+        <div className="glass-card mt-4 p-5 rounded-xl border border-[var(--border-default)]">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg bg-[var(--info)]/10 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-5 h-5 text-[var(--info)]" aria-hidden="true" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[var(--text-primary)]">Export records</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+                Download your students, this month attendance, or read-only fee statements as CSV.
+                Fee statements are snapshots for your records. The ledger never leaves as editable rows.
+              </p>
+              <div
+                role="radiogroup"
+                aria-label="Choose what to export"
+                className="neumo-inset flex flex-wrap gap-1 mt-4 rounded-xl p-1"
+              >
+                {EXPORT_ENTITIES.map((entity) => {
+                  const active = exportEntity === entity.id;
+                  const Icon = entity.id === "students" ? Users : entity.id === "attendance" ? CalendarDays : ReceiptText;
+                  return (
+                    <button
+                      key={entity.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setExportEntity(entity.id);
+                        setExportStatus("idle");
+                        setExportMessage("");
+                      }}
+                      className={
+                        active
+                          ? "neumo-raised min-h-[44px] px-4 rounded-lg text-sm font-semibold text-[var(--text-primary)] cursor-pointer flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
+                          : "min-h-[44px] px-4 rounded-lg text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer flex items-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
+                      }
+                    >
+                      <Icon className="w-4 h-4" aria-hidden="true" />
+                      {entity.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={handleExportRecords}
+                  disabled={exportStatus === "loading"}
+                  className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
+                >
+                  {exportStatus === "loading" ? (
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Download className="w-4 h-4" aria-hidden="true" />
+                  )}
+                  {exportEntity === "students"
+                    ? "Download students CSV"
+                    : exportEntity === "attendance"
+                      ? "Download attendance CSV"
+                      : "Download fee statements CSV"}
+                </button>
+                <div aria-live="polite">
+                  {exportStatus === "success" && (
+                    <p className="text-[var(--success)] text-xs font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> {exportMessage}
+                    </p>
+                  )}
+                  {exportStatus === "error" && (
+                    <p className="text-[var(--danger)] text-xs font-semibold flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4" aria-hidden="true" /> {exportMessage}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="h-px bg-[var(--border-default)] w-full" />
@@ -166,6 +544,214 @@ export function ImportExportSection() {
                   <p className="text-[var(--danger)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
                     <XCircle className="w-4 h-4" /> {errorMessage}
                   </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="h-px bg-[var(--border-default)] w-full" />
+
+      <div>
+        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
+          <FileUp className="w-5 h-5 text-[var(--text-secondary)]" aria-hidden="true" />
+          Bulk import
+        </h3>
+
+        <div className="glass-card p-6 rounded-xl border border-[var(--border-default)]">
+          <div className="flex gap-4">
+            <Users className="w-5 h-5 text-[var(--success)] shrink-0" aria-hidden="true" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Bulk import students</p>
+              <p className="text-sm text-[var(--text-muted)] mb-3 leading-relaxed">
+                Add many students at once from a CSV file. Download the template, fill it in Excel
+                or Google Sheets, then upload it here for a row-by-row check before anything is saved.
+                Imports never touch money or the ledger.
+              </p>
+              <ol className="text-xs text-[var(--text-muted)] mb-4 space-y-1 list-decimal list-inside">
+                <li>Download the template and keep its seven headers.</li>
+                <li>Upload the CSV here and review every row below.</li>
+                <li>Confirm, and your students are added. Matching names and phones are skipped, never merged.</li>
+              </ol>
+
+              <input
+                type="file"
+                ref={bulkInputRef}
+                onChange={handleBulkFile}
+                accept=".csv"
+                aria-label="Choose a students CSV file to import"
+                className="hidden"
+              />
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleTemplateDownload}
+                  className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
+                >
+                  <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
+                  Download students-template.csv
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bulkInputRef.current?.click()}
+                  className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--info)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
+                >
+                  <Upload className="w-4 h-4" aria-hidden="true" />
+                  Choose CSV file
+                </button>
+              </div>
+              <p className="text-xs text-[var(--text-muted)] mt-2">CSV only, under 2 MB, up to 2,000 rows.</p>
+
+              <div aria-live="polite">
+                {bulkError && (
+                  <p className="text-[var(--danger)] text-xs font-semibold flex items-start gap-1.5 mt-4">
+                    <XCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{bulkError}</span>
+                  </p>
+                )}
+
+                {preview?.fileIssue && (
+                  <div className="mt-4 rounded-xl border border-[color-mix(in srgb,var(--danger)_35%,transparent)] p-4">
+                    <p className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-[var(--danger)]" aria-hidden="true" />
+                      This file was refused, nothing was imported.
+                    </p>
+                    <p className="text-xs text-[var(--text-secondary)] mt-1">{preview.fileIssue.message}</p>
+                    {preview.fileIssue.detail && preview.fileIssue.detail.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {preview.fileIssue.detail.map((line) => (
+                          <li key={line} className="text-xs text-[var(--text-muted)]">
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {preview && !preview.fileIssue && bulkPhase !== "done" && (
+                  <div className="mt-4 space-y-4">
+                    <p className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <ListChecks className="w-4 h-4 text-[var(--success)]" aria-hidden="true" />
+                      {preview.valid.length} ready
+                      {preview.duplicateCount > 0 && ` · ${preview.duplicateCount} duplicates skipped`}
+                      {preview.invalid.length > 0 && ` · ${preview.invalid.length} need fixes`}
+                    </p>
+
+                    {preview.valid.length > 0 && (
+                      <div className="overflow-x-auto rounded-xl border border-[var(--border-default)]">
+                        <table className="w-full text-xs">
+                          <caption className="sr-only">First 10 valid rows of your upload</caption>
+                          <thead>
+                            <tr className="text-left text-[var(--text-muted)]">
+                              {["First name", "Last name", "Phone", "Batch", "Status"].map((head) => (
+                                <th key={head} scope="col" className="px-3 py-2 font-semibold">
+                                  {head}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.valid.slice(0, 10).map((row) => (
+                              <tr
+                                key={row.index}
+                                className="odd:bg-[var(--surface-inset)] border-t border-[var(--border-default)]"
+                              >
+                                <td className="px-3 py-2 text-[var(--text-primary)]">{row.data.first_name}</td>
+                                <td className="px-3 py-2 text-[var(--text-secondary)]">{row.data.last_name ?? ""}</td>
+                                <td className="px-3 py-2 text-[var(--text-secondary)]">{row.data.phone ?? ""}</td>
+                                <td className="px-3 py-2 text-[var(--text-secondary)]">{row.data.batch ?? ""}</td>
+                                <td className="px-3 py-2 text-[var(--text-secondary)]">{row.data.status}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {preview.valid.length > 10 && (
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Showing 10 of {preview.valid.length} ready rows.
+                      </p>
+                    )}
+
+                    {preview.invalid.length > 0 && (
+                      <div className="rounded-xl border border-[color-mix(in srgb,var(--danger)_35%,transparent)] p-4 max-h-56 overflow-y-auto">
+                        <p className="text-xs font-semibold text-[var(--text-primary)]">
+                          {preview.invalid.length} rows need fixes. Fix the file and upload it again,
+                          or import the ready rows now.
+                        </p>
+                        <ul className="mt-2 space-y-1.5">
+                          {preview.invalid.map((error, position) => (
+                            <li
+                              key={`${error.row}-${error.column}-${position}`}
+                              className="text-xs text-[var(--text-secondary)] flex items-start gap-1.5"
+                            >
+                              <XCircle className="w-4 h-4 shrink-0 text-[var(--danger)]" aria-hidden="true" />
+                              <span>
+                                Row {error.row}, {error.column}: {error.reason}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleBulkConfirm}
+                        disabled={bulkPhase === "confirming" || preview.valid.length === 0}
+                        className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
+                      >
+                        {bulkPhase === "confirming" && (
+                          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                        )}
+                        Import {preview.valid.length} students
+                      </button>
+                      {preview.valid.length === 0 && (
+                        <p className="text-xs text-[var(--text-muted)]">Nothing ready to import yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {bulkPhase === "done" && bulkResult && (
+                  <div className="mt-4 rounded-xl border border-[color-mix(in srgb,var(--success)_35%,transparent)] p-4">
+                    <p className="text-xs font-semibold text-[var(--success)] flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
+                      Imported {bulkResult.created} students
+                      {bulkResult.skipped > 0 && `, skipped ${bulkResult.skipped} duplicates`}
+                      {bulkResult.batchesCreated > 0 &&
+                        `, created ${bulkResult.batchesCreated} new ${bulkResult.batchesCreated === 1 ? "batch" : "batches"}`}
+                      .
+                    </p>
+                    {bulkResult.invalid.length > 0 && (
+                      <p className="text-xs text-[var(--text-secondary)] mt-1">
+                        {bulkResult.invalid.length} rows had errors and were left out.
+                      </p>
+                    )}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mt-3">
+                      {bulkResult.invalid.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleInvalidDownload}
+                          className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--warning)] cursor-pointer flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--warning)]"
+                        >
+                          <Download className="w-4 h-4" aria-hidden="true" />
+                          Download error report
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={resetBulkFlow}
+                        className="min-h-[44px] px-4 rounded-xl text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--info)]"
+                      >
+                        Import another file
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
