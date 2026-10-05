@@ -2234,3 +2234,25 @@ verified by CI on this commit.
 - Verification: web prod Ready + live 200s; 3/3 edge functions ACTIVE; gateway logic 522/522 (perf-flake file green in isolation; flakes pre-date this work); principle-lints 7/7; deno lint/check clean; pnpm frozen green.
 - Resume point: (1) owner pastes gateway edge boot log → fix; (2) owner adds Login Connection + relinks product-page project + sets build config → auto-deploys on next push; (3) owner disables Deployment Protection on web prod (or confirms intentional); (4) owner mints fresh Blob token + adds GH secrets → gate goes green; (5) RFC-005..008 picks + P16 + review queue + real-GPU pass (unchanged human items).
 - Blocker: owner dashboard/secrets/log actions listed above (nothing else outstanding).
+---
+
+**Task ID**: `GATEWAY-OUTAGE-01` **Agent**: build (Muse Spark) **Task**: Fix production "Couldn't reach the database" on all 5 screens (user screenshots) — trace to root cause and restore data.
+
+**Work Log**:
+
+- Vercel prod env is complete (Turso + Supabase + gateway URL/secret all present) — not an env absence. Vercel runtime logs gave the chain: every screen's BFF call fails with `gateway_get_failed: Gateway 500 WORKER_ERROR` (settings/students/analytics/ledger/attendance). Web side behaves correctly (typed errors, no-fallback where designed); the single fault is the edge worker boot-crashing on every path incl. unknown routes (reproduced via direct curl).
+- Edge log (user-pasted): `CRITICAL: GATEWAY_SHARED_SECRET is not set (minimum 32)` thrown from `lib/crypto.ts:32` `assertSecretStrength` at import (line 40/55). Design is correct fail-closed (local dev warns-and-continues, which is why local runs never showed it). Pure ops gap: no edge secret was ever set (CI deploy steps always skip — no `SUPABASE_ACCESS_TOKEN` in GH).
+- Rotation (old prod value was 13 chars — below the 32 minimum, so copy-over was impossible): minted fresh 64-hex (node crypto, validated length/charset), set on Supabase edge via `supabase secrets set`, verified by digest (`secrets list` digest == local sha256; caught a first attempt that stored a wrong value — re-set + re-verified). Same value rotated into Vercel production (`env rm` + `env add --value --sensitive`) and local `.env.local`. `DATA_ENCRYPTION_KEY` absent everywhere → both sides use the documented HMAC fallback consistently; no separate key introduced.
+- Also caught while in there: `vercel env pull` never returns `secret`-type values (returns a placeholder) — earlier "13 chars" readings were the placeholder, not the value. Behavioral verification only for secrets.
+- Redeployed gateway post-secret. Live now: `/settings/health` → 401 typed `AUTH_REQUIRED` (was 500 on all paths); standalone `gateway-graphql` → 401 `unauthenticated` (was 500). Boot crash resolved on both.
+- Cleanup per user order: deleted redundant `supabase/functions/gateway` mirror (89 tracked files, superseded by `@apps/gateway`; commit `2433137`, pushed). Verified zero references (only CI temp-staging paths share the name). `apps/services/*` scaffolds left in place: zero imports and zero workflow refs confirmed, but they are the 18_Microservice v1.x surface — deleting them is a spec decision for the owner, flagged not executed.
+- Secret hygiene: all temp material holding values destroyed (edge-secrets.env, hexval, prod pulls, helper scripts, staging dirs). Values never printed, never committed. Old 13-char value retired everywhere writable.
+- NOT done (needs live tenant session): full read path with real x-tutor-id/x-db-url/x-db-token (only the owner's logged-in browser holds them).
+
+**Stage Summary**:
+
+- State: COMPLETED (pending user reload confirmation).
+- Files touched: none in repo this round except prior pushed commits (secret rotation is dashboard/CLI state, not code). No §2 violation; no §8 trigger (no code change).
+- Verification: edge boots (401s not 500s) on gateway + graphql; digests match; provision-db deployed (unchanged code path). Awaiting: user reloads app → screens populate → Vercel logs show gateway 2xx.
+- Resume point: if any screen still errors after reload, paste the fresh Vercel log line (timestamp + `gateway_get_failed` detail) — that names the next layer (tenant creds vs route bug).
+- Blocker: none on my side; user reload is the verification step.
