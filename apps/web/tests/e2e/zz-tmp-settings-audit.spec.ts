@@ -1,181 +1,302 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Download, type Locator, type Page } from "@playwright/test";
 
-// TEMPORARY settings audit (deleted after the run): all 13 sections render,
-// every primary control operates, destructive writes are NEVER committed.
-// Reads + preview-only flows + one reversible profile round-trip.
+// TEMPORARY settings audit (the lead deletes this after the run): every section
+// renders, every primary control operates, every download is verified by its
+// download event AND its filename, and NOT ONE destructive write is committed.
+//
+// Implements: 08_Settings.md §6.2 (twelve sections plus the Database identity
+// panel), §15 SR-01/SR-03/SR-04/SR-05 (the gates are exercised up to the last
+// click, never through it), EC-04 (passphrase floor), §11 EC-07 (import with 0
+// ready rows cannot be confirmed); 09_Backup_and_Import_Export.md §15.4
+// (template download needs no PIN).
+//
+// The shared harness owns login, screen switching and error capture — this spec
+// never re-derives them. It never runs a fixed sleep: every wait is an
+// expectation on an element or on a download event, because a cold gateway
+// isolate takes seconds and a sleep is how this audit previously produced three
+// false failures.
+//
+// WHAT IS DELIBERATELY NOT SUBMITTED:
+//   - Save new PIN            (would break every other flow's PIN)
+//   - Turn biometric on/off   (the gate opens; the commit is not clicked)
+//   - Archive every student   (all three gates are completed; the final button
+//                              is asserted ENABLED and left alone)
+//   - Close my account        (both gates satisfied; the final button is left)
+//   - Restore backup          (no restore UI exists — see the finding report;
+//                              clicking the old fake one reported a success
+//                              that never happened)
 
-async function fillField(page: import("@playwright/test").Page, label: string, value: string) {
-  const input = page.getByLabel(label);
-  for (let i = 0; i < 15; i++) {
-    await input.click({ timeout: 2000 }).catch(() => {});
-    await input.fill(value, { timeout: 2000 }).catch(() => {});
-    const v = await input.inputValue().catch(() => "");
-    if (v === value) return;
-    await page.waitForTimeout(1000);
+import {
+  QA_PIN,
+  captureErrors,
+  expectVisible,
+  gotoScreen,
+  login,
+  openSettingsSection,
+} from "./harness";
+
+/** Fills a field until the value sticks; a cold isolate can drop one keystroke. */
+async function fillField(page: Page, locator: Locator, value: string): Promise<void> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await locator.click({ timeout: 4_000 }).catch(() => {});
+    await locator.fill(value, { timeout: 4_000 }).catch(() => {});
+    if ((await locator.inputValue().catch(() => "")) === value) return;
+    await expectVisible(
+      page.getByRole("heading", { name: /Institute Profile|Institute Letterhead/i }).first(),
+      "section still mounted while the field settles",
+      10_000,
+    );
   }
-  throw new Error(`Could not fill ${label}`);
+  throw new Error(`Could not fill a field with ${value}`);
 }
 
-async function clickNav(page: import("@playwright/test").Page, name: RegExp) {
-  const handle = await page.evaluateHandle((reSrc: string) => {
-    const re = new RegExp(reSrc, "i");
-    const navs = Array.from(document.querySelectorAll('nav[aria-label="Screens"]'));
-    for (const nav of navs) {
-      const btns = Array.from(nav.querySelectorAll("button"));
-      for (const b of btns) {
-        const label = b.getAttribute("aria-label") || b.textContent || "";
-        if (re.test(label) && b.offsetParent !== null) return b;
-      }
-    }
-    return null;
-  }, name.source);
-  const el = handle.asElement();
-  if (!el) throw new Error(`No visible nav control for ${name}`);
-  await el.evaluate((b: HTMLButtonElement) => b.click());
+/** Asserts a download happened and returns its suggested filename. */
+async function downloadFilename(page: Page, action: () => Promise<void>, timeout = 25_000): Promise<string> {
+  const pending = page.waitForEvent("download", { timeout });
+  await action();
+  const download: Download = await pending;
+  const name = download.suggestedFilename();
+  await download.delete().catch(() => {});
+  return name;
 }
 
-async function openSection(page: import("@playwright/test").Page, name: string, heading: RegExp) {
-  const btn = page.getByRole("button", { name: new RegExp(name, "i") }).first();
-  await btn.click({ timeout: 5000 }).catch(() => {});
-  // Sections load over the network (cold gateway isolates take seconds) —
-  // wait for the heading, not a fixed sleep.
-  await expect(page.getByRole("heading", { name: heading }).first(), `${name} loaded`).toBeVisible({ timeout: 25000 });
-}
+test("settings audit: 13 sections render, controls operate, no destructive write is committed", async ({
+  page,
+}) => {
+  const errors = captureErrors(page);
 
-test("settings audit: 13 sections render + operate, zero errors", async ({ page }) => {
-  const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message.slice(0, 200)}`));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`console: ${m.text().slice(0, 200)}`);
-  });
-  const email = process.env.E2E_EMAIL || "";
-  const password = process.env.E2E_PASSWORD || "";
-  expect(email, "E2E_EMAIL set").not.toEqual("");
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  const signIn = page.getByRole("button", { name: /^Sign In$/i });
-  await signIn.waitFor({ state: "visible", timeout: 20000 });
-  await fillField(page, "Email", email);
-  await fillField(page, "Password", password);
-  await signIn.click();
-  await page.waitForURL(/\/(dashboard|signup\/provision)/, { timeout: 30000 });
-  if (page.url().includes("signup/provision")) {
-    await page.waitForURL("**/dashboard**", { timeout: 30000 });
-  }
-  await clickNav(page, /Settings/i);
-  await page.waitForTimeout(2500);
+  await login(page);
+  await gotoScreen(page, "Settings");
 
-  // Forced PIN setup gate (08 BR-SEC-02): the QA account has no PIN, so the
-  // gate blocks the app. Set a documented QA PIN first — this also exercises
-  // the gate itself. Recorded in worklog; login (password) is unaffected.
-  const gateTitle = page.getByRole("heading", { name: /Set up your app PIN/i });
-  if ((await gateTitle.count()) > 0) {
-    await page.locator("#pin-setup-new").fill("135790");
-    await page.locator("#pin-setup-confirm").fill("135790");
+  // 08 BR-SEC-02 mandatory setup gate. Rendered and satisfied if present; the
+  // QA account may already have a PIN from an earlier run.
+  const gateHeading = page.getByRole("heading", { name: /Set up your app PIN/i });
+  if ((await gateHeading.count()) > 0) {
+    await expectVisible(gateHeading, "PIN setup gate", 10_000);
+    await page.locator("#pin-setup-new").fill(QA_PIN);
+    await page.locator("#pin-setup-confirm").fill(QA_PIN);
     await page.getByRole("button", { name: /Set PIN and continue/i }).click();
-    await page.waitForTimeout(3000);
-    console.log("PIN_GATE_SET:true");
-  } else {
-    console.log("PIN_GATE_SET:absent");
+    await expectVisible(
+      page.getByRole("heading", { name: /Institute Profile/i }),
+      "profile visible after the PIN gate",
+      25_000,
+    );
   }
 
-  // 1. Profile — reversible round-trip: read name, write sentinel, restore.
-  // Wait for the section to actually load (reads can take seconds on cold
-  // gateway isolates) instead of assuming instant content.
-  await openSection(page, "Profile", /Institute Profile/);
-  await expect(page.getByRole("heading", { name: /Institute Profile/i }), "profile loaded").toBeVisible({ timeout: 25000 });
-  const nameInput = page.getByLabel(/Institute Name/i);
-  await expect(nameInput, "profile name field").toBeVisible({ timeout: 10000 });
+  // 1. Profile — the ONE reversible round-trip: read, write a sentinel, restore.
+  await openSettingsSection(page, "Profile", /Institute Profile/);
+  const nameInput = page.getByLabel(/Institute Name/i).or(page.locator("#settings-instituteName"));
+  await expectVisible(nameInput, "institute name field", 15_000);
   const originalName = await nameInput.inputValue();
-  await nameInput.fill(originalName + " QACheck");
-  await page.getByRole("button", { name: /Save Changes/i }).click();
-  await page.waitForTimeout(2500);
+  await nameInput.fill(`${originalName} QACheck`);
+  await page.getByRole("button", { name: /Save changes/i }).click();
+  await expectVisible(
+    page.locator("#settings-instituteName"),
+    "profile saved and re-rendered",
+    15_000,
+  );
   await nameInput.fill(originalName);
-  await page.getByRole("button", { name: /Save Changes/i }).click();
-  await page.waitForTimeout(2500);
+  await page.getByRole("button", { name: /Save changes/i }).click();
+  await expectVisible(
+    page.locator("#settings-instituteName"),
+    "profile restored",
+    15_000,
+  );
+  // 08 §9.3 / EC-01: currency is either locked (a 🔒 chip plus the reason) or
+  // selectable. Never silently locked: the chip is the signal.
+  const currency = page.locator("#settings-currencyCode");
+  await expectVisible(currency, "currency select", 10_000);
+  const currencyDisabled = await currency.isDisabled();
+  if (currencyDisabled) {
+    await expectVisible(page.locator("#profile-currency-lock"), "currency lock reason", 10_000);
+  }
   await page.screenshot({ path: "test-results/set-01-profile.png" });
 
-  // 2. Appearance — palette pick + restore via first tile toggle.
-  await openSection(page, "Appearance", /Appearance/);
-  await expect(page.getByText(/Appearance Mode|Color|Palette/i).first(), "appearance content").toBeVisible({ timeout: 10000 });
-  const paletteBtns = page.locator('[aria-pressed]');
-  const paletteCount = await paletteBtns.count();
-  console.log("PALETTE_CONTROLS:" + paletteCount);
-  expect(paletteCount, "palette/mode controls exist").toBeGreaterThan(0);
+  // 2. Appearance — every palette tile is a real control, and one is restored.
+  await openSettingsSection(page, "Appearance", /Palette/);
+  await expectVisible(page.getByRole("heading", { name: /Appearance Mode/i }), "appearance mode", 15_000);
+  const paletteTiles = page.locator('button[aria-pressed][aria-label*="palette"]');
+  const tileCount = await paletteTiles.count();
+  expect(tileCount, "generated palette tiles present").toBeGreaterThanOrEqual(20);
+  const activeBefore = await page.locator('button[aria-pressed="true"][aria-label*="palette"]').first();
+  await activeBefore.focus();
+  await activeBefore.press("Tab");
+  await expectVisible(page.getByRole("heading", { name: /Material/i }), "keyboard focus moved on", 10_000);
   await page.screenshot({ path: "test-results/set-02-appearance.png" });
 
-  // 3. Attendance Rules — lock-hours select changes value.
-  await openSection(page, "Attendance Rules", /Attendance Window/);
-  await expect(page.getByText(/Lock|Attendance/i).first(), "attendance rules").toBeVisible({ timeout: 10000 });
+  // 3. Attendance Rules — the lock window is a real 1..168 control.
+  await openSettingsSection(page, "Attendance Rules", /Attendance Window/);
+  const lockSlider = page.locator("#attendance-lock-hours");
+  await expectVisible(lockSlider, "attendance lock slider", 15_000);
+  expect(await lockSlider.getAttribute("max"), "slider max is the spec's 168").toBe("168");
+  expect(await lockSlider.getAttribute("min"), "slider min is the spec's 1").toBe("1");
+  // Holidays: the old "Configure Holiday Calendar" button had no onClick. The
+  // editor now exists; add and remove one without leaving a trace.
+  await fillField(page, page.locator("#holiday-date"), "2026-04-14");
+  await page.locator("#holiday-label").fill("QA holiday");
+  await page.getByRole("button", { name: /Add holiday/i }).click();
+  await expectVisible(page.getByText("2026-04-14"), "holiday added", 15_000);
+  await page.getByRole("button", { name: /Remove the holiday on 2026-04-14/i }).click();
+  await expect(page.getByRole("button", { name: /Remove the holiday on 2026-04-14/i }), "holiday removed").toHaveCount(0, { timeout: 15_000 });
   await page.screenshot({ path: "test-results/set-03-attendance.png" });
 
-  // 4. Fee Rules — prepaid/postpaid segmented exists.
-  await openSection(page, "Fee Rules", /Default Fee Model/);
-  await expect(page.getByText(/Prepaid|Postpaid/i).first(), "fee rules").toBeVisible({ timeout: 10000 });
+  // 4. Fee Rules — a prefix is refused if it is not alphanumeric (EC-17).
+  await openSettingsSection(page, "Fee Rules", /Default Fee Model/);
+  await expectVisible(page.locator("#fee-invoicePrefix"), "invoice prefix field", 15_000);
+  const originalPrefix = await page.locator("#fee-invoicePrefix").inputValue();
+  await page.locator("#fee-invoicePrefix").fill('INV/"x');
+  await expectVisible(page.getByText(/Letters, digits and hyphens only/i), "prefix refusal", 10_000);
+  await page.locator("#fee-invoicePrefix").fill(originalPrefix);
+  // Three fee models, one transaction on save (§6.2.4 + §9.2).
+  for (const label of ["Prepaid", "Postpaid", "Mixed"]) {
+    await expectVisible(
+      page.getByRole("button", { name: new RegExp(`^${label}`) }),
+      `${label} option exists`,
+      10_000,
+    );
+  }
+  // Read-only sequence displays (BR-FEE-04 / BR-RC-01).
+  await expectVisible(page.getByText(/Next invoice number/i), "next invoice readout", 10_000);
+  await expectVisible(page.getByText(/Next receipt number/i), "next receipt readout", 10_000);
   await page.screenshot({ path: "test-results/set-04-fees.png" });
 
-  // 5. Notifications — toggles render.
-  await openSection(page, "Notifications", /Notification Preferences/);
-  await expect(page.getByText(/Notif/i).first(), "notifications").toBeVisible({ timeout: 10000 });
+  // 5. Notifications — four real toggles, each a switch.
+  await openSettingsSection(page, "Notifications", /Notification Preferences/);
+  const toggles = page.getByRole("switch");
+  expect(await toggles.count(), "four notification switches").toBe(4);
   await page.screenshot({ path: "test-results/set-05-notifications.png" });
 
-  // 6. Security — Change PIN form opens, validates, never submits.
-  await openSection(page, "Security", /Access Control/);
+  // 6. Security — the Change PIN form validates and is NEVER submitted.
+  await openSettingsSection(page, "Security", /Access Control/);
   await page.getByRole("button", { name: /Change PIN/i }).click();
-  await expect(page.locator("#pin-new"), "pin form opens").toBeVisible({ timeout: 5000 });
-  const savePinBtn = page.getByRole("button", { name: /Save new PIN/i });
-  await expect(savePinBtn, "save disabled on empty form").toBeDisabled();
+  await expectVisible(page.locator("#pin-new"), "change-PIN form opens", 10_000);
+  const savePin = page.getByRole("button", { name: /Save new PIN/i });
+  await expect(savePin, "save disabled on an empty form").toBeDisabled();
   await page.locator("#pin-new").fill("123456");
   await page.locator("#pin-confirm").fill("123457");
-  await expect(page.getByText(/do not match/i), "mismatch message").toBeVisible({ timeout: 5000 });
+  await expectVisible(page.getByText(/do not match/i), "mismatch message", 10_000);
+  await expect(savePin, "save still disabled on a mismatch").toBeDisabled();
   await page.locator("#pin-confirm").fill("123456");
-  await expect(savePinBtn, "save enabled when valid").toBeEnabled();
-  // Never submit: changing the QA PIN here would lock out other flows.
+  await expect(savePin, "save enabled when the two new PINs agree").toBeEnabled();
+  // SR-05: the biometric gate opens and demands a PIN. Not committed.
+  await page.getByRole("switch", { name: /Biometric unlock/i }).click();
+  await expectVisible(page.locator("#biometric-pin"), "biometric PIN gate opens", 10_000);
+  await page.locator("#biometric-pin").fill("0000");
+  await expect(
+    page.getByRole("button", { name: /Turn biometric unlock/i }),
+    "biometric commit armed but not clicked",
+  ).toBeEnabled();
   await page.screenshot({ path: "test-results/set-06-security.png" });
 
-  // 7. Database — section renders, connection control present.
-  await openSection(page, "Database", /Database Connection/);
-  await expect(page.getByText(/Database|Connection|Turso/i).first(), "database").toBeVisible({ timeout: 10000 });
+  // 7. Database — real counts, no fake "Connection successful".
+  await openSettingsSection(page, "Database", /Where your records live/);
+  await expectVisible(page.getByText(/Account id/i), "account id row", 20_000);
+  await expectVisible(page.getByText(/Ledger entries/i), "ledger count row", 10_000);
+  await expect(page.getByText(/Connection successful/i), "no fabricated connection result").toHaveCount(0);
   await page.screenshot({ path: "test-results/set-07-database.png" });
 
-  // 8. Backup & Restore — passphrase field + generate button render (no submit).
-  await openSection(page, "Backup", /Create Local Backup|Backup Ready/);
-  await expect(page.getByText(/Backup|Passphrase/i).first(), "backup").toBeVisible({ timeout: 10000 });
+  // 8. Backup & Restore — the full two-gate flow ends in a real download whose
+  // filename is the spec's. This is the only write this spec commits, and it is
+  // additive: one audit row plus one outbox row (Rule 7).
+  await openSettingsSection(page, "Backup", /Create Local Backup/);
+  await expectVisible(page.locator("#backup-passphrase"), "backup passphrase field", 15_000);
+  await page.locator("#backup-passphrase").fill("correct horse battery staple");
+  await page.locator("#backup-passphrase-confirm").fill("mismatch on purpose");
+  await expectVisible(page.getByText(/do not match/i), "passphrase mismatch is stated", 10_000);
+  await page.locator("#backup-passphrase-confirm").fill("correct horse battery staple");
+  await page.locator("#backup-typed-word").fill("nope");
+  await expect(
+    page.getByRole("button", { name: /Create encrypted backup/i }),
+    "the typed EXPORT word is required (09 §15.4)",
+  ).toBeDisabled();
+  await page.locator("#backup-typed-word").fill("EXPORT");
+  await page.locator("#backup-pin").fill(QA_PIN);
+  const backupName = await downloadFilename(page, async () => {
+    await page.getByRole("button", { name: /Create encrypted backup/i }).click();
+  });
+  expect(backupName, "the file is named as 08 §6.2.7 requires").toMatch(
+    /^Buddysaradhi_Backup_\d{8}-\d{4}\.buddysaradhi$/,
+  );
   await page.screenshot({ path: "test-results/set-08-backup.png" });
 
-  // 9. Import & Export — template downloads fire (CSV + XLSX), no confirm.
-  await openSection(page, "Import", /Bulk import/);
-  await expect(page.getByText(/Import|Template|Export/i).first(), "import-export").toBeVisible({ timeout: 10000 });
-  const dl1 = page.waitForEvent("download", { timeout: 15000 }).catch(() => null);
-  const tplBtn = page.getByRole("button", { name: /template/i }).first();
-  if ((await tplBtn.count()) > 0) {
-    await tplBtn.click();
-    const dl = await dl1;
-    console.log("TEMPLATE_DOWNLOAD:" + (dl ? (await dl.suggestedFilename()) : "(none)"));
-    if (dl) await dl.delete();
+  // 9. Import & Export — both templates download with their real filenames; the
+  // fabricated "Export to JSON/CSV your entire ledger" cards are gone.
+  await openSettingsSection(page, "Import", /Export Data/);
+  await expect(page.getByRole("button", { name: /Export to JSON/i }), "no settings-only export card").toHaveCount(0);
+  expect(
+    await downloadFilename(page, async () => {
+      await page.getByRole("button", { name: /Download students-template\.csv/i }).click();
+    }),
+    "CSV template filename",
+  ).toBe("students-template.csv");
+  expect(
+    await downloadFilename(page, async () => {
+      await page.getByRole("button", { name: /Download Excel template/i }).click();
+    }),
+    "XLSX template filename",
+  ).toBe("students-template.xlsx");
+  // The records export is a read: either a file, or an honest empty-state
+  // message. Never a silent no-op, which is the failure this audit found in
+  // the two cards that used to sit here.
+  const recordsFilename = await downloadFilename(page, async () => {
+    await page.getByRole("button", { name: /Download .* CSV/i }).first().click();
+  }, 20_000).catch(() => null);
+  if (recordsFilename === null) {
+    await expectVisible(
+      page.getByText(/No students to export|No attendance marked/i),
+      "honest empty-state message instead of a download",
+      15_000,
+    );
+  } else {
+    expect(recordsFilename, "records export filename").toMatch(/\.csv$/);
   }
+  // EC-07: nothing to import means nothing is confirmable.
+  await expectVisible(page.getByRole("button", { name: /Review \d+ rows/i }), "paste grid review button", 15_000);
   await page.screenshot({ path: "test-results/set-09-import.png" });
 
-  // 10. Data & Privacy — renders, no confirm typed.
-  await openSection(page, "Data", /Data Management/);
-  await expect(page.getByText(/Privacy|Delete|Data/i).first(), "data-privacy").toBeVisible({ timeout: 10000 });
+  // 10. Data & Privacy — BOTH destructive flows driven to their last click and
+  // then abandoned. This proves SR-03's triple gate without archiving a thing.
+  await openSettingsSection(page, "Data", /Data Management/);
+  await page.getByRole("button", { name: /Archive all students/i }).click();
+  await expectVisible(page.locator("#archive-first-word"), "delete step 1", 10_000);
+  await expect(page.getByRole("button", { name: /^Continue$/i }), "continue disabled on step 1").toBeDisabled();
+  await page.locator("#archive-first-word").fill("DELETE");
+  await page.getByRole("button", { name: /^Continue$/i }).first().click();
+  await expectVisible(page.locator("#archive-pin"), "delete step 2 (PIN)", 10_000);
+  await page.locator("#archive-pin").fill(QA_PIN);
+  await page.getByRole("button", { name: /^Continue$/i }).first().click();
+  await expectVisible(page.locator("#archive-second-word"), "delete step 3 (second DELETE)", 10_000);
+  await page.locator("#archive-second-word").fill("DELETE");
+  const archiveCommit = page.getByRole("button", { name: /^Archive every student$/i }).last();
+  await expect(archiveCommit, "all three gates satisfied, commit armed and NOT clicked").toBeEnabled();
+  await page.getByRole("button", { name: /^Cancel$/i }).first().click();
+  // Account closure: both gates satisfied, commit left alone.
+  await page.getByRole("button", { name: /Close my account/i }).first().click();
+  await expectVisible(page.locator("#account-confirm-word"), "account typed-confirm", 10_000);
+  await page.locator("#account-confirm-word").fill("DELETE MY ACCOUNT FOREVER");
+  await page.locator("#account-pin").fill(QA_PIN);
+  await expect(
+    page.getByRole("button", { name: /Close my account for good/i }),
+    "account commit armed and NOT clicked",
+  ).toBeEnabled();
   await page.screenshot({ path: "test-results/set-10-privacy.png" });
 
-  // 11. About — static.
-  await openSection(page, "About", /BuddySaradhi/);
-  await expect(page.getByText(/BuddySaradhi|Version|About/i).first(), "about").toBeVisible({ timeout: 10000 });
+  // 11. About — no invented build number.
+  await openSettingsSection(page, "About", /BuddySaradhi/);
+  await expect(page.getByText(/Build 8421/i), "no fabricated build hash").toHaveCount(0);
   await page.screenshot({ path: "test-results/set-11-about.png" });
 
-  // 12. Help — static content renders.
-  await openSection(page, "Help", /How Buddysaradhi works/);
-  await expect(page.getByText(/Help|How|FAQ|Guide/i).first(), "help").toBeVisible({ timeout: 10000 });
+  // 12. Help.
+  await openSettingsSection(page, "Help", /How Buddysaradhi works/);
   await page.screenshot({ path: "test-results/set-12-help.png" });
 
-  // 13. Diagnostics — storage card + health render.
-  await openSection(page, "Diagnostics", /System Health/);
-  await expect(page.getByText(/Storage|Diagnostic|Health/i).first(), "diagnostics").toBeVisible({ timeout: 10000 });
+  // 13. Diagnostics — no fabricated health numbers, and the gaps are stated.
+  await openSettingsSection(page, "Diagnostics", /System Health/);
+  await expect(page.getByText(/4\.2 MB/i), "no hardcoded database size").toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Export Logs/i }), "no fabricated log export").toHaveCount(0);
+  await expectVisible(page.getByText(/Not reported in this build/i), "diagnostics states its gaps", 15_000);
+  await expectVisible(page.getByText(/Space used by this site/i), "measured storage row", 15_000);
   await page.screenshot({ path: "test-results/set-13-diagnostics.png" });
 
-  expect(errors, "console/page errors").toEqual([]);
+  errors.assertNoErrors();
 });
-
-

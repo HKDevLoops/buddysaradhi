@@ -297,10 +297,17 @@ describe("student profile CAS (RFC-004 C4)", () => {
   it("fresh base writes through: write + outbox + audit, base forwarded to gateway", async () => {
     const res = await updateStudentAction(STUDENT_ID, { first_name: "New" }, { base_updated_at: T1 });
     expect(res).toMatchObject({ success: true });
-    expect(mockedGatewayPatch).toHaveBeenCalledWith(`/api/v1/students/${STUDENT_ID}`, {
-      first_name: "New",
-      base_updated_at: T1,
-    });
+    expect(mockedGatewayPatch).toHaveBeenCalledWith(
+      `/api/v1/students/${STUDENT_ID}`,
+      {
+        first_name: "New",
+        base_updated_at: T1,
+      },
+      // RFC-004 C1: the gateway route is fail-closed on this header (it answers
+      // 400 before touching the DB), so its absence is not an optimisation — it
+      // means every profile edit silently fell through to the direct-db path.
+      expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    );
     const data = (res as unknown as { data?: { first_name?: string; updated_at?: string } }).data;
     expect(data?.first_name).toBe("New");
     expect(data?.updated_at).not.toBe(T1);
@@ -327,9 +334,13 @@ describe("student profile CAS (RFC-004 C4)", () => {
   it("missing base takes the legacy path: writes through with no CAS", async () => {
     const res = await updateStudentAction(STUDENT_ID, { first_name: "Legacy" });
     expect(res).toMatchObject({ success: true });
-    expect(mockedGatewayPatch).toHaveBeenCalledWith(`/api/v1/students/${STUDENT_ID}`, {
-      first_name: "Legacy",
-    });
+    expect(mockedGatewayPatch).toHaveBeenCalledWith(
+      `/api/v1/students/${STUDENT_ID}`,
+      {
+        first_name: "Legacy",
+      },
+      expect.objectContaining({ "Idempotency-Key": expect.any(String) }),
+    );
     expect(fake.tables.students[0]?.first_name).toBe("Legacy");
     expect(fake.tables.sync_outbox).toHaveLength(1);
   });

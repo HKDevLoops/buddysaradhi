@@ -30,6 +30,7 @@ import {
   type InvoiceInsert,
   type InvoiceStatus,
   type OpenInvoice,
+  type ReceiptInsert,
   type RecordPaymentInput,
   type RecordPaymentResult,
 } from "./feesFlow";
@@ -143,6 +144,62 @@ async function insertInvoiceRow(tx: SqlExecutor, inv: InvoiceInsert): Promise<vo
 }
 
 /**
+ * 07 §9.6 step 4 — the receipt row plus its `sync_outbox` replication row
+ * (Rule 7). `voided_at`, `pdf_blob_key` and `deleted_at` are left NULL: a
+ * receipt is born live, and the void path is the only thing that may ever set
+ * `voided_at` (Rule 1 — a receipt is never updated into a different receipt).
+ */
+async function insertReceiptRow(tx: SqlExecutor, r: ReceiptInsert): Promise<void> {
+  await tx.execute({
+    // `deleted_at` is deliberately NOT in the column list: a new receipt has no
+    // soft-delete, and naming a column that is absent from the older
+    // `migrations/0001_init.sql` shape aborts the whole insert. It stays NULL by
+    // default on every authority (11_Data_Model.md §3.7).
+    sql: `INSERT INTO receipts (id, tenant_id, number, ledger_entry_id, student_id, invoice_id,
+              amount, payment_method, payment_ref, received_on, tamper_hash,
+              voided_at, pdf_blob_key, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+    args: [
+      r.receiptId,
+      r.tenantId,
+      r.number,
+      r.ledgerEntryId,
+      r.studentId,
+      r.invoiceId,
+      r.amountPaise,
+      r.paymentMethod,
+      r.paymentRef,
+      r.receivedOn,
+      r.tamperHash,
+      r.now,
+      r.now,
+    ],
+  });
+  await insertOutbox(tx, {
+    tenantId: r.tenantId,
+    tableName: "receipts",
+    rowId: r.receiptId,
+    op: "insert",
+    payload: encodeOutboxPayload("receipts", "insert", {
+      id: r.receiptId,
+      tenant_id: r.tenantId,
+      number: r.number,
+      ledger_entry_id: r.ledgerEntryId,
+      student_id: r.studentId,
+      invoice_id: r.invoiceId,
+      amount: r.amountPaise,
+      payment_method: r.paymentMethod,
+      payment_ref: r.paymentRef,
+      received_on: r.receivedOn,
+      tamper_hash: r.tamperHash,
+      created_at: r.now,
+      updated_at: r.now,
+    }).payload,
+    createdAt: r.now,
+  });
+}
+
+/**
  * The libsql implementation of the fee-flow port. Every method is one
  * row-level statement or one indexed read — no decisions about money happen
  * here (they live in `feesFlow.ts`).
@@ -196,6 +253,35 @@ function sqlFeeTx(tx: SqlExecutor): FeeTx {
 
     insertInvoice(row) {
       return insertInvoiceRow(tx, row);
+    },
+
+    async takeReceiptNumber(tenantId, now) {
+      // BR-RC-01: atomic increment, never decremented — a void leaves a gap by
+      // design (the gap is the audit trail). Identical shape to the invoice take
+      // so a missing settings row fails the same closed way.
+      const upd = await tx.execute({
+        sql: `UPDATE settings SET next_receipt_seq = next_receipt_seq + 1, updated_at = ?
+              WHERE tenant_id = ?`,
+        args: [now, tenantId],
+      });
+      if (upd.rowsAffected === 0) {
+        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      }
+      const res = await tx.execute({
+        sql: `SELECT receipt_prefix, next_receipt_seq FROM settings WHERE tenant_id = ? LIMIT 1`,
+        args: [tenantId],
+      });
+      const row = res.rows[0];
+      if (!row) {
+        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      }
+      const seq = Number(row.next_receipt_seq) - 1;
+      const prefix = String(row.receipt_prefix ?? "RCP-");
+      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+    },
+
+    insertReceipt(row) {
+      return insertReceiptRow(tx, row);
     },
 
     async setInvoiceStatus({ tenantId, invoiceId, status, now }) {

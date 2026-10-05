@@ -214,10 +214,20 @@ export const CORE_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_invoices_student ON invoices(student_id, status)`,
   `CREATE INDEX IF NOT EXISTS idx_invoices_due     ON invoices(due_date, status)`,
 
+// Reconciled against `apps/gateway/migrations/0001_init.sql` (§3.4 — the two
+  // runtime schema authorities must agree). This copy had drifted three ways:
+  // `receipt_no` instead of `number` (which contradicts 07 §10.2 / BR-RC-01, where
+  // `receipts.number = receipt_prefix + zero-pad(next_receipt_seq, 6)`), and no
+  // `ledger_entry_id` at all — so a receipt written by `packages/core`'s
+  // libsql dialect (the same statements the gateway vendors) could not land on a
+  // self-healed tenant. A `CREATE TABLE IF NOT EXISTS` never alters an existing
+  // table, so this only helps tenants provisioned from here on; the ALTERs below
+  // are what repair the ones already in the wild.
   `CREATE TABLE IF NOT EXISTS receipts (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
-    receipt_no TEXT NOT NULL,
+    number TEXT NOT NULL,
+    ledger_entry_id TEXT,
     student_id TEXT NOT NULL,
     invoice_id TEXT,
     amount INTEGER NOT NULL,
@@ -228,8 +238,9 @@ export const CORE_DDL_STATEMENTS = [
     voided_at TEXT,
     pdf_blob_key TEXT,
     deleted_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (tenant_id, number)
   )`,
 
   `CREATE TABLE IF NOT EXISTS sync_outbox (
@@ -362,6 +373,12 @@ export async function ensureSelfRepairingSchema(
     // which carries locked_at/locked_by on attendance_sessions).
     await ensureColumn(_db, "attendance_sessions", "locked_at", "TEXT");
     await ensureColumn(_db, "attendance_sessions", "locked_by", "TEXT");
+    // The receipts repair, same mechanism. `ledger_entry_id` is what
+    // `packages/core`'s receipt insert names (07 §9.6 step 4), and without it a
+    // payment could not be receipted on an already-healed tenant at all. The
+    // `receipt_no` → `number` rename is a column RENAME, not an add, so it is
+    // left to the forward-only migration rather than guessed at here.
+    await ensureColumn(_db, "receipts", "ledger_entry_id", "TEXT");
     healedTenants.add(tenantId);
   } catch (err) {
     logError("schema.heal_failed", {

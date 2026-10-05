@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
   Download,
-  FileJson,
   AlertCircle,
   Loader2,
   CheckCircle2,
@@ -39,10 +38,10 @@ import {
   type ValidImportRow,
 } from "@/lib/csv-parse";
 import { buildStudentsXlsxTemplate, downloadXlsx } from "@/lib/xlsx-template";
-import { importStudentsAction } from "@/server/actions/settings";
+import { importStudentsAction, IMPORT_PIN_REQUIRED_ABOVE_ROWS } from "@/server/actions/settings";
 import { fetchStudentsAction } from "@/server/actions/students";
 import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
-import { formatINR, type StudentListRow } from "@buddysaradhi/shared";
+import { formatINR, PIN_INPUT_MAX_LENGTH, type StudentListRow } from "@buddysaradhi/shared";
 import type { StudentFilters } from "@/types/students";
 
 // Implements: 09_Backup_and_Import_Export.md §6.4 Pipeline D (preview before
@@ -144,9 +143,6 @@ function formatFileSize(bytes: number): string {
 
 export function ImportExportSection() {
   const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [errorMessage, setErrorMessage] = useState("");
 
   // Records export (entity choice) + bulk import preview flow.
   const [exportEntity, setExportEntity] = useState<ExportEntity>("students");
@@ -157,6 +153,14 @@ export function ImportExportSection() {
   const [bulkError, setBulkError] = useState("");
   const [preview, setPreview] = useState<BulkPreview | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkResult | null>(null);
+
+  // 09_Backup_and_Import_Export.md §15.4 + 12_Business_Rules.md BR-SEC-02: a
+  // bulk import of MORE THAN 100 rows is a sensitive mutation and asks for the
+  // app PIN. Up to 100 rows does not. The threshold is the spec's, not a taste
+  // call, so the UI imports the same constant the server action enforces.
+  const [importPin, setImportPin] = useState("");
+  const [importPinError, setImportPinError] = useState<string | null>(null);
+  const [pinVerified, setPinVerified] = useState(false);
 
   /** Full roster via the existing students action (paginated, honest total). */
   const collectRoster = async (): Promise<StudentListRow[]> => {
@@ -541,27 +545,6 @@ export function ImportExportSection() {
     }
   };
 
-  const handleBulkConfirm = async () => {
-    if (!preview || preview.fileIssue) return;
-    setBulkPhase("confirming");
-    setBulkError("");
-    try {
-      const result = await importStudentsAction({ headers: preview.headers, rows: preview.rows });
-      if (!result.success) {
-        setBulkError(result.error);
-        setBulkPhase("preview");
-        return;
-      }
-      setBulkResult(result.data);
-      setBulkPhase("done");
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-    } catch {
-      log.error("settings_bulk_import_failed", "Bulk import request failed");
-      setBulkError("Import failed. Check your connection and try again.");
-      setBulkPhase("preview");
-    }
-  };
-
   /** Error report: original rows plus one errors column, grouped by row. */
   const handleInvalidDownload = () => {
     const invalid = bulkResult?.invalid ?? preview?.invalid ?? [];
@@ -583,115 +566,66 @@ export function ImportExportSection() {
     downloadCsv(exportFilename("import_errors"), body);
   };
 
-  const handleExportJSON = () => {
-    try {
-      const settingsData = queryClient.getQueryData(["settings"]) as { data?: Record<string, unknown> } | null | undefined;
-      const settingsObj = settingsData?.data || { message: "No settings cached yet." };
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(settingsObj, null, 2));
-      const a = document.createElement("a");
-      a.setAttribute("href", dataStr);
-      a.setAttribute("download", `buddysaradhi_settings_${new Date().toISOString().slice(0, 10)}.json`);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch {
-      log.error("settings_export_failed", "Failed to export settings as JSON");
-    }
-  };
+  // REMOVED (fabrication, AGENTS.md §2 Rule 9):
+  //   `handleExportJSON` / `handleExportCSV` — both read the single cached
+  //   `settings` row and wrote it out, under the labels "Download your entire
+  //   unencrypted ledger and student data" and "flat files suitable for Excel
+  //   or accounting software". Neither contained a ledger nor a student. The
+  //   real exports are `handleExportRecords` above, which page the real roster
+  //   and say exactly what each file holds.
+  //   `handleFileChange` / `triggerFileInput` — a "Select Backup File" button
+  //   that read a `.bsb` into an ArrayBuffer, discarded it, and after 1500ms
+  //   printed "Backup imported successfully." A restore is the highest-stakes
+  //   operation in this product; the button reported success for a restore that
+  //   never happened. Restore belongs in Backup & Restore behind a typed
+  //   RESTORE + fresh PIN + sha256 verification (08 §6.2.7, 09 §15.4), and it
+  //   is reported to the lead as unimplemented rather than faked here.
 
-  const handleExportCSV = () => {
-    try {
-      const settingsData = queryClient.getQueryData(["settings"]) as { data?: Record<string, unknown> } | null | undefined;
-      const settingsObj = settingsData?.data || {};
-      let csvContent = "Setting Key,Setting Value\n";
-      Object.entries(settingsObj).forEach(([k, v]) => {
-        csvContent += `${k},"${String(v).replace(/"/g, '""')}"\n`;
-      });
-      const dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
-      const a = document.createElement("a");
-      a.setAttribute("href", dataStr);
-      a.setAttribute("download", `buddysaradhi_settings_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch {
-      log.error("settings_export_failed", "Failed to export settings as CSV");
-    }
-  };
+  const importNeedsPin = (preview?.valid.length ?? 0) > IMPORT_PIN_REQUIRED_ABOVE_ROWS;
+  const importGateOpen = importNeedsPin && !pinVerified;
 
-  const triggerFileInput = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-    if (!file.name.endsWith(".bsb")) {
-      setImportStatus("error");
-      setErrorMessage("Invalid file format. Please select a valid .bsb backup file.");
+  const handleBulkConfirm = async () => {
+    if (!preview || preview.fileIssue) return;
+    if (importNeedsPin && !pinVerified) {
+      setImportPinError("Enter your app PIN to import more than 100 students.");
       return;
     }
-
-    setImportStatus("loading");
-    setErrorMessage("");
-
-    // Simulate import and validation delay
-    setTimeout(() => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setImportStatus("success");
-        queryClient.invalidateQueries({ queryKey: ["settings"] });
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      };
-      reader.onerror = () => {
-        setImportStatus("error");
-        setErrorMessage("Failed to read the backup file.");
-      };
-      reader.readAsArrayBuffer(file);
-    }, 1500);
+    setBulkPhase("confirming");
+    setBulkError("");
+    setImportPinError(null);
+    try {
+      const result = await importStudentsAction({ headers: preview.headers, rows: preview.rows, pin: importNeedsPin ? importPin : undefined });
+      if (!result.success) {
+        setBulkError(result.error);
+        setBulkPhase("preview");
+        return;
+      }
+      setBulkResult(result.data);
+      setBulkPhase("done");
+      setPinVerified(false);
+      setImportPin("");
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+    } catch {
+      log.error("settings_bulk_import_failed", "Bulk import request failed");
+      setBulkError("Import failed. Check your connection and try again.");
+      setBulkPhase("preview");
+    }
   };
 
   return (
     <section className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-8">
       <div>
-        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
-          <Download className="w-5 h-5 text-[var(--text-secondary)]" />
+        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
+          <Download className="w-5 h-5 text-[var(--text-secondary)]" aria-hidden="true" />
           Export Data
         </h3>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button 
-            onClick={handleExportJSON}
-            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--info)_35%,transparent)] text-left cursor-pointer transition-all w-full"
-          >
-            <div className="w-10 h-10 rounded-lg bg-[var(--info)]/10 flex items-center justify-center shrink-0">
-              <FileJson className="w-5 h-5 text-[var(--info)]" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--text-primary)]">Export to JSON</p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">Download your entire unencrypted ledger and student data.</p>
-            </div>
-          </button>
-          
-          <button 
-            onClick={handleExportCSV}
-            className="glass-card p-5 rounded-xl flex items-start gap-4 btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] hover:bg-[var(--surface-raised)] hover:text-[var(--text-primary)] hover:border-[color-mix(in srgb,var(--success)_35%,transparent)] text-left cursor-pointer transition-all w-full"
-          >
-            <div className="w-10 h-10 rounded-lg bg-[var(--success)]/10 flex items-center justify-center shrink-0">
-              <Download className="w-5 h-5 text-[var(--success)]" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--text-primary)]">Export to CSV</p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">Download flat files suitable for Excel or accounting software.</p>
-            </div>
-          </button>
-        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-[68ch]">
+          These are the exports that exist. Each file says what it holds, and every row your app has
+          is in it, so nothing is sampled or dropped quietly. For a restorable copy of everything,
+          use Backup &amp; Restore instead.
+        </p>
 
-        <div className="glass-card mt-4 p-5 rounded-xl border border-[var(--border-default)]">
+        <div className="glass-card p-5 rounded-xl border border-[var(--border-default)]">
           <div className="flex items-start gap-4">
             <div className="w-10 h-10 rounded-lg bg-[var(--info)]/10 flex items-center justify-center shrink-0">
               <FileSpreadsheet className="w-5 h-5 text-[var(--info)]" aria-hidden="true" />
@@ -772,54 +706,14 @@ export function ImportExportSection() {
       <div className="h-px bg-[var(--border-default)] w-full" />
 
       <div>
-        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-4 flex items-center gap-2">
-          <Upload className="w-5 h-5 text-[var(--text-secondary)]" />
+        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
+          <Upload className="w-5 h-5 text-[var(--text-secondary)]" aria-hidden="true" />
           Import Data
         </h3>
-        
-        <div className="glass-card p-6 rounded-xl border border-[var(--border-default)]">
-          <div className="flex gap-4">
-            <AlertCircle className="w-5 h-5 text-[var(--warning)] shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">Import from v1.x Backup</p>
-              <p className="text-sm text-[var(--text-muted)] mb-4 leading-relaxed">
-                You can import a `.bsb` backup file. This will merge the backup with your existing data.
-                Conflicts will be resolved by keeping the most recently modified record.
-              </p>
-              
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".bsb"
-                className="hidden"
-              />
-
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <button 
-                  onClick={triggerFileInput}
-                  disabled={importStatus === "loading"}
-                  className="neumo-raised px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--warning)] cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                >
-                  {importStatus === "loading" && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Select Backup File...
-                </button>
-
-                {importStatus === "success" && (
-                  <p className="text-[var(--success)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
-                    <CheckCircle2 className="w-4 h-4" /> Backup imported successfully.
-                  </p>
-                )}
-
-                {importStatus === "error" && (
-                  <p className="text-[var(--danger)] text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">
-                    <XCircle className="w-4 h-4" /> {errorMessage}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <p className="text-sm text-[var(--text-secondary)] mb-5 max-w-[68ch]">
+          Adding students in bulk. Nothing here touches fees, payments or the ledger, and an import
+          never merges a student who already exists, it skips them.
+        </p>
       </div>
 
       <div className="h-px bg-[var(--border-default)] w-full" />
@@ -1061,17 +955,77 @@ export function ImportExportSection() {
                       </div>
                     )}
 
+                    {importGateOpen && (
+                      <div
+                        className="rounded-xl border border-[var(--border-default)] p-4 space-y-3"
+                        style={{ background: "var(--surface-inset)" }}
+                        role="group"
+                        aria-label="Confirm a large import with your PIN"
+                      >
+                        <p className="text-xs text-[var(--text-secondary)] max-w-[68ch]">
+                          More than {IMPORT_PIN_REQUIRED_ABOVE_ROWS} students at once is enough to
+                          bury a mistake, so this one asks for your PIN first. It changes nothing
+                          about the import itself.
+                        </p>
+                        <div>
+                          <label
+                            htmlFor="bulk-import-pin"
+                            className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2"
+                          >
+                            Your app PIN
+                          </label>
+                          <input
+                            id="bulk-import-pin"
+                            type="password"
+                            value={importPin}
+                            onChange={(e) => {
+                              setImportPin(e.target.value);
+                              setImportPinError(null);
+                            }}
+                            inputMode="numeric"
+                            maxLength={PIN_INPUT_MAX_LENGTH}
+                            autoComplete="off"
+                            placeholder="Your PIN"
+                            className="neumo-inset w-full sm:w-56 px-4 py-3 min-h-[44px] text-sm text-center tracking-[0.4em] font-mono text-[var(--text-primary)] rounded-xl outline-none transition focus:border-[var(--warning)] focus:ring-1 focus:ring-[var(--warning)]"
+                          />
+                        </div>
+                        {importPinError && (
+                          <p role="alert" className="text-[var(--danger)] text-xs font-semibold">{importPinError}</p>
+                        )}
+                        <button
+                          type="button"
+                          disabled={importPin.length < 4}
+                          onClick={() => {
+                            // The server re-verifies with the ladder; this only
+                            // skips a pointless round trip for an empty field.
+                            if (importPin.length < 4) {
+                              setImportPinError("Enter your app PIN.");
+                              return;
+                            }
+                            setPinVerified(true);
+                            setImportPinError(null);
+                          }}
+                          className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--text-primary)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Continue
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                       <button
                         type="button"
                         onClick={handleBulkConfirm}
                         disabled={bulkPhase === "confirming" || preview.valid.length === 0}
+                        aria-busy={bulkPhase === "confirming"}
                         className="neumo-raised min-h-[44px] px-4 rounded-xl text-sm font-semibold text-[var(--success)] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--success)]"
                       >
                         {bulkPhase === "confirming" && (
-                          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                          <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         )}
-                        Import {preview.valid.length} students
+                        {importGateOpen
+                          ? "Enter your PIN to import"
+                          : `Import ${preview.valid.length} students`}
                       </button>
                       {preview.valid.length === 0 && (
                         <p className="text-xs text-[var(--text-muted)]">Nothing ready to import yet.</p>

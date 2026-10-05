@@ -268,6 +268,7 @@ export interface ProxyModels {
   setting: ProxyModel;
   student: ProxyModel;
   invoice: ProxyModel;
+  receipt: ProxyModel;
   ledgerEntry: ProxyModel;
   syncOutbox: ProxyModel;
   auditLog: ProxyModel;

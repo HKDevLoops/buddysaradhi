@@ -8,18 +8,27 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_IMPORT_ROWS,
+  STUDENT_ADDRESS_MAX,
+  STUDENT_ADMISSION_FLOOR_ISO,
+  STUDENT_BOARD_MAX,
+  STUDENT_DOB_FLOOR_ISO,
+  STUDENT_GRADE_MAX,
   STUDENT_IMPORT_HEADERS,
+  STUDENT_SCHOOL_MAX,
   buildCsv,
   buildStudentsTemplate,
+  checkDateBounds,
   excelSerialToIso,
   findMoneyHeaders,
   isoToExcelSerial,
   normalizeFlexibleDate,
+  normalizeStudentPhone,
   parseCsv,
   parseTsv,
   partitionDuplicates,
   splitImportGrid,
   studentDupKey,
+  todayIso,
   validateImportRows,
 } from "./csv-parse";
 
@@ -393,11 +402,15 @@ describe("validateImportRows", () => {
   });
 
   it("caps the new text fields at the manual create limits", () => {
+    // 05_Students.md §14 — these are now the SHARED caps the manual Add Student
+    // sheet and the server action also read (`STUDENT_*_MAX` in csv-parse.ts), not
+    // three independent literals. They used to be grade 64 / school 300 /
+    // address 1000 / board 64 here while §14 said 40 / 200 / 500 / 40.
     const cases: Array<[string, string, number]> = [
-      ["address", "Address", 1000],
-      ["school", "School", 300],
-      ["grade", "Grade", 64],
-      ["board", "Board", 64],
+      ["address", "Address", STUDENT_ADDRESS_MAX],
+      ["school", "School", STUDENT_SCHOOL_MAX],
+      ["grade", "Grade", STUDENT_GRADE_MAX],
+      ["board", "Board", STUDENT_BOARD_MAX],
     ];
     for (const [column, label, limit] of cases) {
       const tooLong = "x".repeat(limit + 1);
@@ -457,6 +470,125 @@ describe("studentDupKey + partitionDuplicates", () => {
       expect(unique).toHaveLength(2);
       expect(duplicates).toHaveLength(1);
       expect(duplicates[0]?.index).toBe(1);
+    }
+  });
+
+  // The defect this locks down: the Add Student sheet used to compute its own
+  // key by slicing the last four characters off the RAW phone string, so
+  // "9876543210" and "9876543210 " (a trailing space is one keystroke) hashed
+  // differently and the second student was written with no duplicate warning.
+  it("is insensitive to trailing whitespace and punctuation in the phone", () => {
+    const canonical = studentDupKey("Aarav", "Sharma", "9876543210");
+    expect(studentDupKey("Aarav", "Sharma", "9876543210 ")).toBe(canonical);
+    expect(studentDupKey("Aarav", "Sharma", "+91 98765-43210")).toBe(canonical);
+    expect(studentDupKey("Aarav", "Sharma", "098765-43210")).toBe(canonical);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 05_Students.md §14 + §11 E16 — the date windows. Neither path enforced them:
+// a student could be admitted in 2099 or born yesterday's century.
+// ---------------------------------------------------------------------------
+
+describe("checkDateBounds", () => {
+  it("rejects a date after today (EC-S-16 / a dob in the future)", () => {
+    const future = "2999-01-01";
+    const result = checkDateBounds(future, { min: STUDENT_DOB_FLOOR_ISO, label: "dob" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("later than");
+  });
+
+  it("rejects a date before the field's floor", () => {
+    expect(checkDateBounds("1899-12-31", { min: STUDENT_DOB_FLOOR_ISO, label: "dob" }).ok).toBe(false);
+    expect(checkDateBounds("1999-12-31", { min: STUDENT_ADMISSION_FLOOR_ISO, label: "admission_date" }).ok).toBe(
+      false,
+    );
+  });
+
+  it("accepts today and any date inside the window", () => {
+    const today = todayIso();
+    expect(checkDateBounds(today, { min: STUDENT_ADMISSION_FLOOR_ISO, label: "admission_date" }).ok).toBe(true);
+    expect(checkDateBounds(STUDENT_ADMISSION_FLOOR_ISO, { min: STUDENT_ADMISSION_FLOOR_ISO }).ok).toBe(true);
+    expect(checkDateBounds("2015-04-12", { min: STUDENT_DOB_FLOOR_ISO }).ok).toBe(true);
+  });
+
+  it("honours an explicit ceiling", () => {
+    expect(checkDateBounds("2020-01-01", { max: "2019-12-31" }).ok).toBe(false);
+  });
+
+  it("applies the window to an IMPORT row after the date normalises", () => {
+    // A future date written as DD/MM/YYYY, not as ISO, must not slip past the
+    // check — that is the whole reason the bound runs post-transform.
+    const result = validateImportRows(HEADERS, [
+      fullRow({ dob: "01/01/2999", admission_date: "01/01/2999" }),
+    ]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid).toHaveLength(0);
+      const dobErrors = result.invalid.filter((error) => error.column === "dob");
+      const admissionErrors = result.invalid.filter((error) => error.column === "admission_date");
+      expect(dobErrors).toHaveLength(1);
+      expect(admissionErrors).toHaveLength(1);
+      expect(dobErrors[0]?.reason).toContain("later than");
+    }
+  });
+
+  it("applies the floor to an Excel serial in the import", () => {
+    // Serial 1 = 1900-01-01, below the dob floor.
+    const result = validateImportRows(HEADERS, [fullRow({ dob: "1" })]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid).toHaveLength(0);
+      expect(result.invalid.some((error) => error.column === "dob")).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 09 §14.5 — ONE phone rule, shared by the sheet, the import and the server.
+// The sheet used to accept any string, so "abc" was a storable phone and the
+// duplicate key was built from its last four characters.
+// ---------------------------------------------------------------------------
+
+describe("normalizeStudentPhone", () => {
+  it("cleans punctuation and keeps the digits", () => {
+    expect(normalizeStudentPhone("+91 98765-43210")).toEqual({ ok: true, phone: "+919876543210" });
+    expect(normalizeStudentPhone("(98765) 43210")).toEqual({ ok: true, phone: "9876543210" });
+    expect(normalizeStudentPhone("98765.43210")).toEqual({ ok: true, phone: "9876543210" });
+  });
+
+  it("treats blank as absent, not as an error", () => {
+    expect(normalizeStudentPhone("")).toEqual({ ok: true, phone: null });
+    expect(normalizeStudentPhone("   ")).toEqual({ ok: true, phone: null });
+  });
+
+  it("rejects letters, short numbers and long numbers", () => {
+    for (const bad of ["abc", "12345", "1234567890123456"]) {
+      const result = normalizeStudentPhone(bad);
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  it("names the column in its message so the tutor knows which cell to fix", () => {
+    const result = normalizeStudentPhone("abc", "phone");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("phone");
+      expect(result.reason).toContain("abc");
+    }
+  });
+
+  it("is the same rule the import row schema applies", () => {
+    const result = validateImportRows(HEADERS, [fullRow({ phone: "+91 98765-43210" })]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.valid[0]?.data.phone).toBe("+919876543210");
+    }
+    const rejected = validateImportRows(HEADERS, [fullRow({ phone: "call me" })]);
+    expect(rejected.ok).toBe(true);
+    if (rejected.ok) {
+      expect(rejected.valid).toHaveLength(0);
+      expect(rejected.invalid.some((error) => error.column === "phone")).toBe(true);
     }
   });
 });

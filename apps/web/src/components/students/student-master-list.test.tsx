@@ -126,4 +126,128 @@ describe("StudentMasterList — the roster's three honest states", () => {
     expect(screen.getByTitle(/^Due ₹4,500\.00/)).toBeInTheDocument();
     expect(screen.getByTitle(/^Credit ₹1,200\.00/)).toBeInTheDocument();
   });
+
+  // 05_Students.md §6.2 lists `code` as the roster's FIRST column and §18 asks for
+  // it in the row's accessible name. The row rendered neither: a tutor reading a
+  // code out over the phone had to open every student to find it.
+  it("shows the student code on the row (05_Students.md §6.2)", () => {
+    render(
+      <StudentMasterList
+        students={[
+          {
+            id: "s-1",
+            code: "STU-2026-0001",
+            name: "Aarav Sharma",
+            grade: "Cl 10",
+            batch: "Maths 6pm",
+            fee_model: "postpaid",
+            status: "active",
+            balance_due: 450000,
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+    expect(screen.getByText("STU-2026-0001")).toBeInTheDocument();
+  });
+
+  it("states an unassigned code rather than rendering a blank cell", () => {
+    render(
+      <StudentMasterList
+        students={[
+          {
+            id: "s-1",
+            code: null,
+            name: "Aarav Sharma",
+            grade: "Cl 10",
+            batch: "Maths 6pm",
+            fee_model: "postpaid",
+            status: "active",
+            balance_due: 0,
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  it("names the row with name, code, balance and status (05_Students.md §18)", () => {
+    render(
+      <StudentMasterList
+        students={[
+          {
+            id: "s-1",
+            code: "STU-2026-0001",
+            name: "Aarav Sharma",
+            grade: "Cl 10",
+            batch: "Maths 6pm",
+            fee_model: "postpaid",
+            status: "active",
+            balance_due: 450000,
+          },
+          {
+            id: "s-2",
+            code: "STU-2026-0002",
+            name: "Riya Menon",
+            grade: "Cl 9",
+            batch: null,
+            fee_model: "postpaid",
+            status: "inactive",
+            balance_due: -120000,
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Student: Aarav Sharma, code STU-2026-0001, owes ₹4,500.00, status active" }),
+    ).toBeInTheDocument();
+    // A credit balance is named as a credit in the accessible name too — the sign
+    // is the fact (Rule 6), so it cannot be flattened to "no dues".
+    expect(
+      screen.getByRole("button", { name: "Student: Riya Menon, code STU-2026-0002, ₹1,200.00 in credit, status inactive" }),
+    ).toBeInTheDocument();
+  });
+
+  it("marks the open row with aria-current, not aria-pressed", async () => {
+    const user = userEvent.setup();
+    useStudentsStore.setState({ selectedStudentId: "s-1" });
+    render(
+      <StudentMasterList
+        students={[
+          {
+            id: "s-1",
+            code: "STU-2026-0001",
+            name: "Aarav Sharma",
+            grade: "Cl 10",
+            batch: "Maths 6pm",
+            fee_model: "postpaid",
+            status: "active",
+            balance_due: 0,
+          },
+          {
+            id: "s-2",
+            code: "STU-2026-0002",
+            name: "Riya Menon",
+            grade: "Cl 9",
+            batch: null,
+            fee_model: "postpaid",
+            status: "active",
+            balance_due: 0,
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+    const open = screen.getByRole("button", { name: /Student: Aarav Sharma/ });
+    const other = screen.getByRole("button", { name: /Student: Riya Menon/ });
+    expect(open).toHaveAttribute("aria-current", "true");
+    expect(open).not.toHaveAttribute("aria-pressed");
+    // "Current" is not a toggle: the other row asserts nothing rather than false.
+    expect(other).not.toHaveAttribute("aria-current");
+
+    await user.click(other);
+    expect(useStudentsStore.getState().selectedStudentId).toBe("s-2");
+  });
 });

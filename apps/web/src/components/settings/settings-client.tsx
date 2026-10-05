@@ -152,8 +152,13 @@ export function SettingsClient() {
           {/* Navigation - rail on desktop, pill scroller on mobile */}
           <SettingsNav />
 
-          {/* Main Content Area - glass-strong */}
-          <div className="glass-strong flex-1 rounded-xl p-6 md:p-8 text-[var(--text-primary)]">
+          {/* Content pane: transparent over the canvas. 08_Settings.md §21.1
+              specifies the pane as "transparent over canvas (its sub-cards are
+              glass)" and each section's own card as the `.glass` workhorse. The
+              pane used to be `glass-strong`, which put a glass card inside a
+              glass card — 13_UI_Guidelines.md §5.3 no-glass-on-glass, and the
+              shape the anti-slop rules call out by name. */}
+          <div className="flex-1 rounded-xl p-6 md:p-8 text-[var(--text-primary)]">
             {activeSection === "profile" && <ProfileSection settings={settings} />}
             {activeSection === "appearance" && <AppearanceSection settings={settings} />}
             {activeSection === "attendance-rules" && <AttendanceRulesSection settings={settings} />}

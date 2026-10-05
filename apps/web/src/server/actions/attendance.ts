@@ -3,18 +3,68 @@
 import { getAttendanceForDate } from "../queries/attendance";
 import { getAuthenticatedPrisma } from "@/server/get-db";
 import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
+import { z } from "zod";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
 import {
+  BULK_ABSENT_CONFIRM_WORD,
   DEFAULT_LOCK_HOURS,
-  HARD_LOCK_DAYS,
   HARD_UNLOCK_REASON_MIN_LENGTH,
   UNLOCK_WINDOW_MINUTES,
   ageHours,
   hardLocked,
+  isFutureDate,
+  localDayIso,
   readUnlockWindow,
 } from "@/server/attendance-window";
+
+type Db = Awaited<ReturnType<typeof getAuthenticatedPrisma>>["db"];
+
+/**
+ * Runtime gate for the mark payload (AGENTS.md §6.1 "Zod for all input
+ * validation. Every server action…", §6.4 "parses its input with Zod before
+ * doing anything else").
+ *
+ * A server action is an HTTP endpoint: `UpdateAttendancePayload` is erased at
+ * runtime, so the annotation alone validated nothing. A request with an update
+ * carrying no `student_id` reached the writer, and the ORM's upsert then matched
+ * on `session_id` ALONE — which meant it silently rewrote an unrelated student's
+ * record. This schema is declared here rather than reused from
+ * `packages/shared` for one concrete reason: `UpdateAttendancePayloadSchema`
+ * types `batch_id` as a uuid, but this action manufactures the batch id
+ * `batch-default` for the auto-created default batch (and `Batch.id` is a plain
+ * string in `11_Data_Model.md`), so the shared `.uuid()` would reject the app's
+ * own default batch.
+ */
+const AttendanceStatusValue = z.enum(["present", "absent", "late", "excused"]);
+const MarkUpdatesSchema = z
+  .array(
+    z.object({
+      student_id: z.string().min(1, "each mark needs a student"),
+      status: AttendanceStatusValue,
+    }),
+  )
+  .min(1, "a mark must change at least one student")
+  .max(500, "a batch cannot exceed 500 students in one call");
+const MarkPayloadSchema = z.object({
+  session_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "session_date must be YYYY-MM-DD"),
+  batch_id: z.string().nullable().optional(),
+  updates: MarkUpdatesSchema,
+});
+const BulkMarkPayloadSchema = z.object({
+  session_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "session_date must be YYYY-MM-DD"),
+  batch_id: z.string().nullable().optional(),
+  status: z.enum(["present", "absent"]),
+  // An EMPTY list is allowed through validation on purpose: 06 §11 E10 makes it
+  // a disabled button with a "No students to mark" tooltip, and a server that
+  // reports an error for the same state would contradict the control that
+  // already refused to fire.
+  student_ids: z.array(z.string().min(1)).max(500),
+  overwrite: z.boolean(),
+});
 
 export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
   try {
@@ -25,188 +75,375 @@ export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
   }
 }
 
-export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
-  try {
-    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL) +
-    // §2 Rule 7 (outbox in the same transaction as the mutation).
-    const { db, tenantId } = await getAuthenticatedPrisma();
-    const now = new Date().toISOString();
+/** One mark, as the grid sends it from a single row. */
+interface MarkRequest {
+  student_id: string;
+  status: string;
+}
 
-    // 1. Get or create batch if needed (ensure FK constraint holds)
-    const targetBatchId = payload.batch_id && payload.batch_id.trim() !== "" && payload.batch_id !== "all" 
-      ? payload.batch_id 
-      : "batch-default";
+async function ensureBatch(db: Db, tenantId: string, batchId: string, now: string): Promise<void> {
+  const batchCheck = await db.batch.findFirst({ where: { id: batchId } });
+  if (batchCheck) return;
+  await db.batch.create({
+    data: { id: batchId, tenantId, name: "General Batch", createdAt: now, updatedAt: now },
+  });
+}
 
-    const batchCheck = await db.batch.findFirst({
-      where: { id: targetBatchId },
-    });
-    if (!batchCheck) {
-      await db.batch.create({
-        data: {
-          id: targetBatchId,
-          tenantId,
-          name: "General Batch",
-          createdAt: now,
-          updatedAt: now,
-        },
+/**
+ * The whole write path for one (date, batch): session fetch-or-create, every
+ * record upsert, every `sync_outbox` row, the in-window `attendance_edit_locked`
+ * rows, and the `attendance_bulk_mark` row — inside ONE write transaction.
+ *
+ * 06 §10.7: a bulk mark is "a single transaction"; §17 budgets "Bulk present
+ * (100 students) < 250 ms — batched SQL in one transaction". The loop this
+ * replaced opened a transaction PER ROW, so a 36-student bulk was 36 commits:
+ * a mid-loop failure left the first 20 marks saved and the audit trail claiming
+ * nothing, and Rule 7 (AGENTS §2) only held if each individual row happened to
+ * succeed.
+ */
+async function writeAttendance(
+  db: Db,
+  tenantId: string,
+  sessionDate: string,
+  batchId: string,
+  updates: MarkRequest[],
+  options: { bulk: boolean; skipAlreadyMarked: boolean },
+): Promise<{ countAffected: number; countSkippedMarked: number; inWindow: boolean }> {
+  const now = new Date().toISOString();
+
+  // The lock/window decision is re-read INSIDE the transaction, not before it
+  // (mirrors the gateway gate, `apps/gateway/routes/attendance.ts`): a lock
+  // that lands between an outside read and the write would otherwise be missed,
+  // which is the whole point of freezing the record.
+  const preExisting = await db.attendanceSession.findFirst({ where: { tenantId, sessionDate, batchId } });
+  if (preExisting?.lockedAt) {
+    // Lazy relock on an aged-out grant — in its OWN transaction, BEFORE the one
+    // that is about to throw. A throw inside the write transaction rolls back
+    // everything it wrote, so committing the close there would erase the record
+    // that the window expired (06 §10.8 `attendance_relock`).
+    const outside = await readUnlockWindow(db, tenantId, String(preExisting.id), now);
+    if (!outside.open && outside.expiredGrant) {
+      await db.$transaction(async (tx) => {
+        await tx.auditLog.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            actor: tenantId,
+            refType: "attendance_session",
+            refId: String(preExisting.id),
+            action: "attendance_relock",
+            metadata: JSON.stringify({ reason: "unlock_window_expired" }),
+            createdAt: now,
+          },
+        });
+        await tx.syncOutbox.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            tableName: "attendance_sessions",
+            rowId: String(preExisting.id),
+            op: "update",
+            payload: JSON.stringify({ relocked_at: now, reason: "unlock_window_expired" }),
+            createdAt: now,
+          },
+        });
       });
     }
+  }
 
-    // 2. Get or create session
-    const existingSession = await db.attendanceSession.findFirst({
-      where: {
-        tenantId,
-        sessionDate: payload.session_date,
-        batchId: targetBatchId,
-      },
-    });
-
+  return await db.$transaction(async (tx) => {
+    const session = await tx.attendanceSession.findFirst({ where: { tenantId, sessionDate, batchId } });
+    let inWindow = false;
     let sessionId: string;
-    let inUnlockWindow = false;
-    if (existingSession) {
-      if (existingSession.lockedAt) {
-        // 06 §10.6 BR-ATT-07 Tier 2/3: a locked session edits only inside an
-        // open unlock window (latest grant audit row < 60 min, no newer
-        // relock). The window is read here, outside the per-update
-        // transactions: a lock racing the first update is handled by the
-        // row-level update guard below re-checking inside each tx.
-        const window = await readUnlockWindow(db, tenantId, existingSession.id as string, now);
+    if (session) {
+      if (session.lockedAt) {
+        const window = await readUnlockWindow(tx, tenantId, String(session.id), now);
         if (!window.open) {
-          if (window.expiredGrant) {
-            // Lazy relock: the grant aged out with no relock row, so this
-            // attempt records the close (reason `unlock_window_expired`,
-            // 06 §10.8) in its own transaction, then rejects like any
-            // out-of-window edit. Separate transaction ON PURPOSE: the edit
-            // below throws, and a throw inside the edit's own transaction
-            // would roll the relock row back with it. The relock carries an
-            // outbox row like every other window mutation (Rule 7) so the
-            // close replicates cross-device.
-            await db.$transaction(async (tx) => {
-              await tx.auditLog.create({
-                data: {
-                  id: crypto.randomUUID(),
-                  tenantId,
-                  actor: tenantId,
-                  refType: "attendance_session",
-                  refId: existingSession.id as string,
-                  action: "attendance_relock",
-                  metadata: JSON.stringify({ reason: "unlock_window_expired" }),
-                  createdAt: now,
-                },
-              });
-              await tx.syncOutbox.create({
-                data: {
-                  id: crypto.randomUUID(),
-                  tenantId,
-                  tableName: "attendance_sessions",
-                  rowId: existingSession.id as string,
-                  op: "update",
-                  payload: JSON.stringify({ relocked_at: now, reason: "unlock_window_expired" }),
-                  createdAt: now,
-                },
-              });
-            });
-          }
-          if (hardLocked(payload.session_date, now)) {
+          if (hardLocked(sessionDate, now)) {
             throw new Error(
               "HARD_LOCKED: This session is more than 30 days old. Direct unlock is disabled — file an unlock request with a reason."
             );
           }
           throw new Error("Session is locked. Unlock it to edit.");
         }
-        inUnlockWindow = true;
+        inWindow = true;
       }
-      sessionId = existingSession.id as string;
+      sessionId = String(session.id);
     } else {
       sessionId = crypto.randomUUID();
-      await db.attendanceSession.create({
+      await tx.attendanceSession.create({
+        data: { id: sessionId, tenantId, sessionDate, batchId, createdAt: now, updatedAt: now },
+      });
+      // Rule 7 (BR-SYN-01): a session created by the first mark replicates too.
+      // Before this row existed the create was a bare write with no outbox row,
+      // so a session born on one device could be invisible on the next.
+      await tx.syncOutbox.create({
         data: {
-          id: sessionId,
+          id: crypto.randomUUID(),
           tenantId,
-          sessionDate: payload.session_date,
-          batchId: targetBatchId,
+          tableName: "attendance_sessions",
+          rowId: sessionId,
+          op: "insert",
+          payload: JSON.stringify({ session_id: sessionId, session_date: sessionDate, batch_id: batchId }),
           createdAt: now,
-          updatedAt: now,
         },
       });
     }
 
-    // 2. Upsert attendance records + sync_outbox
-    for (const update of payload.updates) {
-      const recordId = crypto.randomUUID();
-      const outboxId = crypto.randomUUID();
+    // 06 §10.7: "Mark all Present … Sets every enrolled-but-unmarked student …
+    // Already-marked students are not overwritten (the tutor's individual
+    // overrides win)." One pre-read settles the whole set, so the rule is
+    // enforced by the writer and not merely by which rows the client chose.
+    let priorByStudent: Map<string, string> | null = null;
+    if (options.skipAlreadyMarked) {
+      const priors = await tx.attendanceRecord.findMany({ where: { sessionId } });
+      priorByStudent = new Map(
+        (priors as Array<{ studentId?: unknown; status?: unknown }>).map((row) => [
+          String(row.studentId),
+          String(row.status ?? ""),
+        ]),
+      );
+    }
 
-      // Rule 7: record write + outbox row land in one write transaction.
-      await db.$transaction(async (tx) => {
-        // 06 §10.6/§10.8 Tier 2+3: in-window edits are double-audited — one
-        // `attendance_edit_locked` row per changed row, carrying old/new
-        // status, inside the same transaction as the record write.
-        let oldStatus: string | null = null;
-        if (inUnlockWindow) {
-          const current = await tx.attendanceRecord.findFirst({
-            where: { sessionId, studentId: update.student_id },
-          });
-          oldStatus = (current?.status as string | null) ?? null;
-        }
-        await tx.attendanceRecord.upsert({
-          where: { sessionId, studentId: update.student_id },
-          create: {
-            id: recordId,
-            tenantId,
-            sessionId,
-            studentId: update.student_id,
-            status: update.status,
-            markedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-          update: {
-            status: update.status,
-            updatedAt: now,
-          },
-        });
-        await tx.syncOutbox.create({
+    const effective = options.skipAlreadyMarked
+      ? updates.filter((u) => !priorByStudent?.has(u.student_id))
+      : updates;
+
+    // In-window edits need the pre-image for the audit delta, so the priors are
+    // read once for the batch rather than once per row.
+    if (inWindow && !priorByStudent) {
+      const priors = await tx.attendanceRecord.findMany({ where: { sessionId } });
+      priorByStudent = new Map(
+        (priors as Array<{ studentId?: unknown; status?: unknown }>).map((row) => [
+          String(row.studentId),
+          String(row.status ?? ""),
+        ]),
+      );
+    }
+
+    for (const update of effective) {
+      const recordId = crypto.randomUUID();
+      await tx.attendanceRecord.upsert({
+        where: { sessionId, studentId: update.student_id },
+        create: {
+          id: recordId,
+          tenantId,
+          sessionId,
+          studentId: update.student_id,
+          status: update.status,
+          markedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        update: { status: update.status, updatedAt: now },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "attendance_records",
+          rowId: recordId,
+          op: "update",
+          payload: JSON.stringify({ sessionId, studentId: update.student_id, status: update.status }),
+          createdAt: now,
+        },
+      });
+      if (inWindow) {
+        // 06 §10.8 / §15.2: one `attendance_edit_locked` row per changed row,
+        // in the SAME transaction as the write it describes.
+        await tx.auditLog.create({
           data: {
-            id: outboxId,
+            id: crypto.randomUUID(),
             tenantId,
-            tableName: "attendance_records",
-            rowId: recordId,
-            op: "update",
-            payload: JSON.stringify(update),
+            actor: tenantId,
+            refType: "attendance_record",
+            refId: recordId,
+            action: "attendance_edit_locked",
+            metadata: JSON.stringify({
+              student_id: update.student_id,
+              old_status: priorByStudent?.get(update.student_id) ?? null,
+              new_status: update.status,
+              window: "unlock",
+            }),
             createdAt: now,
           },
         });
-        if (inUnlockWindow) {
-          await tx.auditLog.create({
-            data: {
-              id: crypto.randomUUID(),
-              tenantId,
-              actor: tenantId,
-              refType: "attendance_record",
-              refId: recordId,
-              action: "attendance_edit_locked",
-              metadata: JSON.stringify({
-                student_id: update.student_id,
-                old_status: oldStatus,
-                new_status: update.status,
-                window: "unlock",
-              }),
-              createdAt: now,
-            },
-          });
-        }
+      }
+    }
+
+    if (options.bulk && effective.length > 0) {
+      // 06 §15.2 audit table: `attendance_bulk_mark` with
+      // { batch_id, session_date, status, count_affected,
+      // count_skipped_locked }. Nothing in the product wrote this row before, so
+      // a whole-day bulk mark — the one mutation a tutor cannot undo row-by-row
+      // in one motion — left no trace in the audit log at all.
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          refType: "attendance_session",
+          refId: sessionId,
+          action: "attendance_bulk_mark",
+          metadata: JSON.stringify({
+            batch_id: batchId,
+            session_date: sessionDate,
+            status: effective[0]?.status ?? null,
+            count_affected: effective.length,
+            count_skipped_locked: 0,
+            count_skipped_already_marked: updates.length - effective.length,
+          }),
+          createdAt: now,
+        },
       });
     }
 
-    invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch may auto-create above
-    return { success: true };
+    return {
+      countAffected: effective.length,
+      countSkippedMarked: updates.length - effective.length,
+      inWindow,
+    };
+  });
+}
+
+export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
+  try {
+    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL) +
+    // §2 Rule 7 (outbox in the same transaction as the mutation);
+    // 06_Attendance.md §9.2 (session upsert + record upsert in one tx),
+    // §10.6 (unlock window gate), §10.8 (audit), §14 (validate first).
+    const parsed = MarkPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      return {
+        success: false,
+        error: `VALIDATION: ${first ? `${first.path.join(".") || "payload"}: ${first.message}` : "invalid mark payload"}`,
+      };
+    }
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const now = new Date().toISOString();
+
+    if (isFutureDate(parsed.data.session_date, now)) {
+      // EC-A-01 / 06 §11 E5 / §14 (`session_date` ≤ today): a session dated in
+      // the future is not a record, it is a placeholder that would later lock
+      // itself and force the tutor through a PIN to clean up.
+      return { success: false, error: "VALIDATION: You cannot mark attendance for a future date." };
+    }
+
+    const targetBatchId =
+      parsed.data.batch_id && parsed.data.batch_id.trim() !== "" && parsed.data.batch_id !== "all"
+        ? parsed.data.batch_id
+        : "batch-default";
+
+    await ensureBatch(db, tenantId, targetBatchId, now);
+
+    const result = await writeAttendance(
+      db,
+      tenantId,
+      parsed.data.session_date,
+      targetBatchId,
+      parsed.data.updates as MarkRequest[],
+      { bulk: false, skipAlreadyMarked: false },
+    );
+
+    invalidateTenant(tenantId, "attendance:");
+    return { success: true, count_affected: result.countAffected };
   } catch (error) {
     log.error('attendance_update_failed', error instanceof Error ? error.message : String(error));
     return { success: false, error: error instanceof Error ? error.message : "Failed to update attendance" };
   }
 }
 
-export async function lockSessionAction(sessionId: string, pin: string) {
+/**
+ * Bulk mark (06 §10.7 BR-ATT-06). A separate entry point from the per-row
+ * `updateAttendanceAction` so the BULK rules live in one auditable place:
+ *
+ *   - Present  → `overwrite: false` — already-marked students keep their mark
+ *     (the tutor's individual overrides win).
+ *   - Absent   → `overwrite: true`, and only after the tutor has TYPED
+ *     `ABSENT` (BULK_ABSENT_CONFIRM_WORD). The typed word is a UI gate per
+ *     06 §14, so it is not re-checked here; the count and the audit row are,
+ *     because a bulk is the one attendance mutation with no per-row undo.
+ */
+/** Discriminated so callers can narrow on `success` (a `boolean` here would
+ *  leave `count_affected`/`count_skipped` possibly-undefined at the call site). */
+export type BulkMarkResult =
+  | { success: true; count_affected: number; count_skipped: number }
+  | { success: false; error: string };
+
+export async function bulkMarkAttendanceAction(input: {
+  session_date: string;
+  batch_id: string | null;
+  status: string;
+  student_ids: string[];
+  overwrite: boolean;
+}): Promise<BulkMarkResult> {
+  try {
+    const parsed = BulkMarkPayloadSchema.safeParse(input);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      return {
+        success: false,
+        error: `VALIDATION: ${first ? `${first.path.join(".") || "payload"}: ${first.message}` : "invalid bulk mark"}`,
+      };
+    }
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const now = new Date().toISOString();
+
+    if (isFutureDate(parsed.data.session_date, now)) {
+      return { success: false, error: "VALIDATION: You cannot mark attendance for a future date." };
+    }
+    if (parsed.data.student_ids.length === 0) {
+      // 06 §11 E10: nothing to mark is not an error worth a toast.
+      return { success: true as const, count_affected: 0, count_skipped: 0 };
+    }
+
+    const targetBatchId =
+      parsed.data.batch_id && parsed.data.batch_id.trim() !== "" && parsed.data.batch_id !== "all"
+        ? parsed.data.batch_id
+        : "batch-default";
+    await ensureBatch(db, tenantId, targetBatchId, now);
+
+    const result = await writeAttendance(
+      db,
+      tenantId,
+      parsed.data.session_date,
+      targetBatchId,
+      parsed.data.student_ids.map((studentId) => ({
+        student_id: studentId,
+        status: parsed.data.status,
+      })),
+      { bulk: true, skipAlreadyMarked: !parsed.data.overwrite },
+    );
+
+    invalidateTenant(tenantId, "attendance:");
+    return {
+      success: true as const,
+      count_affected: result.countAffected,
+      count_skipped: result.countSkippedMarked,
+    };
+  } catch (error) {
+    log.error('attendance_bulk_update_failed', error instanceof Error ? error.message : String(error));
+    return { success: false, error: error instanceof Error ? error.message : "Failed to update attendance" };
+  }
+}
+
+export { BULK_ABSENT_CONFIRM_WORD };
+
+/**
+ * Lock a session (06 §9.3, §10.3, §15.2).
+ *
+ * `target` carries the date + batch so 06 §11 E9 can be honoured: "Lock
+ * attempted with no records | Allowed — locks an empty session (rare but valid;
+ * e.g., tutor pre-locks a cancelled class)." Sessions are created lazily by the
+ * first mark (§9.2), so before this the only reachable lock was a session that
+ * already had at least one mark, and the sheet's own empty state said so.
+ */
+export async function lockSessionAction(
+  sessionId: string,
+  pin: string,
+  target?: { date: string; batchId: string | null },
+) {
   try {
     const { db, tenantId } = await getAuthenticatedPrisma();
     const settingsRow = await db.setting.findFirst({
@@ -233,14 +470,52 @@ export async function lockSessionAction(sessionId: string, pin: string) {
     }
     const now = new Date().toISOString();
 
+    if (target && isFutureDate(target.date, now)) {
+      return { success: false, error: "VALIDATION: You cannot lock a future date." };
+    }
+
+    const batchId = target?.batchId && target.batchId !== "all" ? target.batchId : "batch-default";
+
     // W2 (reviews/overhaul-audit-report-2026-09-26.md): the lock UPDATE, its
     // sync_outbox row and the audit_log row go in ONE write transaction —
     // Rule 7 (AGENTS §2) / BR-SYN-01 require the outbox row in the same
     // transaction as the mutation, so a locked session can never exist
     // locally without a queued replication row.
-    await db.$transaction(async (tx) => {
+    const lockedId = await db.$transaction(async (tx) => {
+      let id = sessionId;
+      let existing = await tx.attendanceSession.findFirst({ where: { id, tenantId } });
+      if (!existing && target) {
+        existing = await tx.attendanceSession.findFirst({
+          where: { tenantId, sessionDate: target.date, batchId },
+        });
+        if (!existing) {
+          // E9: lock an empty session. Created INSIDE this transaction so the
+          // insert, its outbox row, the lock and the audit row all commit or
+          // none do — a lock that created a session it then failed to lock
+          // would be a session row the tutor cannot explain later.
+          id = crypto.randomUUID();
+          await tx.attendanceSession.create({
+            data: { id, tenantId, sessionDate: target.date, batchId, createdAt: now, updatedAt: now },
+          });
+          await tx.syncOutbox.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              tableName: "attendance_sessions",
+              rowId: id,
+              op: "insert",
+              payload: JSON.stringify({ session_id: id, session_date: target.date, batch_id: batchId }),
+              createdAt: now,
+            },
+          });
+        }
+      }
+      if (!existing && !target) {
+        throw new Error("Session not found.");
+      }
+      const sessionDate = String(existing?.sessionDate ?? target?.date ?? "");
       await tx.attendanceSession.update({
-        where: { id: sessionId, tenantId },
+        where: { id, tenantId },
         data: { lockedAt: now, updatedAt: now },
       });
       await tx.syncOutbox.create({
@@ -248,7 +523,7 @@ export async function lockSessionAction(sessionId: string, pin: string) {
           id: crypto.randomUUID(),
           tenantId,
           tableName: "attendance_sessions",
-          rowId: sessionId,
+          rowId: id,
           op: "update",
           payload: JSON.stringify({ locked_at: now }),
           createdAt: now,
@@ -260,15 +535,29 @@ export async function lockSessionAction(sessionId: string, pin: string) {
           tenantId,
           actor: tenantId,
           refType: "attendance_session",
-          refId: sessionId,
-          action: "session_locked",
-          metadata: JSON.stringify({ locked_at: now }),
+          refId: id,
+          // 06 §15.2 audit table: manual lock is `attendance_lock` with
+          // `{ batch_id, session_date, method }`. The row was written as
+          // `session_locked` with `{ locked_at }`, a vocabulary the spec never
+          // defines — so a Settings → Security → Audit filter for
+          // `attendance_lock` (or for the session's own trail) found nothing,
+          // and §10.8's promise that the trail answers "who froze this and how"
+          // had no row to answer from.
+          action: "attendance_lock",
+          metadata: JSON.stringify({
+            batch_id: batchId,
+            session_date: sessionDate,
+            method: "pin",
+            locked_at: now,
+          }),
           createdAt: now,
         },
       });
+      return id;
     });
 
-    return { success: true };
+    invalidateTenant(tenantId, "attendance:");
+    return { success: true, session_id: lockedId };
   } catch (error) {
     log.error('lock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
     return { success: false, error: error instanceof Error ? error.message : "Failed to lock session" };
@@ -285,7 +574,12 @@ export interface AttendanceSummaryItem {
   late: number;
   excused: number;
   total_sessions: number;
-  percentage: number;
+  /**
+   * BR-CALC-06: `null` when the denominator is 0, and the UI renders "—".
+   * A `0` here reads as "this student attended nothing", which is a different
+   * and much worse claim than "nothing to measure".
+   */
+  percentage: number | null;
 }
 
 export interface AttendanceSummary {
@@ -300,8 +594,37 @@ export interface AttendanceSummary {
     overall_absent: number;
     overall_late: number;
     overall_excused: number;
-    overall_percentage: number;
+    overall_percentage: number | null;
   };
+}
+
+/**
+ * BR-CALC-06 / 06 §9.7 attendance percentage.
+ *
+ * `excused` and `holiday` are EXCLUDED from the denominator (BR-CALC-06,
+ * BR-ATT-02 "excused and holiday are excluded from the denominator",
+ * BR-ATT-04/09, 06 §9.7 and §10.2 all say so) — a medical leave or a declared
+ * holiday must not read as an absence. `late` counts as ATTENDED: BR-ATT-02
+ * ("Late counts as present for %, flagged separately"), 06 §9.7
+ * (`presentOrLate_count / totals_count`) and 06 §10.5 ("late counts toward % as
+ * present does") all put late in the numerator; the `BR-CALC-06` formula line
+ * omits it, which is a genuine contradiction between two specs — raised as a
+ * cross-lane report, and resolved here in favour of the three concurring
+ * statements (the more specific attendance rule wins over the one-line
+ * formula).
+ *
+ * Returns `null` for a zero denominator (BR-CALC-06: "pct = null (display
+ * '—')").
+ */
+export function attendancePct(counts: {
+  present: number;
+  late: number;
+  absent: number;
+}): number | null {
+  const attended = counts.present + counts.late;
+  const denominator = attended + counts.absent;
+  if (denominator <= 0) return null;
+  return Math.round((attended / denominator) * 100);
 }
 
 export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Promise<{
@@ -310,32 +633,36 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
   error?: string;
 }> {
   try {
-    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL).
+    // Implements: AGENTS.md §3.4 (Prisma ORM only — no runtime raw SQL);
+    // 12_Business_Rules.md BR-CALC-06 / BR-CALC-07.
     const { db, tenantId } = await getAuthenticatedPrisma();
     const now = new Date();
     let periodStart: string;
-    let periodEnd = now.toISOString().slice(0, 10);
+    let periodEnd = localDayIso(now.getFullYear(), now.getMonth(), now.getDate());
 
+    // Bounds are LOCAL calendar days built from date parts (see
+    // `localDayIso`): round-tripping them through `toISOString()` shifted every
+    // preset a day backwards east of UTC, so "Last Month" silently included a
+    // day of the month before it.
     switch (preset) {
       case "current_month":
-        periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), now.getMonth(), 1);
         break;
       case "last_month":
-        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        periodStart = lastMonth.toISOString().slice(0, 10);
-        periodEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), now.getMonth() - 1, 1);
+        periodEnd = localDayIso(now.getFullYear(), now.getMonth(), 0);
         break;
       case "last_3_months":
-        periodStart = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), now.getMonth() - 2, 1);
         break;
       case "last_6_months":
-        periodStart = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), now.getMonth() - 5, 1);
         break;
       case "full_year":
-        periodStart = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), 0, 1);
         break;
       default:
-        periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+        periodStart = localDayIso(now.getFullYear(), now.getMonth(), 1);
     }
 
     const emptyOverall = {
@@ -345,67 +672,45 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
       overall_absent: 0,
       overall_late: 0,
       overall_excused: 0,
-      overall_percentage: 0,
+      overall_percentage: null as number | null,
     };
 
     // Active roster via the ORM surface (same filter + ordering as before:
     // tenant, status active, not archived, ordered by first name).
-    let studentRows: Array<{ id: string; firstName: string; lastName: string | null }>;
-    try {
-      const rows = await db.student.findMany({
-        where: { tenantId, status: "active", archivedAt: null },
-        orderBy: { firstName: "asc" },
-      });
-      studentRows = rows.map((row) => ({
-        id: String(row.id),
-        firstName: String(row.firstName ?? ""),
-        lastName: (row.lastName as string | null) ?? null,
-      }));
-    } catch (sqlErr) {
-      log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
-      return {
-        ok: true,
-        value: {
-          preset,
-          period_start: periodStart,
-          period_end: periodEnd,
-          summaries: [],
-          overall: emptyOverall,
-        },
-      };
-    }
+    //
+    // Rule 9 / EC-A-04: these reads previously caught their own failure and
+    // returned `ok: true` with an EMPTY summary. The panel has one string for
+    // "this period has no data" and one for "this failed" — so a timeout in the
+    // middle of a month-end review told the tutor their students had no
+    // attendance at all. A failed read is now a failed read.
+    const rows = await db.student.findMany({
+      where: { tenantId, status: "active", archivedAt: null },
+      orderBy: { firstName: "asc" },
+    });
+    const studentRows = rows.map((row) => ({
+      id: String(row.id),
+      firstName: String(row.firstName ?? ""),
+      lastName: (row.lastName as string | null) ?? null,
+    }));
 
     // Attendance records in period. The ORM surface has no JOIN or date-range
     // operator, so sessions + records are read per-tenant and filtered in JS —
     // same rows as the previous JOIN, no raw SQL.
-    let recordRows: Array<{ studentId: string; status: string }>;
-    try {
-      const sessions = await db.attendanceSession.findMany({ where: { tenantId } });
-      const sessionIds = new Set(
-        sessions
-          .filter((session) => {
-            const day = String(session.sessionDate ?? "");
-            return day >= periodStart && day <= periodEnd;
-          })
-          .map((session) => String(session.id)),
-      );
-      const allRecords = await db.attendanceRecord.findMany({ where: { tenantId } });
-      recordRows = allRecords
-        .filter((rec) => sessionIds.has(String(rec.sessionId)))
-        .map((rec) => ({ studentId: String(rec.studentId), status: String(rec.status) }));
-    } catch (sqlErr) {
-      log.error('attendance_summary_failed', sqlErr instanceof Error ? sqlErr.message : String(sqlErr));
-      return {
-        ok: true,
-        value: {
-          preset,
-          period_start: periodStart,
-          period_end: periodEnd,
-          summaries: [],
-          overall: { ...emptyOverall, total_students: studentRows.length },
-        },
-      };
-    }
+    const sessions = await db.attendanceSession.findMany({ where: { tenantId } });
+    const sessionIds = new Set(
+      sessions
+        .filter((session) => {
+          const day = String(session.sessionDate ?? "");
+          return day >= periodStart && day <= periodEnd;
+        })
+        .map((session) => String(session.id)),
+    );
+    const allRecords = sessionIds.size
+      ? await db.attendanceRecord.findMany({ where: { tenantId } })
+      : [];
+    const recordRows = allRecords
+      .filter((rec) => sessionIds.has(String(rec.sessionId)))
+      .map((rec) => ({ studentId: String(rec.studentId), status: String(rec.status) }));
 
     // Aggregate by student
     const summaryMap = new Map<string, { present: number; absent: number; late: number; excused: number }>();
@@ -429,6 +734,10 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
     for (const [studentId, counts] of summaryMap.entries()) {
       const student = studentRows.find((s) => s.id === studentId);
       if (!student) continue;
+      // `total_sessions` stays the count of marks in the period (including
+      // excused) because the column is labelled "Total" beside the four status
+      // columns and must sum to them; the PERCENTAGE denominator is the
+      // BR-CALC-06 one, which excludes excused.
       const total = counts.present + counts.absent + counts.late + counts.excused;
       totalSessions += total;
       overallPresent += counts.present;
@@ -443,11 +752,15 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
         late: counts.late,
         excused: counts.excused,
         total_sessions: total,
-        percentage: total > 0 ? Math.round((counts.present / total) * 100) : 0,
+        percentage: attendancePct(counts),
       });
     }
 
-    const totalOverall = overallPresent + overallAbsent + overallLate + overallExcused;
+    const overallPct = attendancePct({
+      present: overallPresent,
+      late: overallLate,
+      absent: overallAbsent,
+    });
 
     return {
       ok: true,
@@ -458,12 +771,12 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
         summaries,
         overall: {
           total_students: studentRows.length,
-          total_sessions: totalOverall,
+          total_sessions: totalSessions,
           overall_present: overallPresent,
           overall_absent: overallAbsent,
           overall_late: overallLate,
           overall_excused: overallExcused,
-          overall_percentage: totalOverall > 0 ? Math.round((overallPresent / totalOverall) * 100) : 0,
+          overall_percentage: overallPct,
         },
       },
     };

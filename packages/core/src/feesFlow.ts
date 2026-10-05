@@ -26,7 +26,7 @@
 
 import { randomUUID } from "crypto";
 import { paiseAdd, paiseSub } from "./money";
-import { computeInvoiceTamperHash } from "./tamper";
+import { computeInvoiceTamperHash, computeReceiptTamperHash } from "./tamper";
 import type { LedgerEntryType, Result } from "./ledger";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,18 @@ export interface RecordPaymentInput {
   description: string;
   /** `YYYY-MM-DD` from the UI; becomes `occurred_on` of every ledger row. */
   receivedOn: string;
+  /**
+   * 07 §7 `TypeChip` vocabulary, written to `receipts.payment_method`. Optional
+   * so a caller that predates receipts keeps compiling; the flow defaults it to
+   * `"manual"` rather than inventing a method the tutor never chose.
+   */
+  method?: string;
+  /**
+   * 07 §6.4 as AMENDED: the payment reference is OPTIONAL for every method —
+   * cash genuinely has none. Malformed values are rejected upstream in
+   * `packages/shared`; this layer stores whatever it is handed, verbatim.
+   */
+  reference?: string;
 }
 
 export interface AppliedInvoice {
@@ -72,6 +84,16 @@ export interface RecordPaymentResult {
   applied: AppliedInvoice[];
   autoInvoiceId: string | null;
   autoInvoiceNumber: string | null;
+  /**
+   * The receipt issued for this payment — 07 §9.6 step 4/7, BR-RC-01. This used
+   * to be absent from the port entirely: a web-recorded payment created NO
+   * receipt and never consumed `next_receipt_seq`, so a tutor who paid five
+   * times on web held zero receipts and the first gateway payment inherited
+   * `RCP-000001` for what was really the sixth. Present now because the flow
+   * cannot honour §9.6 without it.
+   */
+  receiptId: string;
+  receiptNo: string;
   /** Invariant: === `input.amountPaise` — every paise is attributed somewhere. */
   creditedPaise: number;
 }
@@ -110,6 +132,27 @@ export interface EntryInput {
   occurredOn: string;
 }
 
+/**
+ * The receipt row 07 §9.6 step 4 writes, plus its `sync_outbox` replication
+ * row. `invoiceId` is nullable (a pure advance has no invoice to attribute
+ * against); `paymentRef` is an OPTIONAL string for every method since the
+ * amended §6.4 — an empty string is a legal value, not a missing one.
+ */
+export interface ReceiptInsert {
+  receiptId: string;
+  tenantId: string;
+  number: string;
+  ledgerEntryId: string;
+  studentId: string;
+  invoiceId: string | null;
+  amountPaise: number;
+  paymentMethod: string;
+  paymentRef: string;
+  receivedOn: string;
+  tamperHash: string;
+  now: string;
+}
+
 export interface AuditArgs {
   tenantId: string;
   action: string;
@@ -135,6 +178,19 @@ export interface FeeTx {
     tenantId: string,
     now: string,
   ): Promise<{ number: string; seq: number; prefix: string }>;
+  /**
+   * 07 §9.6 step 7 + 12 BR-RC-01: the receipt number is
+   * `receipt_prefix + zero-pad(next_receipt_seq, 6)`, consumed by ATOMIC
+   * increment and NEVER decremented — a void leaves a gap by design, because
+   * the gap is the audit trail. Same fail-closed shape as the invoice take: no
+   * settings row, no number, no payment.
+   */
+  takeReceiptNumber(
+    tenantId: string,
+    now: string,
+  ): Promise<{ number: string; seq: number; prefix: string }>;
+  /** Receipt row + its `sync_outbox` replication row (Rule 7). */
+  insertReceipt(row: ReceiptInsert): Promise<void>;
   /** Invoice row + its `sync_outbox` replication row (Rule 7). */
   insertInvoice(row: InvoiceInsert): Promise<void>;
   /** §9.6 step 5: status recompute + its outbox row. */
@@ -286,6 +342,59 @@ export async function recordPaymentFlow(
     now,
   });
 
+  // §9.6 step 3 — the receipt number, consumed BEFORE any ledger row posts.
+  //
+  // Ordering is the whole point of this step. The number comes from
+  // `settings.next_receipt_seq` by atomic increment (BR-RC-01, never
+  // decremented), and because the adapter has one write transaction open, a
+  // throw anywhere below rolls the increment back with everything else — so a
+  // crash can leave neither a payment with no receipt nor a receipt with no
+  // payment. Taking it up front (rather than after the ledger rows) is what
+  // makes the "all 8 steps or none" guarantee hold for the SEQUENCE as well as
+  // the rows.
+  const receiptSecret = await tx.requireTenantSecret(input.tenantId); // F1
+  const receiptSeq = await tx.takeReceiptNumber(input.tenantId, now);
+  const receiptId = randomUUID();
+  const receiptNo = receiptSeq.number;
+  const receiptTamperHash = computeReceiptTamperHash(
+    {
+      number: receiptNo,
+      studentId: input.studentId,
+      amountPaise: input.amountPaise,
+      receivedOn: input.receivedOn,
+    },
+    receiptSecret,
+  );
+  let receiptWritten = false;
+  // §9.6 step 4: `receipts.ledger_entry_id` is NOT NULL, so the row lands right
+  // after the FIRST ledger entry — still before any invoice UPDATE, still
+  // inside the one transaction. `invoiceId` names the invoice the payment
+  // principally settled, or null for a pure advance.
+  const writeReceiptFor = async (ledgerEntryId: string, invoiceId: string | null) => {
+    if (receiptWritten) return;
+    receiptWritten = true;
+    await tx.insertReceipt({
+      receiptId,
+      tenantId: input.tenantId,
+      number: receiptNo,
+      ledgerEntryId,
+      studentId: input.studentId,
+      invoiceId,
+      amountPaise: input.amountPaise,
+      paymentMethod: input.method ?? "manual",
+      paymentRef: input.reference ?? "",
+      receivedOn: input.receivedOn,
+      tamperHash: receiptTamperHash,
+      now,
+    });
+    await tx.writeSettingsOutbox({
+      tenantId: input.tenantId,
+      prefix: receiptSeq.prefix,
+      seq: receiptSeq.seq,
+      now,
+    });
+  };
+
   // §9.6 step 5 inputs — open invoices, earliest due first, restricted to
   // genuinely open statuses per §9.5 (`unpaid|partial|overdue`) with
   // `voided_at IS NULL` as the second gate.
@@ -320,18 +429,18 @@ export async function recordPaymentFlow(
     }
 
     const paise = Math.min(remaining, outstanding);
-    entryIds.push(
-      await tx.postEntry({
-        tenantId: input.tenantId,
-        studentId: input.studentId,
-        type: "PAYMENT_RECEIVED",
-        debitPaise: 0,
-        creditPaise: paise,
-        description: input.description,
-        invoiceId: invoice.id,
-        occurredOn: input.receivedOn,
-      }),
-    );
+    const entryId = await tx.postEntry({
+      tenantId: input.tenantId,
+      studentId: input.studentId,
+      type: "PAYMENT_RECEIVED",
+      debitPaise: 0,
+      creditPaise: paise,
+      description: input.description,
+      invoiceId: invoice.id,
+      occurredOn: input.receivedOn,
+    });
+    entryIds.push(entryId);
+    await writeReceiptFor(entryId, invoice.id);
 
     // §9.6 step 5 status recompute: paid ≥ total → 'paid', paid > 0 → 'partial'.
     const paidAfter = paiseAdd(alreadyPaid, paise);
@@ -387,18 +496,21 @@ export async function recordPaymentFlow(
       now,
     });
 
-    entryIds.push(
-      await tx.postEntry({
-        tenantId: input.tenantId,
-        studentId: input.studentId,
-        type: "FEE_CHARGED",
-        debitPaise: remaining,
-        creditPaise: 0,
-        description: `Auto-invoice for payment: ${input.description}`,
-        invoiceId: autoInvoiceId,
-        occurredOn: input.receivedOn,
-      }),
-    );
+    const autoChargeEntryId = await tx.postEntry({
+      tenantId: input.tenantId,
+      studentId: input.studentId,
+      type: "FEE_CHARGED",
+      debitPaise: remaining,
+      creditPaise: 0,
+      description: `Auto-invoice for payment: ${input.description}`,
+      invoiceId: autoInvoiceId,
+      occurredOn: input.receivedOn,
+    });
+    entryIds.push(autoChargeEntryId);
+    // A pure advance (no open invoice) lands its receipt against the
+    // auto-invoice's FEE_CHARGED row — §9.6 still gets a receipt for every
+    // payment, and the row is inside the same transaction.
+    await writeReceiptFor(autoChargeEntryId, autoInvoiceId);
     entryIds.push(
       await tx.postEntry({
         tenantId: input.tenantId,
@@ -416,15 +528,32 @@ export async function recordPaymentFlow(
   }
 
   // Fail-closed invariant (Rule 9): attribution must exactly cover the payment
-  // — if it ever does not, the adapter's transaction rolls back.
+  // — if it ever does not, the adapter's transaction rolls back. The receipt is
+  // part of that same guarantee: an amount can never post without one, because
+  // the two writes share a transaction and the sequence increment is rolled
+  // back with them.
   const creditedPaise = applied.reduce((sum, a) => paiseAdd(sum, a.paise), 0);
   if (creditedPaise !== input.amountPaise) {
     throw new Error(
       `PAYMENT_ATTRIBUTION_BUG: credited ${creditedPaise} of ${input.amountPaise} paise`,
     );
   }
+  if (!receiptWritten) {
+    // Unreachable while `assertPositivePaise` holds (a zero/negative amount
+    // throws before the sequence is touched), but the check is the difference
+    // between "a payment without a receipt" and a loud typed error.
+    throw new Error(`RECEIPT_MISSING: no receipt written for ${receiptNo}`);
+  }
 
-  return { entryIds, applied, autoInvoiceId, autoInvoiceNumber, creditedPaise };
+  return {
+    entryIds,
+    applied,
+    autoInvoiceId,
+    autoInvoiceNumber,
+    receiptId,
+    receiptNo,
+    creditedPaise,
+  };
 }
 
 /** The audit actor both dialects write (07 §9.6 step 1). */

@@ -77,7 +77,13 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
     "CREATE TABLE students (id TEXT PRIMARY KEY, tenant_id TEXT, balance_paise INTEGER DEFAULT 0, updated_at TEXT)"
   );
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, invoice_prefix TEXT, tenant_secret TEXT, pin_hash TEXT, updated_at TEXT)"
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, next_receipt_seq INTEGER DEFAULT 1, invoice_prefix TEXT, receipt_prefix TEXT DEFAULT 'RCP-', tenant_secret TEXT, pin_hash TEXT, updated_at TEXT)"
+  );
+  await client.execute(
+    // 07 §9.6 step 4 — a receipt exists for every payment. The fixture used to
+    // omit the table entirely, which meant a flow that minted receipts could not
+    // be tested here at all (and one that minted none looked identical).
+    "CREATE TABLE receipts (id TEXT PRIMARY KEY, tenant_id TEXT, number TEXT, ledger_entry_id TEXT, student_id TEXT, invoice_id TEXT, amount INTEGER, payment_method TEXT, payment_ref TEXT, received_on TEXT, tamper_hash TEXT, voided_at TEXT, pdf_blob_key TEXT, created_at TEXT, updated_at TEXT, UNIQUE(tenant_id, number))"
   );
   await client.execute(
     "CREATE TABLE audit_log (id TEXT PRIMARY KEY, tenant_id TEXT, actor TEXT, action TEXT, ref_type TEXT, ref_id TEXT, metadata TEXT, created_at TEXT)"
@@ -229,6 +235,39 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
     expect(res.data.method).toBe("upi");
     expect(res.data.reference).toBe("AXISBK123456789");
     expect(res.data.creditedPaise).toBe(150000);
+    // 07 §9.6 step 4/7 + BR-RC-01: the payment mints ONE receipt, numbered from
+    // `next_receipt_seq`, carrying the tutor's chosen method and reference. This
+    // is the assertion the sheet's promise ("your receipt number is issued the
+    // moment this saves") actually rests on — before the flow grew a receipt
+    // step, `recordPaymentFlow` returned no number at all and the sheet was
+    // promising something the code could not deliver.
+    expect(res.data.receiptNo).toMatch(/^RCP-\d{6}$/);
+    const receipts = await client.execute({
+      sql: `SELECT number, amount, payment_method, payment_ref, received_on, tamper_hash, ledger_entry_id
+            FROM receipts WHERE tenant_id = ?`,
+      args: [TENANT],
+    });
+    expect(receipts.rows).toHaveLength(1);
+    expect(receipts.rows[0]?.number).toBe(res.data.receiptNo);
+    expect(receipts.rows[0]?.amount).toBe(150000);
+    expect(receipts.rows[0]?.payment_method).toBe("upi");
+    expect(receipts.rows[0]?.payment_ref).toBe("AXISBK123456789");
+    expect(receipts.rows[0]?.received_on).toBe(TODAY_ISO);
+    // Tamper evidence is NOT NULL and must actually be a hash (10_Security.md §10).
+    expect(String(receipts.rows[0]?.tamper_hash ?? "")).toMatch(/^[0-9a-f]{64}$/);
+    // The receipt back-links the ledger row it was issued against.
+    expect(String(receipts.rows[0]?.ledger_entry_id ?? "")).toBe(res.data.entryIds[0]);
+    // The sequence was consumed, and the receipt replicated (Rule 7).
+    const receiptSeq = await client.execute({
+      sql: `SELECT next_receipt_seq FROM settings WHERE tenant_id = ?`,
+      args: [TENANT],
+    });
+    expect(Number(receiptSeq.rows[0]?.next_receipt_seq)).toBe(2);
+    expect(
+      await client.execute({
+        sql: `SELECT COUNT(*) AS n FROM sync_outbox WHERE table_name = 'receipts' AND op = 'insert'`,
+      }).then((r) => Number(r.rows[0]?.n)),
+    ).toBe(1);
     // Rule 7: every mutation path leaves outbox + audit rows.
     expect(await countRows(client, "ledger_entries")).toBeGreaterThan(0);
     expect(await countRows(client, "sync_outbox")).toBeGreaterThan(0);

@@ -6,35 +6,34 @@
 // failures — a failed read renders an `ErrorState`, never zeroes) and Rule 10
 // (44px targets, colour never the only signal, reduced motion via `.skeleton`).
 //
-// THREE LIAR-CONTROLS WERE REMOVED FROM THIS SCREEN, all by the same rule: a
+// TWO LIAR-CONTROLS WERE REMOVED FROM THIS SCREEN, all by the same rule: a
 // tutor's own books are the one thing this screen may not approximate.
 //
-//   1. The period filter (spec §4, §8.1, §8.2) is still GONE as a CONTROL, but
-//      the reason has changed. It wrote `stores/dashboard.ts` `periodFilter`
-//      while the query key was the constant `["dashboard","summary"]` and
-//      `fetchDashboardSummaryAction()` took no argument, so four pills
-//      repainted one payload. It could not simply be wired up while the gateway
-//      read `periodStartIso`/`periodEndIso` and discarded both, leaving the KPI
-//      maths period-free (collected was every `PAYMENT_RECEIVED` row ever
-//      written). That is fixed at the source now —
-//      `apps/gateway/routes/analytics.ts` validates the window, bounds
-//      `collectedThisMonthMinor` and `dueForMonthMinor` by it, and answers a
-//      malformed one with a typed 400. Restoring the pills is therefore a
-//      separate, honest piece of work: pass the filter through the action, put
-//      it in the query key, and four caches stop serving one payload. The Collected
-//      tile below says "Received this month" because that is what the default
-//      window (1st of the month → today) measures.
-//   2. The "18% vs last month" delta on Collected is GONE. Spec §9.2 defines the
+//   1. The "18% vs last month" delta on Collected is GONE. Spec §9.2 defines the
 //      prev-period delta as a SECOND aggregate over the previous month, which
 //      the gateway does not expose; computing it here would be the second
 //      implementation this screen just lost. In its place each money KPI states
 //      the real scope of its measure, which is what spec line 166 already asks
 //      for ("All-time, ignores filter") and what a tutor needs to know before
 //      reconciling anything.
-//   3. `JSON.parse` in the render path is GONE. Activity rows are normalised at
+//   2. `JSON.parse` in the render path is GONE. Activity rows are normalised at
 //      the action boundary; this file receives `present_count: number | null`
 //      and never parses, so no receipt number or prose blob can throw the
 //      dashboard away.
+//
+// THE PERIOD FILTER IS BACK, AND IT IS REAL THIS TIME. It was previously four
+// pills writing `stores/dashboard.ts` `periodFilter` while the query key was the
+// constant `["dashboard","summary"]` and `fetchDashboardSummaryAction()` took no
+// argument: four controls, one payload, no effect. It could not be wired up
+// while `apps/gateway/routes/analytics.ts` read `periodStartIso`/`periodEndIso`
+// and discarded both, which left the KPI maths period-free — collected was every
+// `PAYMENT_RECEIVED` row ever written. The route now validates the window,
+// bounds `collectedThisMonthMinor` and `dueForMonthMinor` by it, and answers a
+// malformed one with a typed 400, so the control is wired end to end: the period
+// travels in the action argument AND in the query key, which is what stops four
+// caches from serving one payload. The window itself is defined once, in
+// `@/lib/dashboard-period`, and the control, the action and the tests all call
+// the same derivation.
 //
 // The Due Today list is a PAGE of at most 50 overdue invoices, and this file now
 // says so. `dueTodayTotal` / `dueTodayTruncated` used to be stripped by the Zod
@@ -58,15 +57,54 @@ import { cn } from "@/lib/utils";
 import { CountUp } from "@/components/ui/count-up";
 import { ErrorState, ScreenSkeleton } from "@/components/ui/screen-state";
 import { toAppErrorState } from "@/lib/app-errors";
+import { useToast } from "@/components/ui/toast";
 import { useStudentsStore } from "@/stores/students-store";
-import { useShellStore } from "@/stores/shell-store";
+import { useShellStore, type ScreenId } from "@/stores/shell-store";
+import {
+  DashboardPeriodSchema,
+  calendarDaysOverdue,
+  defaultDashboardPeriod,
+  isoDayOf,
+  type DashboardPeriod,
+  type DashboardPeriodMode,
+} from "@/lib/dashboard-period";
 import {
   fetchDashboardSummaryAction,
   type DashboardActivityItem,
+  type DashboardKpis,
 } from "@/server/actions/dashboard";
 import { DashboardAnalyticsSection } from "@/components/buddysaradhi/dashboard-analytics";
 
 const DAY_MS = 86_400_000;
+
+/**
+ * The five-screen doctrine (AGENTS.md §2 Rule 4) has no routes, so a drill-down
+ * is a store write, not a navigation. §10.1 gives every KPI card a drill target
+ * and §18 requires `Enter` to fire it; before this the cards were plain `div`s
+ * with a hover border, so they LOOKED tappable and were not.
+ *
+ * The filtered half of the target (Fees pre-filtered to `payments-only`,
+ * Students filtered to `has-dues`) needs the Fees and Students store contracts,
+ * which live in files this lane does not own. Switching the screen is the part
+ * that is real today; the pre-filter is reported to the lead rather than faked.
+ */
+const CARD_DRILL: Record<string, ScreenId> = {
+  collected: "/fees",
+  "due-till-date": "/fees",
+  "due-in-period": "/fees",
+  overdue: "/fees",
+  breakdown: "/fees",
+  "total-students": "/students",
+  "students-with-dues": "/students",
+};
+
+const SCREEN_NAME: Record<ScreenId, string> = {
+  "/dashboard": "Dashboard",
+  "/students": "Students",
+  "/attendance": "Attendance",
+  "/fees": "Fees and Payments",
+  "/settings": "Settings",
+};
 
 function initials(name: string) {
   if (name === "") return "?";
@@ -80,21 +118,18 @@ function initials(name: string) {
 }
 
 /**
- * Days past an invoice's due date, counted inclusively (an invoice due
- * yesterday is 1 day overdue, not 0). The due-today query already selects
- * `dueDate <= today`, so the previous label computed a negative number and then
- * clamped it to "0d" for every row — a figure that means nothing. What a tutor
- * scanning this list needs is how late each row is. `null` = no readable due
- * date, and the caller hides the line rather than guessing.
+ * WHY THE OVERDUE LINE USES `calendarDaysOverdue` AND NOT A LOCAL HELPER.
+ *
+ * This screen was computing "how late" twice, differently. The list here
+ * compared `Date.now()` against the due date parsed as UTC midnight and then
+ * added one, so an invoice due TODAY read "1 day overdue" from the first minute
+ * of the day; the aging panel in `dashboard-analytics-calc.ts` counted the same
+ * invoice as zero days. Two overdue figures for one invoice on one screen is a
+ * P0 in a product whose entire claim is that the books reconcile. The shared
+ * helper counts whole calendar days — today is 0 — and the caller hides the line
+ * below 1. `null` means "no readable due date", and the caller hides the line
+ * rather than guessing.
  */
-function daysOverdue(dueDate: string | null, nowMs: number): number | null {
-  if (dueDate === null) return null;
-  const due = new Date(dueDate).getTime();
-  if (Number.isNaN(due)) return null;
-  const elapsed = nowMs - due;
-  if (elapsed <= 0) return 0;
-  return Math.floor(elapsed / DAY_MS) + 1;
-}
 
 /** "2 hrs ago" / "just now" — no "0 mins ago", no "1 hrs ago". */
 function relativeTime(timestamp: string | null, nowMs: number): string {
@@ -184,6 +219,16 @@ function describeActivity(item: DashboardActivityItem): {
 export function DashboardClient() {
   const [now, setNow] = React.useState(() => Date.now());
   const setActiveScreen = useShellStore((s) => s.setActiveScreen);
+  const toast = useToast();
+
+  /**
+   * §6.4's period. It is the query key as well as the action argument — the
+   * reason the four original pills repainted one payload is that they were in
+   * neither. `DashboardPeriodSchema` is the only gate: a candidate that fails it
+   * is refused with a toast and the applied period is left alone, so a range
+   * that is 91 days long can never be quietly widened to all time.
+   */
+  const [period, setPeriod] = React.useState<DashboardPeriod>(defaultDashboardPeriod);
 
   const openAddStudent = () => {
     setActiveScreen("/students");
@@ -197,10 +242,29 @@ export function DashboardClient() {
     return () => clearInterval(timer);
   }, []);
 
+  const applyPeriod = React.useCallback(
+    (candidate: DashboardPeriod) => {
+      const parsed = DashboardPeriodSchema.safeParse(candidate);
+      if (!parsed.success) {
+        // §11 E4 says reject, not truncate. The applied period is untouched, so
+        // the figures on screen keep describing the window the tutor is looking
+        // at, and the toast says why the pick did not take.
+        const first = parsed.error.issues[0];
+        toast.error(
+          "That period was not applied",
+          first?.message ?? "The period filter is unreadable.",
+        );
+        return;
+      }
+      setPeriod(parsed.data);
+    },
+    [toast],
+  );
+
   const { data, isFetching, error, refetch } = useQuery({
-    queryKey: ["dashboard", "summary"],
+    queryKey: ["dashboard", "summary", period],
     queryFn: async () => {
-      const res = await fetchDashboardSummaryAction();
+      const res = await fetchDashboardSummaryAction(period);
       if (!res.ok) throw new Error(res.error);
       return res.value;
     },
@@ -210,6 +274,11 @@ export function DashboardClient() {
    * Header and quick actions render in EVERY branch. A tutor whose figures did
    * not load still needs a route to the other four screens — that is the whole
    * point of saying what is safe to do.
+   *
+   * The period control is part of the header, and it renders in the failure and
+   * loading branches too: a filter the tutor can reach while the numbers are
+   * down is a control, and a control that only exists when the data happens to
+   * be up is not one.
    */
   const header = (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -221,6 +290,11 @@ export function DashboardClient() {
           The truth of your tuition business, right now.
         </p>
       </div>
+      <PeriodFilter
+        period={period}
+        onApply={applyPeriod}
+        label={data?.window.label}
+      />
     </div>
   );
 
@@ -281,7 +355,34 @@ export function DashboardClient() {
     );
   }
 
-  const { kpis, activity, dueToday, dueTodayTotal, dueTodayTruncated } = data;
+  const { summary, window: periodWindow } = data;
+  const { kpis, activity, dueToday, dueTodayTotal, dueTodayTruncated } = summary;
+
+  /**
+   * §11 E1 / §21.3 M2 / P15: a tenant with no books gets the welcome
+   * composition, not a grid of zeroes. The test is deliberately WIDER than
+   * `totalStudents === 0`, because that count is the ACTIVE roster only: a
+   * tutor whose students have all graduated still has money in the books, and
+   * hiding an arrears figure behind a "welcome" panel would be the same class
+   * of lie as the all-zero grid it replaces. So the welcome shows only when
+   * every money measure and the whole due list are empty too.
+   */
+  const noBooksYet =
+    kpis.totalStudents === 0 &&
+    kpis.dueTillDateMinor === 0 &&
+    kpis.overdueMinor === 0 &&
+    kpis.collectedThisMonthMinor === 0 &&
+    dueTodayTotal === 0;
+
+  if (noBooksYet) {
+    return (
+      <div className="space-y-6">
+        {header}
+        <FirstRunState onAddStudent={openAddStudent} />
+        {quickActions}
+      </div>
+    );
+  }
 
   // The list is a PAGE of at most 50 overdue INVOICES (one student can own more
   // than one, so the old "N students" label was also wrong even when complete).
@@ -296,43 +397,95 @@ export function DashboardClient() {
     <div className="space-y-6">
       {header}
 
-      {/* KPI strip — matches TutorOS prototype */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI strip — §6.2 C1..C6, three across on lg and six on 2xl (§6.3). C1,
+          C3 and the two heatmap windows follow the period; C2, C4, C5 and C6
+          are definitionally not period-scoped and say so INSIDE the card, per
+          §6.4, so a tutor never wonders why a number refused to move. */}
+      <div
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4"
+        aria-busy={isFetching}
+      >
+
+        {/* C1 — BR-CALC-03 / BR-RPT-08. Follows the period, so its caption
+            names the window rather than asserting "this month" whatever the
+            tutor has selected. */}
         <KPICard
+          name="collected"
+          onDrill={setActiveScreen}
           title="Collected"
           value={kpis.collectedThisMonthMinor}
           formatFn={formatINR}
           icon={<TrendingUp className="w-5 h-5" />}
           accent="var(--success)"
-          caption="Payments received this month"
+          caption={`Payments received in ${periodWindow.labelLower}`}
         />
+        {/* C2 — BR-CALC-04. All-time by definition (§10.1), and it says so. */}
         <KPICard
+          name="due-till-date"
+          onDrill={setActiveScreen}
           title="Due Till Date"
           value={kpis.dueTillDateMinor}
           formatFn={formatINR}
           icon={<AlertCircle className="w-5 h-5" />}
           accent="var(--warning)"
-          delta={{
-            dir: "flat",
-            label: `${kpis.studentsWithDues} ${kpis.studentsWithDues === 1 ? "student" : "students"} owe`,
-          }}
-          caption="Owed up to today, all time"
+          caption="Owed up to today, all time. Does not follow the period."
         />
+        {/* C3 — BR-CALC-05. This figure crossed the Zod boundary on the action
+            and was rendered nowhere, so the spec's "due for the month" card did
+            not exist on the screen. */}
         <KPICard
+          name="due-in-period"
+          onDrill={setActiveScreen}
+          title="Due In Period"
+          value={kpis.dueForMonthMinor}
+          formatFn={formatINR}
+          icon={<CalendarDays className="w-5 h-5" />}
+          accent="var(--warning)"
+          caption={`Still unpaid on invoices due in ${periodWindow.labelLower}`}
+        />
+        {/* C4 — students count. A current snapshot, so period-independent. */}
+        <KPICard
+          name="total-students"
+          onDrill={setActiveScreen}
           title="Active Students"
           value={kpis.totalStudents}
           icon={<Users className="w-5 h-5" />}
           accent="var(--info)"
+          caption="On the roster right now. Does not follow the period."
         />
+        {/* C5 — BR-CALC-01 + BR-M-05. */}
         <KPICard
+          name="students-with-dues"
+          onDrill={setActiveScreen}
+          title="Students With Dues"
+          value={kpis.studentsWithDues}
+          icon={<AlertCircle className="w-5 h-5" />}
+          accent="var(--danger)"
+          caption="Owe more than a rounding paise. Does not follow the period."
+        />
+        {/* C6 — BR-CALC-02. The four counts crossed the boundary and were
+            rendered nowhere; §1 question 4 ("who paid, who didn't, who is
+            partial") had no answer on this screen. */}
+        <BreakdownCard
+          name="breakdown"
+          breakdown={kpis.paymentBreakdown}
+          onDrill={setActiveScreen}
+        />
+        {/* Overdue is a fifth money measure and has no C-number of its own: it
+            is the subset of C3 whose due date has already passed, so it is
+            deliberately NOT period-scoped. */}
+        <KPICard
+          name="overdue"
+          onDrill={setActiveScreen}
           title="Overdue"
           value={kpis.overdueMinor}
           formatFn={formatINR}
           icon={<CalendarDays className="w-5 h-5" />}
           accent="var(--danger)"
-          caption="Unpaid invoices past their due date"
+          caption="Unpaid invoices already past their due date, all time"
         />
       </div>
+
 
       {/* Analytics: read-only visualizations + filtered CSV export of the same
           books above. Mounted inside the Dashboard (Rule 4: no new screen). */}
@@ -364,11 +517,19 @@ export function DashboardClient() {
             </div>
           ) : (
             <div className="space-y-2">
-              {dueToday.map((d) => {
-                const overdueDays = daysOverdue(d.due_date, now);
+              {dueToday.map((d, rowIndex) => {
+                const overdueDays = calendarDaysOverdue(d.due_date, now);
                 return (
                   <div
-                    key={d.student_id}
+                    /* One row per INVOICE, not per student. `key={student_id}`
+                       collided the moment a student owned two overdue
+                       invoices — which the file's own count label admits is
+                       normal — and React silently reused the first row's DOM
+                       for the second, so the amount on screen could belong to
+                       the wrong invoice. The invoice number is the row's own
+                       identity; the index is only the fallback for an orphaned
+                       invoice that carries neither a number nor a due date. */
+                    key={`${d.student_id}|${d.invoice_number ?? d.due_date ?? "row"}|${rowIndex}`}
                     className="flex items-center gap-3 p-3 rounded-xl bg-[var(--surface-inset)] border border-[var(--border-default)]"
                   >
                     <div
@@ -455,65 +616,338 @@ export function DashboardClient() {
   );
 }
 
+/**
+ * §10.1 gives every KPI card a drill-down target and §18 requires `Tab` to
+ * reach the cards and `Enter` to fire them. These were `<div>`s carrying a
+ * `hover:border` treatment, which is the visual grammar of a control with none
+ * of the behaviour: a tutor could hover a card all day and stay on the screen.
+ *
+ * Making them real buttons is the smallest correct change — the screen switch
+ * is a store write (Rule 4: there are no routes), and the destination is
+ * announced to a screen reader in the button's accessible name so the control
+ * never reads as a dead number.
+ *
+ * The `caption` is the real scope of the measure, as spec line 166 asks. It
+ * replaces a delta percentage the data cannot support: a tutor reading
+ * "Collected ₹2.4 lakh / payments received in September 2026" knows exactly
+ * what the number is; "18% vs last month" would have been a guess presented as
+ * arithmetic.
+ */
 function KPICard({
+  name,
   title,
   value,
   formatFn,
   icon,
   accent,
-  delta,
   caption,
+  onDrill,
 }: {
+  name: string;
   title: string;
   value: number;
   formatFn?: (v: number) => string;
   icon: React.ReactNode;
   accent: string;
-  delta?: { dir: "up" | "down" | "flat"; label: string };
-  /**
-   * The real scope of the measure, as spec line 166 asks for. It replaces a
-   * delta percentage the data cannot support: a tutor reading "Collected ₹2.4
-   * lakh / All payments received to date" knows what the number is; "18% vs
-   * last month" would have been a guess presented as arithmetic.
-   */
   caption?: string;
+  onDrill: (screen: ScreenId) => void;
 }) {
+  const target = CARD_DRILL[name] ?? "/dashboard";
+  const valueText = formatFn ? formatFn(value) : value.toLocaleString("en-IN");
   return (
-    <div
-      className="glass-panel p-5 rounded-xl flex flex-col justify-between transition-all hover:border-[var(--info)]/30"
+    <button
+      type="button"
+      onClick={() => onDrill(target)}
+      className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
       style={{
         border: "1px solid color-mix(in srgb, " + accent + " 25%, transparent)",
       }}
     >
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide truncate">
           {title}
-        </p>
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center"
+        </span>
+        <span
+          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
           style={{ backgroundColor: "color-mix(in srgb, " + accent + " 15%, transparent)", color: accent }}
           aria-hidden="true"
         >
           {icon}
-        </div>
+        </span>
       </div>
-      <p className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">
+      <span className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">
         <CountUp value={value} formatFn={formatFn} />
-      </p>
-      {delta && (
-        <p
-          className={cn(
-            "text-xs mt-1 flex items-center gap-1 num",
-            delta.dir === "up" && "text-[var(--success)]",
-            delta.dir === "down" && "text-[var(--danger)]",
-            delta.dir === "flat" && "text-[var(--text-muted)]",
-          )}
-        >
-          {delta.dir === "up" && <TrendingUp className="w-3 h-3" />}
-          {delta.label}
-        </p>
+      </span>
+      {caption !== undefined && (
+        <span className="text-xs mt-1 text-[var(--text-muted)] block">{caption}</span>
       )}
-      {caption && <p className="text-xs mt-1 text-[var(--text-muted)]">{caption}</p>}
+      {/* The visible text is the figure and its scope; this adds only the one
+          thing a figure cannot say, which is where tapping it goes. */}
+      <span className="sr-only">{`Open ${SCREEN_NAME[target]}. ${title}: ${valueText}.`}</span>
+    </button>
+  );
+}
+
+const BREAKDOWN_META: Array<{
+  key: keyof DashboardKpis["paymentBreakdown"];
+  label: string;
+  accent: string;
+}> = [
+  { key: "paid", label: "Paid", accent: "var(--success)" },
+  { key: "partial", label: "Partial", accent: "var(--warning)" },
+  { key: "unpaid", label: "Unpaid", accent: "var(--danger)" },
+  { key: "noDues", label: "Never invoiced", accent: "var(--info)" },
+];
+
+/**
+ * C6 — §10.1 "Payment Breakdown", per BR-CALC-02: `paid` / `partial` /
+ * `unpaid` / `no dues` summed across the roster. The counts crossed the Zod
+ * boundary on the action and had no home on the screen, so §1's fourth question
+ * ("who paid, who didn't, who is partial") was unanswerable from here.
+ *
+ * The fourth bucket is labelled "Never invoiced", not "No dues", because that is
+ * what it counts: BR-CALC-02 defines "no dues" as "no FEE_CHARGED", and the
+ * gateway implements exactly that — a student with zero invoices. The label that
+ * would be honest is the one that names the condition. §6.2's own arithmetic
+ * note (`noDues = totalStudents − paid − partial − unpaid`) disagrees with both,
+ * and is reported to the lead as a spec contradiction rather than silently
+ * chosen here.
+ *
+ * Colour is never the only signal (Rule 10): every figure carries its status
+ * word, and the counts themselves are text, so the card reads identically in
+ * greyscale, in high contrast and to a screen reader.
+ */
+function BreakdownCard({
+  name,
+  breakdown,
+  onDrill,
+}: {
+  name: string;
+  breakdown: DashboardKpis["paymentBreakdown"];
+  onDrill: (screen: ScreenId) => void;
+}) {
+  const target = CARD_DRILL[name] ?? "/fees";
+  return (
+    <button
+      type="button"
+      onClick={() => onDrill(target)}
+      className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
+      style={{ border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)" }}
+    >
+      <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+        Payment Breakdown
+      </span>
+      <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+        {BREAKDOWN_META.map(({ key, label, accent }) => (
+          <li key={key} className="flex items-baseline gap-1.5">
+            <span
+              aria-hidden="true"
+              className="w-2 h-2 rounded-full shrink-0 self-center"
+              style={{ backgroundColor: accent }}
+            />
+            <span className="text-sm font-bold text-[var(--text-primary)] num">
+              {breakdown[key].toLocaleString("en-IN")}
+            </span>
+            <span className="text-xs text-[var(--text-muted)]">{label}</span>
+          </li>
+        ))}
+      </ul>
+      <span className="text-xs mt-2 text-[var(--text-muted)] block">
+        Students by payment status. Does not follow the period.
+      </span>
+      <span className="sr-only">
+        {`Open ${SCREEN_NAME[target]}. Payment breakdown: ${BREAKDOWN_META.map(
+          ({ key, label }) => `${breakdown[key]} ${label}`,
+        ).join(", ")}.`}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * §6.4's control: Month, Range, All. Three plain buttons and two date wells —
+ * no popover, because a popover that traps focus and closes on `Esc` is a
+ * disclosure widget, and three mutually exclusive options that are always
+ * visible do not need one. The state it holds is the same `DashboardPeriod` the
+ * action sends and the query key is built from, so there is exactly one
+ * definition of "what this filter means".
+ *
+ * `mode` and the two bounds are three small state transitions rather than a
+ * popover object, and every one of them goes through `DashboardPeriodSchema` in
+ * the parent. The 90-day cap (§11 E4) therefore fails exactly once, in one
+ * place, with the spec's own words.
+ */
+function PeriodFilter({
+  period,
+  onApply,
+  label,
+}: {
+  period: DashboardPeriod;
+  onApply: (next: DashboardPeriod) => void;
+  /** The window the last successful read covered, so the control can state the
+   *  period the numbers on screen belong to before they arrive. */
+  label: string | undefined;
+}) {
+  const setMode = (mode: DashboardPeriodMode) => {
+    if (mode === "month") return onApply({ mode, start: null, end: null });
+    if (mode === "all") return onApply({ mode, start: null, end: null });
+    // Entering range with no bounds would be refused by the schema, so seed a
+    // usable default: the last 30 days ending today.
+    const today = isoDayOf(Date.now());
+    const start = new Date(Date.now() - 29 * DAY_MS).toISOString().slice(0, 10);
+    return onApply({ mode, start, end: today });
+  };
+
+  const setBound = (which: "start" | "end", value: string) => {
+    const other = which === "start" ? period.end : period.start;
+    // Dragging one bound past the other would otherwise leave the control in a
+    // state the schema refuses, so the pair moves together: the edited bound
+    // wins and the other one follows. The only rejection a tutor can reach is
+    // the 90-day cap, which is the one §11 E4 wants rejected.
+    const next: DashboardPeriod =
+      which === "start"
+        ? { mode: "range", start: value, end: other === null || other < value ? value : other }
+        : { mode: "range", start: other === null || other > value ? value : other, end: value };
+    onApply(next);
+  };
+
+  const options: Array<{ mode: DashboardPeriodMode; label: string }> = [
+    { mode: "month", label: "Month" },
+    { mode: "range", label: "Range" },
+    { mode: "all", label: "All" },
+  ];
+
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <div
+        className="inline-flex rounded-xl border border-[var(--border-default)] bg-[var(--surface-inset)] p-1"
+        role="group"
+        aria-label="Period filter"
+      >
+        {options.map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            aria-pressed={period.mode === option.mode}
+            onClick={() => setMode(option.mode)}
+            className={cn(
+              "min-h-[44px] min-w-[64px] px-3 rounded-lg text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)]",
+              period.mode === option.mode
+                ? "bg-[var(--surface-raised)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {period.mode === "range" && (
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
+            From
+            <input
+              type="date"
+              value={period.start ?? ""}
+              max={period.end ?? undefined}
+              onChange={(event) => setBound("start", event.target.value)}
+              aria-label="Period start day"
+              className="min-h-[44px] rounded-lg border border-[var(--border-default)] bg-[var(--surface-inset)] px-2 text-xs text-[var(--text-primary)]"
+            />
+          </label>
+          <label className="text-xs text-[var(--text-muted)] flex items-center gap-1">
+            To
+            <input
+              type="date"
+              value={period.end ?? ""}
+              min={period.start ?? undefined}
+              onChange={(event) => setBound("end", event.target.value)}
+              aria-label="Period end day"
+              className="min-h-[44px] rounded-lg border border-[var(--border-default)] bg-[var(--surface-inset)] px-2 text-xs text-[var(--text-primary)]"
+            />
+          </label>
+        </div>
+      )}
+      {/* One line, and it says two things a tutor needs: which window these
+          figures cover, and which cards that window does not move (§6.4 asks
+          for exactly this, inside the screen). The 90-day rule is NOT stated
+          here permanently — §11 E4 puts it in a toast at the moment a range is
+          refused, which is where a message about a control most tutors never
+          touch belongs. Leaving it here would be permanent helper copy about a
+          policy the tutor did not invoke. */}
+      <p className="text-xs text-[var(--text-muted)]">
+        {label === undefined
+          ? "Collected and due in period follow the filter; due till date, students and payment breakdown do not."
+          : `Showing ${label}. Collected and due in period follow it; due till date, students and payment breakdown do not.`}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * §11 E1 / §21.3 M2 / P15 — the first-run composition.
+ *
+ * P15 says a fresh tenant sees a designed welcome, never a grid of "0 / 0 / 0 /
+ * 0" cards, and §21.3 M2 mocks exactly this card: a line-art mark, the
+ * "Welcome" heading, one sentence, one primary action. Two deliberate omissions
+ * from the mockup, both because a dead control is a Hard Gate failure and this
+ * screen cannot honestly own them:
+ *
+ *  - The mockup's `or import a CSV →` ghost link. The importer lives in
+ *    Settings and this lane does not own that screen, so the link would be a
+ *    pointer to nothing. Reported to the lead.
+ *  - A fabricated illustration. §21.3 asks for custom SVG line-art in cyan and
+ *    emerald; what ships below is a hand-authored mark built from the same two
+ *    accents, not a lucide icon wearing a costume, and not an emoji.
+ */
+function FirstRunState({ onAddStudent }: { onAddStudent: () => void }) {
+  return (
+    <div className="glass-panel rounded-xl p-8 flex flex-col items-center text-center gap-4">
+      {/* 120×120 line-art per §21.3 M2: an open ledger with one settled line.
+          Decorative, so it is hidden from assistive tech — the heading and the
+          sentence below it carry the meaning. */}
+      <svg
+        width="120"
+        height="120"
+        viewBox="0 0 120 120"
+        fill="none"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect
+          x="18"
+          y="26"
+          width="84"
+          height="68"
+          rx="8"
+          stroke="var(--info)"
+          strokeWidth="2.5"
+        />
+        <path d="M18 46h84" stroke="var(--info)" strokeWidth="2.5" />
+        <path d="M34 62h34M34 74h24" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" />
+        <path
+          d="M78 74l7 7 13-14"
+          stroke="var(--success)"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <h2 className="text-xl font-semibold text-[var(--text-primary)]">
+        Welcome to Buddysaradhi
+      </h2>
+      <p className="text-sm text-[var(--text-muted)] max-w-[46ch]">
+        Add your first student in 30 seconds. This screen then answers one
+        question every morning: how much came in, what is still owed, and what
+        needs doing today.
+      </p>
+      <button
+        type="button"
+        onClick={onAddStudent}
+        className="btn-glass bg-[var(--surface-inset)] border border-[var(--border-default)] min-h-[44px] px-5 py-2.5 rounded-xl text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2 transition-colors cursor-pointer hover:bg-[var(--surface-raised)] hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
+      >
+        <UserPlus className="w-4 h-4" aria-hidden="true" />
+        Add Student
+      </button>
     </div>
   );
 }

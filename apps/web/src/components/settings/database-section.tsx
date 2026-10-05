@@ -1,81 +1,134 @@
 "use client";
 
-import { useState } from "react";
-import { Database, Key, CheckCircle2, Loader2, Info } from "lucide-react";
+// Implements: AGENTS.md §2 Rule 9 (no fabricated result), §6.4 SOVEREIGN (the
+// tenant's data is the tenant's), §8 stop-and-ask #2/#12 (no new network call,
+// no new dependency), and 08_Settings.md §6.2.10's identity fields as far as the
+// web ORM shim can honestly supply them.
+//
+// WHAT THIS SECTION USED TO BE: a password box and a "Test Connection" button
+// that waited 900ms and then printed "Connection successful (mock)". The card
+// around it said "Demo only", which is better than nothing, but the button still
+// performed the one thing a tutor must never be able to trust: it reported a
+// connection that was never made. It is gone.
+//
+// What replaces it is the truth about where a tutor's records actually live and
+// how much of them there is: one database, per account, identified by tenant id,
+// holding students, ledger entries, invoices and one settings row. Those counts
+// come from real COUNT queries (ORM `count`, AGENTS §3.4 — no raw SQL).
+//
+// REPORTED, NOT IMPLEMENTED: 08 §6.2.10 / SR-08 want the masked `db_url` behind
+// a PIN-gated reveal, plus `schema_version`. Neither is reachable from the web
+// ORM shim: it exposes six models and no `appState`, and the db URL lives in
+// Supabase user metadata behind `lib/db.ts` (another lane's file). Those need a
+// shim model + an identity source before the fields can be honest.
+
+import { useQuery } from "@tanstack/react-query";
+import { Database, Info, HardDrive, ScrollText } from "lucide-react";
+import { getDbIdentityAction, type DbIdentityResult } from "@/server/actions/settings";
+
+/** The success branch of the action's discriminated union, named for the UI. */
+type DbIdentitySuccess = Extract<DbIdentityResult, { success: true }>;
+
+function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2 py-2 border-b border-[var(--border-default)] last:border-b-0">
+      <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">{label}</span>
+      <span className="text-sm font-mono text-[var(--text-primary)] text-right break-all">{value}</span>
+      {hint ? <span className="w-full text-xs text-[var(--text-muted)]">{hint}</span> : null}
+    </div>
+  );
+}
+
+const nf = new Intl.NumberFormat("en-IN");
 
 export function DatabaseSection() {
-  const [connectionString, setConnectionString] = useState("");
-  const [status, setStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const { data, isError, isFetching, refetch } = useQuery({
+    queryKey: ["db-identity"],
+    queryFn: () => getDbIdentityAction(),
+  });
 
-  // Mock only — no real network call. Mirrors the existing BFF mock behaviour.
-  const testConnection = () => {
-    if (connectionString.trim().length < 8) {
-      setStatus("error");
-      return;
-    }
-    setStatus("testing");
-    window.setTimeout(() => setStatus("ok"), 900);
-  };
+  // The action's two shapes share field names, so the success branch is named
+  // explicitly rather than relied upon to be inferred through `useQuery`. A null
+  // count can then never reach `Intl.NumberFormat`.
+  const ok: DbIdentitySuccess | null =
+    data?.success === true && typeof data.tenantId === "string" && typeof data.students === "number"
+      ? (data as DbIdentitySuccess)
+      : null;
 
   return (
-    <div className="space-y-8 max-w-2xl">
+    <section className="animate-in fade-in slide-in-from-bottom-2 duration-300 space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-lg font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
-          <Database className="w-5 h-5 text-[var(--info)]" />
-          Database Connection
-        </h2>
-        <p className="text-sm text-[var(--text-muted)] leading-relaxed">
-          BuddySaradhi stores everything on this device by default. Advanced users may point it at a sync database. This connection is mocked in this build.
+        <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2 flex items-center gap-2">
+          <Database className="w-5 h-5 text-[var(--info)]" aria-hidden="true" />
+          Where your records live
+        </h3>
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed max-w-[68ch]">
+          Everything you record belongs to this account and one database that belongs to this
+          account only. You cannot point Buddysaradhi at a shared database, and nothing you write
+          is visible to another tutor.
         </p>
       </div>
 
-      <div className="bg-[var(--info)]/10 border border-[var(--info)]/20 rounded-xl p-4 flex gap-4">
-        <Info className="w-5 h-5 text-[var(--info)] shrink-0 mt-0.5" />
-        <div className="text-sm text-[var(--info)]/90">
-          <p className="font-medium mb-1">Demo only</p>
-          <p>No credentials are transmitted or stored. This field is a visual mock of the production sync connection.</p>
-        </div>
+      <div
+        className="rounded-xl border border-[color-mix(in_srgb,var(--info)_25%,transparent)] p-4 flex gap-3"
+        style={{ background: "color-mix(in srgb, var(--info) 6%, transparent)" }}
+      >
+        <Info className="w-5 h-5 text-[var(--info)] shrink-0 mt-0.5" aria-hidden="true" />
+        <p className="text-sm text-[var(--text-secondary)] max-w-[68ch]">
+          This build does not let you move or connect to a different database, so there is nothing to
+          configure here and nothing to test. What is below is measured from your account.
+        </p>
       </div>
 
-      <div className="space-y-6">
-        <div>
-          <label className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">Connection String</label>
-          <div className="relative">
-            <Key className="w-4 h-4 text-[var(--text-muted)] absolute left-4 top-3.5 pointer-events-none" />
-            <input
-              type="password"
-              value={connectionString}
-              onChange={(e) => {
-                setConnectionString(e.target.value);
-                if (status !== "idle") setStatus("idle");
-              }}
-              placeholder="libsql://your-db.turso.io"
-              aria-label="Database connection string"
-              className="neumo-inset w-full pl-11 pr-4 py-3 text-sm text-[var(--text-primary)] rounded-xl outline-none transition font-mono focus:border-[var(--info)] focus:ring-1 focus:ring-[var(--info)]"
-            />
-          </div>
+      {isError || (data && data.success === false) ? (
+        <div className="rounded-xl border border-[var(--border-default)] p-5" style={{ background: "var(--surface-inset)" }}>
+          <p role="alert" className="text-sm text-[var(--danger)] font-semibold">
+            Could not read your account details. Nothing was changed.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void refetch();
+            }}
+            disabled={isFetching}
+            className="neumo-raised mt-4 px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-semibold text-[var(--text-primary)] disabled:opacity-50 cursor-pointer transition-colors hover:brightness-110"
+          >
+            {isFetching ? "Reading…" : "Read them again"}
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={testConnection}
-          disabled={status === "testing"}
-          className="py-3 px-6 rounded-xl text-sm font-bold text-[var(--info)] border border-[var(--info)] bg-[color-mix(in_srgb,var(--info)_15%,transparent)] shadow-[0_0_14px_color-mix(in_srgb,var(--info)_20%,transparent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 cursor-pointer transition-all"
-        >
-          {status === "testing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-          Test Connection
-        </button>
-
-        {status === "ok" && (
-          <div className="flex items-center gap-2 text-sm text-[var(--success)]">
-            <CheckCircle2 className="w-4 h-4" />
-            Connection successful (mock).
+      ) : (
+        <div className="rounded-xl border border-[var(--border-default)] p-5" style={{ background: "var(--surface-inset)" }}>
+          <div className="flex items-center gap-3 mb-3">
+            <HardDrive className="w-5 h-5 text-[var(--text-secondary)] shrink-0" aria-hidden="true" />
+            <h4 className="text-sm font-semibold text-[var(--text-primary)]">This account</h4>
           </div>
-        )}
-        {status === "error" && (
-          <p className="text-sm text-[var(--danger)]">Enter a connection string of at least 8 characters to test.</p>
-        )}
+          {ok ? (
+            <dl>
+              <Row label="Account id" value={ok.tenantId} hint="Every row you own carries this id. Quoting it identifies your data and nothing else." />
+              <Row label="Students" value={nf.format(ok.students)} />
+              <Row label="Ledger entries" value={nf.format(ok.ledgerEntries)} hint="Append-only. A correction is a new entry beside the old one, never a change to it." />
+              <Row label="Invoices" value={nf.format(ok.invoices)} />
+              <Row label="Settings row" value={ok.settingsRows === 1 ? "present" : "not created yet"} />
+            </dl>
+          ) : (
+            <p className="text-sm text-[var(--text-muted)]" aria-live="polite">
+              Reading your account details…
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-[var(--border-default)] p-5" style={{ background: "var(--surface-inset)" }}>
+        <div className="flex items-center gap-3 mb-2">
+          <ScrollText className="w-5 h-5 text-[var(--text-secondary)] shrink-0" aria-hidden="true" />
+          <h4 className="text-sm font-semibold text-[var(--text-primary)]">Not shown here</h4>
+        </div>
+        <p className="text-sm text-[var(--text-secondary)] max-w-[68ch]">
+          The database address and schema version are not in this build&apos;s display. If you need
+          them for a support conversation, take a backup instead: the file contains your records, so
+          it answers the question without exposing a live connection string on a screen.
+        </p>
       </div>
-    </div>
+    </section>
   );
 }

@@ -1,5 +1,7 @@
-// Implements: 06_Attendance.md §10.6 BR-ATT-07 (three-tier ladder), §10.3,
-// §10.8; 12 BR-ATT-06; RFC-004 C1/K1 (idempotent unlock/request).
+// Implements: 06_Attendance.md §9.2 (in-place re-mark), §10.6 BR-ATT-07 (three
+// -tier ladder), §10.3, §10.8, §14 + EC-A-01 (no future dates), §15.2 (audit
+// vocabulary + metadata); 12 BR-ATT-01, BR-ATT-06, BR-SEC-03/BR-SEC-04; RFC-004
+// C1/K1 (idempotent lock).
 //
 // Runs the production attendance handlers against in-memory SQLite carrying
 // the gateway's own DDL (AGENTS.md §7.3 — never mock the DB). Proves the
@@ -15,6 +17,8 @@ interface ApiBody {
   success: boolean;
   data?: Record<string, unknown>;
   error?: string;
+  /** `failZod` puts the human field detail here and the code in `error`. */
+  details?: string;
 }
 
 let keyCounter = 100;
@@ -112,59 +116,25 @@ function outboxOps(fixture: LedgerFixture): string[] {
     .map((r) => String((r as Record<string, unknown>).op));
 }
 
-describe("gateway attendance unlock — tier routing + atomic writes", () => {
-  it("unlocks a locked session with window + outbox + audit", async () => {
+describe("gateway attendance unlock — the edge refuses (BR-SEC-04 / §15)", () => {
+  it("refuses to open an unlock window at all: the edge cannot verify the PIN", async () => {
     const f = createLedgerFixture();
     const sid = crypto.randomUUID();
     seedSession(f, sid, daysAgoDate(2), minutesAgoIso(5));
+    // Before this the route granted a 60-minute OVERWRITE-GRADE window on a
+    // bearer token alone (no PIN field at all), and the web BFF forwards
+    // POST /api/v1/* to it — so any holder of the session token could rewrite a
+    // frozen day. argon2id is unavailable on the Deno edge (routes/security.ts
+    // documents the same constraint for the erase flow), so the honest answer is
+    // to refuse: BR-SEC-03 is fail-closed.
     const res = await post(f, "/api/v1/attendance/unlock", { sessionId: sid });
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(typeof res.body.data?.["window_expires_at"]).toBe("string");
-    expect(auditActions(f)).toContain("attendance.unlock");
-    expect(outboxOps(f)).toContain("update");
-  });
-
-  it("404s an unknown session", async () => {
-    const f = createLedgerFixture();
-    const res = await post(f, "/api/v1/attendance/unlock", { sessionId: crypto.randomUUID() });
-    expect(res.status).toBe(404);
-  });
-
-  it("409s a fresh session as not locked", async () => {
-    const f = createLedgerFixture();
-    const sid = crypto.randomUUID();
-    seedSession(f, sid, daysAgoDate(0), null);
-    const res = await post(f, "/api/v1/attendance/unlock", { sessionId: sid });
-    expect(res.status).toBe(409);
-    expect(String(res.body.error ?? "")).toMatch(/not_locked/);
-  });
-
-  it("409s a hard-locked session with HARD_LOCKED", async () => {
-    const f = createLedgerFixture();
-    const sid = crypto.randomUUID();
-    seedSession(f, sid, daysAgoDate(45), minutesAgoIso(5));
-    const res = await post(f, "/api/v1/attendance/unlock", { sessionId: sid });
-    expect(res.status).toBe(409);
-    expect(String(res.body.error ?? "")).toMatch(/HARD_LOCKED/);
+    expect(res.status).toBe(403);
+    expect(String(res.body.error ?? "")).toMatch(/PIN_PROOF_UNAVAILABLE/);
     expect(auditActions(f)).toEqual([]);
+    expect(outboxOps(f)).toEqual([]);
   });
 
-  it("replays the same intent key with identical bytes (K1)", async () => {
-    const f = createLedgerFixture();
-    const sid = crypto.randomUUID();
-    seedSession(f, sid, daysAgoDate(2), minutesAgoIso(5));
-    const key = newKey();
-    const first = await post(f, "/api/v1/attendance/unlock", { sessionId: sid }, key);
-    const second = await post(f, "/api/v1/attendance/unlock", { sessionId: sid }, key);
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(JSON.stringify(second.body)).toBe(JSON.stringify(first.body));
-  });
-});
-
-describe("gateway hard-unlock request — Tier 3 gate", () => {
-  it("grants a hard-locked session and audits the request", async () => {
+  it("refuses the Tier-3 request route for the same reason", async () => {
     const f = createLedgerFixture();
     const sid = crypto.randomUUID();
     seedSession(f, sid, daysAgoDate(45), minutesAgoIso(5));
@@ -172,30 +142,25 @@ describe("gateway hard-unlock request — Tier 3 gate", () => {
       sessionId: sid,
       reason: "Parent disputed the 12 Aug absence record; reviewing now.",
     });
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(auditActions(f)).toContain("attendance.hard_unlock_request");
-  });
-
-  it("400s a short reason (Zod, ≥20 chars)", async () => {
-    const f = createLedgerFixture();
-    const sid = crypto.randomUUID();
-    seedSession(f, sid, daysAgoDate(45), minutesAgoIso(5));
-    const res = await post(f, "/api/v1/attendance/request-unlock", { sessionId: sid, reason: "fix it" });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
+    expect(String(res.body.error ?? "")).toMatch(/PIN_PROOF_UNAVAILABLE/);
     expect(auditActions(f)).toEqual([]);
   });
 
-  it("409s a young session with NOT_HARD_LOCKED", async () => {
+  it("still honours a window granted by the PIN-verifying path", async () => {
     const f = createLedgerFixture();
     const sid = crypto.randomUUID();
-    seedSession(f, sid, daysAgoDate(5), minutesAgoIso(5));
-    const res = await post(f, "/api/v1/attendance/request-unlock", {
-      sessionId: sid,
-      reason: "Parent disputed the 12 Aug absence record; reviewing now.",
+    seedSession(f, sid, daysAgoDate(2), minutesAgoIso(5));
+    // The web server action writes this row (it can verify argon2id). The mark
+    // gate reads it, so an unlock done in the app still permits edits from the
+    // edge.
+    seedAudit(f, "attendance_unlock", sid, minutesAgoIso(5));
+    const marked = await post(f, "/api/v1/attendance", {
+      session_date: daysAgoDate(2),
+      updates: [{ student_id: f.studentId, status: "present" }],
     });
-    expect(res.status).toBe(409);
-    expect(String(res.body.error ?? "")).toMatch(/NOT_HARD_LOCKED/);
+    expect(marked.status).toBe(200);
+    expect(auditActions(f).filter((a) => a === "attendance.edit_locked")).toHaveLength(1);
   });
 });
 
@@ -208,14 +173,71 @@ describe("gateway mark gate — windows and lazy relock", () => {
     const f = createLedgerFixture();
     const sid = crypto.randomUUID();
     seedSession(f, sid, daysAgoDate(2), minutesAgoIso(5));
-    const unlocked = await post(f, "/api/v1/attendance/unlock", { sessionId: sid });
-    expect(unlocked.status).toBe(200);
+    seedAudit(f, "attendance_unlock", sid, minutesAgoIso(5));
     const marked = await post(f, "/api/v1/attendance", markBody(daysAgoDate(2), f.studentId));
     expect(marked.status).toBe(200);
     const actions = auditActions(f);
-    expect(actions).toContain("attendance.unlock");
+    expect(actions).toContain("attendance_unlock");
     expect(actions.filter((a) => a === "attendance.edit_locked").length).toBe(1);
     expect(actions).not.toContain("attendance.relock");
+  });
+
+  it("re-marks the same student IN PLACE (BR-ATT-01), not a duplicate insert", async () => {
+    const f = createLedgerFixture();
+    const first = await post(f, "/api/v1/attendance", markBody(daysAgoDate(0), f.studentId));
+    expect(first.status).toBe(200);
+    const sessionId = String(first.body.data?.["sessionId"]);
+    const second = await post(f, "/api/v1/attendance", {
+      session_date: daysAgoDate(0),
+      updates: [{ student_id: f.studentId, status: "absent" }],
+    });
+    expect(second.status).toBe(200);
+    const rows = f.db.query(
+      "SELECT status FROM attendance_records WHERE session_id = ?",
+      [sessionId],
+    ) as Array<Record<string, unknown>>;
+    // `attendanceRecord.createMany` (the previous implementation) aborted here on
+    // UNIQUE(session_id, student_id), so the second mark of a day was an ERROR
+    // instead of an edit, and re-running a bulk on a partly-marked day failed.
+    expect(rows).toHaveLength(1);
+    expect(String(rows[0].status)).toBe("absent");
+  });
+
+  it("400s a future session date (EC-A-01 / §14)", async () => {
+    const f = createLedgerFixture();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const res = await post(f, "/api/v1/attendance", markBody(tomorrow, f.studentId));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("VALIDATION");
+    expect(String(res.body.details ?? "")).toMatch(/future/i);
+    expect(auditActions(f)).toEqual([]);
+  });
+
+  it("audits a multi-student batch as attendance.bulk_mark (§15.2)", async () => {
+    const f = createLedgerFixture();
+    const second = "018f0000-0000-7000-8000-0000000000ff";
+    f.db.raw
+      .prepare(
+        `INSERT INTO students (id, tenant_id, first_name, admission_date, status, dup_key, balance_paise, created_at, updated_at)
+         VALUES (?, ?, 'Diya', '2026-01-04', 'active', 'S-002', 0, ?, ?)`,
+      )
+      .run(second, f.tenantId, new Date().toISOString(), new Date().toISOString());
+    const res = await post(f, "/api/v1/attendance", {
+      session_date: daysAgoDate(0),
+      updates: [
+        { student_id: f.studentId, status: "absent" },
+        { student_id: second, status: "absent" },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const bulk = f.db.query("SELECT metadata FROM audit_log WHERE action = ?", [
+      "attendance.bulk_mark",
+    ]) as Array<Record<string, unknown>>;
+    expect(bulk).toHaveLength(1);
+    const meta = JSON.parse(String(bulk[0].metadata)) as Record<string, unknown>;
+    expect(meta.status).toBe("absent");
+    expect(meta.count_affected).toBe(2);
+    expect(meta.count_skipped_locked).toBe(0);
   });
 
   it("rejects expired windows, writing the lazy relock first", async () => {
@@ -243,13 +265,32 @@ describe("gateway mark gate — windows and lazy relock", () => {
     const f = createLedgerFixture();
     const sid = crypto.randomUUID();
     seedSession(f, sid, daysAgoDate(2), minutesAgoIso(5));
-    const unlocked = await post(f, "/api/v1/attendance/unlock", { sessionId: sid });
-    expect(unlocked.status).toBe(200);
+    seedAudit(f, "attendance_unlock", sid, minutesAgoIso(5));
     const res = await get(f, "/api/v1/attendance", `?date=${daysAgoDate(2)}`);
     expect(res.status).toBe(200);
     const session = res.body.data?.["session"] as Record<string, unknown> | null;
     expect(session).not.toBeNull();
     expect(typeof session?.["unlock_window_expires_at"]).toBe("string");
     expect(session?.["hard_locked"]).toBe(false);
+  });
+});
+
+describe("gateway lock — §15.2 audit metadata", () => {
+  it("records which date and batch were frozen and by which method", async () => {
+    const f = createLedgerFixture();
+    const sid = crypto.randomUUID();
+    const day = daysAgoDate(0);
+    seedSession(f, sid, day, null);
+    const res = await post(f, "/api/v1/attendance/lock", { sessionId: sid });
+    expect(res.status).toBe(200);
+    const rows = f.db.query("SELECT metadata FROM audit_log WHERE action = ?", [
+      "attendance.lock",
+    ]) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const meta = JSON.parse(String(rows[0].metadata)) as Record<string, unknown>;
+    // Previously `{}` — a lock audit row that could not say which day it froze.
+    expect(meta.session_date).toBe(day);
+    expect(meta.batch_id).toBe("batch-default");
+    expect(meta.method).toBe("pin");
   });
 });

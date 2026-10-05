@@ -804,7 +804,7 @@ export function stmtInsertLedgerEntry(
   const id = typeof d.id === "string" && d.id.length > 0 ? d.id : crypto.randomUUID();
   IdSchema.parse(id);
   return {
-    sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, receipt_no, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
+    sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, number, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
@@ -840,12 +840,17 @@ export function stmtInsertReceipt(
   const id = typeof d.id === "string" && d.id.length > 0 ? d.id : crypto.randomUUID();
   IdSchema.parse(id);
   return {
-    sql: `INSERT INTO receipts (id, tenant_id, receipt_no, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    // `ledger_entry_id` is nullable on the receipts table precisely so this
+    // legacy builder keeps working without one; `packages/core`'s flow always
+    // supplies it (07 §9.6 step 4). `receiptNo` is still accepted as an alias
+    // because the outbox payloads replayed from older devices still carry it.
+    sql: `INSERT INTO receipts (id, tenant_id, number, ledger_entry_id, student_id, invoice_id, amount, payment_method, payment_ref, received_on, tamper_hash, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       tenant,
       ((d.receiptNo as string | undefined) ?? (d.number as string | undefined)) as unknown,
+      (d.ledgerEntryId as unknown ?? null) as unknown,
       IdSchema.parse(d.studentId),
       (d.invoiceId as unknown ?? null) as unknown,
       d.amount,
@@ -1089,7 +1094,7 @@ export function stmtSyncStudentBalance(
 
 export function stmtFindLiveReceipt(tenantId: string, receiptNo: string): BuiltStatement {
   return {
-    sql: "SELECT id FROM receipts WHERE tenant_id = ? AND receipt_no = ? AND voided_at IS NULL",
+    sql: "SELECT id FROM receipts WHERE tenant_id = ? AND number = ? AND voided_at IS NULL",
     args: [auditedTenant(tenantId), z.string().min(1).max(64).parse(receiptNo)],
   };
 }

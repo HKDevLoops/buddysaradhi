@@ -22,7 +22,8 @@ import { StudentSearchBox } from "@/components/search/student-search-box";
 import type { SearchCandidate } from "@/components/search/student-search-box";
 import { getBatches } from "@/server/queries/attendance";
 import { type AttendanceSession } from "@buddysaradhi/shared";
-import { Calendar, Lock, Unlock, Users } from "lucide-react";
+import { todayIso } from "@/server/attendance-window";
+import { BarChart3, Calendar, Lock, Unlock, Users } from "lucide-react";
 import { useUnlockWindow } from "./use-unlock-window";
 import { format, parseISO } from "date-fns";
 
@@ -41,6 +42,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
     searchQuery,
     setSearchQuery,
     setLockSheetOpen,
+    setReportOpen,
   } = useAttendanceStore();
 
   // One cached reference read per session, not one per keystroke.
@@ -135,12 +137,16 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
             </p>
           ) : null}
 
-          {/* Date Picker */}
+          {/* Date Picker. `max` is today (EC-A-01 / 06 §11 E5 / §14: a session
+              cannot be dated in the future), so the calendar cannot even offer a
+              future day. `min` is left open: an old date is exactly the case
+              the unlock ladder exists for. */}
           <div className="relative flex-1 md:w-auto">
             <input
               type="date"
               aria-label="Select Date"
               value={selectedDateIso}
+              max={todayIso()}
               onChange={handleDateChange}
               className="neumo-inset px-3 py-2 pl-10 text-sm w-full appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{
@@ -170,6 +176,28 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
             emptyLabel="No student matches that filter"
           />
         </div>
+
+        {/* The preset summary's only entry point. `isReportOpen` was read by
+            `AttendanceSummary` and set by NOTHING in the codebase, so the whole
+            panel — current month, last month, 3/6 months, full year, the one
+            place BR-CALC-06's percentage is shown — was unreachable: a tutor
+            could not see a single attendance percentage at all (06 §7 lists
+            `AttendanceSummary` as part of the screen; the owner-mandated preset
+            summaries live in it). */}
+        <button
+          type="button"
+          onClick={() => setReportOpen(true)}
+          aria-label="Open attendance summary for a month, a quarter or the year"
+          className="neumo-raised px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors whitespace-nowrap min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
+          style={{
+            background: "var(--surface-raised)",
+            border: "1px solid var(--border-default)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <BarChart3 className="w-4 h-4" style={{ color: "var(--text-secondary)" }} aria-hidden="true" />
+          Summary
+        </button>
 
         <button
           onClick={() => setLockSheetOpen(true)}

@@ -176,11 +176,6 @@ export function AppearanceSection({ settings }: AppearanceSectionProps) {
   };
 
   const applyDensity = (id: string): void => {
-    setReducedMotion(
-      document.documentElement.getAttribute("data-reduced-motion") === "1" ||
-        localStorage.getItem(REDUCED_MOTION_STORAGE_KEY) === "1" ||
-        settings?.reducedMotion === 1,
-    );
     setActiveDensity(id);
     localStorage.setItem(DENSITY_STORAGE_KEY, id);
     document.documentElement.setAttribute("data-density", id);

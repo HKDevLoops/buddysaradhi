@@ -12,9 +12,9 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { z } from "zod";
+import { run } from "../lib/sql.ts";
+import { stmtInsertAttendanceRecordUpsert } from "../lib/sql.ts";
 import {
-  UNLOCK_WINDOW_MINUTES,
-  HARD_UNLOCK_REASON_MIN_LENGTH,
   DEFAULT_LOCK_HOURS,
   ageHours,
   hardLocked,
@@ -24,8 +24,27 @@ import {
 // 06_Attendance.md §status enum (present | absent | late | excused | holiday) —
 // AGENTS.md §6.1 Zod-before-DB-touch parity for every mutating route.
 const AttendanceStatusSchema = z.enum(["present", "absent", "late", "excused", "holiday"]);
+
+/**
+ * The batch a mark with no `batch_id` belongs to. Same sentinel the web action
+ * writes (`batch-default`), because a single-tenant DB has no "no batch" — the
+ * column is NOT NULL, so the choice has to be made explicitly and both writers
+ * must make the SAME one or the same day would land in two sessions.
+ */
+const DEFAULT_BATCH_ID = "batch-default";
+// EC-A-01 / 06 §11 E5 / §14 (`session_date` ≤ today). The Zod table row for
+// this rule was never implemented — the schema only checked the SHAPE of the
+// date, so the edge happily created a session dated next month, which 48 hours
+// later is auto-locked and can then only be opened through the Tier-3 request
+// flow. A future-dated session is not a record, it is a trap.
+const SessionDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "session_date must be YYYY-MM-DD")
+  .refine((d) => d <= new Date().toISOString().slice(0, 10), {
+    message: "session_date cannot be in the future",
+  });
 const AttendanceMarkSchema = z.object({
-  session_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "session_date must be YYYY-MM-DD"),
+  session_date: SessionDateSchema,
   batch_id: z.string().uuid().nullable().optional(),
   updates: z.array(
     z.object({
@@ -120,7 +139,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
 
   // POST /api/v1/attendance
   if (path === "/api/v1/attendance" && method === "POST") {
-    // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path). No CAS:
+    // RFC-004 C1 — fail-closed (see the ledger payment path). No CAS:
     // attendance conflicts are owned by the session lock (409 above), not by
     // compare-and-swap on shared rows (RFC-004 C4 names settings / student
     // profile / fee schedules only).
@@ -130,6 +149,14 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
     const body = await req.json().catch(() => ({}));
     const parsed = AttendanceMarkSchema.safeParse(body);
     if (!parsed.success) return failZod(parsed.error);
+
+    // `attendance_sessions.batch_id` is NOT NULL (11_Data_Model §3.7), so a mark
+    // that omits `batch_id` used to create the session with NULL and the whole
+    // transaction aborted on a constraint — i.e. marking the FIRST day through
+    // the edge always failed. The web action resolves the same case to the
+    // `batch-default` sentinel (updateAttendanceAction), so the edge now does too
+    // and the two agree on which session a batch-less mark belongs to.
+    const targetBatchId = parsed.data.batch_id ?? DEFAULT_BATCH_ID;
 
     // Rule 7 / BR-SYN-01 — lock check, session create, record upserts, outbox
     // and audit share ONE write transaction (fail-closed on any write
@@ -146,7 +173,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
       const preExisting = await orm.attendanceSession.findFirst({
         where: {
           sessionDate: parsed.data.session_date,
-          ...(parsed.data.batch_id ? { batchId: parsed.data.batch_id } : {}),
+          batchId: targetBatchId,
         },
       });
       if (!preExisting) return null;
@@ -181,7 +208,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         const existing = await txOrm.attendanceSession.findFirst({
           where: {
             sessionDate: parsed.data.session_date,
-            ...(parsed.data.batch_id ? { batchId: parsed.data.batch_id } : {}),
+            batchId: targetBatchId,
           },
         });
 
@@ -216,7 +243,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         if (!sid) {
           const createdSession = await txOrm.attendanceSession.create({
             data: {
-              batchId: parsed.data.batch_id ?? null,
+              batchId: targetBatchId,
               sessionDate: parsed.data.session_date,
             },
           });
@@ -238,13 +265,23 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
               String(r.status),
             ]),
           );
-          await txOrm.attendanceRecord.createMany({
-            data: updates.map((u) => ({
-              sessionId: sid!,
+          // BR-ATT-01 / 06 §10.1: re-marking the same (session, student) must
+          // UPDATE the existing record in place, never insert a second row and
+          // never abort. `attendanceRecord.createMany` did neither: the second
+          // mark of the same student hit `UNIQUE(session_id, student_id)` and
+          // the whole transaction failed, so a tutor who changed one mark on the
+          // web and then re-marked through the edge got an error instead of an
+          // edit, and "Mark all Present" on an already-partly-marked day failed
+          // outright. The audited builder is the spec's own statement —
+          // `ON CONFLICT(session_id, student_id) DO UPDATE` (lib/sql.ts:712).
+          for (const u of updates) {
+            const stmt = stmtInsertAttendanceRecordUpsert(tenantId, {
+              sessionId: sid,
               studentId: u.student_id,
               status: u.status,
-            })),
-          });
+            });
+            await run(tx, stmt.sql, stmt.args);
+          }
           if (inWindow) {
             for (const u of updates) {
               await recordAudit(tx, tenantId, tenantId, "attendance.edit_locked", "record", String(sid), {
@@ -254,6 +291,19 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
                 window: "unlock",
               });
             }
+          }
+          if (updates.length > 1) {
+            // 06 §15.2: a bulk mark is its own audit row —
+            // `{ batch_id, session_date, status, count_affected,
+            // count_skipped_locked }`. Nothing wrote one, so the one attendance
+            // mutation a tutor cannot undo in a single motion left no trace.
+            await recordAudit(tx, tenantId, tenantId, "attendance.bulk_mark", "session", String(sid), {
+              batch_id: targetBatchId,
+              session_date: parsed.data.session_date,
+              status: updates[0]?.status ?? null,
+              count_affected: updates.length,
+              count_skipped_locked: 0,
+            });
           }
         }
 
@@ -298,6 +348,10 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
     try {
       await withWriteTransaction(db, async (tx) => {
         const txOrm = createPrismaOrm(tx, tenantId);
+        const session = await txOrm.attendanceSession.findFirst({ where: { id: sessionId } });
+        if (!session) {
+          throw new AttendanceRouteError("session_not_found", 404);
+        }
         await txOrm.attendanceSession.update({
           where: { id: sessionId },
           data: {
@@ -311,7 +365,15 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
           lockedAt: now,
           lockedBy: tenantId,
         });
-        await recordAudit(tx, tenantId, tenantId, "attendance.lock", "session", sessionId, {});
+        // 06 §15.2 audit table: manual lock is `attendance_lock` with
+        // `{ batch_id, session_date, method }`. The metadata was `{}`, so the
+        // row could not answer which date or which batch was frozen — the one
+        // question the audit trail exists to answer.
+        await recordAudit(tx, tenantId, tenantId, "attendance.lock", "session", sessionId, {
+          batch_id: session.batchId ?? null,
+          session_date: String(session.sessionDate ?? ""),
+          method: "pin",
+        });
         // RFC-004 C1 — response bytes commit atomically with the lock (see
         // routes/ledger.ts payment path).
         const env = okEnvelope(200, { locked: true });
@@ -328,118 +390,57 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
     return ok({ locked: true });
   }
 
-  // POST /api/v1/attendance/unlock — 06 §10.6 BR-ATT-07 Tier 2: PIN-verified
-  // client opens a 60-minute window (audit `attendance.unlock`); lockedAt
-  // stays set. Mirrors /lock (same tx shape, same idempotency envelope).
-  // Tier 3 (>30d) is refused with 409 HARD_LOCKED — see /request-unlock.
+  // POST /api/v1/attendance/unlock — 06 §10.6 BR-ATT-07 Tier 2.
+  //
+  // FAIL-CLOSED, deliberately (Rule 9 + BR-SEC-03). This route used to accept
+  // `{ sessionId }` and nothing else: it granted a 60-minute OVERWRITE-GRADE
+  // window — the state in which a locked attendance record may be changed, with
+  // every change double-audited instead of refused — on the strength of a bearer
+  // token alone. 06 §10.6 Tier 2 and 06 §15 require a PIN/biometric proof for
+  // exactly this grant, and 12_Business_Rules BR-SEC-04 lists "unlock/edit
+  // locked attendance" as a PIN-gated mutation. A client-side check is not a
+  // gate: the web BFF forwards POST /api/v1/* to this route, so ANY holder of
+  // the session token could open the window and rewrite a frozen day.
+  //
+  // The edge CANNOT verify the PIN to make it honest. `settings.pin_hash` is
+  // argon2id(m=64MiB, t=3, p=2) + a secret pepper (apps/web/src/lib/crypto.ts)
+  // and the Deno edge runtime has no argon2 — WebCrypto offers PBKDF2/SHKDF
+  // only, and the npm `argon2` package is a native Node addon that will not
+  // bundle into an edge isolate. This is the same constraint that already forces
+  // `routes/security.ts` to gate the secure-erase flow on PIN *presence* rather
+  // than a PIN value, and the same reasoning applies here with more force: erase
+  // is refused when it cannot check, so a 60-minute overwrite grant is refused
+  // too. Accepting a `pin` field and comparing it against nothing would be
+  // decoration that reads as re-authentication.
+  //
+  // The PIN-verifying path is the Next.js server action (`unlockSessionAction` /
+  // `requestHardUnlockAction` in apps/web/src/server/actions/attendance.ts),
+  // which runs where the argon2id hash and the pepper live. Escalated to the
+  // owner alongside routes/security.ts:41-51.
   if (path === "/api/v1/attendance/unlock" && method === "POST") {
-    const idemKey = requireIdempotencyKey(req);
-    if (idemKey instanceof Response) return idemKey;
-    const idemRoute = idempotencyRoute(method, path);
-    const body = await req.json().catch(() => ({}));
-    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(body);
-    if (!parsed.success) return failZod(parsed.error);
-    const sessionId = parsed.data.sessionId;
-    const now = new Date().toISOString();
-    try {
-      const windowExpiresAt = await withWriteTransaction(db, async (tx) => {
-        const txOrm = createPrismaOrm(tx, tenantId);
-        const session = await txOrm.attendanceSession.findFirst({ where: { id: sessionId } });
-        if (!session) {
-          throw new AttendanceRouteError("session_not_found", 404);
-        }
-        const sessionDate = String(session.sessionDate ?? "");
-        if (hardLocked(sessionDate, now)) {
-          throw new AttendanceRouteError(
-            "HARD_LOCKED: session is more than 30 days old; direct unlock is disabled",
-            409,
-          );
-        }
-        const lockSetting = await txOrm.setting.findFirst({ where: {} });
-        const lockHours = Number(lockSetting?.attendanceLockHours ?? DEFAULT_LOCK_HOURS);
-        const autoLocked = !session.lockedAt && ageHours(sessionDate, now) > lockHours;
-        if (!session.lockedAt && !autoLocked) {
-          throw new AttendanceRouteError("session_not_locked", 409);
-        }
-        const expiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
-        await recordAudit(tx, tenantId, tenantId, "attendance.unlock", "session", sessionId, {
-          method: "pin",
-          window_minutes: UNLOCK_WINDOW_MINUTES,
-          window_expires_at: expiresAt,
-        });
-        await recordOutbox(tx, tenantId, "attendance_sessions", sessionId, "update", {
-          sessionId,
-          unlock_window_until: expiresAt,
-        });
-        const env = okEnvelope(200, { unlocked: true, window_expires_at: expiresAt });
-        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
-        return expiresAt;
-      });
-      invalidateTenant(tenantId);
-      return ok({ unlocked: true, window_expires_at: windowExpiresAt });
-    } catch (err) {
-      if (err instanceof AttendanceRouteError) return fail(err.message, err.status);
-      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
-      if (replay) return replay;
-      throw err;
-    }
+    return fail(EDGE_PIN_UNAVAILABLE, 403);
   }
 
-  // POST /api/v1/attendance/request-unlock — 06 §10.6 Tier 3: hard-locked
-  // sessions unlock only via audited request (reason ≥ 20 chars). Single-user
-  // app: the tutor is the authority, so the request opens the 60-minute
-  // window immediately; the request row doubles as the grant.
+  // POST /api/v1/attendance/request-unlock — 06 §10.6 Tier 3. Same gate, same
+  // reason: it also opens a 60-minute window, and its Zod validated the reason
+  // but never a PIN, so the "hard-locked" boundary (the one place the spec says
+  // NO direct unlock is allowed) had an unauthenticated door around it.
   if (path === "/api/v1/attendance/request-unlock" && method === "POST") {
-    const idemKey = requireIdempotencyKey(req);
-    if (idemKey instanceof Response) return idemKey;
-    const idemRoute = idempotencyRoute(method, path);
-    const body = await req.json().catch(() => ({}));
-    const parsed = z
-      .object({ sessionId: z.string().uuid(), reason: z.string().trim().min(HARD_UNLOCK_REASON_MIN_LENGTH) })
-      .safeParse(body);
-    if (!parsed.success) return failZod(parsed.error);
-    const { sessionId, reason } = parsed.data;
-    const now = new Date().toISOString();
-    try {
-      const windowExpiresAt = await withWriteTransaction(db, async (tx) => {
-        const txOrm = createPrismaOrm(tx, tenantId);
-        const session = await txOrm.attendanceSession.findFirst({ where: { id: sessionId } });
-        if (!session) {
-          throw new AttendanceRouteError("session_not_found", 404);
-        }
-        if (!hardLocked(String(session.sessionDate ?? ""), now)) {
-          throw new AttendanceRouteError(
-            "NOT_HARD_LOCKED: session is under 30 days old; unlock it directly",
-            409,
-          );
-        }
-        const expiresAt = new Date(new Date(now).getTime() + UNLOCK_WINDOW_MINUTES * 60_000).toISOString();
-        await recordAudit(tx, tenantId, tenantId, "attendance.hard_unlock_request", "session", sessionId, {
-          reason,
-          method: "pin",
-          window_minutes: UNLOCK_WINDOW_MINUTES,
-          window_expires_at: expiresAt,
-        });
-        await recordOutbox(tx, tenantId, "attendance_sessions", sessionId, "update", {
-          sessionId,
-          unlock_window_until: expiresAt,
-        });
-        const env = okEnvelope(200, { unlocked: true, window_expires_at: expiresAt });
-        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
-        return expiresAt;
-      });
-      invalidateTenant(tenantId);
-      return ok({ unlocked: true, window_expires_at: windowExpiresAt });
-    } catch (err) {
-      if (err instanceof AttendanceRouteError) return fail(err.message, err.status);
-      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
-      if (replay) return replay;
-      throw err;
-    }
+    return fail(EDGE_PIN_UNAVAILABLE, 403);
   }
 
   return null;
 };
+
+/**
+ * Typed, honest refusal — and deliberately SHORT: `fail()` collapses any 4xx
+ * body over 200 characters to the bare status word (`lib/errors.ts`
+ * `sanitizeError`), so the dispatch code has to survive in the first 200
+ * characters. The full reasoning is the comment above each route.
+ */
+const EDGE_PIN_UNAVAILABLE =
+  "PIN_PROOF_UNAVAILABLE: The edge cannot verify your security PIN, so it will not " +
+  "open an attendance unlock window. Unlock in the app, where the PIN is checked.";
 
 /**
  * Rule 9 (no silent failures): a rejection with a defined HTTP status is

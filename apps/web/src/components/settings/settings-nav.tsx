@@ -66,12 +66,20 @@ export function SettingsNav() {
                 {section.label}
               </div>
               {isDirty && (
-                <span
-                  role="img"
-                  className="w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: "var(--warning)", boxShadow: "0 0 4px var(--warning)" }}
-                  aria-label="Unsaved changes"
-                />
+                // 08_Settings.md §18 "Color + icon pairing": a status dot must
+                // never be colour alone. An amber dot also carried an
+                // `aria-label` that sighted users never saw, so a tutor who
+                // cannot distinguish amber from the surrounding border had no
+                // way to know a section had unsaved edits. It is now a dot AND
+                // a word.
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    aria-hidden="true"
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: "var(--warning)" }}
+                  />
+                  <span className="text-[11px] font-medium text-[var(--warning)]">Unsaved</span>
+                </span>
               )}
             </button>
           );

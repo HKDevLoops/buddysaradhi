@@ -27,7 +27,7 @@
 // difference between "owes" and "in credit".
 
 import { useStudentsStore } from "@/stores/students-store";
-import { type StudentListRow } from "@buddysaradhi/shared";
+import { formatINR, paiseSub, type StudentListRow } from "@buddysaradhi/shared";
 import { Avatar } from "@/components/ui/avatar";
 import { BalanceStatusChip, BalanceLegend } from "@/components/fees/balance-status";
 import { ScreenSkeleton } from "@/components/ui/screen-state";
@@ -185,14 +185,30 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
       {students.map((s) => {
         const isSelected = s.id === selectedStudentId;
         const subtitle = [s.grade, s.batch].filter(Boolean).join("·") || "—";
+        // 05_Students.md §18 names the whole row label: name, code, balance and
+        // status. "Open <name>" left a screen-reader user with no way to tell two
+        // students apart on a roster where the name repeats.
+        const rowLabel = [
+          `Student: ${s.name}`,
+          s.code ? `code ${s.code}` : "no code assigned",
+          s.balance_due > 0
+            ? `owes ${formatINR(s.balance_due)}`
+            :           s.balance_due < 0
+              ? `${formatINR(paiseSub(0, s.balance_due))} in credit`
+              : "no dues",
+          `status ${s.status}`,
+        ].join(", ");
 
         return (
           <li key={s.id}>
             <button
               type="button"
               onClick={() => openDrawer(s.id)}
-              aria-label={`Open ${s.name}`}
-              aria-pressed={isSelected}
+              aria-label={rowLabel}
+              // `aria-current` states which roster row is open in the drawer. It
+              // was `aria-pressed`, which tells a screen reader the button is a
+              // toggle that can be turned off — there is no off state here.
+              aria-current={isSelected ? "true" : undefined}
               className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors min-h-[64px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]"
               style={{
                 background: isSelected
@@ -225,6 +241,18 @@ export function StudentMasterList({ students, isLoading }: StudentMasterListProp
                   {subtitle}
                 </p>
               </div>
+
+              {/* §6.2 column 1: the code, in mono. A tutor reads it out over the
+                  phone ("STU-2026-0007") and it is the only identifier that
+                  survives a name change, so it is on the row rather than buried
+                  in the drawer. An unassigned code states so rather than
+                  rendering blank. */}
+              <span
+                className="num text-xs shrink-0 text-right"
+                style={{ color: isSelected ? "var(--accent-primary)" : "var(--text-muted)" }}
+              >
+                {s.code ?? "—"}
+              </span>
 
               {/* Due / Credit / No dues — the shared classifier. An icon AND a word
                   carry the meaning, so the state survives a monochrome display

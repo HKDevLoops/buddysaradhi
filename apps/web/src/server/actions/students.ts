@@ -8,6 +8,22 @@ import { getStudents as getStudentsQuery, getStudent as getStudentQuery } from "
 import { log } from "@/lib/logger";
 import { z } from "zod";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
+import { mintIntentKey } from "@/lib/intent-key";
+import {
+  STUDENT_ADDRESS_MAX,
+  STUDENT_ADMISSION_FLOOR_ISO,
+  STUDENT_BATCH_MAX,
+  STUDENT_BOARD_MAX,
+  STUDENT_DOB_FLOOR_ISO,
+  STUDENT_FIRST_NAME_MAX,
+  STUDENT_GRADE_MAX,
+  STUDENT_LAST_NAME_MAX,
+  STUDENT_SCHOOL_MAX,
+  checkDateBounds,
+  normalizeStudentPhone,
+  studentDupKey,
+  todayIso,
+} from "@/lib/csv-parse";
 
 export async function fetchStudentsAction(
   filters: StudentFilters,
@@ -58,26 +74,86 @@ export async function fetchStudentDetailAction(studentId: string): Promise<{ suc
 const CreateStudentInputSchema = z.object({
   id: z.string().uuid().optional(),
   code: z.string().regex(/^[A-Za-z0-9-]{1,20}$/, "code may only contain letters, digits and dashes").optional(),
-  first_name: z.string().trim().min(1, "first_name is required").max(200),
-  last_name: z.string().max(200).nullish(),
-  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dob must be YYYY-MM-DD").nullish(),
-  gender: z.enum(["M", "F", "O"]).nullish(),
-  phone: z.string().max(32).nullish(),
-  email: z.string().max(254).nullish(),
-  address: z.string().max(1000).nullish(),
-  school: z.string().max(300).nullish(),
-  grade: z.string().max(64).nullish(),
-  board: z.string().max(64).nullish(),
-  admission_date: z
+  first_name: z
     .string()
-    .refine((v) => !Number.isNaN(Date.parse(v)), "admission_date must be a valid date"),
+    .trim()
+    .min(1, "first_name is required")
+    .max(STUDENT_FIRST_NAME_MAX, `first_name must be ${STUDENT_FIRST_NAME_MAX} characters or fewer`),
+  last_name: z
+    .string()
+    .trim()
+    .max(STUDENT_LAST_NAME_MAX, `last_name must be ${STUDENT_LAST_NAME_MAX} characters or fewer`)
+    .nullish(),
+  dob: boundedIsoDate("dob", STUDENT_DOB_FLOOR_ISO, false),
+  gender: z.enum(["M", "F", "O"]).nullish(),
+  phone: z.preprocess(
+    (value: unknown) => (value === null || value === undefined ? null : value),
+    z
+      .string()
+      .transform((value, ctx) => {
+        const parsed = normalizeStudentPhone(value, "phone");
+        if (!parsed.ok) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.reason });
+          return z.NEVER;
+        }
+        return parsed.phone;
+      })
+      .nullish(),
+  ),
+  email: z.string().max(254).nullish(),
+  address: z
+    .string()
+    .trim()
+    .max(STUDENT_ADDRESS_MAX, `address must be ${STUDENT_ADDRESS_MAX} characters or fewer`)
+    .nullish(),
+  school: z
+    .string()
+    .trim()
+    .max(STUDENT_SCHOOL_MAX, `school must be ${STUDENT_SCHOOL_MAX} characters or fewer`)
+    .nullish(),
+  grade: z
+    .string()
+    .trim()
+    .max(STUDENT_GRADE_MAX, `grade must be ${STUDENT_GRADE_MAX} characters or fewer`)
+    .nullish(),
+  board: z
+    .string()
+    .trim()
+    .max(STUDENT_BOARD_MAX, `board must be ${STUDENT_BOARD_MAX} characters or fewer`)
+    .nullish(),
+  admission_date: boundedIsoDate("admission_date", STUDENT_ADMISSION_FLOOR_ISO, false),
   status: z.enum(["active", "inactive", "graduated", "archived"]).default("active"),
   fee_model: z.enum(["postpaid", "prepaid", "mixed"]).default("postpaid"),
   baseFeePaise: z.number().int().nonnegative("baseFeePaise must be integer paise").optional(),
   base_fee_paise: z.number().int().nonnegative("base_fee_paise must be integer paise").optional(),
   baseFee: z.string().regex(/^\d{1,12}(\.\d{1,6})?$/, "baseFee must be a non-negative rupee amount").optional(),
-  dup_key: z.string().max(64).optional(),
+  dup_key: z.string().max(200).optional(),
 });
+
+/**
+ * 05_Students.md §14: an ISO date inside a window, and nothing later than today
+ * (E16 — a dob in the future is a data-entry slip, not a student). `required`
+ * marks the one field §14 makes required. The upper bound defaults to today.
+ */
+function boundedIsoDate(
+  field: string,
+  min: string,
+  required = true,
+) {
+  return z.preprocess(
+    (value: unknown) =>
+      typeof value === "string" && value.trim() === "" ? (required ? value : undefined) : value,
+    z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, `${field} must be YYYY-MM-DD`)
+      .superRefine((value, ctx) => {
+        const window = checkDateBounds(value, { min, label: field });
+        if (!window.ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: window.reason });
+      })
+      .nullish(),
+  );
+}
 
 /**
  * BR-M-01: exact rupee decimal string → integer paise using integer math only
@@ -94,19 +170,43 @@ function rupeesToPaise(rupees: string): number {
 }
 
 /**
- * BR-STU-04 display code (05_Students.md §code format: `^[A-Za-z0-9-]{1,20}$`).
- * 8 uppercase hex chars from crypto.getRandomValues — a 4.29e9 space that
- * cannot collide with the old `S-<random 100..999>` (900 values) and needs no
- * DB round-trip, so it is stable across devices. The `STU-<next_seq>` counter
- * (BR-STU-04) is deferred: `settings.next_student_seq` is per-device and would
- * hand out identical codes on two devices.
+ * BR-STU-04 display code (05_Students.md §14: `^[A-Za-z0-9-]{1,20}$`). 8
+ * uppercase hex chars from crypto.getRandomValues — a 4.29e9 space that needs
+ * no DB round-trip, so two devices never hand out the same code.
+ *
+ * KNOWN DIVERGENCE (reported, not silently changed): BR-STU-01 and BR-RC-02 in
+ * `12_Business_Rules.md` specify `STU-<YYYY>-<NNNN>` from the per-tenant
+ * `settings.next_student_seq` counter, and the earlier comment here claimed that
+ * counter was "per-device". It is not — it is one row per tenant, so the
+ * counter CAN be used. Doing so needs an atomic take (read + compare-and-set on
+ * `next_student_seq`, with a Setting row guaranteed to exist) which is the same
+ * numbering machinery as `packages/core/src/engines/invoice.ts`; duplicating it
+ * here would be a second dialect of a numbering contract (AGENTS.md §3.5) and
+ * could hand out a duplicate code if the take were not atomic. The format is
+ * therefore still `S-<8 hex>`: unique per tenant, never reused, but not yet
+ * `STU-<YYYY>-<NNNN>`.
  */
 function generateStudentCode(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(4));
   return `S-${Array.from(bytes, (b) => b.toString(16).toUpperCase().padStart(2, "0")).join("")}`;
 }
 
-export async function createStudent(data: unknown, batchName?: string): Promise<{ success: boolean; data?: Student; error?: string }> {
+/** Optional third argument on `createStudent` — the sheet's "add anyway". */
+export interface CreateStudentOptions {
+  /**
+   * True when the tutor was shown the duplicate interstitial (BR-STU-03) and
+   * chose to add anyway. It does not change what is written; it adds the
+   * `student_duplicate_proceed` audit row that 05_Students.md §15 lists as an
+   * audited action originating on this screen.
+   */
+  duplicateProceed?: boolean;
+}
+
+export async function createStudent(
+  data: unknown,
+  batchName?: string,
+  options?: CreateStudentOptions,
+): Promise<{ success: boolean; data?: Student; error?: string }> {
   // RFC-004 C4: POST inserts mint fresh UUID PKs — two devices creating
   // "the same" student produce two rows (deduped later via `dup_key`,
   // BR-STU-03), never a lost update. Inserts cannot conflict, so no CAS base
@@ -129,9 +229,24 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     // drift noted by the audit lives in packages/core (out of this slice).
     const id = s.id ?? crypto.randomUUID();
     const code = s.code ?? generateStudentCode();
-    const validAdmissionDate = new Date(s.admission_date).toISOString().slice(0, 10);
+    // 09 §14.1 default + 05_Students.md §6.1: a blank admission date is TODAY.
+    // The import already defaults it (`rowData.admission_date ?? today`) and the
+    // sheet pre-fills today, so this is the third read of the same rule — and it
+    // must not write `undefined` into a NOT NULL column on the fallback path.
+    const validAdmissionDate = s.admission_date ?? todayIso();
     const baseFeePaise =
       s.baseFeePaise ?? s.base_fee_paise ?? (s.baseFee !== undefined ? rupeesToPaise(s.baseFee) : 0);
+    const batch = batchName?.trim() ? batchName.trim() : undefined;
+    if (batch !== undefined && batch.length > STUDENT_BATCH_MAX) {
+      return { success: false, error: `Batch must be ${STUDENT_BATCH_MAX} characters or fewer.` };
+    }
+    // 09 §14.6 / BR-STU-03 — the duplicate key is computed HERE, server-side,
+    // from the same `studentDupKey` the sheet and the import both call. The
+    // client-sent value is not trusted: a client that computed it differently
+    // (as the sheet used to, slicing the last four characters off the raw phone
+    // string) would write a key that can never match, and the same person would
+    // be created twice with no warning.
+    const dupKey = studentDupKey(s.first_name, s.last_name ?? null, s.phone ?? null);
 
     const payload = {
       id,
@@ -150,15 +265,26 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       status: s.status,
       fee_model: s.fee_model,
       base_fee_paise: baseFeePaise,
-      dup_key: s.dup_key ?? code,
-      batchName: batchName || null,
+      dup_key: dupKey,
+      batchName: batch ?? null,
     };
 
-    // 1. Try canonical Gateway first
+    // 1. Try canonical Gateway first.
+    //
+    // RFC-004 C1: every gateway mutation is fail-closed on an `Idempotency-Key`
+    // header carrying a UUID. Without it the route answers 400 before touching
+    // the database, so this call ALWAYS failed and EVERY create silently fell
+    // through to the local fallback below — a fallback that was missing eight
+    // of the thirteen profile fields. One key per user intent, minted here so a
+    // double-click or a retry cannot create two students (K1/K2).
+    const idemKey = mintIntentKey();
     const gatewayRes = await gatewayPost<Student>(
       "/api/v1/students",
       payload,
-      batchName ? { "X-Batch-Name": batchName } : undefined
+      {
+        "Idempotency-Key": idemKey,
+        ...(batch ? { "X-Batch-Name": batch } : {}),
+      },
     );
 
     if (gatewayRes.success) {
@@ -167,7 +293,11 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       return { success: true, data: gatewayRes.data };
     }
 
-    // 2. Local fallback if Gateway is unreachable (Offline-first per Rule 7)
+    // 2. Local fallback if Gateway is unreachable (Offline-first per Rule 7).
+    //    The fallback is a REAL write of the same thirteen fields, in the same
+    //    transaction, with the same outbox and audit rows — otherwise a student
+    //    added offline would come back with no phone, no school and no address,
+    //    which is the silent data loss Rule 9 exists to prevent.
     const { db, tenantId } = await getAuthenticatedPrisma();
 
     const studentData = {
@@ -176,6 +306,14 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
       code,
       firstName: payload.first_name,
       lastName: payload.last_name || "",
+      dob: payload.dob,
+      gender: payload.gender,
+      phone: payload.phone,
+      email: payload.email,
+      address: payload.address,
+      school: payload.school,
+      grade: payload.grade,
+      board: payload.board,
       status: payload.status,
       feeModel: payload.fee_model,
       baseFeePaise: payload.base_fee_paise,
@@ -190,7 +328,14 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
     // (replication) and its audit_log row (BR-SEC-03) land in ONE write
     // transaction — CHECK-valid op 'insert', action 'student.create', same
     // payload as before. Pattern: actions/settings.ts.
+    //
+    // The batch auto-create and the enrollment join the SAME transaction now.
+    // They used to run after the commit, with no outbox row and no audit row:
+    // a student whose enrollment failed to write was replicated to the other
+    // device with no batch, and the enrollment itself never reached the outbox
+    // (Rule 7 — "no exceptions for small mutations").
     const now = new Date().toISOString();
+    let createdBatchName: string | null = null;
     await db.$transaction(async (tx) => {
       await tx.student.create({ data: studentData });
       await tx.syncOutbox.create({
@@ -212,44 +357,106 @@ export async function createStudent(data: unknown, batchName?: string): Promise<
           action: "student.create",
           refType: "student",
           refId: id,
-          metadata: JSON.stringify({ code, base_fee_paise: baseFeePaise }),
+          metadata: JSON.stringify({
+            code,
+            base_fee_paise: baseFeePaise,
+            duplicate_proceed: options?.duplicateProceed === true,
+          }),
           createdAt: now,
         },
       });
-    });
-
-    if (batchName) {
-      let batch = await db.batch.findFirst({ where: { tenantId, name: batchName } });
-      if (!batch) {
-        batch = await db.batch.create({
+      // 05_Students.md §10.1 / §15: "Proceed anyway" is its own audited action,
+      // so the pair can always be found afterwards.
+      if (options?.duplicateProceed === true) {
+        await tx.auditLog.create({
           data: {
             id: crypto.randomUUID(),
             tenantId,
-            tutorId: null,
-            name: batchName,
-            subject: "General",
+            actor: tenantId,
+            action: "student_duplicate_proceed",
+            refType: "student",
+            refId: id,
+            metadata: JSON.stringify({ dup_key: dupKey }),
+            createdAt: now,
+          },
+        });
+      }
+      if (batch !== undefined) {
+        let batchRow = await tx.batch.findFirst({ where: { tenantId, name: batch } });
+        if (!batchRow) {
+          batchRow = await tx.batch.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              tutorId: null,
+              name: batch,
+              subject: "General",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+          createdBatchName = batch;
+          await tx.syncOutbox.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              tableName: "batches",
+              rowId: batchRow.id,
+              op: "insert",
+              payload: JSON.stringify({ name: batch, subject: "General", source: "student_add" }),
+              createdAt: now,
+            },
+          });
+          await tx.auditLog.create({
+            data: {
+              id: crypto.randomUUID(),
+              tenantId,
+              actor: tenantId,
+              action: "batch.create",
+              refType: "batch",
+              refId: batchRow.id,
+              metadata: JSON.stringify({ source: "student_add", name: batch }),
+              createdAt: now,
+            },
+          });
+        }
+        const enrollmentId = crypto.randomUUID();
+        await tx.studentEnrollment.create({
+          data: {
+            id: enrollmentId,
+            tenantId,
+            studentId: id,
+            batchId: batchRow.id,
+            joinedOn: validAdmissionDate,
             createdAt: new Date(),
             updatedAt: new Date(),
           },
         });
+        await tx.syncOutbox.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            tableName: "student_enrollments",
+            rowId: enrollmentId,
+            op: "insert",
+            payload: JSON.stringify({ student_id: id, batch_id: batchRow.id }),
+            createdAt: now,
+          },
+        });
       }
-      await db.studentEnrollment.create({
-        data: {
-          id: crypto.randomUUID(),
-          tenantId,
-          studentId: id,
-          batchId: batch.id,
-          joinedOn: validAdmissionDate,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
+    });
+
+    if (batch !== undefined) {
       invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch auto-create
     }
+    log.info("student_created_locally", `student ${id} written on the direct-db path`, {
+      batch_created: createdBatchName !== null,
+      duplicate_proceed: options?.duplicateProceed === true,
+    });
 
     revalidatePath("/students");
     revalidatePath("/dashboard");
-    return { success: true, data: studentData as unknown as Student };
+    return { success: true, data: toStudentRow(studentData, tenantId) };
   } catch (err) {
     log.error("create_student_action_failed", err instanceof Error ? err.message : String(err));
     return { success: false, error: err instanceof Error ? err.message : "Failed to create student" };
@@ -281,7 +488,17 @@ export async function checkDuplicateStudentAction(
 
 export async function deleteStudentAction(studentId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const res = await gatewayDelete<{ ok: boolean }>(`/api/v1/students/${encodeURIComponent(studentId)}`);
+    if (!z.string().uuid().safeParse(studentId).success) {
+      return { success: false, error: "Invalid student id" };
+    }
+    // RFC-004 C1: the gateway's DELETE is fail-closed on `Idempotency-Key`.
+    // Without the header the route answered 400 before touching the database,
+    // so the drawer's Delete button could never succeed — a control wired to a
+    // mutation that always failed.
+    const res = await gatewayDelete<{ ok: boolean }>(
+      `/api/v1/students/${encodeURIComponent(studentId)}`,
+      { "Idempotency-Key": mintIntentKey() },
+    );
     if (!res.success) {
       log.error('student_delete_failed', 'Gateway delete returned failure', { studentId });
       return { success: false, error: res.error };
@@ -330,18 +547,31 @@ export interface StudentConflictResult {
  * paise only, Rule 6 / BR-M-01).
  */
 const UpdateStudentInputSchema = z.object({
-  code: z.string().max(64).nullable(),
-  first_name: z.string().trim().min(1).max(200),
-  last_name: z.string().max(200).nullable(),
+  code: z.string().max(20).nullable(),
+  first_name: z.string().trim().min(1).max(STUDENT_FIRST_NAME_MAX),
+  last_name: z.string().trim().max(STUDENT_LAST_NAME_MAX).nullable(),
   dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dob must be YYYY-MM-DD").nullable(),
   gender: z.enum(["M", "F", "O"]).nullable(),
-  phone: z.string().max(32).nullable(),
+  phone: z.preprocess(
+    (value: unknown) => (value === null ? null : value),
+    z
+      .string()
+      .transform((value, ctx) => {
+        const parsed = normalizeStudentPhone(value, "phone");
+        if (!parsed.ok) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.reason });
+          return z.NEVER;
+        }
+        return parsed.phone;
+      })
+      .nullish(),
+  ),
   email: z.string().max(254).nullable(),
-  address: z.string().max(1000).nullable(),
-  school: z.string().max(300).nullable(),
-  grade: z.string().max(64).nullable(),
-  board: z.string().max(64).nullable(),
-  admission_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "admission_date must be YYYY-MM-DD"),
+  address: z.string().trim().max(STUDENT_ADDRESS_MAX).nullable(),
+  school: z.string().trim().max(STUDENT_SCHOOL_MAX).nullable(),
+  grade: z.string().trim().max(STUDENT_GRADE_MAX).nullable(),
+  board: z.string().trim().max(STUDENT_BOARD_MAX).nullable(),
+  admission_date: boundedIsoDate("admission_date", STUDENT_ADMISSION_FLOOR_ISO, false),
   status: z.enum(["active", "inactive", "graduated", "archived"]),
   fee_model: z.enum(["postpaid", "prepaid", "mixed"]),
   baseFeePaise: z.number().int().nonnegative(),
@@ -490,9 +720,12 @@ export async function updateStudentAction(
 
     const gatewayBody =
       baseRaw !== undefined ? { ...snake, base_updated_at: baseRaw } : snake;
+    // RFC-004 C1: fail-closed `Idempotency-Key`. Without it the PATCH was a
+    // guaranteed 400, so every profile edit fell through to the direct-db path.
     const gatewayRes = await gatewayPatch<Student>(
       `/api/v1/students/${encodeURIComponent(studentId)}`,
       gatewayBody,
+      { "Idempotency-Key": mintIntentKey() },
     );
     if (gatewayRes.success) {
       revalidatePath("/students");

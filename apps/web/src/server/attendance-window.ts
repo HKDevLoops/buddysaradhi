@@ -26,6 +26,55 @@ export const HARD_LOCK_DAYS = 30;
 export const HARD_UNLOCK_REASON_MIN_LENGTH = 20;
 export const DEFAULT_LOCK_HOURS = 48;
 
+/**
+ * The word a tutor must TYPE before a whole batch can be flipped to absent
+ * (06 §10.7 BR-ATT-06: "opens a confirmation sheet … with a typed confirm input
+ * `ABSENT`"; §16: "Confirm button stays disabled; subtle inline hint 'Type
+ * ABSENT to confirm.'"; §14 validation table: "Bulk absent requires typed
+ * confirm"). Exported so the sheet and the server that receives the intent can
+ * never drift onto two different words — the constant is imported by the client
+ * sheet from this module, exactly as `UNLOCK_WINDOW_MINUTES` already is.
+ */
+export const BULK_ABSENT_CONFIRM_WORD = "ABSENT";
+
+/**
+ * "Today" for attendance purposes: the UTC day, `YYYY-MM-DD`.
+ *
+ * EC-A-01 blocks marking a future date and the date picker must not offer one,
+ * so both sides need one definition of "today" or the picker and the gate
+ * disagree. It is the UTC day deliberately: `attendance-store.ts` seeds
+ * `selectedDateIso` from `new Date().toISOString()` and every `session_date` in
+ * the DB is a UTC calendar day, so a UTC gate is the only one that agrees with
+ * the date the tutor is looking at. (`settings.timezone` exists and a
+ * per-tutor local day would be the better rule — raised as a cross-lane report;
+ * changing it here alone would desynchronise the picker from the gate.)
+ */
+export function todayIso(nowIso: string = new Date().toISOString()): string {
+  return nowIso.slice(0, 10);
+}
+
+/** EC-A-01 / 06 §11 E5 / §14: a session cannot be dated after today. */
+export function isFutureDate(sessionDateIso: string, nowIso: string): boolean {
+  return sessionDateIso > todayIso(nowIso);
+}
+
+/**
+ * Calendar-day bounds for the preset summaries, as `YYYY-MM-DD`.
+ *
+ * The presets are tutor-facing ("Last Month" must mean the month that just
+ * ended), so the bounds are built from LOCAL date parts and never round-tripped
+ * through `toISOString()`: `new Date(2026, 9, 1)` is local midnight, and in
+ * IST (+05:30) `toISOString()` renders it as the PREVIOUS day, so every preset
+ * started a day early and "Last Month" silently included a day of the month
+ * before it.
+ */
+export function localDayIso(year: number, monthIndex: number, day: number): string {
+  const y = String(year).padStart(4, "0");
+  const m = String(monthIndex + 1).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 // Grant spellings, both vocabularies: web writes snake_case (06 §10.8 audit
 // table), gateway writes dotted (`attendance.lock` precedent). Cross-device
 // windows (unlock on web, mark via gateway) must agree, so readers accept

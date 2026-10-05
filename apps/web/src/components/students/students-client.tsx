@@ -134,8 +134,15 @@ export function StudentsClient() {
             query's own surface; a roster that is merely loading or empty is what the
             roster knows how to look like, so it is delegated to `StudentMasterList`.
             The two can never be confused, because only the failure branch can render
-            "I could not read this" and only the list branch can render "no students". */}
-        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+            "I could not read this" and only the list branch can render "no students".
+
+            `aria-busy` (05_Students.md §18) so a screen reader announces that the
+            roster is changing instead of reading the previous page's rows as
+            current. */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
+          aria-busy={isFetching}
+        >
           {hasFailed ? (
             <div className="p-4">
               <ErrorState

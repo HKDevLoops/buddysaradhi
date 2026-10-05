@@ -1,0 +1,470 @@
+// Implements: 04_Dashboard.md §6.2 (C1..C6 exist on the strip), §6.4 (the
+// period moves C1/C3 and states that it does not move C2/C4/C5/C6), §9 (a
+// failed read never renders zeroes), §11 E1/E4 (first-run composition, 90-day
+// rejection), §10.1 (drill targets), §14 (a page that is not the whole list
+// says so), §18 (Tab reaches the cards, Enter fires them); §19.2 component
+// tests. AGENTS.md §2 Rule 4 (no route is created — a drill is a store write),
+// Rule 9 (no silent failure), Rule 10 (44px targets, colour never the only
+// signal).
+
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import React from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+vi.mock("@/server/actions/dashboard", () => ({
+  fetchDashboardSummaryAction: vi.fn(),
+  fetchDashboardAnalyticsAction: vi.fn(),
+}));
+
+vi.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+}));
+
+vi.mock("@/lib/logger", () => ({
+  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
+vi.mock("@/components/buddysaradhi/dashboard-analytics", () => ({
+  DashboardAnalyticsSection: () => (
+    <section aria-label="Business analytics stub">
+      <h2>Business analytics</h2>
+    </section>
+  ),
+}));
+
+import {
+  fetchDashboardSummaryAction,
+  type DashboardKpis,
+  type DashboardSummary,
+} from "@/server/actions/dashboard";
+import { DashboardClient } from "./dashboard-client";
+import { useShellStore } from "@/stores/shell-store";
+import { resolvePeriodWindow, type PeriodWindow } from "@/lib/dashboard-period";
+
+/**
+ * jsdom ships no `window.matchMedia`, and `components/ui/count-up.tsx` calls it
+ * unguarded — so every KPI card threw in this environment before any assertion
+ * could run. Reported to the lead as a P2 (`count-up.tsx` should feature-detect,
+ * the same way it already feature-detects `window`). Shimming it here with
+ * `matches: true` does double duty: the count-up takes its reduced-motion path
+ * and lands on the final value immediately, which is both the §18 contract and
+ * what makes the money assertions deterministic.
+ */
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  });
+});
+
+const fetchSummary = vi.mocked(fetchDashboardSummaryAction);
+
+const WINDOW: PeriodWindow = {
+  periodStartIso: "2026-10-01",
+  periodEndIso: "2026-10-05",
+  label: "October 2026",
+  labelLower: "october 2026",
+  movesMoneyCards: true,
+};
+
+/**
+ * The fixture is typed as the ACTION's own output, so a fixture that stops
+ * matching the boundary schema is a compile error rather than a runtime surprise
+ * in the render path. `dataOrigin` stays the literal `"live"` because that is
+ * what the Zod boundary enforces.
+ */
+type SummaryFixture = {
+  kpis: DashboardKpis;
+  activity: DashboardSummary["activity"];
+  dueToday: DashboardSummary["dueToday"];
+  dueTodayTotal: number;
+  dueTodayTruncated: boolean;
+  dataOrigin: "live";
+};
+
+function summary(overrides: Partial<SummaryFixture> = {}): DashboardSummary {
+  return {
+    kpis: {
+      totalStudents: 87,
+      studentsWithDues: 12,
+      collectedThisMonthMinor: 12450000,
+      dueTillDateMinor: 3820000,
+      dueForMonthMinor: 1450000,
+      overdueMinor: 900000,
+      paymentBreakdown: { paid: 42, partial: 8, unpaid: 12, noDues: 5 },
+    },
+    activity: [],
+    dueToday: [],
+    dueTodayTotal: 0,
+    dueTodayTruncated: false,
+    dataOrigin: "live",
+    ...overrides,
+  };
+}
+
+function renderClient() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryDelay: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <DashboardClient />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useShellStore.setState({ activeScreen: "/dashboard" });
+});
+
+describe("DashboardClient — KPI strip", () => {
+  it("renders all six §6.2 cards, including the two that used to be dead data", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Collected")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    // C1 collected, C2 due till date, C3 due in period, C4 active students,
+    // C5 students with dues, C6 payment breakdown. `dueForMonthMinor` and
+    // `paymentBreakdown` used to cross the Zod boundary and reach no element.
+    for (const title of [
+      "Collected",
+      "Due Till Date",
+      "Due In Period",
+      "Active Students",
+      "Students With Dues",
+      "Payment Breakdown",
+    ]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
+    // The C6 figures themselves, in paise→rupees via formatINR.
+    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.getByText("Never invoiced")).toBeInTheDocument();
+  });
+
+  it("states inside each period-independent card that the period does not move it (§6.4)", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Due Till Date")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    for (const caption of [
+      "Owed up to today, all time. Does not follow the period.",
+      "On the roster right now. Does not follow the period.",
+      "Owe more than a rounding paise. Does not follow the period.",
+      "Students by payment status. Does not follow the period.",
+    ]) {
+      expect(screen.getByText(caption)).toBeInTheDocument();
+    }
+  });
+
+  it("names the window on the two cards the period does move", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Collected")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    expect(screen.getByText("Payments received in october 2026")).toBeInTheDocument();
+    expect(screen.getByText("Still unpaid on invoices due in october 2026")).toBeInTheDocument();
+  });
+
+  it("makes every KPI card a real control with a 44px target and a stated destination", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Collected")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    const collected = screen.getByRole("button", { name: /Open Fees and Payments\. Collected/ });
+    expect(collected.className).toContain("min-h-[44px]");
+    const students = screen.getByRole("button", { name: /Open Students\. Active Students/ });
+    fireEvent.click(students);
+    expect(useShellStore.getState().activeScreen).toBe("/students");
+  });
+});
+
+describe("DashboardClient — period filter (§6.4)", () => {
+  it("sends the applied period to the action and keys the query on it", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(() => expect(fetchSummary).toHaveBeenCalled(), { timeout: 8000 });
+    // Default is the calendar month, so opening the screen changes no figure.
+    expect(fetchSummary).toHaveBeenCalledWith({ mode: "month", start: null, end: null });
+
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    await waitFor(
+      () =>
+        expect(fetchSummary).toHaveBeenCalledWith({ mode: "all", start: null, end: null }),
+      { timeout: 8000 },
+    );
+  });
+
+  it("refuses a range longer than 90 days and leaves the applied period alone (§11 E4)", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const daysAgo = (n: number) =>
+      new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+    // 61 days back to today is inside the cap; 200 back is 201 days and is not.
+    const inBounds = daysAgo(60);
+    const outOfBounds = daysAgo(200);
+
+    await waitFor(
+      () => expect(screen.getByRole("button", { name: "Range" })).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Range" }));
+    await waitFor(
+      () => expect(screen.getByLabelText("Period start day")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+
+    // Inside the cap: applied, and therefore sent to the gateway.
+    fireEvent.change(screen.getByLabelText("Period start day"), {
+      target: { value: inBounds },
+    });
+    await waitFor(
+      () =>
+        expect(fetchSummary).toHaveBeenLastCalledWith({
+          mode: "range",
+          start: inBounds,
+          end: today,
+        }),
+      { timeout: 8000 },
+    );
+
+    // Outside the cap: refused, so no new query, and the figures on screen keep
+    // describing the window that was actually read. Nothing widens to all time.
+    fireEvent.change(screen.getByLabelText("Period start day"), {
+      target: { value: outOfBounds },
+    });
+    await waitFor(
+      () => expect(screen.getByLabelText("Period start day")).toHaveValue(inBounds),
+      { timeout: 8000 },
+    );
+    expect(fetchSummary).toHaveBeenLastCalledWith({
+      mode: "range",
+      start: inBounds,
+      end: today,
+    });
+  });
+
+  it("shows the applied window above the figures", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText(/Showing October 2026\./)).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+  });
+});
+
+describe("DashboardClient — states (Rule 9, §11 E1)", () => {
+  it("renders the loading skeleton, never a row of zeroes", async () => {
+    const gate: { release: () => void } = { release: () => undefined };
+    fetchSummary.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gate.release = () => resolve({ ok: true, value: { summary: summary(), window: WINDOW } });
+        }),
+    );
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText(/your dashboard/i)).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    expect(screen.queryByText("Collected")).not.toBeInTheDocument();
+    gate.release();
+  });
+
+  it("renders an error state and no figure when the read fails", async () => {
+    fetchSummary.mockResolvedValue({
+      ok: false,
+      code: "DASHBOARD_GATEWAY_FAILED",
+      error: "DASHBOARD_GATEWAY_FAILED: gateway timeout",
+    });
+    renderClient();
+
+    // Wait for the failure surface itself. Asserting the ABSENCE of a KPI card
+    // first would pass during the loading skeleton and prove nothing.
+    expect(
+      await screen.findByText(/no figure below is being shown/i, undefined, { timeout: 8000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Collected")).not.toBeInTheDocument();
+    // The other four screens stay reachable — the point of saying what is safe.
+    expect(screen.getByRole("button", { name: /Record Payment/ })).toBeInTheDocument();
+  });
+
+  it("shows the first-run composition for a tenant with no books (§11 E1 / P15)", async () => {
+    fetchSummary.mockResolvedValue({
+      ok: true,
+      value: {
+        summary: summary({
+          kpis: {
+            totalStudents: 0,
+            studentsWithDues: 0,
+            collectedThisMonthMinor: 0,
+            dueTillDateMinor: 0,
+            dueForMonthMinor: 0,
+            overdueMinor: 0,
+            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0, noDues: 0 },
+          },
+        }),
+        window: WINDOW,
+      },
+    });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Welcome to Buddysaradhi")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    // No grid of zeroes, and the Due Today panel is hidden (E1).
+    expect(screen.queryByText("Collected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Due Today")).not.toBeInTheDocument();
+    // The welcome CTA and the quick-action bar both offer "Add Student"; the
+    // first one is the welcome card's own primary action.
+    const ctas = screen.getAllByRole("button", { name: /Add Student/ });
+    expect(ctas.length).toBeGreaterThanOrEqual(2);
+    const cta = ctas[0];
+    expect(cta?.className).toContain("min-h-[44px]");
+    fireEvent.click(cta!);
+    expect(useShellStore.getState().activeScreen).toBe("/students");
+  });
+
+  it("keeps the full strip when there are no ACTIVE students but money still exists", async () => {
+    // A tutor whose students have all graduated has zero active students and a
+    // real arrears balance. Hiding that behind a welcome panel would be the same
+    // class of lie as the all-zero grid it replaced.
+    fetchSummary.mockResolvedValue({
+      ok: true,
+      value: {
+        summary: summary({
+          kpis: {
+            totalStudents: 0,
+            studentsWithDues: 0,
+            collectedThisMonthMinor: 0,
+            dueTillDateMinor: 450000,
+            dueForMonthMinor: 0,
+            overdueMinor: 450000,
+            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0, noDues: 0 },
+          },
+        }),
+        window: WINDOW,
+      },
+    });
+    renderClient();
+
+    await waitFor(() => expect(screen.getByText("Collected")).toBeInTheDocument(), {
+      timeout: 8000,
+    });
+    expect(screen.queryByText("Welcome to Buddysaradhi")).not.toBeInTheDocument();
+  });
+});
+
+describe("DashboardClient — due today", () => {
+  it("gives one row per invoice even when a student owns two overdue invoices", async () => {
+    fetchSummary.mockResolvedValue({
+      ok: true,
+      value: {
+        summary: summary({
+          dueToday: [
+            {
+              student_id: "s-1",
+              student_name: "Aarav Sharma",
+              due_minor: 250000,
+              invoice_number: "INV-0017",
+              due_date: "2026-10-01T00:00:00.000Z",
+            },
+            {
+              student_id: "s-1",
+              student_name: "Aarav Sharma",
+              due_minor: 120000,
+              invoice_number: "INV-0018",
+              due_date: "2026-10-02T00:00:00.000Z",
+            },
+          ],
+          dueTodayTotal: 2,
+          dueTodayTruncated: false,
+        }),
+        window: WINDOW,
+      },
+    });
+    renderClient();
+
+    // Two rows, two distinct invoice numbers, two distinct amounts. With
+    // `key={student_id}` the second row reused the first row's DOM and the
+    // amounts on screen belonged to the wrong invoice.
+    await waitFor(
+      () => expect(screen.getAllByText("Inv INV-0017")).toHaveLength(1),
+      { timeout: 8000 },
+    );
+    expect(screen.getAllByText("Inv INV-0018")).toHaveLength(1);
+    expect(screen.getByText("₹2,500.00")).toBeInTheDocument();
+    expect(screen.getByText("₹1,200.00")).toBeInTheDocument();
+  });
+
+  it("says how late a row is in whole days and says nothing for one due today", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    fetchSummary.mockResolvedValue({
+      ok: true,
+      value: {
+        summary: summary({
+          dueToday: [
+            {
+              student_id: "s-1",
+              student_name: "Aarav Sharma",
+              due_minor: 250000,
+              invoice_number: "INV-0001",
+              due_date: `${today}T00:00:00.000Z`,
+            },
+          ],
+          dueTodayTotal: 1,
+          dueTodayTruncated: false,
+        }),
+        window: WINDOW,
+      },
+    });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Inv INV-0001")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+    // The regression: "1 day overdue" for an invoice due today.
+    expect(screen.queryByText(/day[s]? overdue/)).not.toBeInTheDocument();
+  });
+});
+
+describe("window plumbing", () => {
+  it("resolvePeriodWindow is the same derivation the action uses", () => {
+    // A guard against the two drifting: the control's label and the window the
+    // gateway is asked for come from one function, by construction.
+    expect(resolvePeriodWindow({ mode: "month", start: null, end: null }, Date.now())).toEqual(
+      expect.objectContaining({ movesMoneyCards: true }),
+    );
+  });
+});

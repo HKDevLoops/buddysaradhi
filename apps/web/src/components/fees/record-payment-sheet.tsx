@@ -90,12 +90,20 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
   };
 
   // Any typed value makes the form dirty; the untouched default description is
-  // not the tutor's work.
+  // not the tutor's work. This used to count ONLY the free-text fields, so a
+  // tutor who backdated the date — which is what raises the PIN panel — and then
+  // hit Escape or clicked the scrim lost the date, the PIN and the advance
+  // acknowledgement with no confirmation, while the sheet asked `useOverlayDismiss`
+  // whether the form was clean and believed itself. Every control on the form
+  // counts.
   const dirty =
     amount.trim().length > 0 ||
     reference.trim().length > 0 ||
     backdatePin.trim().length > 0 ||
-    description.trim() !== "Tuition Fee Payment";
+    description.trim() !== "Tuition Fee Payment" ||
+    method !== "cash" ||
+    dateIso !== todayIso() ||
+    advanceAck;
 
   const {
     panelRef,
@@ -295,6 +303,22 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       : preview.split?.statusAfter === "partial"
         ? "◐ Partial"
         : "✕ Unpaid";
+
+  /**
+   * A negative balance is CREDIT, not a negative debt (12_Business_Rules.md
+   * BR-M-04: "Negative balances (advances) render as `−₹500` in emerald (not
+   * red). An advance is money the tutor owes the student"). Printing it as
+   * "Balance −₹700" beside a "◐ Partial" chip put three contradictory claims in
+   * one preview block, so the amount is now named in the word the rest of the
+   * product uses for it (see `BalanceStatusChip`: "Credit") and shown in the
+   * accent that means "you hold this", never the danger accent.
+   */
+  const resultingBalance =
+    preview.split === null
+      ? null
+      : preview.split.balanceAfterPaise < 0
+        ? { label: "Credit on account", paise: paiseSub(0, preview.split.balanceAfterPaise), accent: "var(--success)" }
+        : { label: "Balance", paise: preview.split.balanceAfterPaise, accent: "var(--text-primary)" };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -497,10 +521,12 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       <span className="text-[var(--text-muted)]"> · {PAYMENT_METHOD_LABELS[method]}</span>
                       {reference.trim() && <span className="text-[var(--text-muted)]"> · {reference.trim()}</span>}
                     </p>
-                    {preview.balanceKnown && preview.split && (
+                    {preview.balanceKnown && preview.split && resultingBalance && (
                       <p className="text-[var(--text-primary)]">
-                        After this payment: Balance{" "}
-                        <span className="font-bold num">{formatINR(preview.split.balanceAfterPaise)}</span>
+                        After this payment: {resultingBalance.label}{" "}
+                        <span className="font-bold num" style={{ color: resultingBalance.accent }}>
+                          {formatINR(resultingBalance.paise)}
+                        </span>
                         {" · "}{statusLabel}
                         {preview.split.isAdvance && (
                           <span className="ml-2 chip chip-success num">Advance {formatINR(preview.split.advancePaise)}</span>
@@ -508,8 +534,18 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       </p>
                     )}
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      Applied to the oldest unpaid invoice first
-                      {preview.split?.isAdvance ? "; anything left over is held as advance on a new invoice" : ""}.
+                      {/* Attribution is a FACT about the student's open invoices, so
+                          the sentence that states it must not appear when there is
+                          nothing to attribute against. A student who owes nothing was
+                          previously told this payment "applies to the oldest unpaid
+                          invoice first" — there is no such invoice, and the core flow
+                          proves it by auto-invoicing the whole amount. One string, so
+                          there is no orphaned full stop when the balance is unknown. */}
+                      {preview.split === null
+                        ? null
+                        : preview.split.appliedPaise > 0
+                          ? `Applied to the oldest unpaid invoice first${preview.split.isAdvance ? "; anything left over is held as advance on a new invoice" : ""}.`
+                          : "Nothing is outstanding, so the whole amount is held on account."}{" "}
                       Your receipt number is issued the moment this saves, and no receipt number is ever
                       reused.
                     </p>

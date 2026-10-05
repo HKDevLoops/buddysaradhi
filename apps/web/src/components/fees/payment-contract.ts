@@ -186,7 +186,13 @@ export function splitPaymentPreview(
   balanceDuePaise: number,
   amountPaise: number,
 ): PaymentSplitPreview {
-  const appliedPaise = Math.min(balanceDuePaise, amountPaise);
+  // `appliedPaise` is money that settles something the student was OWED, so it
+  // cannot be negative. A student already IN CREDIT (balance < 0) has nothing
+  // outstanding: `Math.min(-200, 50000)` used to hand this function
+  // `appliedPaise: -200`, a negative "amount applied to an invoice" that no
+  // invoice can carry. Every paise of such a payment is advance (EC-F-08), so
+  // the floor is 0 and the surplus absorbs the whole payment.
+  const appliedPaise = balanceDuePaise > 0 ? Math.min(balanceDuePaise, amountPaise) : 0;
   const advancePaise = paiseSub(amountPaise, appliedPaise);
   const balanceAfterPaise = paiseSub(balanceDuePaise, amountPaise);
   return {
@@ -194,21 +200,31 @@ export function splitPaymentPreview(
     advancePaise,
     isAdvance: advancePaise > 0,
     balanceAfterPaise,
-    statusAfter: classifyStatusAfter(balanceAfterPaise, amountPaise),
+    statusAfter: classifyStatusAfter(balanceAfterPaise, balanceDuePaise),
   };
 }
 
 /**
  * 07 §9.6 step 5 status recompute preview with BR-FEE-05 tolerance:
  * |balance| ≤ 1 paise reads as paid.
+ *
+ * `outstandingBeforePaise` is what the student owed BEFORE the payment, and it
+ * — not the amount that moved — decides the word. The previous signature took
+ * `paidPaise` and asked "did money move?", which produced a contradiction on
+ * screen for a student who owed nothing: recording ₹500 against a ₹0 balance
+ * previewed "Balance −₹500 · ◐ Partial · Advance ₹500" — three claims at once,
+ * one of them false. A payment made from a position of nothing owing cannot be
+ * PARTIAL; there is no invoice to be part-way through, and the honest statement
+ * is that nothing is outstanding and the money is held as advance (EC-F-08).
  */
 export function classifyStatusAfter(
   balanceAfterPaise: number,
-  paidPaise: number,
+  outstandingBeforePaise: number,
 ): InvoicePaymentStatus {
   if (Math.abs(balanceAfterPaise) <= PAID_IN_FULL_TOLERANCE_PAISE) return "paid";
-  if (paidPaise > 0) return "partial";
-  return "unpaid";
+  // Nothing was owed, so nothing is now — whatever the amount does next.
+  if (outstandingBeforePaise <= PAID_IN_FULL_TOLERANCE_PAISE) return "paid";
+  return "partial";
 }
 
 /**

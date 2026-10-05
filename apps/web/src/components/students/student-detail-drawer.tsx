@@ -261,7 +261,7 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
         : "Student";
       toast.success(
         `${name} deleted`,
-        "Their attendance, invoices and receipts went with them, and your dashboard has been recalculated.",
+        "Their attendance, invoices and ledger entries were left untouched — the roster entry and batch memberships are gone.",
       );
     },
     onError: (err, _id, context) => {
@@ -509,7 +509,11 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(e) => onTabKeyDown(e, index)}
               aria-selected={activeTab === tab.id}
-              aria-controls={`student-panel-${activeTab}`}
+              // Each tab points at ITS OWN panel. It used to point every tab at
+              // whichever panel was active, so an assistive technology told the
+              // user that "Ledger" controlled the Overview panel (13 §10.4 —
+              // Name, Role, Value).
+              aria-controls={`student-panel-${tab.id}`}
               tabIndex={activeTab === tab.id ? 0 : -1}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all border-b-2 ${
                 activeTab === tab.id
@@ -783,16 +787,28 @@ export function StudentDetailDrawer({ selectedRow }: StudentDetailDrawerProps) {
                 Delete {fullName}?
               </h3>
             </div>
+            {/* What this action ACTUALLY does, and what it does not. The previous
+                copy said "attendance records, invoices, ledger entries and
+                receipts are deleted with them" — the gateway's DELETE removes only
+                the batch enrollments and the student row, and `ledger_entries` is
+                append-only at the database level (AGENTS.md §2 Rule 1), so the one
+                row that CANNOT be deleted was named as the headline consequence. A
+                tutor reading that would believe their receipt history was gone
+                when it is untouched, and would not read a truth about what they do
+                lose: the roster row, the name, and the batch memberships. */}
             <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
-              Their attendance records, invoices, ledger entries and receipts are deleted with them.
-              The number is consumed, never reused, so an old receipt can never be reissued.
+              Their roster entry, name, contact details and batch memberships are
+              deleted. Their attendance marks, invoices, receipts and every ledger
+              entry stay exactly as they are — a financial record is never deleted,
+              only corrected by a void.
             </p>
             <p
-              className="text-xs mb-6 p-3 rounded-lg"
+              className="text-xs mb-4 p-3 rounded-lg"
               style={{ background: "color-mix(in srgb, var(--warning) 12%, transparent)", color: "var(--warning)" }}
             >
-              This rewrites your month totals and cannot be undone. Consider voiding a mistaken payment
-              instead, which leaves the history intact.
+              Month totals drop by whatever this student contributed, and it cannot be
+              undone. To correct a mistaken payment instead, void that receipt from
+              the Fees screen — the history stays intact.
             </p>
             {deleteError && (
               <p role="alert" className="text-xs mb-4 text-center" style={{ color: "var(--danger)" }}>
@@ -839,10 +855,17 @@ function MetricCard({
   icon: React.ReactNode;
   accent: string;
 }) {
+  // 13_UI_Guidelines.md §5.3 — no glass on glass. The drawer panel is already a
+  // glass surface; a `glass` card inside it blurred the two planes into one and
+  // is exactly the nesting the anti-slop gate forbids. A flat inset reads as a
+  // layer without pretending to be a second material.
   return (
     <div
-      className="glass p-4 rounded-xl flex flex-col justify-between transition-all hover:bg-[var(--surface-raised)]"
-      style={{ border: `1px solid color-mix(in srgb, ${accent} 25%, transparent)` }}
+      className="p-4 rounded-xl flex flex-col justify-between"
+      style={{
+        background: "var(--surface-inset)",
+        border: `1px solid color-mix(in srgb, ${accent} 25%, transparent)`,
+      }}
     >
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">{title}</p>

@@ -8,7 +8,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
-import { pinFormatError, paiseSub } from "@buddysaradhi/shared";
+import { pinFormatError, formatINR, paiseSub } from "@buddysaradhi/shared";
 import {
   createInvoicePrisma,
   recordPaymentPrisma,
@@ -172,9 +172,15 @@ export async function recordPaymentAction(
         studentId: payload.studentId,
         excessPaise: excess,
       });
+      // 07 §10.1 BR-M-04 states the helper as "Amount exceeds balance due by
+      // ₹X", and 12_Business_Rules.md BR-M-02 makes `formatINR()` the single
+      // source for any displayed amount (FM-02: a raw money value rendering as
+      // `1255.5499…` is a P0). This string interpolated the raw paise count, so
+      // a ₹200 excess reached the tutor as "20000 paise" — a figure in a unit
+      // they never asked for, on the one alert that stops a payment.
       return {
         success: false as const,
-        error: `Amount exceeds balance due by ${excess} paise. Acknowledge 'Mark as advance' to record the surplus.`,
+        error: `Amount exceeds balance due by ${formatINR(excess)}. Acknowledge 'Mark as advance' to record the surplus.`,
       };
     }
     // 07 §9.6: audit-first, all-or-nothing, partial payments attributed per
@@ -192,6 +198,13 @@ export async function recordPaymentAction(
         payload.description
       ),
       receivedOn: payload.receivedOn,
+      // 07 §7 `TypeChip` + amended §6.4: the method is the tutor's own choice
+      // and the reference is OPTIONAL for every method, so `reference` is
+      // passed through verbatim (empty string included) rather than defaulted
+      // away. Both land on `receipts.payment_method` / `payment_ref` — the
+      // fields the printed receipt shows.
+      method: payload.method,
+      reference: payload.reference ?? "",
     });
     if (!result.ok) throw result.error;
     revalidatePath("/fees");
@@ -329,6 +342,11 @@ function mapVoidGatewayError(message: string): string {
     return "Cannot void a void entry (BR-LED-05). Post a compensating ADJUSTMENT instead.";
   if (/entry_already_voided/i.test(message))
     return "Entry already voided (BR-LED-04) — no second reversing row posted";
+  // BR-LED-09 / EC-F-06: the charge is settled by payments, so reversing it
+  // would strand those credits. The tutor needs the ORDER of operations, not the
+  // rule id: void the receipts first, then the charge.
+  if (/charge_has_credits/i.test(message))
+    return "This fee already has payments against it. Void those receipts first, then void the fee — nothing was written.";
   return message;
 }
 
@@ -349,7 +367,15 @@ export async function createInvoiceAction(
     log.error("fee_create_invoice_invalid_input", parsed.error.message, {
       studentId,
     });
-    return { success: false as const, error: parsed.error.message };
+    // Rule 9 + invariant 1 of `components/ui/screen-state.tsx`: this string is
+    // rendered verbatim inside the sheet's `role="alert"`, and a raw Zod
+    // message reads as `amountPaise: Number must be greater than 0` — database
+    // field names at a tutor. The detail stays in the log; the tutor gets one
+    // sentence and the reason they can act on.
+    return {
+      success: false as const,
+      error: "That invoice was missing something, or the amount was not a valid whole-paise figure. Check the amount and try again.",
+    };
   }
   try {
     const { db, tenantId } = await getAuthenticatedPrisma();

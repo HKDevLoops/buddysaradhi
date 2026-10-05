@@ -1,12 +1,26 @@
 "use client";
 
 // Implements: UI/web/06_Fees_and_Payments.md — Import tab (TutorOS)
-// CSV import UI. Parses client-side for preview; final import action is out of
-// scope for this UI pass (no server action added) — surfaced transparently.
+// CSV preview UI. Parses client-side for preview ONLY.
+//
+// NOTHING HERE WRITES TO THE LEDGER, and the tab now says so on the control
+// itself. The commit button used to be enabled and gradient-styled, and its only
+// effect was rendering "Preview ready — connect a fees import action to commit" —
+// the most prominent control on this tab admitting in its own aftermath that it
+// does nothing. It is now disabled with the reason stated in text next to it
+// (reachable by keyboard and screen reader). 09_Backup_and_Import_Export.md §8
+// (BR-IMP-04) owns the real import; it does not exist yet.
+//
+// The amount column is checked with the product's own rupee→paise parser rather
+// than `Number(cell)`. A float parse of a money column is the FM-02 smell (and
+// accepts `1e3`, `0x1f`, ` 12 `, `Infinity`), and the preview's definition of
+// "a valid amount" should be the same one the eventual action enforces:
+// whole paise, greater than zero, at most two decimals (BR-M-01, 07 §14).
 
 import { useRef, useState } from "react";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { rupeesStringToPaise } from "./payment-contract";
 
 interface ParsedRow {
   cells: string[];
@@ -39,8 +53,21 @@ function parseCsv(text: string): { headers: string[]; rows: ParsedRow[] } {
   const rows: ParsedRow[] = lines.slice(1).map((line) => {
     const cells = splitLine(line);
     const amountIdx = headers.findIndex((h) => /amount|paid|fee/i.test(h));
-    const valid = cells.length === headers.length && (amountIdx < 0 || !isNaN(Number(cells[amountIdx])));
-    return { cells, valid, reason: valid ? undefined : "Missing field or invalid amount" };
+    // BR-M-01: the amount column is judged by the SAME paise parser the action
+    // will use, not `Number()` — which floats, and accepts `1e3`/`Infinity`.
+    const amountOk =
+      amountIdx < 0 || (cells[amountIdx] !== undefined && rupeesStringToPaise(cells[amountIdx] ?? "") !== null);
+    const shapeOk = cells.length === headers.length;
+    const valid = shapeOk && amountOk;
+    return {
+      cells,
+      valid,
+      reason: valid
+        ? undefined
+        : !shapeOk
+          ? "Column count does not match the header row"
+          : "Amount is not a valid positive rupee figure",
+    };
   });
   return { headers, rows };
 }
@@ -51,11 +78,9 @@ export function LedgerImport() {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [dragging, setDragging] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [imported, setImported] = useState(false);
 
   const loadFile = (file: File) => {
     setFileName(file.name);
-    setImported(false);
     const reader = new FileReader();
     reader.onload = () => {
       const { headers, rows } = parseCsv(String(reader.result ?? ""));
@@ -156,18 +181,28 @@ export function LedgerImport() {
 
           <div className="mt-4 flex items-center gap-3">
             <button
-              onClick={() => setImported(true)}
-              disabled={validCount === 0}
-              className="btn-glass neumo-raised px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-50"
-              style={{ background: "linear-gradient(135deg, var(--success), var(--info))", color: "var(--accent-on-primary)", border: "none" }}
+              type="button"
+              disabled
+              aria-describedby="ledger-import-unavailable"
+              className="btn-glass neumo-raised min-h-[44px] px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", color: "var(--text-muted)" }}
             >
               <FileSpreadsheet className="w-4 h-4" /> Import {validCount} rows
             </button>
-            {imported && (
-              <span className="flex items-center gap-2 text-sm" style={{ color: "var(--info)" }}>
-                <Info className="w-4 h-4" /> Preview ready — connect a fees import action to commit.
-              </span>
-            )}
+            {/* There is no fees-import action, so the button used to flip a notice
+                that said so — "Preview ready — connect a fees import action to
+                commit" — which is an enabled, gradient, most-prominent control on
+                a money screen whose only outcome is a message admitting it does
+                nothing. A disabled control that states the reason in text is the
+                honest version: it cannot be mistaken for something that will
+                write to the ledger, and the reason is reachable by keyboard and by
+                screen reader (a `title` alone is neither). 09_Backup_and_
+                Import_Export.md §8 (BR-IMP-04) owns the real import; it does not
+                exist yet. */}
+            <p id="ledger-import-unavailable" className="text-xs max-w-[28rem]" style={{ color: "var(--text-muted)" }}>
+              Importing into the ledger is not available in this build. Nothing on this tab can write to
+              a student&apos;s books — the table above is a read-only preview of the file you picked.
+            </p>
           </div>
         </div>
       )}

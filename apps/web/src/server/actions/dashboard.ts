@@ -34,6 +34,13 @@ import {
   AnalyticsFilterSchema,
 } from "@/lib/dashboard-analytics-calc";
 import {
+  DashboardPeriodSchema,
+  defaultDashboardPeriod,
+  resolvePeriodWindow,
+  type DashboardPeriod,
+  type PeriodWindow,
+} from "@/lib/dashboard-period";
+import {
   getDashboardAnalytics,
   type DashboardAnalytics,
 } from "@/server/queries/dashboard-analytics";
@@ -226,6 +233,18 @@ export type DashboardActivityItem = z.infer<typeof activityItemSchema>;
 export type DashboardDueTodayItem = z.infer<typeof dueTodayItemSchema>;
 export type DashboardSummary = z.infer<typeof summarySchema>;
 
+/**
+ * The summary plus the window it was read over. The window travels back rather
+ * than being re-derived on the client, because every card caption on this
+ * screen has to describe the SAME bounds that produced the figure above it. A
+ * caption derived from a second call to `resolvePeriodWindow` would be right
+ * until the tutor crossed midnight with the tab open, and then quietly wrong.
+ */
+export type DashboardRead = {
+  summary: DashboardSummary;
+  window: PeriodWindow;
+};
+
 /* ------------------------------------------------------------------ *
  * Read
  * ------------------------------------------------------------------ */
@@ -234,12 +253,40 @@ export type DashboardSummary = z.infer<typeof summarySchema>;
  * The whole Dashboard read. One gateway call, one Zod pass, one honest failure
  * mode. `ok: false` is a real, renderable outcome: the screen shows an
  * `ErrorState` that says what is safe to do, not a set of zeroes.
+ *
+ * The period (§6.4) is a real input now. It is parsed by
+ * `DashboardPeriodSchema` — a 90-day-plus range, a reversed window or a missing
+ * bound is refused here rather than widened into something the tutor never
+ * chose — and sent as `periodStartIso` / `periodEndIso`, which
+ * `apps/gateway/routes/analytics.ts` validates and applies to
+ * `collectedThisMonthMinor` and `dueForMonthMinor`. Omitting the argument
+ * reproduces the previous behaviour exactly (the gateway's own default is the
+ * calendar month so far), so every other caller is unaffected.
  */
-export async function fetchDashboardSummaryAction(): Promise<
-  { ok: true; value: DashboardSummary } | { ok: false; error: string; code: string }
+export async function fetchDashboardSummaryAction(
+  period?: unknown,
+): Promise<
+  { ok: true; value: DashboardRead } | { ok: false; error: string; code: string }
 > {
+  const parsedPeriod = DashboardPeriodSchema.safeParse(period ?? defaultDashboardPeriod());
+  if (!parsedPeriod.success) {
+    const detail = parsedPeriod.error.issues
+      .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+      .join("; ");
+    log.error("dashboard_period_invalid", detail);
+    return {
+      ok: false,
+      code: "DASHBOARD_PERIOD_INVALID",
+      error: `DASHBOARD_PERIOD_INVALID: the period filter is unreadable, so no figure is being shown. ${detail}`,
+    };
+  }
+  const window = resolvePeriodWindow(parsedPeriod.data as DashboardPeriod, Date.now());
+
   try {
-    const res = await gatewayGet<unknown>("/api/v1/analytics/dashboard");
+    const res = await gatewayGet<unknown>("/api/v1/analytics/dashboard", {
+      periodStartIso: window.periodStartIso,
+      periodEndIso: window.periodEndIso,
+    });
 
     if (!res.success) {
       // No fallback. `getStudents` in `server/queries/students.ts` removed its
@@ -273,7 +320,7 @@ export async function fetchDashboardSummaryAction(): Promise<
       };
     }
 
-    return { ok: true, value: parsed.data };
+    return { ok: true, value: { summary: parsed.data, window } };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error("dashboard_summary_failed", message);

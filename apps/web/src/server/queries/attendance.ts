@@ -78,7 +78,15 @@ export const getAttendanceForDate = cache(
         ),
         withQueryTimeout(
           proxy.student.findMany({
-            where: { tenantId, status: "active" },
+            // `archivedAt: null` is missing-loudly fixable here and belongs to
+            // the same clause as `status`: BR-ATT-12 / 06 §11 E3-E4 /
+            // 14_Edge_Cases EC-A-02 all exclude archived students from the
+            // attendance roster ("Graduated/archived students excluded from the
+            // active enrollment roster"). Without it the fallback path listed
+            // archived students as markable while the gateway path — which does
+            // filter it — did not, so the same day showed a different roster
+            // depending on which read won.
+            where: { tenantId, status: "active", archivedAt: null },
             orderBy: { firstName: "asc" },
           }),
           QUERY_TIMEOUT_MS,

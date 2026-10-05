@@ -188,19 +188,75 @@ function pinGateMessage(gate: PinGateResult): string {
   return "VALIDATION: The security PIN is incorrect.";
 }
 
-export async function createBackupAction(passphrase: string) {
+/**
+ * 08_Settings.md EC-04 + §14 `passphraseSchema`: a backup passphrase is at
+ * least 12 characters. The floor was 8, which is short enough that a tutor who
+ * picked "buddy1234" would have a KDF input a dictionary attack reaches; the
+ * spec names 12 and 12 is what ships.
+ */
+export const BACKUP_PASSPHRASE_MIN = 12;
+
+/**
+ * 08_Settings.md §6.2.7: `Buddysaradhi_Backup_<YYYYMMDD-HHmm>.buddysaradhi`.
+ * The extension IS the contract — 08 §9.7 keys restore's magic-byte check and
+ * the tutor's own file-naming habit off it, and the previous `.bsb` +
+ * `buddysaradhi_backup_<YYYY-MM-DD>` was neither.
+ */
+export function backupFilename(now: Date = new Date()): string {
+  const pad = (n: number, width = 2): string => String(n).padStart(width, "0");
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  return `Buddysaradhi_Backup_${stamp}.buddysaradhi`;
+}
+
+/**
+ * Backup create. PIN-gated and typed-confirmed per 08 SR-01 + 09 §15.4
+ * (typed `EXPORT`, then a fresh PIN — two independent gates), audited per
+ * 08 §9.6 step 6, and Rule 7 puts the audit + outbox rows in the same
+ * transaction as the mutation they describe.
+ *
+ * SR-13: no optimistic UI and no optimistic audit. The file only appears
+ * after the transaction commits.
+ */
+export async function createBackupAction(passphrase: string, pin: string, typedConfirm?: string) {
+  const refuse = (error: string) => ({ success: false as const, error });
   try {
-    if (passphrase.length < 8) {
-      return { success: false, error: "Passphrase must be at least 8 characters" };
+    if (typedConfirm !== "EXPORT") {
+      // BR-SEC-04: the typed word is the first gate. Nothing is read, nothing
+      // is encrypted, nothing is written when it does not match.
+      log.warn("backup_export_refused", "Typed EXPORT confirm did not match");
+      return refuse("Type EXPORT to confirm.");
+    }
+    if (passphrase.length < BACKUP_PASSPHRASE_MIN) {
+      return refuse(`Passphrase must be at least ${BACKUP_PASSPHRASE_MIN} characters`);
     }
 
     const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+    if (!pinHash) {
+      return refuse("No PIN configured. Set one in Settings, Security first.");
+    }
+    const gate = await verifyPinWithLadder(db, tenantId, pin, pinHash);
+    if (!gate.ok) {
+      return refuse(pinGateMessage(gate));
+    }
+
     // Rule 9 + AGENTS §3.4: a failed/missing-table read throws and is caught
     // below (typed failure). Never emit an empty-but-"successful" backup.
-    const [settingsRows, studentsRows, ledgerRows] = await Promise.all([
+    //
+    // 09 §3/§5: the backup carries the tutor's books. It previously carried
+    // only settings + students + ledger, so a restore would have silently lost
+    // every invoice and the audit trail. Invoice + audit rows are in now;
+    // receipts / attendance / batches are NOT — the web ORM shim does not expose
+    // those models (see worklog: P0 gap reported to the lead).
+    const [settingsRows, studentsRows, ledgerRows, invoiceRows, auditRows] = await Promise.all([
       db.setting.findMany({ where: { tenantId } }),
       db.student.findMany({ where: { tenantId } }),
       db.ledgerEntry.findMany({ where: { tenantId } }),
+      db.invoice.findMany({ where: { tenantId } }),
+      db.auditLog.findMany({ where: { tenantId } }),
     ]);
 
     const backupPayload = JSON.stringify({
@@ -210,25 +266,86 @@ export async function createBackupAction(passphrase: string) {
       settings: settingsRows,
       students: studentsRows,
       ledger: ledgerRows,
+      invoices: invoiceRows,
+      audit: auditRows,
     });
 
     // Rule 8: the passphrase is the KDF input (Argon2id), not just a check —
     // the backup must be restorable on any device with only the passphrase.
     const encryptedB64 = await encryptBackup(backupPayload, passphrase);
-    const sizeBytes = Buffer.byteLength(encryptedB64, 'base64');
+    const sizeBytes = Buffer.byteLength(encryptedB64, "base64");
     const sizeKB = (sizeBytes / 1024).toFixed(1);
+    const filename = backupFilename();
+    const now = new Date().toISOString();
+
+    // Rule 7 + 08 §9.6 step 6: `backup_create` audit and the outbox row land in
+    // ONE transaction with each other. If either fails the tutor is told the
+    // backup failed rather than holding an un-audited file (BR-SEC-03
+    // fail-closed). `app_state.last_backup_at` is NOT written — the web ORM
+    // shim exposes no `appState` model (reported gap).
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.syncOutbox.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            tableName: "settings",
+            rowId: tenantId,
+            op: "update",
+            payload: JSON.stringify({ last_backup_at: now, filename }),
+            createdAt: now,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            actor: tenantId,
+            refType: "backup",
+            refId: tenantId,
+            action: "backup_create",
+            metadata: JSON.stringify({
+              bytes: sizeBytes,
+              filename,
+              counts: {
+                students: studentsRows.length,
+                ledger: ledgerRows.length,
+                invoices: invoiceRows.length,
+                audit: auditRows.length,
+              },
+            }),
+            createdAt: now,
+          },
+        });
+      });
+    } catch (auditError) {
+      // BR-SEC-03 fail-closed: the file is NOT handed to the tutor when the
+      // audit could not be written. No silent unaudited export.
+      log.error(
+        "backup_create_audit_failed",
+        auditError instanceof Error ? auditError.message : String(auditError),
+      );
+      return refuse("Action blocked: audit unavailable. Nothing was written.");
+    }
 
     return {
-      success: true,
+      success: true as const,
       data: {
-        filename: `buddysaradhi_backup_${new Date().toISOString().split('T')[0]}.bsb`,
+        filename,
         size: `${sizeKB} KB`,
-        mockBlobUrl: `data:application/octet-stream;base64,${encryptedB64}`,
+        counts: {
+          students: studentsRows.length,
+          ledger: ledgerRows.length,
+          invoices: invoiceRows.length,
+          audit: auditRows.length,
+        },
+        encrypted: true,
+        blobUrl: `data:application/octet-stream;base64,${encryptedB64}`,
       },
     };
   } catch (error) {
-    log.error('create_backup_action_failed', error instanceof Error ? error.message : String(error));
-    return { success: false, error: "Failed to generate backup" };
+    log.error("create_backup_action_failed", error instanceof Error ? error.message : String(error));
+    return refuse("Failed to generate backup. Nothing was written.");
   }
 }
 
@@ -309,6 +426,116 @@ const SETTING_WRITE_FIELDS: Record<string, boolean> = {
   autoArchiveInactiveDays: true, theme: true, density: true,
   reducedMotion: true, palette: true,
 };
+
+/**
+ * The VALUE gate, added because the FIELD gate above was the only one.
+ *
+ * `SETTING_WRITE_FIELDS` stops `pinHash`/`tenantId`/`id` being smuggled through
+ * an allowlist — but it says nothing about what `graceDays: 99999` or
+ * `invoicePrefix: '"'` means. 08 §13 schema block specifies the exact bounds, and
+ * 08 §14 EC-17 requires the PREFIX case to be a Zod rejection, not a UI hint. A
+ * number like `attendanceLockHours: -5` silently disables a security control; a
+ * prefix containing a quote ends up printed on every receipt forever. This map
+ * is the server-side enforcement of the spec block, in the spec's own terms, so
+ * the client and the server cannot drift (AGENTS.md §6.1 — Zod at every
+ * boundary).
+ *
+ * Deliberately NOT covered: `nextInvoiceSeq`/`nextReceiptSeq`/`nextStudentSeq`.
+ * Those are sequence state advanced by the money engine, not tutor input; the
+ * fee-rules UI exposes them READ-ONLY (08 §6.2.4) and a hand-written value must
+ * never reach them.
+ */
+const SETTING_VALUE_SCHEMAS: Record<string, z.ZodTypeAny> = {
+  // 08 §6.2.1 Institute Profile
+  instituteName: z.string().min(1).max(120),
+  instituteAddress: z.string().max(200),
+  institutePhone: z
+    .string()
+    .regex(/^\+?[0-9]{6,15}$/, "Use a phone number of 6 to 15 digits, optionally starting with +"),
+  instituteEmail: z.string().email().max(120),
+  // 08 §6.2.1 — currency is validated here AND frozen once a fee exists
+  // (see `assertCurrencyNotLocked`); `formatINR` requires a real code.
+  currencyCode: z.string().regex(/^[A-Z]{3}$/, "Use a three-letter currency code such as INR"),
+  locale: z.string().regex(/^[a-z]{2}-[A-Z]{2}$/, "Use a locale such as en-IN"),
+  timezone: z.string().min(1).max(64),
+  // 08 §6.2.4 feeRulesSchema
+  defaultFeeModel: z.enum(["postpaid", "prepaid", "mixed"]),
+  invoicePrefix: z
+    .string()
+    .regex(/^[A-Za-z0-9-]+$/, "Prefix must be alphanumeric (letters, digits, hyphen)")
+    .min(1)
+    .max(10),
+  receiptPrefix: z
+    .string()
+    .regex(/^[A-Za-z0-9-]+$/, "Prefix must be alphanumeric (letters, digits, hyphen)")
+    .min(1)
+    .max(10),
+  graceDays: z.number().int().min(0).max(30),
+  autoInvoice: z.boolean(),
+  // 08 §6.2.3 attendanceRulesSchema
+  attendanceLockHours: z.number().int().min(1).max(168),
+  defaultAttendanceStatus: z.enum(["present", "absent"]),
+  holidayListJson: z
+    .string()
+    .max(40_000)
+    .refine(
+      (raw) => {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          return (
+            Array.isArray(parsed) &&
+            parsed.every(
+              (h) =>
+                typeof h === "object" &&
+                h !== null &&
+                typeof (h as { date?: unknown }).date === "string" &&
+                /^\d{4}-\d{2}-\d{2}$/.test((h as { date: string }).date) &&
+                typeof (h as { label?: unknown }).label === "string" &&
+                (h as { label: string }).label.length <= 40,
+            )
+          );
+        } catch {
+          return false;
+        }
+      },
+      "Holiday list must be a JSON array of { date: YYYY-MM-DD, label }",
+    ),
+  // 08 §6.2.6 securitySchema
+  sessionTimeoutMin: z.number().int().min(1).max(60),
+  biometricEnabled: z.boolean(),
+  // 08 §6.2.9 autoArchiveInactiveDays — 30–365 with NO "Never" option (§14).
+  autoArchiveInactiveDays: z.number().int().min(30).max(365),
+  // 08 §6.2.5 notifications + 13 §5 appearance vocabulary
+  notifyDueFee: z.boolean(),
+  notifyUpcomingDue: z.boolean(),
+  notifyMissingAttendance: z.boolean(),
+  notifyInactiveStudent: z.boolean(),
+  theme: z.string().min(1).max(32),
+  density: z.enum(["comfortable", "compact"]),
+  reducedMotion: z.enum(["system", "on", "off"]),
+  palette: z.string().min(1).max(32),
+};
+
+/**
+ * 08 §9.3 + 12_Business_Rules.md — the currency a tutor's books are denominated
+ * in is decided once and then FROZEN: re-denominating a ledger that already
+ * holds a charged fee silently rewrites what every historical amount meant.
+ * The client already shows a locked chip (and `getCurrencyLockAction` counts the
+ * rows), but a client-side lock is a suggestion — this is the enforcement.
+ */
+async function assertCurrencyNotLocked(): Promise<{ locked: false } | { locked: true; error: string }> {
+  const { db, tenantId } = await getAuthenticatedPrisma();
+  const charged = await db.ledgerEntry.count({ where: { tenantId, type: "FEE_CHARGED" } });
+  if (charged > 0) {
+    return {
+      locked: true,
+      error:
+        "Currency cannot be changed once a fee has been charged — your existing amounts would " +
+        "mean something different afterwards.",
+    };
+  }
+  return { locked: false };
+}
 
 // ---------------------------------------------------------------------------
 // RFC-004 C4 compare-and-swap (defensive web side).
@@ -423,6 +650,37 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
 
     if (!allowedFields[field]) {
       return { success: false, error: "Invalid setting field: " + field };
+    }
+
+    // 08 §13 schema block + §14 EC-17: the field allowlist says nothing about
+    // the VALUE. Reject before any DB touch, with the spec's own message, so the
+    // client and the server cannot disagree about what a legal setting is.
+    const valueSchema = SETTING_VALUE_SCHEMAS[field];
+    if (valueSchema) {
+      const parsedValue = valueSchema.safeParse(value);
+      if (!parsedValue.success) {
+        const detail = parsedValue.error.issues[0]?.message ?? "invalid value";
+        log.warn("settings_value_rejected", detail, { field });
+        return { success: false, error: detail, code: "VALIDATION" as const };
+      }
+      value = parsedValue.data;
+    } else if (field.startsWith("next") && field.endsWith("Seq")) {
+      // Sequence state is money-engine owned (08 §6.2.4 exposes it read-only).
+      // Refuse a hand-written value outright rather than silently ignoring it.
+      log.warn("settings_value_rejected", "sequence state is not tutor-writable", { field });
+      return {
+        success: false,
+        error: "This sequence is maintained by the app and cannot be set directly.",
+        code: "VALIDATION" as const,
+      };
+    }
+
+    // 08 §9.3 — currency freezes at the first charged fee.
+    if (field === "currencyCode") {
+      const guard = await assertCurrencyNotLocked();
+      if (guard.locked) {
+        return { success: false, error: guard.error, code: "VALIDATION" as const };
+      }
     }
 
     // RFC-004 C4: Zod-parse the CAS base before any DB touch (AGENTS §6.1).
@@ -540,12 +798,42 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
     // end-run around the single-field guard (pinHash/plan stay server-managed).
     const updateData: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(settingsObj)) {
-      if (val !== undefined && SETTING_WRITE_FIELDS[key]) {
-        updateData[key] = val;
+      if (val === undefined || !SETTING_WRITE_FIELDS[key]) continue;
+      // The batch path is held to the SAME value gate as the single-field path.
+      // A batch is not an end-run around validation just because it is one call:
+      // the fee-rules card sends three fields in one transaction, and each of
+      // them is individually specified.
+      const valueSchema = SETTING_VALUE_SCHEMAS[key];
+      if (valueSchema) {
+        const parsedValue = valueSchema.safeParse(val);
+        if (!parsedValue.success) {
+          const detail = parsedValue.error.issues[0]?.message ?? "invalid value";
+          log.warn("settings_value_rejected", detail, { field: key });
+          return { success: false, error: `${key}: ${detail}`, code: "VALIDATION" as const };
+        }
+        updateData[key] = parsedValue.data;
+        continue;
       }
+      if (key.startsWith("next") && key.endsWith("Seq")) {
+        log.warn("settings_value_rejected", "sequence state is not tutor-writable", { field: key });
+        return {
+          success: false,
+          error: `${key} is maintained by the app and cannot be set directly.`,
+          code: "VALIDATION" as const,
+        };
+      }
+      updateData[key] = val;
     }
     if (Object.keys(updateData).length === 0) {
       return { success: false, error: "No valid settings fields" };
+    }
+
+    // 08 §9.3 — the same currency freeze, checked once for the whole batch.
+    if ("currencyCode" in updateData) {
+      const guard = await assertCurrencyNotLocked();
+      if (guard.locked) {
+        return { success: false, error: guard.error, code: "VALIDATION" as const };
+      }
     }
 
     // RFC-004 C4: same CAS contract as the single-field path (parsed before
@@ -887,7 +1175,19 @@ export async function getPinStatusAction() {
 const ImportStudentsPayloadSchema = z.object({
   headers: z.array(z.string().max(120)).min(1).max(20),
   rows: z.array(z.array(z.string().max(4096)).max(20)).max(10000),
+  // 09_Backup_and_Import_Export.md §15.4 + 12_Business_Rules.md BR-SEC-02: an
+  // import of more than this many rows is a sensitive mutation and must carry a
+  // PIN. It is REQUIRED here, not only in the UI, so a scripted request buys
+  // nothing. Up to the threshold no PIN is needed (09 §15.4 says so).
+  pin: z.string().max(16).optional(),
 });
+
+/**
+ * 09_Backup_and_Import_Export.md §15.4: "Import students (> 100 rows) | Yes".
+ * The UI and this action share the number through the exported constant, so the
+ * gate can never be one row-count behind the label in the dialog.
+ */
+export const IMPORT_PIN_REQUIRED_ABOVE_ROWS = 100;
 
 export interface ImportStudentsSummary {
   created: number;
@@ -950,6 +1250,29 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
     const { unique, duplicates } = partitionDuplicates(checked.valid);
     const { db, tenantId } = await getAuthenticatedPrisma();
     const today = new Date().toISOString().slice(0, 10);
+
+    // 09 §15.4 / BR-SEC-02: over the threshold, the PIN is verified BEFORE any
+    // batch is created and before any student row is written. Fail-closed: a
+    // wrong or missing PIN returns typed and nothing lands.
+    if (unique.length > IMPORT_PIN_REQUIRED_ABOVE_ROWS) {
+      const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+      const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+      if (!pinHash) {
+        return {
+          success: false,
+          error: "No PIN configured. Set one in Settings, Security first.",
+          code: "PIN_REQUIRED",
+        };
+      }
+      const gate = await verifyPinWithLadder(db, tenantId, parsed.data.pin ?? "", pinHash);
+      if (!gate.ok) {
+        return {
+          success: false,
+          error: pinGateMessage(gate),
+          code: gate.code ?? "PIN_INVALID",
+        };
+      }
+    }
 
     // Exact-duplicate screen (BR-STU-02): one roster read, in-memory keys, so
     // the check stays one query no matter how many rows arrive.
@@ -1180,5 +1503,157 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
       error instanceof Error ? error.message : String(error),
     );
     return { success: false, error: "Failed to import students", code: "IMPORT_FAILED" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Settings → Database (the honest version of a section that used to fake a
+// "Test Connection" success) and the BR-M-02 currency lock.
+// Implements: 08_Settings.md §9.3 + EC-01 (currency immutable after the first
+// FEE_CHARGED ledger row); §6.2.10 / BR-SYN-04 (the tenant's own identity and
+// how much it holds); AGENTS.md §2 Rule 9 (no fabricated health) + §3.4 (ORM
+// methods only, no raw SQL) + §6.1 (Zod-parsed options, typed results).
+// ---------------------------------------------------------------------------
+
+/**
+ * 08_Settings.md §9.3 / EC-01: `currency_code` is immutable once the first
+ * `FEE_CHARGED` row exists. The check is a COUNT (never a read of the money
+ * amounts themselves), and the UI disables the select with a lock chip on
+ * `locked: true` — so the rule is visible before the tutor tries, not a toast
+ * after they did.
+ */
+export async function getCurrencyLockAction() {
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const feeChargeCount = await db.ledgerEntry.count({
+      where: { tenantId, type: "FEE_CHARGED" },
+    });
+    return { success: true as const, locked: feeChargeCount > 0, feeChargeCount };
+  } catch (error) {
+    log.error("currency_lock_read_failed", error instanceof Error ? error.message : String(error));
+    return { success: false as const, locked: true, feeChargeCount: 0 };
+  }
+}
+
+/**
+ * The tenant's own identity and the size of its books, for Settings →
+ * Database. Replaces a section whose only control set a 900ms timer and then
+ * printed "Connection successful" without connecting to anything (Rule 9: a
+ * fabricated result is a lie the tutor acts on).
+ *
+ * Only the three models the web ORM shim exposes are counted, so the numbers
+ * are exact for what they claim to be and the UI says so plainly. `db_url` and
+ * `schema_version` are NOT returned: the shim exposes no `appState` model and
+ * the db URL lives in Supabase user metadata (reported to the lead).
+ */
+/**
+ * A discriminated union, not two loose object shapes: the failure branch has
+ * `success: false` and null counts, and without the literal discriminant a
+ * caller cannot narrow `data.success === true` to a non-null tenant id.
+ */
+export type DbIdentityResult =
+  | {
+      success: true;
+      tenantId: string;
+      students: number;
+      ledgerEntries: number;
+      invoices: number;
+      settingsRows: number;
+    }
+  | {
+      success: false;
+      tenantId: null;
+      students: null;
+      ledgerEntries: null;
+      invoices: null;
+      settingsRows: null;
+    };
+
+export async function getDbIdentityAction(): Promise<DbIdentityResult> {
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const [students, ledgerEntries, invoices, settingsRows] = await Promise.all([
+      db.student.count({ where: { tenantId } }),
+      db.ledgerEntry.count({ where: { tenantId } }),
+      db.invoice.count({ where: { tenantId } }),
+      db.setting.count({ where: { tenantId } }),
+    ]);
+    return { success: true, tenantId, students, ledgerEntries, invoices, settingsRows };
+  } catch (error) {
+    log.error("db_identity_read_failed", error instanceof Error ? error.message : String(error));
+    return { success: false, tenantId: null, students: null, ledgerEntries: null, invoices: null, settingsRows: null };
+  }
+}
+
+/**
+ * Biometric enable/disable, PIN-gated on the server.
+ *
+ * Implements: 08_Settings.md §15 SR-05 ("Biometric disable requires PIN. A tutor
+ * who loses a finger or sells a device must be able to disable biometric with
+ * their PIN") + §9.5 (settings write + `biometric_toggle` audit in one
+ * transaction) + BR-SEC-02.
+ *
+ * Two deliberate choices, both fail-closed:
+ *
+ * 1. The PIN is required for BOTH directions, not only for disabling. §6.2.6
+ *    says enabling should trigger a biometric challenge; the web build has no
+ *    enrolment flow to challenge against, so requiring the PIN on enable is the
+ *    stricter gate. Allowing a PIN-less enable would be an auth downgrade.
+ * 2. The gate lives HERE, in the action, not in the toggle's onChange. The
+ *    previous path was a bare `updateSettingAction("biometricEnabled", 0)` with
+ *    no gate at all, so a scripted request could disable it freely.
+ */
+export async function setBiometricEnabledAction(enabled: boolean, pin: string) {
+  const refuse = (error: string, code?: string, retryInSeconds?: number) =>
+    ({ success: false as const, error, code, retryInSeconds });
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const pinHash = (settingsRow?.pinHash ?? null) as string | null;
+    if (!pinHash) {
+      return refuse("No PIN configured. Set one in Settings, Security first.");
+    }
+    const gate = await verifyPinWithLadder(db, tenantId, pin, pinHash);
+    if (!gate.ok) {
+      return refuse(pinGateMessage(gate), gate.code, gate.retryInSeconds);
+    }
+
+    const now = new Date().toISOString();
+    await db.$transaction(async (tx) => {
+      await tx.setting.upsert({
+        where: { tenantId },
+        create: { tenantId, instituteName: "My Tuition", biometricEnabled: enabled ? 1 : 0, createdAt: now, updatedAt: now },
+        update: { biometricEnabled: enabled ? 1 : 0, updatedAt: now },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          tableName: "settings",
+          rowId: tenantId,
+          op: "update",
+          payload: JSON.stringify({ biometric_enabled: enabled ? 1 : 0 }),
+          createdAt: now,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          id: crypto.randomUUID(),
+          tenantId,
+          actor: tenantId,
+          action: "biometric_toggle",
+          refType: "settings",
+          refId: tenantId,
+          metadata: JSON.stringify({ enabled }),
+          createdAt: now,
+        },
+      });
+    });
+
+    invalidateTenant(tenantId, "settings:");
+    return { success: true as const, enabled };
+  } catch (error) {
+    log.error("set_biometric_action_failed", error instanceof Error ? error.message : String(error));
+    return refuse("Nothing was changed. Try again in a moment.");
   }
 }

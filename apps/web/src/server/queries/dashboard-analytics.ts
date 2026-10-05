@@ -230,6 +230,16 @@ const HEATMAP_DAYS = 14;
 const HEATMAP_MAX_STUDENTS = 30;
 const DEFAULTER_LIMIT = 10;
 
+/** Leg name → the panels that leg feeds, so a partial read is attributed to a
+ *  thing a tutor can act on rather than to an internal route. */
+const LEG_LABELS: Record<string, string> = {
+  fees: "the dues roster behind batch dues",
+  invoices: "dues aging, who owes the most, and collection efficiency",
+  ledger: "the collection trend and batch collections",
+  students: "the enrollment funnel and batch membership",
+  batches: "the batch list and the attendance heatmap",
+};
+
 async function readDashboard(periodStartIso: string, periodEndIso: string) {
   const res = await withQueryTimeout(
     gatewayGet<unknown>("/api/v1/analytics/dashboard", { periodStartIso, periodEndIso }),
@@ -340,9 +350,23 @@ export const getDashboardAnalytics = cache(
     }
 
     let dataPartial = false;
+    const sourceNotes: string[] = [];
+    /**
+     * A failed leg is named, not just flagged. The section-level caption used
+     * to say "some sections read from a cached or incomplete response" — which
+     * is a lie twice over: nothing here is cached (a rejected leg is simply
+     * empty), and a caption that cannot say WHICH panel is thin lets an empty
+     * panel state its own conclusion. "Nobody owes right now" is true and
+     * false at once when the invoices leg is the one that failed, and the tutor
+     * is the only person who can tell the difference. So the leg name is carried
+     * all the way to the caption.
+     */
     const noteFailure = (leg: string, reason: unknown) => {
       dataPartial = true;
       log.warn("dashboard_analytics_leg_failed", toTypedQueryError(reason), { leg });
+      sourceNotes.push(
+        `Could not be read: ${LEG_LABELS[leg] ?? leg}. That panel is incomplete, not empty.`,
+      );
     };
 
     const fees = feesLeg.status === "fulfilled" ? feesLeg.value : [];
@@ -356,7 +380,6 @@ export const getDashboardAnalytics = cache(
     const batches = batchesLeg.status === "fulfilled" ? batchesLeg.value : [];
     if (batchesLeg.status === "rejected") noteFailure("batches", batchesLeg.reason);
 
-    const sourceNotes: string[] = [];
     if (ledgerLeg.status === "fulfilled") {
       sourceNotes.push(`Collection trend reads the latest ${LEDGER_TAKE} ledger entries.`);
     }

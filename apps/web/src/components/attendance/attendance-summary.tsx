@@ -18,7 +18,7 @@ import { useAttendanceStore } from "@/stores/attendance-store";
 import { fetchAttendanceSummaryAction, type AttendancePreset } from "@/server/actions/attendance";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle, Clock, Plane } from "lucide-react";
+import { BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useOverlayDismiss, OverlayCloseButton } from "@/components/ui/overlay";
 import { toAppErrorState, type AppErrorState } from "@/lib/app-errors";
 
@@ -40,7 +40,8 @@ interface SummaryItem {
   late: number;
   excused: number;
   total_sessions: number;
-  percentage: number;
+  /** BR-CALC-06: null = nothing to measure → render "—", never "0%". */
+  percentage: number | null;
 }
 
 interface OverallSummary {
@@ -50,7 +51,21 @@ interface OverallSummary {
   overall_absent: number;
   overall_late: number;
   overall_excused: number;
-  overall_percentage: number;
+  overall_percentage: number | null;
+}
+
+/**
+ * BR-CALC-06: a zero denominator is `null` and reads as "—". Rendering `0%`
+ * claimed a student attended nothing, which is a different and much worse
+ * accusation than "no sessions in this period to measure".
+ */
+function pctText(pct: number | null): string {
+  return pct === null ? "—" : `${pct}%`;
+}
+
+function pctAccent(pct: number | null): string {
+  if (pct === null) return "var(--text-muted)";
+  return pct >= 75 ? "var(--success)" : pct >= 50 ? "var(--warning)" : "var(--danger)";
 }
 
 interface AttendanceSummaryResponse {
@@ -127,7 +142,9 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
         tabIndex={-1}
         className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-4xl shadow-2xl p-6 overflow-hidden max-h-[85vh] flex flex-col"
       >
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,color-mix(in srgb, var(--info) 0.1, transparent)_0%,transparent_70%)] blur-2xl pointer-events-none" />
+        {/* No decorative glow blob behind the panel — the scrim and the border
+            already establish the layer, and the blob sat on top of the table's
+            sticky first column. */}
 
         <div className="flex items-center justify-between mb-5 gap-3">
           <div>
@@ -192,9 +209,9 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
             />
             <StatCard
               title="Attendance %"
-              value={`${overall.overall_percentage}%`}
+              value={pctText(overall.overall_percentage)}
               icon={<TrendingUp className="w-4 h-4" />}
-              accent={overall.overall_percentage >= 75 ? "var(--success)" : overall.overall_percentage >= 50 ? "var(--warning)" : "var(--danger)"}
+              accent={pctAccent(overall.overall_percentage)}
             />
           </div>
         )}
@@ -250,7 +267,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
                     Late
                   </th>
                   <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                    Leave
+                    Excused
                   </th>
                   <th className="text-center text-xs font-medium p-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                     Total
@@ -292,10 +309,8 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
                       </div>
                     </td>
                     <td className="p-0">
-                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ 
-                        color: s.percentage >= 75 ? "var(--success)" : s.percentage >= 50 ? "var(--warning)" : "var(--danger)" 
-                      }}>
-                        {s.percentage}%
+                      <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: pctAccent(s.percentage) }}>
+                        {pctText(s.percentage)}
                       </div>
                     </td>
                   </tr>
@@ -305,29 +320,18 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
           )}
         </div>
 
-        {/* Legend — color is never the only signal */}
-        <div className="flex flex-wrap items-center gap-4 mt-5 pt-4" style={{ borderTop: "1px solid var(--border-default)" }}>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--success)" }} aria-hidden="true" />
-            <CheckCircle className="w-3 h-3" style={{ color: "var(--success)" }} aria-hidden="true" />
-            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Present</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--danger)" }} aria-hidden="true" />
-            <XCircle className="w-3 h-3" style={{ color: "var(--danger)" }} aria-hidden="true" />
-            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Absent</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--warning)" }} aria-hidden="true" />
-            <Clock className="w-3 h-3" style={{ color: "var(--warning)" }} aria-hidden="true" />
-            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Late</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--info)" }} aria-hidden="true" />
-            <Plane className="w-3 h-3" style={{ color: "var(--info)" }} aria-hidden="true" />
-            <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Leave</span>
-          </div>
-        </div>
+        {/* The four-status legend that used to sit here repeated the column
+            headers word for word (Present / Absent / Late / Excused) directly
+            above them. BR-CALC-07's requirement — colour is never the only
+            signal — is already met by the labelled columns and by the grid's
+            per-row icon+word toggles, so the legend was decoration. This line
+            replaces it with the one thing a reader cannot derive from the
+            columns: how the percentage is computed (BR-CALC-06). */}
+        <p className="mt-5 pt-4 text-xs" style={{ borderTop: "1px solid var(--border-default)", color: "var(--text-muted)" }}>
+          Attendance % counts present and late as attended and leaves excused days
+          out of the total, so a medical leave never lowers a percentage. A
+          student with nothing to measure in this period shows a dash.
+        </p>
       </div>
     </div>
   );

@@ -93,17 +93,28 @@ async function moneyFootprint(db: Client): Promise<Record<string, unknown>> {
   const balance = await one<{ balance_paise: number }>(db,
     `SELECT balance_paise FROM students LIMIT 1`,
   );
-  const seq = await one<{ next_invoice_seq: number }>(db,
-    `SELECT next_invoice_seq FROM settings WHERE tenant_id = ?`,
+  const seq = await one<{ next_invoice_seq: number; next_receipt_seq: number }>(db,
+    `SELECT next_invoice_seq, next_receipt_seq FROM settings WHERE tenant_id = ?`,
     [TENANT],
   );
+  // 07 §9.6 step 4/7 + BR-RC-01: the receipt is part of what a payment IS, so
+  // the parity snapshot includes the row and the consumed sequence. Two
+  // dialects that agreed on the ledger but disagreed on receipts would still
+  // hand a tutor two different books.
+  const receipts = await db.execute({
+    sql: `SELECT number, amount, payment_method, received_on, tamper_hash,
+                 ledger_entry_id IS NOT NULL AS has_entry, invoice_id IS NOT NULL AS has_invoice
+          FROM receipts ORDER BY number`,
+  });
   return {
     invoices: invoices.rows,
     ledger: ledger.rows,
+    receipts: receipts.rows,
     outbox: outbox.rows,
     audit: audit.rows,
     balance: balance?.balance_paise ?? null,
     nextInvoiceSeq: seq?.next_invoice_seq ?? null,
+    nextReceiptSeq: seq?.next_receipt_seq ?? null,
   };
 }
 
@@ -130,6 +141,7 @@ async function openDb(): Promise<Client> {
       invoice_prefix    TEXT NOT NULL DEFAULT 'INV-',
       receipt_prefix    TEXT NOT NULL DEFAULT 'RCP-',
       next_invoice_seq  INTEGER NOT NULL DEFAULT 1,
+      next_receipt_seq INTEGER NOT NULL DEFAULT 1,
       tenant_secret     TEXT NOT NULL,
       pin_hash          TEXT,
       created_at        TEXT NOT NULL,
@@ -182,6 +194,25 @@ async function openDb(): Promise<Client> {
       source               TEXT NOT NULL DEFAULT 'manual',
       created_at           TEXT NOT NULL,
       updated_at           TEXT NOT NULL
+    );
+    CREATE TABLE receipts (
+      id             TEXT PRIMARY KEY,
+      tenant_id      TEXT NOT NULL,
+      number         TEXT NOT NULL,
+      ledger_entry_id TEXT NOT NULL,
+      student_id     TEXT NOT NULL,
+      invoice_id     TEXT,
+      amount         INTEGER NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'manual',
+      payment_ref    TEXT,
+      received_on    TEXT NOT NULL,
+      tamper_hash    TEXT NOT NULL,
+      voided_at      TEXT,
+      pdf_blob_key   TEXT,
+      deleted_at     TEXT,
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL,
+      UNIQUE(tenant_id, number)
     );
     CREATE TABLE sync_outbox (
       id          TEXT PRIMARY KEY,

@@ -34,7 +34,7 @@ import {
 } from "@buddysaradhi/shared";
 import { lockSessionAction, unlockSessionAction, requestHardUnlockAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Lock, AlertTriangle, Unlock, FileText } from "lucide-react";
+import { Lock, Unlock, FileText } from "lucide-react";
 import { useUnlockWindow } from "./use-unlock-window";
 import { UNLOCK_WINDOW_MINUTES, HARD_UNLOCK_REASON_MIN_LENGTH } from "@/server/attendance-window";
 import { toAppErrorState } from "@/lib/app-errors";
@@ -129,7 +129,14 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
   });
 
   const mutation = useMutation({
-    mutationFn: (subPin: string) => lockSessionAction(session!.id, subPin),
+    mutationFn: (subPin: string) =>
+      // `target` is passed on every call, including when no session exists yet:
+      // 06 §11 E9 allows locking an empty session, and the server creates it in
+      // the same transaction that locks it.
+      lockSessionAction(session?.id ?? "pending", subPin, {
+        date: selectedDateIso,
+        batchId: selectedBatch === "all" ? null : selectedBatch,
+      }),
     // Rule 9: the outcome is stated, every time, either way. A refused lock keeps
     // the sheet open with the PIN cleared but the tutor's intent intact.
     onSuccess: (res) => {
@@ -267,8 +274,8 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
         tabIndex={-1}
         className="relative glass-strong border border-[var(--border-default)] rounded-2xl w-full max-w-md shadow-2xl p-6 overflow-hidden"
       >
-        {/* Glow effect */}
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] bg-[radial-gradient(ellipse_at_center,color-mix(in_srgb,var(--info)_0.1,transparent)_0%,transparent_70%)] blur-2xl pointer-events-none" aria-hidden="true" />
+        {/* No decorative glow behind the panel: it carried no meaning, and the
+            sheet already has a scrim and a border to establish its depth. */}
 
         <div className="flex items-center justify-between mb-6 gap-3">
           <h2
@@ -485,14 +492,27 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
               </button>
             </div>
           )
-        ) : !session ? (
-          <div className="text-center py-8 space-y-4">
-            <AlertTriangle className="w-12 h-12 text-[var(--warning)] mx-auto opacity-80" aria-hidden="true" />
-            <p className="text-[var(--text-primary)] text-lg font-medium">No active session to lock.</p>
-            <p className="text-[var(--text-muted)] text-sm">Mark attendance for at least one student first — a session has to exist before it can be locked.</p>
-          </div>
         ) : (
           <div className="space-y-6">
+            {/* 06 §11 E9: "Lock attempted with no records | Allowed — locks an
+                empty session (rare but valid; e.g., tutor pre-locks a cancelled
+                class)." The sheet used to dead-end here with "Mark attendance for
+                at least one student first", so the one legitimate case for
+                pre-locking a day was impossible. */}
+            {!session && (
+              <div
+                className="bg-[var(--surface-inset)] rounded-xl p-4 border border-[var(--border-default)]"
+                style={{ borderColor: "var(--warning)" }}
+              >
+                <p className="text-sm text-[var(--text-secondary)]">
+                  Nothing has been marked for {selectedDateIso} yet, so there is no
+                  session to lock. You can still lock the date, which is what you
+                  want for a class you have already decided to cancel: no one will
+                  be able to add marks to it later without unlocking first.
+                </p>
+              </div>
+            )}
+
             <div className="bg-[var(--surface-inset)] rounded-xl p-4 border border-[var(--border-default)]">
               <p className="text-sm text-[var(--text-secondary)] mb-2">
                 Locking freezes attendance for this date and batch — no record can be edited

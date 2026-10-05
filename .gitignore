@@ -88,3 +88,9 @@ session-ses_ef88.md
 testsprite_tests\tmp\config.json
 testsprite_tests/tmp/
 testsprite_tests/tmp/config.json
+# Local tool caches (deno-lsp npm/registry cache under apps/gateway/.cache is
+# ~1.9 GB / 113k files — untracked AND unignored it made `git add -A` a
+# footgun and made scripts/principle-lints.ts run for minutes emitting
+# "Filename too long" before it could reach product code).
+.cache/
+**/.cache/

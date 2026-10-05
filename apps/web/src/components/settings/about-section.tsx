@@ -30,19 +30,21 @@ export function AboutSection() {
     else setActiveSection(id);
   };
 
+  // 08_Settings.md §6.2.10 asks for "App version + build hash (e.g., v1.4.2
+  // (#a3f9c1))". This used to be a hardcoded "Version 1.0.0-rc (Build 8421)" —
+  // two invented facts in the one card a tutor opens to find out what they are
+  // running. There is no build-time version or commit constant in this app, so
+  // the honest answer is the app's own name and an explicit statement that this
+  // build does not stamp a number. The footer chip carries the real one.
   return (
     <section className="space-y-6 max-w-[52rem]">
       <div className="flex items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold"
-          style={{ background: "var(--info)", color: "var(--accent-on-primary)" }}
-          aria-hidden="true"
-        >
-          T
-        </div>
         <div>
           <h3 className="text-xl font-bold text-[var(--text-primary)] tracking-tight">BuddySaradhi</h3>
-          <p className="text-sm text-[var(--text-muted)]">Version 1.0.0-rc (Build 8421)</p>
+          <p className="text-sm text-[var(--text-muted)] mt-1">
+            A release candidate build. This build does not carry a version number or commit hash, so
+            none is shown here rather than a wrong one.
+          </p>
         </div>
       </div>
 
@@ -85,10 +87,8 @@ export function AboutSection() {
         </span>
       </p>
 
-      <div className="text-center pt-8 text-xs text-[var(--text-muted)] opacity-70">
+      <div className="text-center pt-6 text-xs" style={{ color: "var(--text-muted)" }}>
         &copy; 2026 BuddySaradhi Contributors.
-        <br />
-        Built with precision.
       </div>
     </section>
   );

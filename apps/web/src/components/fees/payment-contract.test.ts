@@ -109,6 +109,8 @@ describe("splitPaymentPreview (EC-F-02 — exact + ADVANCE)", () => {
 
 describe("classifyStatusAfter (BR-FEE-05 — 1-paise tolerance)", () => {
   it("treats ±1 paise as paid in full", () => {
+    // Second argument is what the student OWED BEFORE the payment, so every case
+    // below is "something was owed, and this is what's left".
     expect(classifyStatusAfter(1, 300000)).toBe("paid");
     expect(classifyStatusAfter(-1, 300000)).toBe("paid");
     expect(classifyStatusAfter(0, 300000)).toBe("paid");

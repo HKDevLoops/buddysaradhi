@@ -13,6 +13,14 @@ import { cn } from "@/lib/utils";
 
 const STATUS_ORDER: AttendanceStatus[] = ["present", "absent", "late", "excused"];
 
+// Labels are the BR-ATT-02 vocabulary verbatim (`present | absent | late |
+// excused`), so the word on the control, the column in the summary table and the
+// `status` written to `attendance_records` are all the same string. The grid
+// called this "Leave" while the audit log and the schema said `excused`, so a
+// tutor reading "Leave" in one place and "excused" in another had to guess
+// whether they were the same status. "Excused" is what 06 §6.1/§10.2 and
+// BR-ATT-02 print; the prose that needs the Indian-English sense says
+// "on leave" instead.
 const STATUS_META: Record<
   AttendanceStatus,
   { label: string; short: string; accent: string; glow: string; Icon: React.ComponentType<{ className?: string }> }
@@ -20,7 +28,7 @@ const STATUS_META: Record<
   present: { label: "Present", short: "P", accent: "var(--success)", glow: "color-mix(in srgb, var(--success) 0.55, transparent)", Icon: Check },
   absent: { label: "Absent", short: "A", accent: "var(--danger)", glow: "color-mix(in srgb, var(--danger) 0.55, transparent)", Icon: X },
   late: { label: "Late", short: "L", accent: "var(--warning)", glow: "color-mix(in srgb, var(--warning) 0.55, transparent)", Icon: Clock },
-  excused: { label: "Leave", short: "Lv", accent: "var(--info)", glow: "color-mix(in srgb, var(--info) 0.55, transparent)", Icon: Plane },
+  excused: { label: "Excused", short: "E", accent: "var(--info)", glow: "color-mix(in srgb, var(--info) 0.55, transparent)", Icon: Plane },
 };
 
 interface AttendanceStatusToggleProps {

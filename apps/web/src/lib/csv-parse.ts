@@ -327,13 +327,13 @@ export function buildStudentsTemplate(): string {
     "# last_name: optional, up to 80 characters.",
     "# phone: optional, 10 to 15 digits with optional leading +. Spaces, dashes and brackets are removed.",
     "# gender: optional, one of M, F, O. Leave blank if unknown.",
-    "# dob: optional date of birth. Accepts YYYY-MM-DD (2015-04-12), DD/MM/YYYY (12/04/2015), or an Excel date number.",
-    "# address: optional, up to 1000 characters.",
-    "# school: optional, up to 300 characters.",
-    "# grade: optional, up to 64 characters, example 10th.",
-    "# board: optional, up to 64 characters, example CBSE.",
+    "# dob: optional date of birth. Accepts YYYY-MM-DD (2015-04-12), DD/MM/YYYY (12/04/2015), or an Excel date number. Not before 1900-01-01, never in the future.",
+    "# address: optional, up to 500 characters.",
+    "# school: optional, up to 200 characters.",
+    "# grade: optional, up to 40 characters, example 10th.",
+    "# board: optional, up to 40 characters, example CBSE.",
     "# batch: required, batch name. Your student is enrolled in that batch. A missing batch is created on import.",
-    "# admission_date: optional, defaults to today when blank. Same date formats as dob.",
+    "# admission_date: optional, defaults to today when blank. Same date formats as dob. Not before 2000-01-01, never in the future.",
     "# fee_model: optional, one of postpaid, prepaid, mixed. Blank means postpaid.",
     "# base_fee_rupees: optional monthly fee as a rupee decimal like 2000 or 2000.50. Blank means 0. Converted to integer paise on the server, never as a float.",
     "# status: optional, one of active, inactive, graduated, archived. Blank means active.",
@@ -397,6 +397,89 @@ export function isoToExcelSerial(iso: string): number {
 
 export type FlexibleDateResult = { ok: true; iso: string } | { ok: false; reason: string };
 
+/**
+ * 05_Students.md §14 — the three field caps the manual Add Student sheet and the
+ * import both enforce, plus the two date floors. The sheet, the import schema
+ * and the server action all read these constants, so a cap can never be widened
+ * on one path and left behind on the other (05_Students.md §14 is a MUST and
+ * "Server-side validation re-runs every rule (defence-in-depth)").
+ */
+export const STUDENT_FIRST_NAME_MAX = 80;
+export const STUDENT_LAST_NAME_MAX = 80;
+export const STUDENT_BATCH_MAX = 120;
+export const STUDENT_GRADE_MAX = 40;
+export const STUDENT_SCHOOL_MAX = 200;
+export const STUDENT_ADDRESS_MAX = 500;
+export const STUDENT_BOARD_MAX = 40;
+export const STUDENT_DOB_FLOOR_ISO = "1900-01-01";
+export const STUDENT_ADMISSION_FLOOR_ISO = "2000-01-01";
+
+/** Phone characters 09 §14.5 says to strip before re-validating. */
+const PHONE_STRIP = /[\s\-.]/g;
+
+/** The clean form 09 §14.5 validates and stores: optional `+`, then 10–15 digits. */
+const PHONE_CLEAN = /^\+?\d{10,15}$/;
+
+/** Tenant-local today as `YYYY-MM-DD`. */
+export function todayIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+export type PhoneResult = { ok: true; phone: string | null } | { ok: false; reason: string };
+
+/**
+ * THE phone rule (09 §14.5), in one place: strip spaces, dashes, dots and
+ * brackets, then require an optional `+` followed by 10–15 digits. Blank is
+ * absent, not an error.
+ *
+ * It is exported because the manual Add Student sheet, the import schema and
+ * the server action must agree byte for byte. When the sheet accepted any
+ * string while the import demanded 10–15 digits, the same tutor could not add a
+ * student by hand that the same file would have accepted, and the stored
+ * `dup_key` was built from a different four characters on each path — which
+ * silently imports a second copy of a student.
+ */
+export function normalizeStudentPhone(raw: string, column = "phone"): PhoneResult {
+  const cleaned = raw.replace(/[()]/g, "").replace(PHONE_STRIP, "");
+  if (cleaned === "") return { ok: true, phone: null };
+  if (!PHONE_CLEAN.test(cleaned)) {
+    return {
+      ok: false,
+      reason: `${column}: "${shortValue(raw)}" is not a phone number. Use 10 to 15 digits, optionally starting with +.`,
+    };
+  }
+  return { ok: true, phone: cleaned };
+}
+
+export interface DateBounds {
+  /** Inclusive ISO floor. */
+  min?: string;
+  /** Inclusive ISO ceiling. Defaults to today — no student is admitted tomorrow. */
+  max?: string;
+  /** What the column is called in the tutor's message. */
+  label?: string;
+}
+
+export type DateBoundsResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * 05_Students.md §14 + §11 E16: `admission_date` is required, ISO, at most
+ * today and no earlier than 2000-01-01; `dob` is optional, ISO, at most today
+ * and no earlier than 1900-01-01. ISO strings compare correctly with `<` and
+ * `>`, so no Date round-trip (and no timezone shift) is involved.
+ */
+export function checkDateBounds(iso: string, bounds: DateBounds): DateBoundsResult {
+  const label = bounds.label ?? "date";
+  const ceiling = bounds.max ?? todayIso();
+  if (bounds.min !== undefined && iso < bounds.min) {
+    return { ok: false, reason: `${label} cannot be earlier than ${bounds.min}.` };
+  }
+  if (iso > ceiling) {
+    return { ok: false, reason: `${label} cannot be later than ${ceiling}.` };
+  }
+  return { ok: true };
+}
+
 function shortValue(raw: string): string {
   const trimmed = raw.trim();
   return trimmed.length > 32 ? `${trimmed.slice(0, 32)}…` : trimmed;
@@ -447,8 +530,13 @@ export function normalizeFlexibleDate(raw: string, column: string): FlexibleDate
  * Zod field for a flexible date column: blank means absent (the caller
  * defaults it — admission_date blanks to today server-side), otherwise the
  * value normalizes to YYYY-MM-DD or the row fails with the cell named.
+ *
+ * `bounds` enforces 05_Students.md §14's date windows (E16 for dob): nothing
+ * before the floor, nothing after today. They apply AFTER the format
+ * normalises, so `12/04/2015` and Excel `44927` are checked exactly like
+ * `2015-04-12` rather than escaping the window by being written differently.
  */
-function flexibleDateField(column: string) {
+function flexibleDateField(column: string, bounds?: DateBounds) {
   return z.preprocess(
     emptyToUndefined,
     z
@@ -461,6 +549,13 @@ function flexibleDateField(column: string) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.reason });
           return z.NEVER;
         }
+        if (bounds) {
+          const window = checkDateBounds(parsed.iso, { ...bounds, label: column });
+          if (!window.ok) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: window.reason });
+            return z.NEVER;
+          }
+        }
         return parsed.iso;
       })
       .optional(),
@@ -472,63 +567,93 @@ function flexibleDateField(column: string) {
  * fourteen template headers). Field parity with the Add Student sheet
  * (add-student-sheet.tsx FormSchema) and the canonical create path
  * (server/actions/students.ts CreateStudentInputSchema): same required
- * columns (first_name, batch), same enum vocabs, same length caps on the
- * shared text fields (address 1000, school 300, grade 64, board 64), same
- * fee_model default (postpaid), same status default (active), same base-fee
- * decimal-string shape converted to integer paise server-side with integer
- * math only (Rule 6, BR-M-01). Blank means absent for every optional column.
+ * columns (first_name, batch), same enum vocabs, the SAME length caps read
+ * from the shared constants above (05_Students.md §14: first/last name 80,
+ * grade 40, school 200, address 500, board 40, batch 120), the same phone
+ * rule via `normalizeStudentPhone`, the same date windows via
+ * `flexibleDateField`, the same fee_model default (postpaid), the same status
+ * default (active), and the same base-fee decimal-string shape converted to
+ * integer paise server-side with integer math only (Rule 6, BR-M-01). Blank
+ * means absent for every optional column.
  *
- * Two deliberate supersets of the manual sheet, both from 09 §14: phone keeps
- * the strict 10-to-15-digit rule (§14.5; the sheet accepts any short string),
- * and first_name keeps the 80-character import cap (§14.1). A stricter import
- * can never smuggle in a row the sheet would reject for these two fields.
+ * Every cap and every rule below is imported by the manual sheet and the server
+ * action rather than restated, which is the whole point: when the three were
+ * independent literals, a paste and a hand-typed student that a tutor believed
+ * were the same person produced different `dup_key` values and the app created
+ * two students (05_Students.md §10.1 duplicate key; BR-STU-03).
  */
 export const StudentImportRowSchema = z.object({
   first_name: z
     .string()
     .trim()
     .min(1, "First name is required")
-    .max(80, "First name must be 80 characters or fewer"),
+    .max(STUDENT_FIRST_NAME_MAX, `First name must be ${STUDENT_FIRST_NAME_MAX} characters or fewer`),
   last_name: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(80, "Last name must be 80 characters or fewer").optional(),
+    z
+      .string()
+      .trim()
+      .max(STUDENT_LAST_NAME_MAX, `Last name must be ${STUDENT_LAST_NAME_MAX} characters or fewer`)
+      .optional(),
   ),
   phone: z.preprocess(
     emptyToUndefined,
     z
       .string()
-      .trim()
-      .transform((value) => value.replace(/[\s\-.()]/g, ""))
-      .pipe(
-        z
-          .string()
-          .regex(/^\+?\d{10,15}$/, "Phone must be 10 to 15 digits with optional leading +"),
-      )
+      .transform((value, ctx) => {
+        const parsed = normalizeStudentPhone(value);
+        if (!parsed.ok) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.reason });
+          return z.NEVER;
+        }
+        return parsed.phone;
+      })
+      .pipe(z.string().min(1))
       .optional(),
   ),
   gender: z.preprocess(emptyToUndefined, z.enum(["M", "F", "O"]).optional()),
-  dob: flexibleDateField("dob"),
+  dob: flexibleDateField("dob", { min: STUDENT_DOB_FLOOR_ISO }),
   address: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(1000, "Address must be 1000 characters or fewer").optional(),
+    z
+      .string()
+      .trim()
+      .max(STUDENT_ADDRESS_MAX, `Address must be ${STUDENT_ADDRESS_MAX} characters or fewer`)
+      .optional(),
   ),
   school: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(300, "School must be 300 characters or fewer").optional(),
+    z
+      .string()
+      .trim()
+      .max(STUDENT_SCHOOL_MAX, `School must be ${STUDENT_SCHOOL_MAX} characters or fewer`)
+      .optional(),
   ),
   grade: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(64, "Grade must be 64 characters or fewer").optional(),
+    z
+      .string()
+      .trim()
+      .max(STUDENT_GRADE_MAX, `Grade must be ${STUDENT_GRADE_MAX} characters or fewer`)
+      .optional(),
   ),
   board: z.preprocess(
     emptyToUndefined,
-    z.string().trim().max(64, "Board must be 64 characters or fewer").optional(),
+    z
+      .string()
+      .trim()
+      .max(STUDENT_BOARD_MAX, `Board must be ${STUDENT_BOARD_MAX} characters or fewer`)
+      .optional(),
   ),
   batch: z.preprocess(
     emptyToUndefined,
-    z.string().trim().min(1, "Batch is required").max(120, "Batch must be 120 characters or fewer"),
+    z
+      .string()
+      .trim()
+      .min(1, "Batch is required")
+      .max(STUDENT_BATCH_MAX, `Batch must be ${STUDENT_BATCH_MAX} characters or fewer`),
   ),
-  admission_date: flexibleDateField("admission_date"),
+  admission_date: flexibleDateField("admission_date", { min: STUDENT_ADMISSION_FLOOR_ISO }),
   fee_model: z.preprocess(
     (value: unknown) => (typeof value === "string" && value.trim() === "" ? "postpaid" : value),
     z.enum(["postpaid", "prepaid", "mixed"]),

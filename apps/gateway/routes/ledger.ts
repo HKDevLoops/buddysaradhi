@@ -244,6 +244,34 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
       take: 200,
     });
 
+    // EC-F-05 / BR-LED-03 — `isVoid` marks the row that a LATER row reverses, so
+    // the screen can strike it through and stop offering to void it again.
+    //
+    // The web client already declared this field
+    // (apps/web/src/server/queries/fees.ts) and branched on it
+    // (ledger-table.tsx), but this response never sent it, so `isVoid` was
+    // ALWAYS undefined on screen: a receipt that had been voided rendered
+    // exactly like a live one, strike-through and all, and still carried an
+    // enabled "Void" button. 07 §6.3 and §10.2 BR-LED-03 both require the
+    // original to be visibly struck with a "voided by" link — this is the fact
+    // that makes that possible.
+    //
+    // Derived from the rows already in hand (no extra query, no extra request):
+    // a row is voided iff some OTHER row in the set carries it as `void_of_id`.
+    // The reversing row itself is identified by `reverses_entry_id` (already in
+    // the payload) and is NOT `isVoid` — it is a real, live correcting entry, and
+    // striking IT through would hide the audit trail the rule is protecting.
+    //
+    // Key spelling: this field is camelCase while the rest of the envelope is
+    // snake_case. That inconsistency is pre-existing (the client's declared row
+    // type names `isVoid`); renaming it is a contract change across three files
+    // for no behaviour gain, so the declared name wins.
+    const reversedEntryIds = new Set<string>();
+    for (const e of rows) {
+      const target = e.voidOfId;
+      if (typeof target === "string" && target.length > 0) reversedEntryIds.add(target);
+    }
+
     return ok(
       rows.map((e) => ({
         id: e.id,
@@ -259,6 +287,7 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         invoice_id: e.invoiceId,
         receipt_no: e.receiptNo,
         reverses_entry_id: e.voidOfId,
+        isVoid: reversedEntryIds.has(String(e.id)),
         this_hash: e.thisHash,
       })),
     );
@@ -706,6 +735,39 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         });
         if (prior.length > 0) {
           throw new LedgerRouteError("entry_already_voided", 409);
+        }
+
+        // BR-LED-09 [12_Business_Rules.md] — "Voiding a FEE_CHARGED is
+        // permitted only if no PAYMENT_RECEIVED credits it." Enforced here, in
+        // the transaction, because the ledger is append-only (Rule 1): a void is
+        // the ONLY correction path, so a refused void that gets through leaves
+        // the books permanently wrong with no further correction available.
+        //
+        // What it prevented: reversing a charge that ₹3,000 of payments already
+        // settle. The reversal restores the balance (it mirrors the debit), but
+        // those credits have nothing to credit any more — the invoice still
+        // reads `paid` while its `paid_amount_minor` no longer covers its total,
+        // i.e. exactly the "orphan credits; balances drift" failure the rule
+        // names. 07 §10.2 BR-LED-04 and EC-F-06 give the same rule as the UI
+        // half of the contract: "Void those receipts first."
+        //
+        // The check is scoped to the charge's own invoice and excludes VOID
+        // rows and reversal-linked rows (§9.6 step 5's double guard, BR-LED-02),
+        // so a payment that has ALREADY been reversed does not keep blocking the
+        // charge. An ad-hoc charge with no invoice has no credit set to protect,
+        // so there is nothing to check and the void proceeds.
+        if (entry.type === "FEE_CHARGED" && typeof entry.invoiceId === "string" && entry.invoiceId.length > 0) {
+          const credits = await txOrm.ledgerEntry.findMany({
+            where: {
+              invoiceId: entry.invoiceId,
+              type: "PAYMENT_RECEIVED",
+              voidOfId: null,
+            },
+            take: 1,
+          });
+          if (credits.length > 0) {
+            throw new LedgerRouteError("charge_has_credits", 409);
+          }
         }
 
         // 07 §9.10 step 1 — audit first: if the audit write fails the whole

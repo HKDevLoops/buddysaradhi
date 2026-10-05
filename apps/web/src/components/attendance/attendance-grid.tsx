@@ -22,11 +22,13 @@
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { type StudentAttendanceRow, type AttendanceSession, type AttendanceStatus, type UpdateAttendancePayload } from "@buddysaradhi/shared";
 import { AttendanceStatusToggle } from "./attendance-status-toggle";
+import { BulkAbsentSheet, type BulkAbsentBreakdown } from "./bulk-absent-sheet";
 import { useUnlockWindow } from "./use-unlock-window";
-import { updateAttendanceAction } from "@/server/actions/attendance";
+import { bulkMarkAttendanceAction, updateAttendanceAction } from "@/server/actions/attendance";
+import { isFutureDate } from "@/server/attendance-window";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, X, AlertTriangle, UserX, XCircle, Clock, Plane } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Check, X, AlertTriangle, UserX, Clock, Plane, Lock } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
 import { ScreenSkeleton } from "@/components/ui/screen-state";
@@ -35,14 +37,11 @@ import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 import { fuzzySearch } from "@buddysaradhi/shared";
 
-/** How long a disarmed confirm waits before forgetting it was ever armed. */
-const CONFIRM_ARM_MS = 10_000;
-
 const SUMMARY_META: { key: AttendanceStatus; label: string; accent: string; Icon: typeof Check }[] = [
   { key: "present", label: "Present", accent: "var(--success)", Icon: Check },
   { key: "absent", label: "Absent", accent: "var(--danger)", Icon: X },
   { key: "late", label: "Late", accent: "var(--warning)", Icon: Clock },
-  { key: "excused", label: "Leave", accent: "var(--info)", Icon: Plane },
+  { key: "excused", label: "Excused", accent: "var(--info)", Icon: Plane },
 ];
 
 interface AttendanceGridProps {
@@ -57,7 +56,8 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
   const queryClient = useQueryClient();
   const toast = useToast();
   const [errorToast, setErrorToast] = useState<string | null>(null);
-  const [confirmingAbsent, setConfirmingAbsent] = useState(false);
+  const [absentSheetOpen, setAbsentSheetOpen] = useState(false);
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // 06 §10.6: the lock freezes edits EXCEPT inside an open unlock window.
   // `locked_at` stays set for the session's life; the window overlays it, so
@@ -65,6 +65,12 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
   // once (marking, bulk bar, per-row toggles).
   const { windowOpen } = useUnlockWindow(session);
   const isLocked = session?.locked_at != null && !windowOpen;
+
+  // EC-A-01 / 06 §11 E5 / §14: a future date cannot be marked. The picker caps
+  // the calendar at today, but a session can also reach here from a deep link
+  // or a stale stored date, and the mark is refused with the reason named
+  // rather than silently writing a session that will lock itself in 48 hours.
+  const isFuture = isFutureDate(selectedDateIso, new Date().toISOString());
 
   const mutation = useMutation({
     mutationFn: (payload: UpdateAttendancePayload) => updateAttendanceAction(payload),
@@ -77,7 +83,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
         (old: { data?: { records: StudentAttendanceRow[] } } | undefined) => {
           if (!old || !old.data || !old.data.records) return old;
           const newRecords = [...old.data.records];
-          newPayload.updates.forEach((u) => {
+          newPayload.updates.forEach((u: UpdateAttendancePayload["updates"][number]) => {
             const idx = newRecords.findIndex((r: StudentAttendanceRow) => r.student_id === u.student_id);
             if (idx !== -1) newRecords[idx] = { ...newRecords[idx], status: u.status };
           });
@@ -97,10 +103,62 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
       setErrorToast(copy);
       toast.error("Attendance not saved", copy);
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
+      // A FAILED write resolves too: the action catches and returns
+      // `{ success: false, error }` rather than throwing, so React Query calls
+      // `onSuccess` for a rejected mark as well. Unconditionally clearing the
+      // banner here therefore wiped the evidence of the very failure it was
+      // reporting — a locked session or a stale date left the grid looking like
+      // a clean save (Rule 9: a swallowed failure).
+      if (res.success !== true) {
+        const copy = res.error ?? "Failed to update attendance";
+        setErrorToast(copy);
+        toast.error("Attendance not saved", copy);
+        return;
+      }
       // The save landed, so the previous failure is no longer the truth.
       setErrorToast(null);
-      setConfirmingAbsent(false);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+    },
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: (vars: {
+      status: AttendanceStatus;
+      studentIds: string[];
+      overwrite: boolean;
+    }) =>
+      bulkMarkAttendanceAction({
+        session_date: selectedDateIso,
+        batch_id: selectedBatch === "all" ? null : selectedBatch,
+        status: vars.status,
+        student_ids: vars.studentIds,
+        overwrite: vars.overwrite,
+      }),
+    onError: (err) => {
+      const copy = toAppErrorState(err).message;
+      setErrorToast(copy);
+      toast.error("Attendance not saved", copy);
+    },
+    onSuccess: (res, vars) => {
+      if (res.success !== true) {
+        const copy = res.error ?? "Failed to update attendance";
+        setErrorToast(copy);
+        toast.error("Attendance not saved", copy);
+        return;
+      }
+      setErrorToast(null);
+      setAbsentSheetOpen(false);
+      toast.success(
+        vars.status === "present"
+          ? `${res.count_affected} ${res.count_affected === 1 ? "student" : "students"} marked present`
+          : `${res.count_affected} ${res.count_affected === 1 ? "student" : "students"} marked absent`,
+        res.count_skipped > 0
+          ? `${res.count_skipped} already-marked ${res.count_skipped === 1 ? "student was" : "students were"} left as they were. Audit row written.`
+          : "Audit row written.",
+      );
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["attendance"] });
@@ -118,25 +176,8 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
     ).map((hit) => hit.item);
   }, [records, searchQuery]);
 
-  /**
-   * The bulk actions act on `filteredRecords`, so that array IS the blast radius. A
-   * confirm that outlives a change to it would fire on rows the tutor never saw; the
-   * cancel path is the same button, so arming twice is not possible either.
-   */
-  const bulkTargetKey = `${selectedDateIso}|${selectedBatch}|${searchQuery.trim()}|${filteredRecords.length}`;
-  useEffect(() => {
-    setConfirmingAbsent(false);
-  }, [bulkTargetKey]);
-
-  useEffect(() => {
-    if (!confirmingAbsent) return;
-    const timer = setTimeout(() => setConfirmingAbsent(false), CONFIRM_ARM_MS);
-    return () => clearTimeout(timer);
-  }, [confirmingAbsent]);
-
   const handleToggle = (studentId: string, status: AttendanceStatus) => {
-    if (isLocked) return;
-    setConfirmingAbsent(false);
+    if (isLocked || isFuture) return;
     mutation.mutate({
       session_date: selectedDateIso,
       batch_id: selectedBatch === "all" ? null : selectedBatch,
@@ -144,32 +185,75 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
     });
   };
 
-  const commitBulk = (status: AttendanceStatus) => {
-    mutation.mutate({
-      session_date: selectedDateIso,
-      batch_id: selectedBatch === "all" ? null : selectedBatch,
-      updates: filteredRecords.map((r) => ({ student_id: r.student_id, status })),
+  /**
+   * 06 §10.7: "Mark all Present … Sets every enrolled-but-unmarked student …
+   * Already-marked students are not overwritten (the tutor's individual
+   * overrides win)." The optimistic cache is patched for the rows we expect to
+   * change, and the SERVER re-checks the same rule, so a stale client cannot
+   * overwrite a mark made on another device.
+   */
+  const commitBulkPresent = () => {
+    const unmarked = filteredRecords.filter((r) => r.status === null);
+    if (unmarked.length === 0) return;
+    queryClient.setQueryData(
+      ["attendance", selectedDateIso, selectedBatch],
+      (old: { data?: { records: StudentAttendanceRow[] } } | undefined) => {
+        if (!old?.data?.records) return old;
+        const targets = new Set(unmarked.map((r) => r.student_id));
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            records: old.data.records.map((r) =>
+              targets.has(r.student_id) ? { ...r, status: "present" as AttendanceStatus } : r,
+            ),
+          },
+        };
+      },
+    );
+    bulkMutation.mutate({
+      status: "present",
+      studentIds: unmarked.map((r) => r.student_id),
+      overwrite: false,
+    });
+  };
+
+  const commitBulkAbsent = () => {
+    bulkMutation.mutate({
+      status: "absent",
+      studentIds: filteredRecords.map((r) => r.student_id),
+      overwrite: true,
     });
   };
 
   /**
-   * Present is one tap because it is the safe default: nobody came is the common case and
-   * correcting it upward costs one tap per student. Absent is the direction that feeds
-   * fees, so it takes a second, explicit press. The alternative — confirming both —
-   * would train a tutor to click through the dialog that exists to protect them.
+   * Present is one tap because it is the safe default: nobody came is the
+   * common case and correcting it upward costs one tap per student. Absent is
+   * the direction that feeds fees, so it takes the typed confirmation sheet
+   * (06 §10.7 BR-ATT-06, EC-A-05).
    */
   const requestBulk = (status: AttendanceStatus) => {
-    if (isLocked || filteredRecords.length === 0) return;
-    if (status === "absent" && !confirmingAbsent) {
-      setConfirmingAbsent(true);
+    if (isLocked || isFuture || filteredRecords.length === 0) return;
+    if (status === "absent") {
+      setAbsentSheetOpen(true);
       return;
     }
-    setConfirmingAbsent(false);
-    commitBulk(status);
+    commitBulkPresent();
   };
 
+  const absentBreakdown: BulkAbsentBreakdown = useMemo(
+    () => ({
+      total: filteredRecords.length,
+      present: filteredRecords.filter((r) => r.status === "present").length,
+      late: filteredRecords.filter((r) => r.status === "late").length,
+      excused: filteredRecords.filter((r) => r.status === "excused").length,
+      absent: filteredRecords.filter((r) => r.status === "absent").length,
+    }),
+    [filteredRecords],
+  );
+
   const isAllPresent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "present");
-  const isAllAbsent = filteredRecords.length > 0 && filteredRecords.every((r) => r.status === "absent");
+  const unmarkedCount = filteredRecords.filter((r) => r.status === null).length;
   const targetCount = filteredRecords.length;
 
   const counts = SUMMARY_META.reduce(
@@ -180,14 +264,62 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
     {} as Record<AttendanceStatus, number>
   );
 
+  /**
+   * 06 §18 keyboard contract: "↑ / ↓ moves between rows in the Daily Grid.
+   * P / A / L sets present / absent / late on the focused row. Enter toggles
+   * present ↔ absent." The per-row toggle buttons were already reachable by Tab
+   * (each carries its own label and `aria-pressed`), but a tutor marking 36
+   * students had to Tab through four buttons per student and could not jump
+   * rows — 144 stops for one class.
+   */
+  const onRowKeyDown = (
+    e: React.KeyboardEvent<HTMLDivElement>,
+    studentId: string,
+    name: string,
+  ) => {
+    if (isLocked || isFuture) return;
+    const current = filteredRecords.find((r) => r.student_id === studentId)?.status ?? null;
+    const key = e.key.toLowerCase();
+    if (key === "p" || key === "a" || key === "l") {
+      e.preventDefault();
+      handleToggle(studentId, key === "p" ? "present" : key === "a" ? "absent" : "late");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleToggle(studentId, current === "present" ? "absent" : "present");
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const order = filteredRecords.map((r) => r.student_id);
+      const at = order.indexOf(studentId);
+      const next = order[at + (e.key === "ArrowDown" ? 1 : -1)];
+      if (next) rowRefs.current.get(next)?.focus();
+      return;
+    }
+    // `Escape` is listed for the dialogs only; on a row it does nothing, so the
+    // name is dropped to keep the control quiet for screen readers.
+    void name;
+  };
+
   if (isLoading) {
     return <ScreenSkeleton shape="roster" label="this day's attendance" rows={6} />;
   }
 
   return (
     <div className="flex flex-col h-full gap-4">
-      {/* Summary pills — neumorphic, color-coded, count + word (color is never the only signal) */}
-      <div className="flex flex-wrap items-center gap-3" aria-label="Attendance summary">
+      {/* Summary pills — neumorphic, color-coded, count + word (color is never the
+          only signal). `aria-live="polite"` per 06 §18: "The summary strip uses
+          aria-live="polite" to announce count changes ('28 present, 4 absent')".
+          Without it a screen-reader tutor got no word at all when a mark landed,
+          because the pills are text with no state change to announce. */}
+      <div
+        className="flex flex-wrap items-center gap-3"
+        role="status"
+        aria-live="polite"
+        aria-label={SUMMARY_META.map((m) => `${counts[m.key]} ${m.label.toLowerCase()}`).join(", ")}
+      >
         {SUMMARY_META.map((m) => (
           <div
             key={m.key}
@@ -212,7 +344,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
           so switching material actually changes this bar instead of leaving a
           hand-written 24px blur stranded outside the token scale. */}
       <div
-        className="p-4 rounded-xl flex items-center justify-between sticky top-0 z-20 shadow-sm"
+        className="p-4 rounded-xl flex items-center justify-between gap-3 flex-wrap sticky top-0 z-20 shadow-sm"
         style={{
           background: "var(--surface-overlay)",
           backdropFilter: "var(--mat-filter)",
@@ -227,8 +359,23 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
           <button
             type="button"
             onClick={() => requestBulk("present")}
-            disabled={isLocked || targetCount === 0}
-            aria-label={`Mark all ${targetCount} students in view present`}
+            disabled={isLocked || isFuture || unmarkedCount === 0}
+            title={
+              isFuture
+                ? "Cannot mark future dates"
+                : isLocked
+                  ? "Session is locked"
+                  : unmarkedCount === 0
+                    ? "Everyone in view is already marked"
+                    : undefined
+            }
+            aria-label={
+              isFuture
+                ? "Cannot mark a future date"
+                : unmarkedCount === 0
+                  ? "Everyone in view is already marked"
+                  : `Mark ${unmarkedCount} unmarked ${unmarkedCount === 1 ? "student" : "students"} in view present`
+            }
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
               !isAllPresent && "neumo-raised"
@@ -243,62 +390,51 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
                 : "1px solid var(--border-default)",
             }}
           >
-            <Check className="w-4 h-4" style={{ color: "var(--success)" }} /> Mark all Present
+            <Check className="w-4 h-4" style={{ color: "var(--success)" }} aria-hidden="true" />
+            Mark all Present
           </button>
 
           <button
             type="button"
             onClick={() => requestBulk("absent")}
-            disabled={isLocked || targetCount === 0}
-            aria-label={
-              confirmingAbsent
-                ? `Confirm: mark all ${targetCount} students in view absent. This changes their attendance for the whole day.`
-                : `Mark all ${targetCount} students in view absent. Needs a second press to confirm.`
-            }
+            disabled={isLocked || isFuture || targetCount === 0}
+            title={isFuture ? "Cannot mark future dates" : isLocked ? "Session is locked" : undefined}
+            aria-label={`Mark all ${targetCount} students in view absent. Opens a confirmation you must type to accept.`}
             className={cn(
               "px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all disabled:opacity-50 min-h-[44px] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)]",
-              !isAllAbsent && "neumo-raised"
+              "neumo-raised"
             )}
             style={{
-              background: isAllAbsent || confirmingAbsent
-                ? "color-mix(in srgb, var(--danger) 15%, transparent)"
-                : "var(--surface-raised)",
+              background: "var(--surface-raised)",
               color: "var(--text-primary)",
-              border: isAllAbsent || confirmingAbsent
-                ? "1px solid var(--danger)"
-                : "1px solid var(--border-default)",
+              border: "1px solid var(--border-default)",
             }}
           >
-            <X className="w-4 h-4" style={{ color: "var(--danger)" }} />
-            {confirmingAbsent ? `Confirm — mark ${targetCount} absent` : "Mark all Absent"}
+            <X className="w-4 h-4" style={{ color: "var(--danger)" }} aria-hidden="true" />
+            Mark all Absent
           </button>
-
-          {/* The cancel half of the confirm. It exists because a single self-toggling
-              button cannot be escaped: pressing it again is how you commit. */}
-          {confirmingAbsent && (
-            <>
-              <p
-                className="text-xs max-w-[16rem]"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                This marks every student in view absent for the whole day.
-              </p>
-              <button
-                type="button"
-                onClick={() => setConfirmingAbsent(false)}
-                className="neumo-raised inline-flex min-h-[44px] items-center gap-1.5 px-3 rounded-lg text-sm font-semibold transition-all active:translate-y-px cursor-pointer"
-                style={{
-                  background: "var(--surface-raised)",
-                  border: "1px solid var(--border-default)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                <XCircle className="w-4 h-4" aria-hidden="true" />
-                Cancel
-              </button>
-            </>
-          )}
         </div>
+
+        {/* 06 §10.7: "Locked sessions: bulk actions are disabled … the bulk bar
+            shows '12 students locked — skipped'." A pair of silently-disabled
+            buttons told the tutor nothing: the controls looked broken rather
+            than locked. The bar now names the reason and the way out (EC-A-03). */}
+        {isLocked && (
+          <p
+            className="w-full text-xs flex items-center gap-1.5"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <Lock className="w-3.5 h-3.5" style={{ color: "var(--warning)" }} aria-hidden="true" />
+            {counts.present + counts.absent + counts.late + counts.excused} of {records.length}{" "}
+            {records.length === 1 ? "student is" : "students are"} locked — bulk marking is skipped
+            until you unlock this session with your PIN.
+          </p>
+        )}
+        {isFuture && (
+          <p className="w-full text-xs" style={{ color: "var(--text-secondary)" }}>
+            Cannot mark future dates. Pick today or an earlier date.
+          </p>
+        )}
       </div>
 
       {errorToast && (
@@ -365,7 +501,21 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
               {filteredRecords.map((record) => (
                 <div
                   key={record.student_id}
-                  className="flex items-center justify-between px-6 py-3 transition-colors group h-16"
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(record.student_id, el);
+                    else rowRefs.current.delete(record.student_id);
+                  }}
+                  // 06 §18: the row is a focus stop of its own so ↑/↓, P/A/L and
+                  // Enter work without tabbing through four buttons per student.
+                  // `role="group"` + a name that states the CURRENT mark keeps the
+                  // announced text honest after a keyboard mark changes it.
+                  role="group"
+                  tabIndex={0}
+                  aria-label={`${record.name}, ${
+                    record.status ?? "not marked"
+                  }. Keys: P present, A absent, L late, Enter to flip present and absent.`}
+                  onKeyDown={(e) => onRowKeyDown(e, record.student_id, record.name)}
+                  className="flex items-center justify-between px-6 py-3 transition-colors group h-16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-inset"
                   style={{ borderBottom: "1px solid var(--border-default)" }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "var(--surface-inset)";
@@ -397,7 +547,7 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
                     <AttendanceStatusToggle
                       status={record.status}
                       onChange={(s) => handleToggle(record.student_id, s)}
-                      isLocked={isLocked}
+                      isLocked={isLocked || isFuture}
                       studentName={record.name}
                     />
                   </div>
@@ -407,6 +557,17 @@ export function AttendanceGrid({ records, session, isLoading = false }: Attendan
           )}
         </div>
       </GlassCard>
+
+      {/* 06 §10.7 BR-ATT-06 + §21.6 M5 — the typed-confirm gate for the one bulk
+          action that overwrites a whole day. */}
+      <BulkAbsentSheet
+        open={absentSheetOpen}
+        breakdown={absentBreakdown}
+        sessionDateIso={selectedDateIso}
+        onConfirm={commitBulkAbsent}
+        onClose={() => setAbsentSheetOpen(false)}
+        isPending={bulkMutation.isPending}
+      />
     </div>
   );
 }

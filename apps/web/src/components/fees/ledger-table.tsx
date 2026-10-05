@@ -87,6 +87,7 @@ import {
   SlidersHorizontal,
   Tag,
   Circle,
+  Eraser,
   ArrowDownToLine,
 } from "lucide-react";
 
@@ -136,6 +137,22 @@ type EntryMeta = {
   Icon: typeof Receipt;
 };
 
+/**
+ * The ledger grammar, all seven types, each with its own word, icon and accent
+ * (07 §10.2 BR-LED-01: "The LedgerTable renders all 7 entry types with distinct
+ * icons and colours"; §7 `TypeChip // FEE_CHARGED | PAYMENT_RECEIVED |
+ * DISCOUNT_GRANTED | REFUND_ISSUED | ADJUSTMENT | WRITEOFF | VOID`).
+ *
+ * This map used to key on `"REFUND"` and `"DISCOUNT"` — two spellings that do
+ * not exist in the grammar (`packages/core/src/ledger.ts` `LEDGER_ENTRY_TYPES`
+ * is `REFUND_ISSUED` and `DISCOUNT_GRANTED`) — and it had no case for
+ * `WRITEOFF` at all. Every one of those three rows therefore fell to the default
+ * branch and rendered its raw enum string (`REFUND_ISSUED`, `DISCOUNT_GRANTED`,
+ * `WRITEOFF`) as the chip label, in muted grey, behind a blank circle icon. On
+ * the money table that is the one word a tutor reads first, and it was the
+ * database's word, not the product's. `WRITEOFF` is a BR-FEE-13 waiver — a
+ * PIN-gated erasure of a due — so it now says so.
+ */
 function entryMeta(type: string): EntryMeta {
   switch (type) {
     case "FEE_CHARGED":
@@ -144,12 +161,14 @@ function entryMeta(type: string): EntryMeta {
       return { label: "Extra", accent: "var(--danger)", Icon: Sparkles };
     case "PAYMENT_RECEIVED":
       return { label: "Payment", accent: "var(--success)", Icon: Wallet };
-    case "REFUND":
+    case "REFUND_ISSUED":
       return { label: "Refund", accent: "var(--info)", Icon: Undo2 };
     case "ADJUSTMENT":
       return { label: "Adjust", accent: "var(--info)", Icon: SlidersHorizontal };
-    case "DISCOUNT":
+    case "DISCOUNT_GRANTED":
       return { label: "Discount", accent: "var(--info)", Icon: Tag };
+    case "WRITEOFF":
+      return { label: "Written off", accent: "var(--text-muted)", Icon: Eraser };
     case "VOID":
       return { label: "Void", accent: "var(--danger)", Icon: Ban };
     default:
@@ -194,21 +213,41 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
       label: "void form",
     });
 
-    // No cast: LedgerEntry only ADDS optional members over the inferred row, so
+  // No cast: LedgerEntry only ADDS optional members over the inferred row, so
   // the query array assigns directly (Rule 9 — no silent `as` forcing).
   const ledgerFailure = data && data.success === false ? data.error : null;
   const queryRows: LedgerEntry[] =
     ledgerFailure !== null || data === undefined ? [] : data.data;
   const rawEntries = queryRows;
-  // Derived running balance, oldest → newest (Rule 6: paise helpers only —
-  // no `+`/`-` on money per AGENTS §14 checklist #3).
+  /**
+   * The running balance, oldest → newest (Rule 6: paise helpers only — no
+   * `+`/`-` on money per AGENTS §14 checklist #3).
+   *
+   * It used to be folded from `runningBalance = 0` across whatever rows came
+   * back, and the gateway caps a student's ledger read at 200 rows
+   * (`apps/gateway/routes/ledger.ts`). A tutor with 250 entries therefore saw
+   * every balance from the 201st row onwards computed against nothing: the
+   * 201st row showed `₹0` and the column walked up from there, so the number a
+   * tutor read next to a receipt was not the student's balance. 07 §9.4 is
+   * explicit that the per-student balance is read from the
+   * trigger-maintained `balance_after_paise` cache, and the gateway already
+   * ships that field on every row (it was in this payload, undeclared-as-used).
+   *
+   * The row's own stored `balance_after` is therefore the source of truth, and
+   * the fold is kept ONLY for a row that has none — the optimistic row
+   * `record-payment-sheet.tsx` writes into this cache, which by definition has
+   * no server balance yet.
+   */
   const entries: Array<LedgerEntry & { balance: number }> = [];
   let runningBalance = 0;
   for (let i = rawEntries.length - 1; i >= 0; i--) {
     const e = rawEntries[i];
     if (!e) continue;
     runningBalance = paiseSub(paiseAdd(runningBalance, e.debit ?? 0), e.credit ?? 0);
-    entries.unshift({ ...e, balance: runningBalance });
+    const stored = e.balance_after;
+    const balance =
+      typeof stored === "number" && Number.isSafeInteger(stored) ? stored : runningBalance;
+    entries.unshift({ ...e, balance });
   }
 
   const voidTarget = voidEntryId ? entries.find((e) => e.id === voidEntryId) : undefined;
@@ -226,6 +265,21 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
   const receiptByEntryId = new Map<string, string>();
   for (const e of entries) {
     if (e.receipt_no) receiptByEntryId.set(e.id, e.receipt_no);
+  }
+  /**
+   * Which reversing row killed which original, from `reverses_entry_id`
+   * (07 §6.3: "the original row shows a small '↺ voided by entry xxx' link";
+   * §10.2 BR-LED-03: "the original `PAYMENT_RECEIVED` row gets a strike-through
+   * and a '↺ voided by VOID entry xxx' link"). A tutor needs to see BOTH halves:
+   * the payment, struck through, and the correction that struck it. The
+   * gateway's `isVoid` flag (added in `routes/ledger.ts` GET /api/v1/ledger)
+   * says the original is voided; this map says which row did it, so the chip on
+   * the original can point at the same receipt the reversing row names.
+   */
+  const voidingRowByTarget = new Map<string, string>();
+  for (const e of entries) {
+    const target = e.reverses_entry_id ?? null;
+    if (target) voidingRowByTarget.set(target, e.id);
   }
   const reasonError = (() => {
     const r = VoidReasonSchema.safeParse(voidReason);
@@ -276,9 +330,17 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
     },
   });
 
+  /**
+   * EC-L-02 / BR-LED-05: a void cannot be voided. The row button already hides
+   * itself for a voided original (the state a second void would target), and this
+   * is the same rule stated where the decision is made, so the two can never
+   * disagree — a dialog that opens on a dead payment is a dialog whose only
+   * outcome is a 409.
+   */
   const canConfirmVoid =
     voidTarget !== undefined &&
     voidTarget.type !== "VOID" &&
+    voidTarget.isVoid !== true &&
     pinError === null &&
     reasonError === null &&
     !voidMutation.isPending;
@@ -377,14 +439,39 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
               const amountColor = isInflow ? "var(--success)" : "var(--danger)";
               const sign = isInflow ? "+" : "−";
               const reverses = entry.reverses_entry_id ?? null;
+              /**
+               * Two DIFFERENT facts, previously conflated into one dim:
+               *   · `isVoided` — a later row reverses THIS row. It is the original
+               *     payment, dead. 07 §6.3 strikes it through and links it to the
+               *     reversing entry; the gateway sends the flag, so the two used to
+               *     disagree and the screen showed a voided receipt as live.
+               *   · `isReversal` — THIS row is the void, i.e. it carries
+               *     `reverses_entry_id`. It is a real, live correcting entry and is
+               *     the one 07 §6.3 gives a flare-red left border. Dimming it would
+               *     hide the audit trail BR-LED-04 exists to keep.
+               */
+              const isVoided = entry.isVoid === true;
+              const isReversal = reverses !== null;
+              const voidingRowId = voidingRowByTarget.get(entry.id);
+              const voidedByReceipt = voidingRowId ? receiptByEntryId.get(voidingRowId) : undefined;
               return (
                 <li
                   key={entry.id}
                   className={cn(
                     "group flex items-center gap-3 p-3 rounded-xl transition-colors",
-                    entry.isVoid && "opacity-50"
+                    isVoided && "opacity-60"
                   )}
-                  style={{ background: "var(--surface-inset)", border: "1px solid var(--border-default)" }}
+                  style={{
+                    background: "var(--surface-inset)",
+                    border: isReversal
+                      ? "1px solid color-mix(in srgb, var(--danger) 55%, transparent)"
+                      : "1px solid var(--border-default)",
+                    // 07 §6.3: "VOID rows — visually distinct: flare-red left
+                    // border". A border on all four sides cannot say "this is the
+                    // correction"; the left rail is the convention the spec names.
+                    borderLeftWidth: isReversal ? "3px" : undefined,
+                    borderLeftColor: isReversal ? "var(--danger)" : undefined,
+                  }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-inset)"; }}
                 >
@@ -413,11 +500,23 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                         {meta.label}
                       </span>
                       <p
-                        className={cn("font-semibold text-sm truncate", entry.isVoid && "line-through")}
-                        style={{ color: entry.isVoid ? "var(--text-muted)" : "var(--text-primary)" }}
+                        className={cn("font-semibold text-sm truncate", isVoided && "line-through")}
+                        style={{ color: isVoided ? "var(--text-muted)" : "var(--text-primary)" }}
                       >
                         {entry.description || meta.label}
                       </p>
+                      {isVoided && (
+                        /* Rule 10 (colour is never the only signal) + 07 §6.3: the
+                           strike is not enough on its own. The word VOIDED names the
+                           state, and it is the word a tutor reads out loud to a
+                           parent disputing a receipt. */
+                        <span
+                          className="text-[11px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0"
+                          style={{ color: "var(--danger)", border: "1px solid var(--danger)" }}
+                        >
+                          Voided
+                        </span>
+                      )}
                       {entry.receipt_no && (
                         <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0" style={{ color: "var(--text-muted)", border: "1px solid var(--border-default)" }}>
                           {entry.receipt_no}
@@ -445,6 +544,15 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                           ↺ Reverses {receiptByEntryId.get(reverses) ?? "an earlier payment"}
                         </span>
                       )}
+                      {isVoided && (
+                        /* 07 §6.3: the ORIGINAL names the row that reversed it, so a
+                           tutor can walk payment → correction without leaving the
+                           ledger. Named by receipt number, same vocabulary as the
+                           reversing row above. */
+                        <span className="ml-2 px-1.5 py-0.5 rounded" style={{ color: "var(--text-muted)" }}>
+                          ↳ reversed by {voidedByReceipt ?? "a later entry"}
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -453,7 +561,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                       {sign}
                       {formatINR(amount ?? 0)}
                     </p>
-                    {entry.type === "PAYMENT_RECEIVED" && !entry.isVoid && (
+                    {entry.type === "PAYMENT_RECEIVED" && !isVoided && (
                       <button
                         onClick={() => openVoid(entry.id)}
                         // The Void action used to be `opacity-0 group-hover:opacity-100`,

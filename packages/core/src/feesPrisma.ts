@@ -33,6 +33,7 @@ import {
   type EntryInput,
   type FeeTx,
   type InvoiceInsert,
+  type ReceiptInsert,
   type OpenInvoice,
   type RecordPaymentInput,
   type RecordPaymentResult,
@@ -64,6 +65,9 @@ export interface OrmTx {
   };
   ledgerEntry: {
     aggregate(args: RowArgs & { _sum: Record<string, string> }): Promise<Row>;
+  };
+  receipt: {
+    create(args: DataArgs): Promise<Row>;
   };
   syncOutbox: {
     create(args: DataArgs): Promise<Row>;
@@ -112,6 +116,55 @@ async function writeOutbox(
       payload: o.payload,
       createdAt: o.createdAt,
     },
+  });
+}
+
+/**
+ * 07 §9.6 step 4 — the receipt row plus its `sync_outbox` replication row
+ * (Rule 7), byte-identical to the libsql dialect's `insertReceiptRow` so
+ * `feesDialectParity.test.ts` can hold them to the same books. `voidedAt`,
+ * `pdfBlobKey` and `deletedAt` are left undefined (NULL): a receipt is born
+ * live and the void path is the only writer allowed to ever set `voidedAt`.
+ */
+async function insertReceiptRow(tx: OrmTx, r: ReceiptInsert): Promise<void> {
+  await tx.receipt.create({
+    data: {
+      id: r.receiptId,
+      tenantId: r.tenantId,
+      number: r.number,
+      ledgerEntryId: r.ledgerEntryId,
+      studentId: r.studentId,
+      invoiceId: r.invoiceId,
+      amount: r.amountPaise,
+      paymentMethod: r.paymentMethod,
+      paymentRef: r.paymentRef,
+      receivedOn: r.receivedOn,
+      tamperHash: r.tamperHash,
+      createdAt: r.now,
+      updatedAt: r.now,
+    },
+  });
+  await writeOutbox(tx, {
+    tenantId: r.tenantId,
+    tableName: "receipts",
+    rowId: r.receiptId,
+    op: "insert",
+    payload: encodeOutboxPayload("receipts", "insert", {
+      id: r.receiptId,
+      tenant_id: r.tenantId,
+      number: r.number,
+      ledger_entry_id: r.ledgerEntryId,
+      student_id: r.studentId,
+      invoice_id: r.invoiceId,
+      amount: r.amountPaise,
+      payment_method: r.paymentMethod,
+      payment_ref: r.paymentRef,
+      received_on: r.receivedOn,
+      tamper_hash: r.tamperHash,
+      created_at: r.now,
+      updated_at: r.now,
+    }).payload,
+    createdAt: r.now,
   });
 }
 
@@ -222,6 +275,33 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
 
     insertInvoice(row) {
       return insertInvoiceRow(tx, row);
+    },
+
+    async takeReceiptNumber(tenantId, now) {
+      // BR-RC-01: atomic `{increment}` so the sequence is consumed IN the
+      // database (never read-modify-written in JS — AGENTS.md §3.6), and never
+      // decremented afterwards.
+      await tx.setting.update({
+        where: { tenantId },
+        data: { nextReceiptSeq: { increment: 1 }, updatedAt: now },
+      });
+      const row = await tx.setting.findFirst({ where: { tenantId } });
+      if (!row) {
+        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      }
+      const prefix = str(row, "receiptPrefix") || str(row, "receipt_prefix") || "RCP-";
+      const nextSeq = num(row, "nextReceiptSeq") || num(row, "next_receipt_seq");
+      if (!Number.isSafeInteger(nextSeq) || nextSeq < 1) {
+        throw new Error(
+          `SEQUENCE_INVALID: next_receipt_seq is not a usable integer for ${tenantId} (BR-LED-03)`,
+        );
+      }
+      const seq = nextSeq - 1;
+      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+    },
+
+    insertReceipt(row) {
+      return insertReceiptRow(tx, row);
     },
 
     async setInvoiceStatus({ tenantId, invoiceId, status, now }) {

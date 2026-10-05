@@ -401,8 +401,8 @@ export function DashboardAnalyticsSection() {
 
       {data.dataPartial && (
         <p role="status" className="text-xs text-[var(--text-muted)]">
-          Some sections read from a cached or incomplete response. Totals shown are from the data
-          that arrived; nothing was guessed.
+          Part of this section did not load. The panels it covers are incomplete, not empty
+          &mdash; see the note below for which ones.
         </p>
       )}
 
@@ -704,21 +704,43 @@ function EfficiencyPanel({
   const filled = pct === null ? 0 : (pct / 100) * circumference;
   const csv = [
     ["Measure", "Amount (paise)", "Amount (INR)"].map(csvCell).join(","),
-    ["Collected", String(Math.round(data.efficiencyCollectedPaise)), rupeesFromPaise(data.efficiencyCollectedPaise)]
+    ["Collected in window", String(Math.round(data.efficiencyCollectedPaise)), rupeesFromPaise(data.efficiencyCollectedPaise)]
       .map(csvCell)
       .join(","),
-    ["Still outstanding", String(Math.round(data.efficiencyOutstandingPaise)), rupeesFromPaise(data.efficiencyOutstandingPaise)]
+    ["Still overdue (every past due date, not window-scoped)", String(Math.round(data.efficiencyOutstandingPaise)), rupeesFromPaise(data.efficiencyOutstandingPaise)]
       .map(csvCell)
       .join(","),
   ].join("\r\n");
+  /**
+   * WHAT THIS RATIO IS, stated exactly, because it is not what the caption used
+   * to claim.
+   *
+   * The caption said "collected of asked" and the summary said "you have
+   * collected X% of what this window asked for". Neither is true. The numerator
+   * IS window-scoped — `PAYMENT_RECEIVED` credits minus `REFUND_ISSUED` debits
+   * inside the selected months. The denominator is NOT: `efficiencyOutstandingPaise`
+   * is the sum of the aging buckets, which contain only open invoices whose
+   * due date has ALREADY passed and which still owe more than a paise. So the
+   * ratio is collected-in-window against still-overdue-right-now, and the
+   * denominator does not move when the period moves. Saying otherwise made one
+   * tutor read "84% collected" as a statement about their whole book.
+   *
+   * It is also not BR-CALC-11 arrears (expected − collected − discounts), and it
+   * is not BR-CALC-09 expected: expected needs the effective-dated fee history,
+   * which is not on this screen and must not be approximated here (AGENTS.md
+   * §3.5 — one money flow, one implementation). So the panel says what it holds,
+   * and names both legs' scopes.
+   */
   const summary =
     pct === null
-      ? "No collections and no dues in this window, so there is no rate to show."
-      : `You have collected ${pct}% of what this window asked for (${formatINR(data.efficiencyCollectedPaise)} of ${formatINR(data.efficiencyCollectedPaise + data.efficiencyOutstandingPaise)}).`;
+      ? "Nothing was collected in this window and nothing is overdue, so there is no rate to show."
+      : `In ${data.periodLabel.toLowerCase()} you collected ${formatINR(data.efficiencyCollectedPaise)}. ` +
+        `Against everything still overdue right now (${formatINR(data.efficiencyOutstandingPaise)}), ` +
+        `that is ${pct}%. The overdue figure covers every past due date, not just this window.`;
   return (
     <Panel
       title="Collection efficiency"
-      caption={`${data.periodLabel} · collected of asked`}
+      caption="Collected in the window, measured against everything still overdue"
       exportLabel="Download collection efficiency as CSV"
       onExport={() => onExport("collection-efficiency", csv, 2)}
       summary={summary}
