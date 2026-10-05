@@ -2,6 +2,9 @@
   "name": "provision-db",
   "runtime": "deno2",
   "entrypoint": "index.ts",
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2"
+  },
   "import_map": "https://esm.sh/import_map.json",
   "dependencies": ["https://esm.sh/@supabase/supabase-js@2"],
   "lint": {
