@@ -388,7 +388,26 @@ export async function createStudent(
             data: {
               id: crypto.randomUUID(),
               tenantId,
-              tutorId: null,
+              // The owning tutor, NOT null (05 §6.1: a student is enrolled in
+              // a batch; the batch belongs to the tutor).
+              //
+              // This was `tutorId: null`, which broke the primary flow of the
+              // screen: every tutor who added a student whose batch did not
+              // already exist got `SQLITE_CONSTRAINT: NOT NULL constraint
+              // failed: batches.tutor_id` and no student. All three schema
+              // authorities (`prisma/schema.prisma`, `migrations/0001_init.sql`,
+              // `apps/gateway/lib/schema.ts`) declare `tutor_id` NULLABLE, so
+              // the QA tenant DB carries a stale NOT NULL column that a
+              // `CREATE TABLE IF NOT EXISTS` self-heal can never relax —
+              // SQLite needs a table rebuild to drop a NOT NULL, which is not
+              // something a request path should attempt.
+              //
+              // The fix is therefore to write a CORRECT value rather than to
+              // depend on the column being nullable: per 11_Data_Model.md §1
+              // the tenant IS the tutor, which is why `auditLog.actor` above is
+              // `tenantId` too. A batch with no owner is also a batch that
+              // `idx_batches_tutor` can never find.
+              tutorId: tenantId,
               name: batch,
               subject: "General",
               createdAt: new Date(),

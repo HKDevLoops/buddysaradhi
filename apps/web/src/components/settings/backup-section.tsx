@@ -19,10 +19,12 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
-  BACKUP_PASSPHRASE_MIN,
-  backupFilename,
   createBackupAction,
 } from "@/server/actions/settings";
+// The passphrase floor and the filename contract are shared with the server
+// action on purpose: the client disables Save at 12 characters and the server
+// refuses below 12, and those must not be two literals that drift.
+import { BACKUP_PASSPHRASE_MIN, backupFilename } from "@/lib/settings-gates";
 import { PIN_INPUT_MAX_LENGTH } from "@buddysaradhi/shared";
 import { HardDrive, Download, AlertTriangle, Key, Loader2, ShieldCheck, FileJson } from "lucide-react";
 import { cn } from "@/lib/utils";

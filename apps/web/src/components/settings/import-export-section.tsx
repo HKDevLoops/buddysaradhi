@@ -38,7 +38,8 @@ import {
   type ValidImportRow,
 } from "@/lib/csv-parse";
 import { buildStudentsXlsxTemplate, downloadXlsx } from "@/lib/xlsx-template";
-import { importStudentsAction, IMPORT_PIN_REQUIRED_ABOVE_ROWS } from "@/server/actions/settings";
+import { IMPORT_PIN_REQUIRED_ABOVE_ROWS } from "@/lib/settings-gates";
+import { importStudentsAction } from "@/server/actions/settings";
 import { fetchStudentsAction } from "@/server/actions/students";
 import { fetchAttendanceSummaryAction } from "@/server/actions/attendance";
 import { formatINR, PIN_INPUT_MAX_LENGTH, type StudentListRow } from "@buddysaradhi/shared";

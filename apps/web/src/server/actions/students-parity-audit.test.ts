@@ -77,7 +77,22 @@ async function createTestDb(): Promise<void> {
     "CREATE TABLE students (id TEXT PRIMARY KEY, tenant_id TEXT, code TEXT, first_name TEXT, last_name TEXT, dob TEXT, gender TEXT, phone TEXT, email TEXT, address TEXT, school TEXT, grade TEXT, board TEXT, admission_date TEXT, status TEXT, fee_model TEXT, base_fee_paise INTEGER, balance_paise INTEGER, dup_key TEXT, merged_into_id TEXT, custom_fields TEXT, notes TEXT, archived_at TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
-    "CREATE TABLE batches (id TEXT PRIMARY KEY, tenant_id TEXT, tutor_id TEXT, name TEXT, subject TEXT, schedule TEXT, archived_at TEXT, created_at TEXT, updated_at TEXT)",
+    // `tutor_id` is deliberately **NOT NULL** here, and that is the point.
+    //
+    // All three schema authorities (`prisma/schema.prisma`,
+    // `migrations/0001_init.sql`, `apps/gateway/lib/schema.ts`) declare this
+    // column NULLABLE, so the fixture used to declare it nullable too — and
+    // that is exactly why `createStudent`'s `tutorId: null` passed every test
+    // and then broke the primary flow of the screen in production with
+    // `SQLITE_CONSTRAINT: NOT NULL constraint failed: batches.tutor_id` on
+    // every tutor whose batch did not already exist.
+    //
+    // A test fixture must model the shape that exists in the world, not the
+    // shape that makes the code pass. Modelling the STRICTER of the two legal
+    // shapes means a nullable write now fails loudly here instead of silently
+    // in a tutor's hands. The companion assertion below pins the value itself,
+    // so this cannot be satisfied by loosening the fixture again.
+    "CREATE TABLE batches (id TEXT PRIMARY KEY, tenant_id TEXT, tutor_id TEXT NOT NULL, name TEXT, subject TEXT, schedule TEXT, archived_at TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE student_enrollments (id TEXT PRIMARY KEY, tenant_id TEXT, student_id TEXT, batch_id TEXT, joined_on TEXT, exited_on TEXT, deleted_at TEXT, created_at TEXT, updated_at TEXT)",
@@ -250,6 +265,49 @@ describe("createStudent — the offline fallback is a real write", () => {
     const actions = await auditActions();
     expect(actions.filter((action) => action === "student.create")).toHaveLength(1);
     expect(actions.filter((action) => action === "batch.create")).toHaveLength(1);
+  });
+
+  it("gives the auto-created batch a real owner, so it survives a NOT NULL tutor_id", async () => {
+    // The reported production failure, verbatim:
+    //   `Student not added — SQLITE_CONSTRAINT: SQLite error: NOT NULL
+    //    constraint failed: batches.tutor_id`
+    // on every add whose batch did not already exist. The fixture's `batches`
+    // table now declares `tutor_id NOT NULL` precisely so this cannot regress
+    // quietly; this assertion pins the VALUE as well, so loosening the fixture
+    // is not a way out.
+    const result = await createStudent(sheetPayload(), "Class 10 Maths 6pm");
+    expect(result.success, `add failed: ${result.error}`).toBe(true);
+
+    const batch = await client.execute("SELECT tutor_id, tenant_id, name FROM batches");
+    expect(batch.rows).toHaveLength(1);
+    const row = batch.rows[0] as Record<string, unknown>;
+    // 11_Data_Model.md §1 — the tenant IS the tutor, which is why this is the
+    // same value `audit_log.actor` carries.
+    expect(row.tutor_id).toBe(TENANT);
+    expect(row.tenant_id).toBe(TENANT);
+    expect(row.name).toBe("Class 10 Maths 6pm");
+  });
+
+  it("reuses an existing batch rather than creating a second ownerless one", async () => {
+    // A distinct id AND a distinct phone. `sheetPayload()` pins both: the id is the
+    // primary key (a repeat collides) and the duplicate key is phone-derived
+    // (BR-STU-02 — two adds sharing a number are the SAME student, correctly
+    // refused). Neither is what this test is about.
+    await createStudent(sheetPayload(), "Class 10 Maths 6pm");
+    await createStudent(
+      {
+        ...sheetPayload(),
+        id: "22222222-2222-4222-8222-222222222222",
+        first_name: "Kabir",
+        phone: "+91 90000-11111",
+      },
+      "Class 10 Maths 6pm",
+    );
+    const batches = await client.execute("SELECT tutor_id FROM batches");
+    expect(batches.rows).toHaveLength(1);
+    expect((batches.rows[0] as Record<string, unknown>).tutor_id).toBe(TENANT);
+    // Two students, one shared batch — not two batches.
+    expect(await tableCount("students")).toBe(2);
   });
 
   it("does not write to ledger_entries — an add-student never touches money", async () => {

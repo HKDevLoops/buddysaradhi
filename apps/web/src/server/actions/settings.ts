@@ -4,6 +4,11 @@ import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch } from "@/serv
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import {
+  BACKUP_PASSPHRASE_MIN,
+  IMPORT_PIN_REQUIRED_ABOVE_ROWS,
+  backupFilename,
+} from "@/lib/settings-gates";
 import { z } from "zod";
 import { verifyPin, encryptBackup } from "@/lib/crypto";
 import {
@@ -188,27 +193,13 @@ function pinGateMessage(gate: PinGateResult): string {
   return "VALIDATION: The security PIN is incorrect.";
 }
 
-/**
- * 08_Settings.md EC-04 + §14 `passphraseSchema`: a backup passphrase is at
- * least 12 characters. The floor was 8, which is short enough that a tutor who
- * picked "buddy1234" would have a KDF input a dictionary attack reaches; the
- * spec names 12 and 12 is what ships.
- */
-export const BACKUP_PASSPHRASE_MIN = 12;
-
-/**
- * 08_Settings.md §6.2.7: `Buddysaradhi_Backup_<YYYYMMDD-HHmm>.buddysaradhi`.
- * The extension IS the contract — 08 §9.7 keys restore's magic-byte check and
- * the tutor's own file-naming habit off it, and the previous `.bsb` +
- * `buddysaradhi_backup_<YYYY-MM-DD>` was neither.
- */
-export function backupFilename(now: Date = new Date()): string {
-  const pad = (n: number, width = 2): string => String(n).padStart(width, "0");
-  const stamp =
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
-    `-${pad(now.getHours())}${pad(now.getMinutes())}`;
-  return `Buddysaradhi_Backup_${stamp}.buddysaradhi`;
-}
+// `BACKUP_PASSPHRASE_MIN`, `backupFilename` and `IMPORT_PIN_REQUIRED_ABOVE_ROWS`
+// live in `@/lib/settings-gates`, not here. A `"use server"` module may only
+// export ASYNC functions — Next rejects a synchronous export at BUILD time
+// ("Only async functions are allowed to be exported in a 'use server' file")
+// while `tsc` and every unit test stay green. Putting the gate constants in one
+// isomorphic module is what makes the threshold the client renders and the
+// threshold the server enforces provably the same value.
 
 /**
  * Backup create. PIN-gated and typed-confirmed per 08 SR-01 + 09 §15.4
@@ -1184,10 +1175,11 @@ const ImportStudentsPayloadSchema = z.object({
 
 /**
  * 09_Backup_and_Import_Export.md §15.4: "Import students (> 100 rows) | Yes".
- * The UI and this action share the number through the exported constant, so the
- * gate can never be one row-count behind the label in the dialog.
+ * The UI and this action share the number through `@/lib/settings-gates`, so the
+ * gate can never be one row-count behind the label in the dialog — and neither
+ * side can export it from here, because a `"use server"` module may only export
+ * async functions.
  */
-export const IMPORT_PIN_REQUIRED_ABOVE_ROWS = 100;
 
 export interface ImportStudentsSummary {
   created: number;
@@ -1329,7 +1321,16 @@ export async function importStudentsAction(input: unknown): Promise<ImportStuden
               data: {
                 id,
                 tenantId,
-                tutorId: null,
+                // The owning tutor, never null — same defect as
+                // `students.ts` `tutorId: null`: on a tenant DB whose
+                // `batches.tutor_id` column is NOT NULL this threw, and because
+                // every missing batch is created inside ONE transaction, the
+                // failure aborted the ENTIRE import rather than one row. The
+                // column is nullable in all three schema authorities
+                // (11_Data_Model.md §1: the tenant IS the tutor), so writing
+                // the real owner is both correct and the only shape that works
+                // everywhere.
+                tutorId: tenantId,
                 name,
                 subject: "General",
                 createdAt: stamped,

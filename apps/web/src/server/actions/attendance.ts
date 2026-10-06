@@ -5,6 +5,9 @@ import { getAuthenticatedPrisma } from "@/server/get-db";
 import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
 import { z } from "zod";
 import { log } from "@/lib/logger";
+// A `"use server"` module may only export async functions, so BR-CALC-06's pure
+// percentage arithmetic lives in an isomorphic module (`@/lib/attendance-calc`).
+import { attendancePct } from "@/lib/attendance-calc";
 import { verifyPin } from "@/lib/crypto";
 import { invalidateTenant } from "@/server/cache"; // workstream C wiring
 import {
@@ -596,35 +599,6 @@ export interface AttendanceSummary {
     overall_excused: number;
     overall_percentage: number | null;
   };
-}
-
-/**
- * BR-CALC-06 / 06 §9.7 attendance percentage.
- *
- * `excused` and `holiday` are EXCLUDED from the denominator (BR-CALC-06,
- * BR-ATT-02 "excused and holiday are excluded from the denominator",
- * BR-ATT-04/09, 06 §9.7 and §10.2 all say so) — a medical leave or a declared
- * holiday must not read as an absence. `late` counts as ATTENDED: BR-ATT-02
- * ("Late counts as present for %, flagged separately"), 06 §9.7
- * (`presentOrLate_count / totals_count`) and 06 §10.5 ("late counts toward % as
- * present does") all put late in the numerator; the `BR-CALC-06` formula line
- * omits it, which is a genuine contradiction between two specs — raised as a
- * cross-lane report, and resolved here in favour of the three concurring
- * statements (the more specific attendance rule wins over the one-line
- * formula).
- *
- * Returns `null` for a zero denominator (BR-CALC-06: "pct = null (display
- * '—')").
- */
-export function attendancePct(counts: {
-  present: number;
-  late: number;
-  absent: number;
-}): number | null {
-  const attended = counts.present + counts.late;
-  const denominator = attended + counts.absent;
-  if (denominator <= 0) return null;
-  return Math.round((attended / denominator) * 100);
 }
 
 export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Promise<{

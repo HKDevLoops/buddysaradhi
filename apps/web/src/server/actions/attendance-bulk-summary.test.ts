@@ -29,12 +29,12 @@ vi.mock("@/server/get-db", async (importOriginal) => {
 vi.mock("@/lib/logger", () => ({ log: mocks.log }));
 
 import {
-  attendancePct,
   bulkMarkAttendanceAction,
   fetchAttendanceSummaryAction,
   lockSessionAction,
   updateAttendanceAction,
 } from "@/server/actions/attendance";
+import { attendancePct } from "@/lib/attendance-calc";
 
 const TENANT = "t-att-audit";
 const PIN = "123456";

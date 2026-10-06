@@ -41,9 +41,6 @@ vi.mock("@/server/cache", () => ({ invalidateTenant: mocks.invalidateTenant }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import {
-  BACKUP_PASSPHRASE_MIN,
-  IMPORT_PIN_REQUIRED_ABOVE_ROWS,
-  backupFilename,
   createBackupAction,
   deleteTenantDataAction,
   getCurrencyLockAction,
@@ -54,6 +51,11 @@ import {
   updateSettingAction,
   updateSettingsBatchAction,
 } from "@/server/actions/settings";
+import {
+  BACKUP_PASSPHRASE_MIN,
+  IMPORT_PIN_REQUIRED_ABOVE_ROWS,
+  backupFilename,
+} from "@/lib/settings-gates";
 
 const TENANT = "t-settings-audit";
 const PASS = "correct horse battery staple";
