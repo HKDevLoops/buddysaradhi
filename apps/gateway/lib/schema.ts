@@ -379,6 +379,7 @@ export async function ensureSelfRepairingSchema(
     // `receipt_no` → `number` rename is a column RENAME, not an add, so it is
     // left to the forward-only migration rather than guessed at here.
     await ensureColumn(_db, "receipts", "ledger_entry_id", "TEXT");
+    await repairLegacyInvoicesAndReceipts(_db);
     healedTenants.add(tenantId);
   } catch (err) {
     logError("schema.heal_failed", {
@@ -407,4 +408,154 @@ async function ensureColumn(
   const ddl = typeof row?.sql === "string" ? row.sql : "";
   if (ddl.toLowerCase().includes(column.toLowerCase())) return;
   await run(handle, `ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`, []);
+}
+
+/**
+ * `migrations/0002_canonical_invoices_receipts.sql`, applied here because this
+ * module is the audited DDL authority for gateway-managed tenant databases
+ * (AGENTS.md §3.4) and the forward-only file cannot be shipped to the edge on
+ * its own.
+ *
+ * WHAT IT REPAIRS. A tenant database provisioned before the canonical money
+ * grammar carries `invoices.invoice_number / period_start / period_end /
+ * subtotal_paise / total_paise` as NOT NULL with no default, and a `receipts`
+ * table keyed on `receipt_no` with no `number` and no `ledger_entry_id`.
+ * `packages/core`'s canonical writers insert the CURRENT grammar, so on such a
+ * database every payment that invoices failed with
+ * `NOT NULL constraint failed: invoices.invoice_number` and no receipt could
+ * ever be written at all — while `CREATE TABLE IF NOT EXISTS` could not repair
+ * it, because SQLite cannot drop or relax a column.
+ *
+ * WHY THE PROBE IS MANDATORY. The repair reads the LEGACY column names, so it
+ * can only be applied to a legacy-shaped table: on a table already canonical (or
+ * freshly provisioned) it fails on the missing column. Probing first is what
+ * makes it safe to run on every boot of every tenant, which is exactly the
+ * population that needs it — a new tenant is already canonical and must not be
+ * handed this. `packages/core/src/migration0002.test.ts` pins both halves: the
+ * repair works on a legacy shape, and re-applying it to a canonical table
+ * REFUSES rather than silently rewriting money.
+ */
+const LEGACY_INVOICES_REPAIR: string[] = [
+  `DROP TABLE IF EXISTS invoices_canonical`,
+  `CREATE TABLE invoices_canonical (
+     id TEXT PRIMARY KEY,
+     tenant_id TEXT NOT NULL,
+     number TEXT NOT NULL,
+     student_id TEXT NOT NULL,
+     fee_schedule_item_id TEXT,
+     issue_date TEXT NOT NULL,
+     due_date TEXT,
+     subtotal INTEGER NOT NULL,
+     discount INTEGER NOT NULL DEFAULT 0,
+     extra_charges INTEGER NOT NULL DEFAULT 0,
+     total INTEGER NOT NULL,
+     status TEXT NOT NULL DEFAULT 'unpaid'
+       CHECK(status IN ('unpaid','partial','paid','void','overdue')),
+     voided_at TEXT,
+     void_reason TEXT,
+     tamper_hash TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     UNIQUE(tenant_id, number)
+   )`,
+  // Integer money throughout (Rule 6): the legacy NOT NULL columns are the
+  // authoritative amount, folded into the canonical ones rather than discarded.
+  // 'issued' is not in the canonical CHECK, so the legacy vocabulary is mapped.
+  // tamper_hash gets an explicit `unverified-legacy:` placeholder rather than a
+  // plausible-looking value that could read as a passed verification.
+  `INSERT INTO invoices_canonical (
+     id, tenant_id, number, student_id, fee_schedule_item_id, issue_date, due_date,
+     subtotal, discount, extra_charges, total, status, voided_at, void_reason,
+     tamper_hash, created_at, updated_at
+   )
+   SELECT
+     id, tenant_id,
+     CASE WHEN invoice_number IS NULL OR invoice_number = ''
+          THEN 'INV-LEGACY-' || id ELSE invoice_number END,
+     student_id, NULL,
+     CASE WHEN period_start IS NULL OR period_start = ''
+          THEN created_at ELSE period_start END,
+     due_date,
+     COALESCE(subtotal_paise, 0),
+     COALESCE(discount_paise, 0),
+     COALESCE(tax_paise, 0),
+     COALESCE(total_paise, subtotal_paise, 0),
+     CASE status
+       WHEN 'issued'  THEN 'unpaid'
+       WHEN 'pending' THEN 'unpaid'
+       WHEN 'settled' THEN 'paid'
+       ELSE COALESCE(status, 'unpaid')
+     END,
+     voided_at, NULL, 'unverified-legacy:' || id, created_at, updated_at
+   FROM invoices`,
+  `DROP TABLE invoices`,
+  `ALTER TABLE invoices_canonical RENAME TO invoices`,
+  `CREATE INDEX IF NOT EXISTS idx_invoices_student ON invoices(student_id, status)`,
+  `CREATE INDEX IF NOT EXISTS idx_invoices_due     ON invoices(due_date, status)`,
+];
+
+const LEGACY_RECEIPTS_REPAIR: string[] = [
+  `DROP TABLE IF EXISTS receipts_canonical`,
+  `CREATE TABLE receipts_canonical (
+     id TEXT PRIMARY KEY,
+     tenant_id TEXT NOT NULL,
+     number TEXT NOT NULL,
+     ledger_entry_id TEXT,
+     student_id TEXT NOT NULL,
+     invoice_id TEXT,
+     amount INTEGER NOT NULL,
+     payment_method TEXT NOT NULL DEFAULT 'manual',
+     payment_ref TEXT,
+     received_on TEXT NOT NULL,
+     tamper_hash TEXT,
+     voided_at TEXT,
+     pdf_blob_key TEXT,
+     deleted_at TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     UNIQUE(tenant_id, number)
+   )`,
+  // ledger_entry_id stays NULL: the legacy shape had no back-link and inventing
+  // one would fabricate an audit trail. Receipts MINTED after this repair always
+  // carry it — `recordPaymentFlow` supplies it (07 §9.6 step 4).
+  `INSERT INTO receipts_canonical (
+     id, tenant_id, number, ledger_entry_id, student_id, invoice_id, amount,
+     payment_method, payment_ref, received_on, tamper_hash, voided_at,
+     pdf_blob_key, deleted_at, created_at, updated_at
+   )
+   SELECT
+     id, tenant_id,
+     CASE WHEN receipt_no IS NULL OR receipt_no = ''
+          THEN 'RCP-LEGACY-' || id ELSE receipt_no END,
+     NULL, student_id, invoice_id, amount,
+     COALESCE(payment_method, 'manual'), payment_ref, received_on,
+     COALESCE(tamper_hash, 'unverified-legacy:' || id),
+     voided_at, pdf_blob_key, deleted_at, created_at, updated_at
+   FROM receipts`,
+  `DROP TABLE receipts`,
+  `ALTER TABLE receipts_canonical RENAME TO receipts`,
+  `CREATE INDEX IF NOT EXISTS idx_receipts_student ON receipts(student_id, received_on)`,
+  `CREATE INDEX IF NOT EXISTS idx_receipts_ledger  ON receipts(ledger_entry_id)`,
+];
+
+/** True when `table` still carries `marker` — the probe that gates the repair. */
+async function hasColumn(db: DB, table: string, marker: string): Promise<boolean> {
+  const handle = db as unknown as SqlHandle;
+  const row = await oneRow(handle, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", [
+    table,
+  ]);
+  const ddl = typeof row?.sql === "string" ? row.sql.toLowerCase() : "";
+  return ddl.includes(marker.toLowerCase());
+}
+
+async function repairLegacyInvoicesAndReceipts(db: DB): Promise<void> {
+  const handle = db as unknown as SqlHandle;
+  // Each table is probed independently: a tenant could be legacy on one and
+  // canonical on the other, and repairing only the legacy one is exactly right.
+  if (await hasColumn(db, "invoices", "invoice_number")) {
+    for (const stmt of LEGACY_INVOICES_REPAIR) await run(handle, stmt, []);
+  }
+  if (await hasColumn(db, "receipts", "receipt_no")) {
+    for (const stmt of LEGACY_RECEIPTS_REPAIR) await run(handle, stmt, []);
+  }
 }

@@ -439,11 +439,24 @@ const SETTING_WRITE_FIELDS: Record<string, boolean> = {
 const SETTING_VALUE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   // 08 §6.2.1 Institute Profile
   instituteName: z.string().min(1).max(120),
-  instituteAddress: z.string().max(200),
+  // DEFECT FIXED (settings audit, 2026-10-06). These three are OPTIONAL in
+  // 08 §6.2.1 and the Profile card sends `value || null` for each of them, so
+  // "no address" is a null. The schemas were `z.string()`, which made null a
+  // validation failure — and because `updateSettingsBatchAction` refuses the
+  // WHOLE batch on the first bad field, a tutor with any empty optional field
+  // could not save the Profile card at all. Not an edge case: the default state
+  // of a brand-new account is all three empty, so the first thing a new tutor
+  // does on Settings silently failed. `toAppErrorState` then classified the
+  // refusal as UNKNOWN and showed "Please try again. If this keeps happening,
+  // contact support" — Rule 9 broken twice over (a refused save, and no reason).
+  // Nullable is the correct bound: absent is a legal value, and clearing a
+  // field the tutor filled in earlier must stay possible.
+  instituteAddress: z.string().max(200).nullable(),
   institutePhone: z
     .string()
-    .regex(/^\+?[0-9]{6,15}$/, "Use a phone number of 6 to 15 digits, optionally starting with +"),
-  instituteEmail: z.string().email().max(120),
+    .regex(/^\+?[0-9]{6,15}$/, "Use a phone number of 6 to 15 digits, optionally starting with +")
+    .nullable(),
+  instituteEmail: z.string().email().max(120).nullable(),
   // 08 §6.2.1 — currency is validated here AND frozen once a fee exists
   // (see `assertCurrencyNotLocked`); `formatINR` requires a real code.
   currencyCode: z.string().regex(/^[A-Z]{3}$/, "Use a three-letter currency code such as INR"),

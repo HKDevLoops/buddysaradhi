@@ -63,6 +63,26 @@ function pctText(pct: number | null): string {
   return pct === null ? "—" : `${pct}%`;
 }
 
+/**
+ * A period bound that will not parse is shown verbatim rather than thrown at.
+ *
+ * `format()` throws `RangeError: Invalid time value` on an invalid `Date`, and
+ * this panel used to call it unguarded on the server's `period_start` /
+ * `period_end`. One preset whose bound was a day that does not exist
+ * (`localDayIso(y, m, 0)` used to yield `"2026-10-00"`) therefore took the whole
+ * Attendance screen down to `app/(app)/error.tsx` — toolbar, roster and every
+ * mark replaced by "Check the details". A read-only summary panel must never be
+ * able to do that, whatever the payload turns out to be, so the parse is
+ * checked and an unparseable bound is printed as it arrived. Printing the raw
+ * value is the honest choice: it is a value the tutor can report, and it beats
+ * a dash that implies "nothing to measure".
+ */
+function dayText(iso: string): string {
+  const parsed = parseISO(iso);
+  if (Number.isNaN(parsed.getTime())) return iso || "—";
+  return format(parsed, "do MMM yyyy");
+}
+
 function pctAccent(pct: number | null): string {
   if (pct === null) return "var(--text-muted)";
   return pct >= 75 ? "var(--success)" : pct >= 50 ? "var(--warning)" : "var(--danger)";
@@ -158,7 +178,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
             {summaryData && (
               <p className="text-sm mt-1 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
                 <CalendarDays className="w-4 h-4" aria-hidden="true" />
-                {format(parseISO(summaryData.period_start), "do MMM yyyy")} — {format(parseISO(summaryData.period_end), "do MMM yyyy")}
+                {dayText(summaryData.period_start)} — {dayText(summaryData.period_end)}
               </p>
             )}
           </div>

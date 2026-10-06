@@ -68,6 +68,24 @@ export interface ErrorSink {
   assertNoErrors(): void;
   /** Drops errors captured so far (e.g. around a step that is known-noisy). */
   clear(): void;
+  /**
+   * Starts recording failed HTTP responses.
+   *
+   * REQUIRED. Without this call the `response` listener below is dead code — the
+   * `settled` flag it gates on was declared `false` and never assigned, so a 500
+   * from a BFF route could not fail a test. It was found by the STUDENTS-R2 lane
+   * audit on 2026-10-06; the flag was clearly MEANT to be flipped once the app
+   * has a session, because a signed-out cold start can emit a 401 on the first
+   * navigation that is not a defect.
+   *
+   * Call it immediately after `login`, once the shell exists.
+   *
+   * It is opt-in rather than automatic on purpose: turning failed-response
+   * recording on by default would change the outcome of every spec already in
+   * this directory, and four lanes share this harness mid-audit. Flip it on per
+   * spec, at the point the app is genuinely settled.
+   */
+  markSettled(): void;
 }
 
 /**
@@ -77,7 +95,8 @@ export interface ErrorSink {
  * `response` filtering ignores the 401 that a signed-out / cold session can
  * produce before the first navigation completes, but records every 4xx/5xx
  * after the app has settled — a 500 from a BFF route is exactly the class of
- * bug these audits exist to catch.
+ * bug these audits exist to catch. "Settled" is declared by the CALLER via
+ * `markSettled()`; see `ErrorSink.markSettled` for why it is not automatic.
  */
 export function captureErrors(page: Page): ErrorSink {
   const errors: string[] = [];
@@ -106,6 +125,9 @@ export function captureErrors(page: Page): ErrorSink {
     },
     clear() {
       errors.length = 0;
+    },
+    markSettled() {
+      settled = true;
     },
   };
 }

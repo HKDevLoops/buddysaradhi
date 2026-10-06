@@ -67,12 +67,38 @@ export function isFutureDate(sessionDateIso: string, nowIso: string): boolean {
  * IST (+05:30) `toISOString()` renders it as the PREVIOUS day, so every preset
  * started a day early and "Last Month" silently included a day of the month
  * before it.
+ *
+ * The parts go through the `Date` constructor semantics rather than being
+ * zero-padded, because a caller asking for a day the month does not have means
+ * "the day before", and that is exactly how "Last Month" is bounded:
+ * `localDayIso(y, m, 0)` is the LAST day of month `m - 1`.
+ *
+ * This was P0 and it reached the screen. Zero-padding produced `"2026-10-00"` for
+ * that bound — a day that does not exist. `AttendanceSummary` renders the period
+ * with `format(parseISO(period_end), …)`, date-fns throws `RangeError: Invalid
+ * time value` on an unparseable date, and because the summary panel has no
+ * error boundary of its own the throw escaped to `app/(app)/error.tsx`: clicking
+ * ONE preset button replaced the entire Attendance screen — toolbar, roster,
+ * every mark — with "Check the details". `extractServerCode` classified the
+ * RangeError as `VALIDATION`, so the tutor was told the REQUEST was invalid.
+ * The unit test that covers it
+ * (`attendance-bulk-summary.test.ts` "last_month") asserted the same
+ * `localDayIso(y, m, 0)` expression on BOTH sides of its `toBe`, so it passed
+ * against the broken value and proved nothing.
  */
 export function localDayIso(year: number, monthIndex: number, day: number): string {
-  const y = String(year).padStart(4, "0");
-  const m = String(monthIndex + 1).padStart(2, "0");
-  const d = String(day).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const d = new Date(0);
+  d.setHours(0, 0, 0, 0);
+  // `setFullYear` takes month/day together, so out-of-range values roll over the
+  // same way the `Date(y, m, d)` constructor does: day 0 is the day before the
+  // first of the month, day 32 is the first of the next, month -1 is December of
+  // the previous year. `new Date(0)` rather than `new Date(year, …)` so a year
+  // below 100 is not silently mapped into the 1900s.
+  d.setFullYear(year, monthIndex, day);
+  const yyyy = String(d.getFullYear()).padStart(4, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // Grant spellings, both vocabularies: web writes snake_case (06 §10.8 audit

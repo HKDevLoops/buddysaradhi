@@ -32,7 +32,15 @@
 //     the amount in `formatINR`, and the sheet is dismissed WITHOUT committing.
 //     No ledger row is created by this test at all.
 //
-//   TEST 3 — ONE ₹1 PAYMENT, THEN VOIDED THROUGH THE UI. Records exactly one
+//     ⚠ "zero is refused with a stated reason" found a REAL defect:
+//     `preview.errors` held the reason, but the alert block was gated on
+//     `preview.amountPaise !== null` — true for exactly the input §14 names
+//     first (a zero amount parses to null), so `₹0` disabled Save with nothing on
+//     screen explaining why. Fixed in `record-payment-sheet.tsx` and pinned by
+//     `record-payment-sheet.test.tsx`; it needs a rebuilt `.next` before this
+//     spec can observe it.
+//
+// TEST 3 — ONE ₹1 PAYMENT, THEN VOIDED THROUGH THE UI. Records exactly one
 //     ₹1 cash payment against the student who actually OWES money (so the payment
 //     credits an existing open invoice instead of auto-invoicing a stray charge),
 //     voids it with a typed reason and `QA_PIN`, and then proves the three facts
@@ -45,6 +53,18 @@
 //          the reversing row names what it reversed.
 //     If (1) fails the tenant has been left carrying a ₹1 charge, and the failure
 //     message says so rather than passing quietly.
+//
+//     ⚠ BLOCKED ON A DATA DEFECT, NOT A UI ONE (recorded 2026-10-06, lane
+//     FEES-R2). Against the QA tenant this test fails at the FIRST assertion
+//     below — "the success toast names the receipt number minted on commit" —
+//     because the payment cannot commit at all. The tenant's `invoices` table is
+//     the RETIRED shape, so `packages/core`'s canonical insert violates
+//     `invoices.invoice_number NOT NULL`, and its `receipts` table still keys on
+//     `receipt_no`, so the new receipt insert has no `number` column to write.
+//     Both are tenant-DB migrations, not screen bugs: no code change makes a
+//     payment land here. Do NOT weaken these assertions to make the run green —
+//     a payment that cannot mint a receipt IS the failure they exist to catch.
+//     The assertions stay until a tenant on the canonical schema passes them.
 //
 // NO FIXED SLEEPS anywhere: every wait is on an element or an event. NO
 // `page.waitForTimeout`.
@@ -160,15 +180,20 @@ test("fees audit 1: balances render, the filter narrows, and every tab mounts it
   }
 
   // The filter is the roster's own search box (AGENTS.md Rule 2 — local, no
-  // request while the tutor types). Typing must narrow the list, not clear it.
-  const filter = page.getByRole("textbox", { name: /filter students/i }).first();
+  // request while the tutor types). It is `StudentSearchBox`, which is a WCAG
+  // combobox (`role="combobox"`, `aria-expanded`, `aria-activedescendant`) —
+  // NOT a bare textbox, so `getByRole("textbox", …)` never resolves it.
+  const filter = page.getByRole("combobox", { name: /filter students/i }).first();
   await expectVisible(filter, "roster filter");
   const firstName = ((await rows.first().innerText()) ?? "").split("\n")[0]?.trim() ?? "";
-  await filter.fill(firstName.slice(0, 3));
+  await filter.fill(firstName);
+  // The box states the match count in a polite live region — the cheapest proof
+  // that the filter RAN rather than silently clearing the list.
   await expect(
-    rows.first(),
-    "filtering by a real name keeps at least the matching row",
-  ).toBeVisible();
+    page.getByRole("status").filter({ hasText: /students match/ }).first(),
+    "the filter reports how many students match",
+  ).toHaveText(new RegExp(`1 of ${rowCount} students match`));
+  await expect(rows, "filtering narrows the roster to the named student").toHaveCount(1);
   await filter.fill("");
   await expect(rows, "clearing the filter restores the roster").toHaveCount(rowCount);
 
@@ -213,6 +238,17 @@ test("fees audit 2: the payment sheet validates, previews, and writes nothing", 
   await expectVisible(rosterButtons(page).first(), "roster row");
 
   await rosterButtons(page).first().click();
+  const ledgerPane = page.getByRole("region", { name: "Student Ledger History" });
+  await expectVisible(ledgerPane, "ledger pane");
+  // The oracle for "this test wrote nothing": the ledger header states its own
+  // entry count. Asserting "no Void button exists" instead is wrong — the QA
+  // tenant already carries real, voidable payments from before, so that
+  // assertion fails on a ledger this test never touched.
+  const entriesBefore = await ledgerPane
+    .getByText(/^\d+ entries?$/)
+    .first()
+    .innerText();
+
   await page.getByRole("button", { name: /record payment/i }).first().click();
 
   const sheet = paymentSheet(page);
@@ -275,24 +311,27 @@ test("fees audit 2: the payment sheet validates, previews, and writes nothing", 
   await sheet.locator("#payment-ref").fill("482913");
   await expect(save, "a valid 6-digit cheque number re-enables Save").toBeEnabled();
 
-  // Dismiss WITHOUT committing. The scrim click goes through the discard guard;
-  // nothing typed-and-meaningful should be discarded silently, so the discard
-  // prompt is asserted rather than skipped past.
+  // Dismiss WITHOUT committing. The form is dirty, so the close control raises
+  // the discard guard: "Keep editing" then "Discard", in that DOM order. The
+  // safe answer has to be chosen deliberately — clicking whichever matched
+  // first would hit "Keep editing" and leave the sheet open, which is the
+  // opposite of what this step is testing.
   await page.screenshot({ path: "test-results/fees-02-sheet.png", fullPage: true });
   await sheet.getByRole("button", { name: /close record payment sheet/i }).click();
-  const confirm = page.getByRole("button", { name: /discard|keep|close and pick/i }).first();
-  if ((await confirm.count()) > 0 && (await confirm.isVisible())) {
-    await confirm.click();
-  }
+  const discard = page.getByRole("button", { name: "Discard", exact: true });
+  await expectVisible(discard, "the discard guard appears over a dirty form");
+  await discard.click();
   await expect(sheet, "the sheet closed").toBeHidden();
 
-  // Nothing was written: the ledger pane still shows the same entry count it
-  // showed before, and no payment row appeared.
-  const ledgerPane = page.getByRole("region", { name: "Student Ledger History" });
-  await expectVisible(ledgerPane, "ledger pane");
+  // Nothing was written: the ledger still holds exactly the rows it held before
+  // the sheet was opened, and none of them is this test's payment.
   await expect(
-    ledgerPane.getByRole("button", { name: /^Void/ }),
-    "no new payment row was created by the discarded sheet",
+    ledgerPane.getByText(/^\d+ entries?$/).first(),
+    "the discarded sheet left the ledger entry count untouched",
+  ).toHaveText(entriesBefore);
+  await expect(
+    ledgerPane.getByText("QA audit payment"),
+    "no payment row named by this test appeared",
   ).toHaveCount(0);
 
   errors.assertNoErrors();
@@ -324,6 +363,16 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   await sheet.locator("#payment-amount").fill("1");
   await sheet.locator("#payment-desc").fill("QA audit payment");
   await page.getByRole("button", { name: /^Save payment$/ }).click();
+
+  // 07 §9.6 step 3/7 + BR-RC-01 — the number is consumed out of
+  // `settings.next_receipt_seq` on commit and the tutor is HANDED it: it is the
+  // handle they quote to void this payment. The prefix is the tenant's own
+  // `settings.receipt_prefix`, so the assertion is on the SHAPE, not a literal.
+  // Asserted before the sheet-closes check because the toast auto-dismisses.
+  await expect(
+    page.getByRole("status").filter({ hasText: /Payment recorded/ }).first(),
+    "the success toast names the receipt number minted on commit",
+  ).toHaveText(/Payment recorded — [A-Z]{2,6}-\d{6} · ₹[\d,]+\.\d{2}/, { timeout: 25_000 });
 
   // The sheet closes only on a real commit (Rule 9).
   await expect(sheet, "the sheet closed on a committed payment").toBeHidden();

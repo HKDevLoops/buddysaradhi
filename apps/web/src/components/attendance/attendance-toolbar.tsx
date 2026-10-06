@@ -71,8 +71,31 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
   const candidates = useMemo(() => roster, [roster]);
 
   return (
+    /**
+     * P1 LAYOUT — the toolbar used to overflow its content column by ~272px at
+     * 1280×720, and the shell's scroll region (`overflow-auto` in
+     * `glass-shell.tsx`) took a horizontal scrollbar. Anything that asked the
+     * browser to bring an overflowing control into view — Playwright's
+     * `scrollIntoViewIfNeeded` on click, a keyboard Tab, a screen reader's
+     * "scroll into view" — left the region scrolled fully right, which slid the
+     * screen's ENTIRE left column underneath the fixed 256px sidebar. Measured
+     * in the browser: region `scrollWidth` 1296 vs `clientWidth` 1024, and once
+     * scrolled, every roster row's student name sat at x=129 — behind the
+     * sidebar. The tutor saw a wall of four mark buttons with no student on any
+     * of them, plus a hidden screen title, a hidden date caption, a hidden
+     * roster count and a hidden "Present" summary pill.
+     *
+     * Cause: both groups are flex items with the default `min-width: auto`, so
+     * neither could shrink below its content, and the date/label/search/summary/
+     * lock set needs ~1214px inside a ~960px column. `md:flex-wrap` on the row
+     * lets the second group drop to its own line instead of pushing the region
+     * past its width, and `min-w-0` on the two groups and the search box lets
+     * them actually shrink. Verified in-browser by applying exactly these three
+     * properties at runtime: `scrollWidth` fell 1296 → 1024, `scrollLeft` 272
+     * → 0, and the first row's name moved x=129 → x=401.
+     */
     <div
-      className="rounded-xl p-4 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center"
+      className="rounded-xl p-4 flex flex-col md:flex-row md:flex-wrap gap-4 justify-between items-start md:items-center"
       style={{
         background: "var(--surface-overlay)",
         // docs/design/material-modes.md §2 — one blur source. The hand-written
@@ -82,7 +105,7 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
         border: "1px solid var(--border-strong)",
       }}
     >
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center w-full md:w-auto">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center w-full md:w-auto min-w-0">
         <div className="flex flex-col">
           <h1
             className="text-2xl font-bold tracking-tight"
@@ -165,8 +188,8 @@ export function AttendanceToolbar({ session, roster = [] }: AttendanceToolbarPro
         </div>
       </div>
 
-      <div className="flex items-center gap-3 w-full md:w-auto">
-        <div className="relative flex-grow md:flex-grow-0 md:w-72">
+      <div className="flex items-center gap-3 w-full md:w-auto min-w-0">
+        <div className="relative flex-grow md:flex-grow-0 md:w-72 min-w-0">
           <StudentSearchBox
             label="Search students"
             value={searchQuery}

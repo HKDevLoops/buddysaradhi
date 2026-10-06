@@ -431,7 +431,19 @@ export async function bulkMarkAttendanceAction(input: {
   }
 }
 
-export { BULK_ABSENT_CONFIRM_WORD };
+// NOT re-exported here, deliberately.
+//
+// `BULK_ABSENT_CONFIRM_WORD` lives in `@/server/attendance-window` — an
+// isomorphic module with no imports and no directive — and the sheet plus the
+// test import it from THERE. This file carries `"use server"`, and a Server
+// Action module may only export async functions: re-exporting the string here
+// made every SSR render of `/dashboard` throw
+// `A "use server" file can only export async functions, found string`, which
+// returned a 500 for the whole app shell while `tsc` and all 621 unit tests
+// stayed green. The constant was always defined in the right place; only the
+// convenience re-export was illegal.
+//
+// Left as a named comment so the next reader does not "helpfully" restore it.
 
 /**
  * Lock a session (06 §9.3, §10.3, §15.2).

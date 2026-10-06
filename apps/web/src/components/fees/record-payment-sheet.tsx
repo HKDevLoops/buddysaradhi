@@ -194,15 +194,26 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
         toast.error("Payment not saved", `${result.error} Nothing was written.`);
         return;
       }
-      const { applied, autoInvoiceNumber } = result.data;
+      const { applied, autoInvoiceNumber, receiptNo } = result.data;
       const detail =
         applied.length > 0
           ? `Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`
           : autoInvoiceNumber
             ? `Held as advance against new invoice ${autoInvoiceNumber}`
             : "Held as advance — no unpaid invoice to apply it to";
+      // 07 §9.6 step 3/7 + BR-RC-01: the number exists, is monotonic, and is
+      // never reused — so it is the ONE fact the tutor must be handed, because
+      // it is the handle they quote when they later void this payment. The
+      // preview already promises it ("Your receipt number is issued the moment
+      // this saves"); naming it here is the promise being kept. A blank number
+      // is never printed — the sentence is simply omitted rather than showing
+      // an empty handle (Rule 9).
+      const receiptHandle =
+        typeof receiptNo === "string" && receiptNo.trim().length > 0
+          ? `${receiptNo.trim()} · `
+          : "";
       toast.success(
-        `Payment recorded — ${formatINR(args.amountPaise)}`,
+        `Payment recorded — ${receiptHandle}${formatINR(args.amountPaise)}`,
         `${PAYMENT_METHOD_LABELS[args.method]} · ${detail}`,
       );
       closeSheet();
@@ -248,6 +259,14 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       errors.push("Amount exceeds balance — acknowledge Mark as advance");
     return { amountPaise, refError, backdated, balanceKnown, split, excess, errors };
   }, [amount, method, reference, dateIso, balanceDuePaise, advanceAck, backdatePin]);
+
+  /**
+   * The refusals the sheet must STATE in the alert block: everything except the
+   * reference reason, which the Reference field already shows inline beneath the
+   * input (and links to it with `aria-describedby`). Listing it twice read as
+   * two different problems from one mistake.
+   */
+  const blockingErrors = preview.errors.filter((message) => message !== preview.refError);
 
   // A server rejection arrives as a resolved `{success:false}` payload, not a
   // thrown error, so it is surfaced inline here as well as in the toast — the
@@ -561,9 +580,18 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   {serverError} Nothing was written — your entry is still here, fix it and try again.
                 </div>
               )}
-              {preview.errors.length > 0 && preview.amountPaise !== null && (
+              {/* Every refusal this sheet computed must be ON SCREEN. The block
+                  used to be gated on `preview.amountPaise !== null`, which
+                  suppressed it for exactly the input §14 names first — a ZERO
+                  amount, where `rupeesStringToPaise` returns null. So "₹0" left
+                  Save disabled with NO stated reason anywhere: a refusal the tutor
+                  could not read, and the one case they are most likely to type.
+                  The reference reason is not repeated here — the field owns it
+                  inline, directly beneath the input and wired to it through
+                  `aria-describedby` — so it is filtered out of this list. */}
+              {blockingErrors.length > 0 && (
                 <div role="alert" className="p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-[var(--warning)] text-sm">
-                  {preview.errors.join(" · ")}
+                  {blockingErrors.join(" · ")}
                 </div>
               )}
             </form>
