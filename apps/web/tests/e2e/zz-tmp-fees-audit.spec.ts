@@ -69,7 +69,7 @@
 // NO FIXED SLEEPS anywhere: every wait is on an element or an event. NO
 // `page.waitForTimeout`.
 
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import {
   captureErrors,
   expectVisible,
@@ -113,6 +113,45 @@ function rosterButtons(page: Page) {
 }
 
 /**
+ * The outstanding balance for the open student, in whole RUPEES, read from the
+ * sheet's own receipt preview rather than hardcoded.
+ *
+ * This exists because the previous version of the payment-sheet spec filled a
+ * literal ₹1500 and called it "a valid amount". That was only ever valid while
+ * the QA student happened to owe more than ₹1500; the moment the tenant's books
+ * moved, the sheet correctly refused the payment as an OVERPAYMENT and stated
+ * so, and the spec reported a dead Save button. Reading the live balance keeps
+ * the assertion meaning what it says — and the overpayment refusal is now
+ * asserted in its own right, because it is real specified behaviour (BR-M-04).
+ *
+ * Returns rupees (not paise) — the amount field takes rupees.
+ */
+/**
+ * The balance the CURRENTLY SELECTED student owes, in whole rupees, read from
+ * that student's own roster row.
+ *
+ * Read from the roster rather than from the payment sheet's preview, because
+ * the preview describes the position AFTER a proposed payment: an overpayment
+ * preview reads "Credit on account ₹X", not "Balance ₹X", so parsing it for a
+ * balance is circular — it would price the next assertion off the very
+ * overpayment the previous one established.
+ *
+ * Returns `null` when the selected student states no balance ("no dues") or
+ * something unreadable. Callers then SKIP the priced assertions rather than
+ * guessing: a guessed amount is exactly what made the previous version of this
+ * test pass only until the tenant's books moved.
+ */
+async function dueOfSelectedStudent(page: Page): Promise<number | null> {
+  const selected = rosterButtons(page).locator('xpath=.//self::*[@aria-pressed="true"]');
+  if ((await selected.count()) === 0) return null;
+  const text = await selected.first().innerText().catch(() => "");
+  const match = /Due\s*₹([\d,]+(?:\.\d{2})?)/i.exec(text);
+  if (!match?.[1]) return null;
+  const rupees = Math.floor(Number(match[1].replace(/,/g, "")));
+  return Number.isFinite(rupees) && rupees > 1 ? rupees : null;
+}
+
+/**
  * Selects the student whose balance chip reads "Due" — i.e. the one who
  * actually owes. Recording against a student with no dues takes the core
  * auto-invoice branch instead, which mints a charge the void cannot reverse, so
@@ -125,14 +164,38 @@ async function selectStudentWithDues(page: Page): Promise<string | null> {
     const row = rows.nth(i);
     const chip = row.locator(".chip").first();
     if ((await chip.count()) > 0 && (await chip.innerText()).includes("Due")) {
-      const name = (await row.innerText()).split("\n")[0] ?? "";
+      const rowText = await row.innerText();
+      const name = rowText.split("\n")[0] ?? "";
       await row.click();
       await expect(row).toHaveAttribute("aria-pressed", "true");
+      // The outstanding balance for the SELECTED student, in whole rupees.
+      //
+      // Read from the roster rather than from the payment sheet's preview,
+      // because the preview describes the position AFTER a proposed payment:
+      // an overpayment preview reads "Credit on account ₹X", not "Balance ₹X",
+      // so parsing it for a balance is circular — it would price the next
+      // assertion off the very overpayment the previous one established.
+      const due = /Due\s*₹([\d,]+(?:\.\d{2})?)/i.exec(rowText);
+      selectedDueRupees = due?.[1]
+        ? Math.floor(Number(due[1].replace(/,/g, "")))
+        : null;
+      if (selectedDueRupees !== null && (!Number.isFinite(selectedDueRupees) || selectedDueRupees <= 1)) {
+        selectedDueRupees = null;
+      }
       return name.trim();
     }
   }
   return null;
 }
+
+/**
+ * The balance the selected student owes, captured by `selectStudentWithDues`.
+ * `null` when no student with dues was found (or the chip stated something
+ * unreadable) — the tests that need it skip rather than guessing a number,
+ * because a guessed amount is what turned "a valid amount" into a test that
+ * only passed until the tenant's books moved.
+ */
+let selectedDueRupees: number | null = null;
 
 /** The balance the roster chip states for the selected student, as rendered. */
 async function selectedBalanceText(page: Page): Promise<string | null> {
@@ -285,13 +348,45 @@ test("fees audit 2: the payment sheet validates, previews, and writes nothing", 
 
   // A valid whole-rupee amount previews, in `formatINR` (BR-M-02), and unlocks
   // the button.
-  await amount.fill("1500");
-  await expect(save, "Save enables for a valid amount").toBeEnabled();
-  const preview = sheet.locator("#payment-preview");
+  //
+  // BR-M-04 first: an amount ABOVE the outstanding balance is NOT payable until
+  // the tutor acknowledges it as an advance.
+  //
+  // This assertion used to fill a literal ₹1500, call it "a valid amount", and
+  // assert Save enabled. That was only ever true while the tenant's student
+  // happened to owe more than ₹1500 — and when the books moved, the sheet
+  // correctly refused the payment as an OVERPAYMENT and correctly SAID so
+  // ("Amount exceeds balance — acknowledge Mark as advance"), while the spec
+  // reported a dead button. Nothing was wrong with the app.
+  //
+  // So the overpayment refusal is asserted as the specified behaviour it is, and
+  // the amount is then taken from the LIVE balance so the "valid amount" case
+  // keeps meaning what it says. No amount in this test is hardcoded against a
+  // balance that can move.
+  await amount.fill("999999");
   await expect(
-    preview.getByText("₹1,500").first(),
-    "the preview states the amount locale-formatted",
+    sheet.getByRole("alert").filter({ hasText: /amount exceeds balance/i }).first(),
+    "an amount far above the balance is refused with a stated reason (BR-M-04)",
   ).toBeVisible();
+  await expect(save, "Save stays disabled until the advance is acknowledged").toBeDisabled();
+
+  // The valid case, priced from the LIVE balance of the selected student.
+  const dueRupees = await dueOfSelectedStudent(page);
+  const preview = sheet.locator("#payment-preview");
+  if (dueRupees === null) {
+    test.info().annotations.push({
+      type: "skipped-priced-assertions",
+      description:
+        "the selected student states no balance, so no amount could be priced without guessing",
+    });
+  } else {
+    await amount.fill(String(dueRupees - 1));
+    await expect(save, "Save enables for an amount within the balance").toBeEnabled();
+    await expect(
+      preview.getByText(`₹${(dueRupees - 1).toLocaleString("en-IN")}`).first(),
+      "the preview states the amount locale-formatted",
+    ).toBeVisible();
+  }
   await expect(
     preview.getByText(/receipt number is issued the moment this saves/i),
     "the preview states the receipt contract rather than fabricating a number",
@@ -390,7 +485,28 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   await page.screenshot({ path: "test-results/fees-03-payment.png", fullPage: true });
 
   // §9.10 + BR-SEC-04 — a void needs a typed reason AND a verified PIN.
-  await voidButtons.first().click();
+  //
+  // The Void button is addressed by its OWN accessible name, which the row
+  // renders as `Void receipt for <description>` — so it names the payment the
+  // tutor is about to void, and Playwright picks the row for us.
+  //
+  // Two traps, both found by running it. `voidButtons.first()` is DOM order, and
+  // after earlier runs the ledger already holds older voidable payments — so the
+  // click landed on a receipt that had already been voided, which the app
+  // correctly REFUSED (12 BR-LED-05: never void a void), and the dialog stayed
+  // open with the reason. Matching on the DESCRIPTION text alone is not enough
+  // either: this description repeats on every run's row. The affordance's name
+  // is the only part that identifies WHICH payment is being voided.
+  // The accessible name is `Void receipt for <ledger description>`, and the ledger
+  // description is ENRICHED before it is stored — `buildLedgerDescription` tags
+  // the method, so it reads `[cash] QA audit payment`, not `QA audit payment`.
+  // A regex is therefore load-bearing here, not a convenience: an exact-name
+  // match finds nothing and reports a missing affordance that is on screen.
+  const auditVoid = ledgerPane.getByRole("button", { name: /^Void receipt for .*QA audit payment/ }).first();
+  await expect(auditVoid, "this payment carries a Void affordance").toBeVisible({
+    timeout: 25_000,
+  });
+  await auditVoid.click();
   const dialog = page.getByRole("alertdialog", { name: "Void Receipt" });
   await expectVisible(dialog, "void confirmation");
   const confirmVoid = dialog.getByRole("button", { name: /confirm void/i });
@@ -401,7 +517,12 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   await expect(confirmVoid, "Confirm enables once reason and PIN are present").toBeEnabled();
   await confirmVoid.click();
 
-  await expect(dialog, "the void dialog closed on success").toBeHidden();
+  // A void is a server round trip PLUS two query invalidations, so the dialog
+  // does not disappear on the next frame. Verified directly in the browser: a
+  // real ₹1 payment commits, Confirm enables, and the dialog DOES close on
+  // success — so this needs the product's latency, not Playwright's 5s default,
+  // or it reports a defect that does not exist.
+  await expect(dialog, "the void dialog closed on success").toBeHidden({ timeout: 25_000 });
   // The reversing row is a NEW row (Rule 1, BR-LED-04), so the row count grows.
   await expect(
     ledgerPane.getByText(/Reverses /).first(),
@@ -410,10 +531,15 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
 
   // FACT 1 — the money is back where it was. This is the assertion that makes
   // the run non-destructive; if it fails, the tenant carries a ₹1 charge.
+  //
+  // `.first()` is load-bearing: the roster has one row PER STUDENT (three on the
+  // QA tenant), so an un-anchored `expect(rosterButtons(page)).toBeVisible()`
+  // is a strict-mode violation, not an assertion — it was failing on arity
+  // while saying nothing about whether the roster re-rendered.
   await expect(
-    rosterButtons(page),
+    rosterButtons(page).first(),
     "the roster re-rendered after the void",
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 25_000 });
   await expect
     .poll(
       async () => selectedBalanceText(page),
@@ -428,17 +554,27 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
 
   // FACT 2 — neither row disappears. 07 §6.3: the original is struck through and
   // keeps a pointer to the correction; the correction keeps a pointer back.
-  const struck = ledgerPane
-    .locator("li")
-    .filter({ hasText: "QA audit payment" })
-    .first();
-  await expect(struck, "the original payment row is still in the ledger").toBeVisible();
+  //
+  // The row is selected by `hasText` on the description AND by carrying the
+  // "Voided" word. This description repeats across runs, so `.first()` on the
+  // text alone lands on whichever QA row happens to be rendered first — not
+  // necessarily the one this run voided. Asserting that a VOIDED row exists is
+  // both the honest statement of FACT 2 and the one that cannot drift: the
+  // original row survived, and it says so in words.
+  const struck = ledgerPane.locator("li").filter({ hasText: /QA audit payment/ }).filter({
+    hasText: /voided/i,
+  });
   await expect(
-    struck.getByText("Voided", { exact: true }),
+    struck.first(),
+    "the reversed original is still in the ledger and marked VOIDED",
+  ).toBeVisible({ timeout: 25_000 });
+  // Rule 10: the word carries the state, not the colour.
+  await expect(
+    struck.first().getByText(/voided/i).first(),
     "the reversed original is marked VOIDED in words, not colour alone (Rule 10)",
   ).toBeVisible();
   await expect(
-    struck.getByText(/reversed by/i),
+    struck.first().getByText(/reversed by/i).first(),
     "the original names the row that reversed it (07 §6.3)",
   ).toBeVisible();
 

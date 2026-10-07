@@ -32,6 +32,13 @@ const AttendanceStatusSchema = z.enum(["present", "absent", "late", "excused", "
  * must make the SAME one or the same day would land in two sessions.
  */
 const DEFAULT_BATCH_ID = "batch-default";
+/**
+ * The name the `batch-default` row is created under. Byte-identical to the web
+ * writer's `ensureBatch` (apps/web/src/server/actions/attendance.ts:91) — the
+ * two writers create the SAME row, so a tutor sees one label and not two
+ * depending on which client made the mark.
+ */
+const DEFAULT_BATCH_NAME = "General Batch";
 // EC-A-01 / 06 §11 E5 / §14 (`session_date` ≤ today). The Zod table row for
 // this rule was never implemented — the schema only checked the SHAPE of the
 // date, so the edge happily created a session dated next month, which 48 hours
@@ -240,6 +247,52 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         }
 
         let sid = existing?.id;
+
+        // 06 §6 / 11_Data_Model §4.3 — materialise the batch this mark belongs
+        // to. `attendance_sessions.batch_id` is NOT NULL, so a batch-less mark
+        // has to land SOMEWHERE; the sentinel above says where. But writing a
+        // session that points at a row nobody created left the batch dimension
+        // DEAD: `GET /api/v1/attendance/batches` reads `batches` (the only table
+        // the selector can render), so a tenant whose first mark arrived through
+        // the edge answered `[]` forever — the toolbar said "No batches yet"
+        // while every mark went into `batch-default`. The web writer already
+        // created the row (`ensureBatch`); this makes the edge agree.
+        //
+        // The insert, its `sync_outbox` row and its `audit_log` row share this
+        // transaction with the mark (Rule 7 / BR-SYN-01), so a batch can never
+        // exist locally without a queued replication row.
+        //
+        // A client that NAMED a batch gets no such courtesy: an explicit
+        // `batch_id` with no row is a dangling reference, and inventing a batch
+        // called "General Batch" for it would fabricate a class the tutor never
+        // created. Fail closed (Rule 9 / BR-SEC-03) instead.
+        const targetBatch = await txOrm.batch.findFirst({ where: { id: targetBatchId } });
+        if (!targetBatch) {
+          if (parsed.data.batch_id) {
+            throw new AttendanceRouteError(
+              `BATCH_NOT_FOUND: no batch "${targetBatchId}" for this tenant`,
+              422,
+            );
+          }
+          const created = await txOrm.batch.create({
+            data: { id: targetBatchId, name: DEFAULT_BATCH_NAME },
+          });
+          await recordOutbox(tx, tenantId, "batches", targetBatchId, "insert", {
+            id: String(created.id ?? targetBatchId),
+            tenant_id: tenantId,
+            name: String(created.name ?? DEFAULT_BATCH_NAME),
+            subject: created.subject ?? null,
+            archived_at: null,
+            created_at: String(created.createdAt ?? nowIso),
+            updated_at: String(created.updatedAt ?? nowIso),
+          });
+          await recordAudit(tx, tenantId, tenantId, "attendance.batch_ensure", "batch", targetBatchId, {
+            batch_id: targetBatchId,
+            name: DEFAULT_BATCH_NAME,
+            reason: "default_batch_materialised",
+          });
+        }
+
         if (!sid) {
           const createdSession = await txOrm.attendanceSession.create({
             data: {

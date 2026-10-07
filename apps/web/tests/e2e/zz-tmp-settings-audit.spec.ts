@@ -286,9 +286,31 @@ test.describe("settings audit", () => {
     // sentinel EQUAL to the current value when residue was present, so `fill` was
     // a no-op, the form stayed clean, and Save stayed disabled — a silent 200s
     // hang on a `click`. The precondition below makes that impossible.
-    const residue = /(?: QACheck[0-9]*)+$/.exec(rawName)?.[0] ?? "";
+    //
+    // WIDENED to ` QA<word>` (was ` QACheck`). The old pattern only stripped the
+    // one token from the runs that crashed while this file was being written, so
+    // a run that died after the write and before the restore left `QAProbe`
+    // behind — which the pattern did not strip, so the next run based itself on
+    // `My Tuition QAProbe` and would have written `My Tuition QAProbe QAProbe`.
+    // Residue has to be a PATTERN, not a list of the tokens that happened to be
+    // left, or every crash teaches the test a new one.
+    //
+    // Which creates the second half of the problem: once ANY ` QA<word>` suffix
+    // is stripped, a fixed sentinel token can land exactly on the value a
+    // crashed run left (`rawName` = "My Tuition QAProbe", base = "My Tuition",
+    // sentinel = "My Tuition QAProbe") — and then `fill` is a no-op, the form
+    // stays clean, Save stays disabled, and the run dies on a `click`. So the
+    // token is CHOSEN against the residue rather than hardcoded: it must differ
+    // from every marker currently present. The two tokens then alternate between
+    // runs and the tenant always returns to the base name.
+    const residue = /(?: QA[A-Za-z]+[0-9]*)+$/.exec(rawName)?.[0] ?? "";
     const originalName = rawName.slice(0, rawName.length - residue.length);
-    const sentinel = `${originalName} QAProbe`;
+    const residueTokens: string[] = residue.match(/QA[A-Za-z]+[0-9]*/g) ?? [];
+    const sentinelToken = ["QAProbe", "QACheck", "QAMark", "QATrace"].find(
+      (token: string) => !residueTokens.includes(token),
+    );
+    expect(sentinelToken, "a sentinel token distinct from the residue exists").toBeTruthy();
+    const sentinel = `${originalName} ${sentinelToken}`;
     expect(sentinel, "the sentinel must differ from what is already stored").not.toBe(rawName);
     expect(sentinel.length, "the sentinel fits the 80-character name bound").toBeLessThanOrEqual(80);
 
@@ -322,17 +344,30 @@ test.describe("settings audit", () => {
     await expect(save, "a discarded form is clean again").toBeDisabled();
     await expect(name).toHaveValue(rawName);
 
-    // THE ONE REVERSIBLE ROUND-TRIP — attempted, and its outcome decided by
-    // what the server actually does, because a KNOWN P0 blocks it in this build.
+    // THE ONE REVERSIBLE ROUND-TRIP. Its purpose is a READ-AFTER-WRITE: leave the
+    // section, come back, and the value must still be the one the server accepted.
     //
-    // KNOWN DEFECT P0 (this lane, fixed in `server/actions/settings.ts`, NOT yet
-    // in the running build — it is `next start` on a prebuilt `.next`):
-    // `SETTING_VALUE_SCHEMAS` typed instituteAddress/institutePhone/
+    // DEFECT FIXED (settings audit, 2026-10-06) — `profile-section.tsx` reset the
+    // form to the `settings` prop whenever `isDirty` went false, and a successful
+    // save is exactly what makes `isDirty` false. With the `invalidateQueries`
+    // refetch still in flight, the card therefore overwrote the field the tutor
+    // had just saved with the PRE-save value: the name visibly snapped back, and
+    // this assertion read whichever side of that race it landed on. The fix seeds
+    // the `["settings"]` cache with the accepted payload (cancelling the read
+    // that could land after it) and refuses to apply a prop that still shows the
+    // pre-save row.
+    //
+    // NOT YET IN THE RUNNING BUILD. This is `next start` on a prebuilt `.next`;
+    // the source fix needs the lead's rebuild. Until then this still fails here,
+    // and the failure is the defect, not the test.
+    //
+    // KNOWN DEFECT P0 (fixed in `server/actions/settings.ts`, same story — not in
+    // this build): `SETTING_VALUE_SCHEMAS` typed instituteAddress/institutePhone/
     // instituteEmail as `z.string()`, the Profile card sends `value || null` for
     // each, and `updateSettingsBatchAction` refuses the WHOLE batch on the first
-    // bad field. So a tutor with any empty optional field cannot save the Profile
-    // card at all — which is the default state of a brand-new account — and
-    // `toAppErrorState` flattens the refusal to "Please try again…". The wire
+    // bad field. So a tutor with any empty optional field could not save the
+    // Profile card at all — which is the default state of a brand-new account —
+    // and `toAppErrorState` flattens the refusal to "Please try again…". The wire
     // says `instituteAddress: Expected string, received null`.
     //
     // This branch pins that defect so it cannot be lost, and runs the real round
@@ -564,6 +599,38 @@ test.describe("settings audit", () => {
     // server value does not move.
     const prefix = page.locator("#fee-invoicePrefix");
     const originalPrefix = await prefix.inputValue();
+
+    // WHAT THIS SECTION ACTUALLY PROVES, and what it does not.
+    //
+    // `handleSubmit` runs `feeRulesSchema` through `zodResolver`, so a form with
+    // a bad prefix never POSTs at all — the refusal above is entirely
+    // client-side. That means this run exercises NOTHING of the server-side
+    // VALUE gate (`SETTING_VALUE_SCHEMAS` in server/actions/settings.ts), which
+    // is the one that has to hold when a client is not the web app. The canary
+    // for that gate is the unit test
+    // `src/server/actions/settings-audit.test.ts` → "refuses a
+    // non-alphanumeric prefix (EC-17)", which posts `INV/"x` through
+    // `updateSettingsBatchAction` and asserts a refusal, a reason, and zero
+    // rows written. Do not read a green browser run as proof the server gate
+    // works — it proves the client gate does.
+    const nextInvoiceReadout = (): Locator =>
+      page.locator("dt", { hasText: /^Next invoice number$/ }).locator("..").locator("dd");
+    // Captured BEFORE the bad write, so this is the server's own value and not
+    // an echo of the field the tutor just typed.
+    const persistedBefore = (await nextInvoiceReadout().innerText()).trim();
+    // The readout is `prefix + 6 digits` (fee-rules-section.tsx:344). Asserting
+    // the SHAPE as well as the equality is what catches a broken counter; the
+    // earlier version of this test hardcoded `String(1).padStart(6, "0")`, which
+    // only holds on a tenant that has never issued an invoice. This one is at 3,
+    // so the old assertion asked for `INV-000001` while the screen correctly
+    // showed `INV-000003` — a spec bug that failed on a perfectly healthy
+    // tenant, not an app defect.
+    expect(
+      persistedBefore,
+      "the sequence readout is the persisted prefix plus a 6-digit counter",
+    ).toMatch(new RegExp(`^${originalPrefix}\\d{6}$`));
+    expect(persistedBefore, "and it carries the prefix that is actually stored").toContain(originalPrefix);
+
     await prefix.fill('INV/"x');
     const saveRules = page.getByRole("button", { name: /Save rules/i });
     await expect(saveRules, "an invalid form can be submitted so the gate can refuse it").toBeEnabled();
@@ -583,13 +650,13 @@ test.describe("settings audit", () => {
       15_000,
     );
 
-    // Nothing was written: the server-side sequence preview still shows the old
-    // prefix, and after leaving and re-entering the section the form is refilled
-    // from the server.
-    await expect(
-      page.getByText(`${originalPrefix}${String(1).padStart(6, "0")}`, { exact: false }),
-      "the persisted prefix preview never moved",
-    ).toBeVisible({ timeout: 15_000 });
+    // Nothing was written: the persisted sequence readout still shows the exact
+    // value it showed before the bad write — including the counter, which the
+    // old hardcoded `INV-000001` could not express.
+    await expect(nextInvoiceReadout(), "the persisted prefix preview never moved").toHaveText(persistedBefore, {
+      timeout: 15_000,
+    });
+    await expect(nextInvoiceReadout()).not.toHaveText(new RegExp("INV-/x"), { timeout: 15_000 });
 
     await page.getByRole("button", { name: /^Discard$/ }).click();
     await expect(saveRules, "discarding a refused form makes it clean").toBeDisabled();
@@ -658,12 +725,15 @@ test.describe("settings audit", () => {
     await expectVisible(form, "the change-PIN form opens", 15_000);
     await expect(savePin, "Save is disabled on an empty form").toBeDisabled();
 
-    await page.locator("#pin-new").fill("123456");
-    await page.locator("#pin-confirm").fill("123457");
+    // A PIN that is neither obvious nor the QA PIN is used for the "arms" checks, so
+    // the strength gate below cannot be what makes them pass or fail.
+    const GOOD_PIN = "48291573";
+    await page.locator("#pin-new").fill(GOOD_PIN);
+    await page.locator("#pin-confirm").fill("48291574");
     await expectVisible(page.getByText(/do not match/i), "the mismatch is stated", 15_000);
     await expect(savePin, "Save is still disabled on a mismatch").toBeDisabled();
 
-    await page.locator("#pin-confirm").fill("123456");
+    await page.locator("#pin-confirm").fill(GOOD_PIN);
     await expect(savePin, "Save arms when the two new PINs agree").toBeEnabled();
 
     // The real client-side PIN gate is the format rule, not a strength rule:
@@ -673,10 +743,29 @@ test.describe("settings audit", () => {
     await expectVisible(pane(page).getByText(/digits only/i), "a non-numeric PIN is refused with a reason", 15_000);
     await expect(savePin, "a non-numeric PIN never arms the form").toBeDisabled();
 
-    // FINDING, not an assertion: 08 §11 EC-02 says reject an obvious PIN, and
-    // there is no such rule in `pinFormatError` (packages/shared/src/pin.ts) or
-    // in `setPinAction`. A sequential PIN like 123456 is accepted by both.
-    // See the report — this lane does not add a PIN-strength policy.
+    // 08 §11 EC-02, ASSERTED (it was a FINDING — "there is no such rule in
+    // `pinFormatError` or in `setPinAction`" — until this lane added one). The
+    // format check passes these; the strength gate is what refuses them, in the
+    // client's words, and the Save button stays down.
+    for (const [obvious, why] of [
+      ["123456", "an ascending run"],
+      ["000000", "all zeros"],
+      ["111111", "all ones"],
+    ] as const) {
+      await page.locator("#pin-new").fill(obvious);
+      await page.locator("#pin-confirm").fill(obvious);
+      await expectVisible(
+        pane(page).getByText(/too obvious/i),
+        `EC-02 states its reason for ${obvious} (${why})`,
+        15_000,
+      );
+      await expect(savePin, `EC-02 keeps Save down for ${obvious}`).toBeDisabled();
+    }
+    // …and a PIN that satisfies the strength rule arms the form again, so the
+    // gate above is the reason and not a permanently disabled button.
+    await page.locator("#pin-new").fill(GOOD_PIN);
+    await page.locator("#pin-confirm").fill(GOOD_PIN);
+    await expect(savePin, "EC-02 does not over-reject: a real PIN still arms").toBeEnabled();
 
     // Close the form without submitting. The PIN is 135790 and stays 135790.
     await page.getByRole("button", { name: /^Close$/ }).click();

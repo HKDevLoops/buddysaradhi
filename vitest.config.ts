@@ -9,6 +9,7 @@ export default defineConfig({
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/.cache/**',
       'apps/services/**',
       'apps/web/**',
       // node:test suites (not vitest) — run via `pnpm --filter product-page test`.

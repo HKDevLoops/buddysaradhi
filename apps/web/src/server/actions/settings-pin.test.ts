@@ -106,7 +106,7 @@ describe("getPinStatusAction", () => {
   it("reports configured once a PIN exists", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);
-    expect((await setPinAction("123456")).success).toBe(true);
+    expect((await setPinAction("135790")).success).toBe(true);
     expect(await getPinStatusAction()).toEqual({ success: true, configured: true });
   });
 });
@@ -115,32 +115,32 @@ describe("setPinAction: setup + change", () => {
   it("sets a first PIN with no current PIN and it verifies", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);
-    const res = await setPinAction("123456");
+    const res = await setPinAction("135790");
     expect(res.success).toBe(true);
     const stored = await pinHashOf(client);
     expect(stored).toBeTruthy();
-    expect(await verifyPin("123456", stored as string)).toBe(true);
+    expect(await verifyPin("135790", stored as string)).toBe(true);
     expect(await verifyPin("000000", stored as string)).toBe(false);
   });
 
   it("changes the PIN with the correct current PIN and retires the old one", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);
-    expect((await setPinAction("123456")).success).toBe(true);
-    const changed = await setPinAction("654321", "123456");
+    expect((await setPinAction("135790")).success).toBe(true);
+    const changed = await setPinAction("246813", "135790");
     expect(changed.success).toBe(true);
     const stored = await pinHashOf(client);
-    expect(await verifyPin("654321", stored as string)).toBe(true);
-    expect(await verifyPin("123456", stored as string)).toBe(false);
-    expect((await verifyPinAction("654321")).success).toBe(true);
+    expect(await verifyPin("246813", stored as string)).toBe(true);
+    expect(await verifyPin("135790", stored as string)).toBe(false);
+    expect((await verifyPinAction("246813")).success).toBe(true);
   });
 
   it("refuses a wrong current PIN with the hash untouched", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);
-    expect((await setPinAction("123456")).success).toBe(true);
+    expect((await setPinAction("135790")).success).toBe(true);
     const before = await pinHashOf(client);
-    const res = await setPinAction("654321", "000000");
+    const res = await setPinAction("246813", "000000");
     expect(res.success).toBe(false);
     expect(await pinHashOf(client)).toBe(before);
   });
@@ -158,7 +158,7 @@ describe("setPinAction: setup + change", () => {
   it("writes outbox + audit rows with the change", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);
-    expect((await setPinAction("123456")).success).toBe(true);
+    expect((await setPinAction("135790")).success).toBe(true);
     const outbox = await client.execute("SELECT op FROM sync_outbox");
     expect(outbox.rows.map((r) => String((r as Record<string, unknown>).op))).toContain("update");
     const audit = await client.execute("SELECT action FROM audit_log");

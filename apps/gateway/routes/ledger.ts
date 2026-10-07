@@ -514,16 +514,36 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         // Rule 7 / BR-SYN-01 — `receipts` is a distinct mutated table: without
         // its own outbox row the replica never learns the receipt exists, and
         // EC-F-05's voided flag would have nothing to attach to.
-        await recordOutbox(tx, tenantId, "receipts", rcpt.id, "create", encodeOutboxPayload("receipts", "create", {
-          id: rcpt.id,
+        //
+        // The payload is the CANONICAL receipt row, byte-for-byte the shape
+        // `packages/core/src/fees.ts` `insertReceiptRow` replicates
+        // (11_Data_Model.md §4.12 + AGENTS.md §3.5 — one money flow, and the
+        // two dialects of an outbox row must not drift). Two things were wrong:
+        //   1. it wrote the RETIRED key `receipt_no` while the row it describes
+        //      was written to the canonical `number` column — so a replay reader
+        //      looked for a column that has not existed since 0002 and the row
+        //      could not be applied on a canonical database;
+        //   2. it omitted `id`, `tenant_id`, `payment_ref`, `tamper_hash`,
+        //      `created_at` and `updated_at` — every one of which is NOT NULL
+        //      (or, for the nullable pair, part of the canonical envelope the
+        //      core dialect emits), so the payload could not satisfy the table it
+        //      claims to describe.
+        // Values are read back off the INSERTED row rather than re-derived, so
+        // the envelope is a truthful mirror of what was committed.
+        await recordOutbox(tx, tenantId, "receipts", rcpt.id, "insert", encodeOutboxPayload("receipts", "insert", {
+          id: String(rcpt.id),
           tenant_id: tenantId,
-          receipt_no: receiptNo,
-          ledger_entry_id: le.id,
+          number: receiptNo,
+          ledger_entry_id: String(le.id),
           student_id: studentId,
+          invoice_id: null,
           amount: credit,
           payment_method: paymentMethod,
+          payment_ref: null,
           received_on: occurredOn,
-          voided_at: null,
+          tamper_hash: rcpt.tamperHash ?? null,
+          created_at: String(rcpt.createdAt),
+          updated_at: String(rcpt.updatedAt),
         }).payload);
         await recordAudit(tx, tenantId, tenantId, "ledger.payment", "student", studentId, {
           credit,

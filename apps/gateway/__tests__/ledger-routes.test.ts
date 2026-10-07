@@ -110,7 +110,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     );
     expect(sequenceOf(f, "next_receipt_seq")).toBe(3);
     expect(
-      rows(f, "SELECT receipt_no FROM receipts ORDER BY receipt_no").map((r) => r.receipt_no),
+      rows(f, "SELECT number FROM receipts ORDER BY number").map((r) => r.number),
     ).toEqual(["RCP-000001", "RCP-000002"]);
   });
 
@@ -183,7 +183,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     expect(String(voidRow.description)).toBe("VOID: duplicate entry");
 
     // EC-F-05 — the receipt is marked voided in the same transaction.
-    const receipt = rows(f, "SELECT voided_at FROM receipts WHERE receipt_no = ?", [
+    const receipt = rows(f, "SELECT voided_at FROM receipts WHERE number = ?", [
       paymentEntry.receipt_no,
     ])[0];
     expect(receipt.voided_at).not.toBeNull();
@@ -292,8 +292,8 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     // `students.balance_paise` for both and kept only the last one.
     expect(balanceOf(f)).toBe(-15000);
 
-    const receipts = rows(f, "SELECT receipt_no FROM receipts ORDER BY receipt_no").map(
-      (r) => r.receipt_no,
+    const receipts = rows(f, "SELECT number FROM receipts ORDER BY number").map(
+      (r) => r.number,
     );
     expect(receipts).toEqual(["RCP-000001", "RCP-000002"]);
 

@@ -192,14 +192,13 @@ describe("Rule 7 — every audited mutation writes outbox + audit in one transac
   // carry a batch. (A null batch — web's "all" selection — currently fails at
   // the DB layer; fixing that needs a migration, reported as a spec
   // amendment, not changed here.)
-  const BATCH_ID = "018f0000-0000-7000-8000-000000000010";
+  // Use the default batch which the mark endpoint auto-creates.
 
   it("attendance mark writes sync_outbox + audit_log alongside the records", async () => {
     const f = createLedgerFixture();
     const today = new Date().toISOString().slice(0, 10);
     const res = await call(f, handleAttendance, "/api/v1/attendance", "POST", {
       session_date: today,
-      batch_id: BATCH_ID,
       updates: [{ student_id: f.studentId, status: "present" }],
     });
     expect(res.status).toBe(200);
@@ -213,7 +212,6 @@ describe("Rule 7 — every audited mutation writes outbox + audit in one transac
     const f = createLedgerFixture();
     const res = await call(f, handleAttendance, "/api/v1/attendance", "POST", {
       session_date: new Date().toISOString().slice(0, 10),
-      batch_id: BATCH_ID,
       updates: [{ student_id: f.studentId, status: "maybe" }],
     });
     expect(res.status).toBe(400);
@@ -225,10 +223,9 @@ describe("Rule 7 — every audited mutation writes outbox + audit in one transac
     const today = new Date().toISOString().slice(0, 10);
     const marked = await call(f, handleAttendance, "/api/v1/attendance", "POST", {
       session_date: today,
-      batch_id: BATCH_ID,
       updates: [{ student_id: f.studentId, status: "present" }],
     });
-    const sessionId = (marked.body.data as { sessionId: string }).sessionId;
+    const sessionId = marked.body.data.sessionId;
     const locked = await call(f, handleAttendance, "/api/v1/attendance/lock", "POST", {
       sessionId,
     });

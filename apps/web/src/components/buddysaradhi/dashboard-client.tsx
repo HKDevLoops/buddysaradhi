@@ -40,6 +40,16 @@
 // boundary, so the header counted what it happened to be holding and implied
 // completeness; the three rows below a 200-student institute showed as the whole
 // of their arrears.
+//
+// THE KPI DRILLS CARRY THEIR FILTER, AND THE CONTRACT LIVES IN ONE FILE.
+// `@/lib/dashboard-drill` holds every card's destination screen AND the filter
+// that screen must apply, and `applyCardDrill` writes the filter before it
+// switches screens. §10.1 and §19.4 ask for "the correct screen with the correct
+// filter"; this screen used to deliver the first half only, which is why tapping
+// "Collected" opened an unfiltered ledger. What remains open — the Fees half,
+// because the Fees screen reads none of its store — is declared in that file's
+// header rather than papered over here, and no card announces a filter it did not
+// actually write.
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -59,7 +69,7 @@ import { ErrorState, ScreenSkeleton } from "@/components/ui/screen-state";
 import { toAppErrorState } from "@/lib/app-errors";
 import { useToast } from "@/components/ui/toast";
 import { useStudentsStore } from "@/stores/students-store";
-import { useShellStore, type ScreenId } from "@/stores/shell-store";
+import { useShellStore } from "@/stores/shell-store";
 import {
   DashboardPeriodSchema,
   calendarDaysOverdue,
@@ -68,6 +78,13 @@ import {
   type DashboardPeriod,
   type DashboardPeriodMode,
 } from "@/lib/dashboard-period";
+import {
+  CARD_DRILL,
+  applyCardDrill,
+  drillAnnouncement,
+  isFilterApplied,
+  type CardId,
+} from "@/lib/dashboard-drill";
 import {
   fetchDashboardSummaryAction,
   type DashboardActivityItem,
@@ -78,33 +95,29 @@ import { DashboardAnalyticsSection } from "@/components/buddysaradhi/dashboard-a
 const DAY_MS = 86_400_000;
 
 /**
- * The five-screen doctrine (AGENTS.md §2 Rule 4) has no routes, so a drill-down
- * is a store write, not a navigation. §10.1 gives every KPI card a drill target
- * and §18 requires `Enter` to fire it; before this the cards were plain `div`s
- * with a hover border, so they LOOKED tappable and were not.
+ * THE DRILL IS NOT A NAVIGATION — IT IS A FILTER WRITE PLUS A SCREEN WRITE.
  *
- * The filtered half of the target (Fees pre-filtered to `payments-only`,
- * Students filtered to `has-dues`) needs the Fees and Students store contracts,
- * which live in files this lane does not own. Switching the screen is the part
- * that is real today; the pre-filter is reported to the lead rather than faked.
+ * This file used to hold `CARD_DRILL: Record<string, ScreenId>` — seven names,
+ * seven screens, no filter — so C1/C3/C6 all collapsed to a bare `/fees` and
+ * C4/C5 to a bare `/students`, which is the defect 04_Dashboard.md §19.4 names
+ * ("lands on the correct screen with the correct filter"). The contract now lives
+ * in `@/lib/dashboard-drill`: every entry names its screen AND the filter the
+ * destination must apply, and `applyCardDrill` writes that filter into the
+ * destination store BEFORE the screen switches, so the destination mounts
+ * already filtered.
+ *
+ * The filtered half is now real for the two Students cards and still open for
+ * the Fees half, and the difference is stated rather than papered over:
+ * `useStudentsStore.filters` is threaded into the roster query and the gateway
+ * HONOURS `status`/`balanceRange`, so C4 and C5 arrive pre-filtered. The Fees
+ * screen keeps its tab and its roster query in component-local `useState`
+ * (`components/fees/fees-client.tsx:99-101`) and `useFeesStore.mode` /
+ * `useFeesStore.searchQuery` have no reader at all, so a write to them would be a
+ * filter the destination ignores — the code would look like it worked while the
+ * tutor still saw an unfiltered ledger. That gap is reported to the lead with
+ * the exact patch rather than faked, and `drillAnnouncement` will not speak a
+ * filter for a card whose filter was not written (Rule 9).
  */
-const CARD_DRILL: Record<string, ScreenId> = {
-  collected: "/fees",
-  "due-till-date": "/fees",
-  "due-in-period": "/fees",
-  overdue: "/fees",
-  breakdown: "/fees",
-  "total-students": "/students",
-  "students-with-dues": "/students",
-};
-
-const SCREEN_NAME: Record<ScreenId, string> = {
-  "/dashboard": "Dashboard",
-  "/students": "Students",
-  "/attendance": "Attendance",
-  "/fees": "Fees and Payments",
-  "/settings": "Settings",
-};
 
 function initials(name: string) {
   if (name === "") return "?";
@@ -236,6 +249,20 @@ export function DashboardClient() {
       useStudentsStore.getState().openAddSheet();
     }, 0);
   };
+
+  /**
+   * §10.1 / §19.4: a card tap applies its filter and THEN switches screen.
+   * `getState()` rather than a subscription — the Dashboard has no business
+   * re-rendering because the Students roster changed — and the store is read at
+   * click time so it carries whatever the tutor last chose, which is exactly what
+   * a drill overrides.
+   */
+  const drill = React.useCallback(
+    (card: CardId) => {
+      applyCardDrill(card, { students: useStudentsStore.getState(), goTo: setActiveScreen });
+    },
+    [setActiveScreen],
+  );
 
   React.useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60000);
@@ -410,8 +437,8 @@ export function DashboardClient() {
             names the window rather than asserting "this month" whatever the
             tutor has selected. */}
         <KPICard
-          name="collected"
-          onDrill={setActiveScreen}
+          card="collected"
+          onDrill={drill}
           title="Collected"
           value={kpis.collectedThisMonthMinor}
           formatFn={formatINR}
@@ -421,8 +448,8 @@ export function DashboardClient() {
         />
         {/* C2 — BR-CALC-04. All-time by definition (§10.1), and it says so. */}
         <KPICard
-          name="due-till-date"
-          onDrill={setActiveScreen}
+          card="due-till-date"
+          onDrill={drill}
           title="Due Till Date"
           value={kpis.dueTillDateMinor}
           formatFn={formatINR}
@@ -434,8 +461,8 @@ export function DashboardClient() {
             and was rendered nowhere, so the spec's "due for the month" card did
             not exist on the screen. */}
         <KPICard
-          name="due-in-period"
-          onDrill={setActiveScreen}
+          card="due-in-period"
+          onDrill={drill}
           title="Due In Period"
           value={kpis.dueForMonthMinor}
           formatFn={formatINR}
@@ -445,8 +472,8 @@ export function DashboardClient() {
         />
         {/* C4 — students count. A current snapshot, so period-independent. */}
         <KPICard
-          name="total-students"
-          onDrill={setActiveScreen}
+          card="total-students"
+          onDrill={drill}
           title="Active Students"
           value={kpis.totalStudents}
           icon={<Users className="w-5 h-5" />}
@@ -455,8 +482,8 @@ export function DashboardClient() {
         />
         {/* C5 — BR-CALC-01 + BR-M-05. */}
         <KPICard
-          name="students-with-dues"
-          onDrill={setActiveScreen}
+          card="students-with-dues"
+          onDrill={drill}
           title="Students With Dues"
           value={kpis.studentsWithDues}
           icon={<AlertCircle className="w-5 h-5" />}
@@ -467,16 +494,16 @@ export function DashboardClient() {
             rendered nowhere; §1 question 4 ("who paid, who didn't, who is
             partial") had no answer on this screen. */}
         <BreakdownCard
-          name="breakdown"
+          card="breakdown"
           breakdown={kpis.paymentBreakdown}
-          onDrill={setActiveScreen}
+          onDrill={drill}
         />
         {/* Overdue is a fifth money measure and has no C-number of its own: it
             is the subset of C3 whose due date has already passed, so it is
             deliberately NOT period-scoped. */}
         <KPICard
-          name="overdue"
-          onDrill={setActiveScreen}
+          card="overdue"
+          onDrill={drill}
           title="Overdue"
           value={kpis.overdueMinor}
           formatFn={formatINR}
@@ -622,10 +649,10 @@ export function DashboardClient() {
  * `hover:border` treatment, which is the visual grammar of a control with none
  * of the behaviour: a tutor could hover a card all day and stay on the screen.
  *
- * Making them real buttons is the smallest correct change — the screen switch
- * is a store write (Rule 4: there are no routes), and the destination is
- * announced to a screen reader in the button's accessible name so the control
- * never reads as a dead number.
+ * Making them real buttons is the smallest correct change — the drill is a
+ * filter write plus a store write (Rule 4: there are no routes) — and the
+ * destination is announced in the button's accessible name so the control never
+ * reads as a dead number.
  *
  * The `caption` is the real scope of the measure, as spec line 166 asks. It
  * replaces a delta percentage the data cannot support: a tutor reading
@@ -634,7 +661,7 @@ export function DashboardClient() {
  * arithmetic.
  */
 function KPICard({
-  name,
+  card,
   title,
   value,
   formatFn,
@@ -643,21 +670,20 @@ function KPICard({
   caption,
   onDrill,
 }: {
-  name: string;
+  card: CardId;
   title: string;
   value: number;
   formatFn?: (v: number) => string;
   icon: React.ReactNode;
   accent: string;
   caption?: string;
-  onDrill: (screen: ScreenId) => void;
+  onDrill: (card: CardId) => void;
 }) {
-  const target = CARD_DRILL[name] ?? "/dashboard";
   const valueText = formatFn ? formatFn(value) : value.toLocaleString("en-IN");
   return (
     <button
       type="button"
-      onClick={() => onDrill(target)}
+      onClick={() => onDrill(card)}
       className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
       style={{
         border: "1px solid color-mix(in srgb, " + accent + " 25%, transparent)",
@@ -682,8 +708,17 @@ function KPICard({
         <span className="text-xs mt-1 text-[var(--text-muted)] block">{caption}</span>
       )}
       {/* The visible text is the figure and its scope; this adds only the one
-          thing a figure cannot say, which is where tapping it goes. */}
-      <span className="sr-only">{`Open ${SCREEN_NAME[target]}. ${title}: ${valueText}.`}</span>
+          thing a figure cannot say, which is where tapping it goes and what the
+          destination will already be showing. The filter clause is emitted only
+          for a filter the drill really writes, so this string cannot promise a
+          filtered screen the tutor does not get. */}
+      <span className="sr-only">
+        {drillAnnouncement(CARD_DRILL[card], {
+          title,
+          value: valueText,
+          filterApplied: isFilterApplied(card),
+        })}
+      </span>
     </button>
   );
 }
@@ -713,24 +748,37 @@ const BREAKDOWN_META: Array<{
  * and is reported to the lead as a spec contradiction rather than silently
  * chosen here.
  *
+ * §10.1 ALSO says "tapping a colored dot → Fees screen filtered to that status",
+ * and the four buckets are deliberately NOT four buttons today. They are one
+ * card with one drill, because the destination cannot be filtered by status at
+ * all: the Fees screen keeps its tab and its roster query in component-local
+ * `useState` (`components/fees/fees-client.tsx:99-101`), so neither
+ * `useFeesStore.mode` nor `useFeesStore.searchQuery` is read by anything. Four
+ * dots would therefore be four controls that all land on the identical
+ * unfiltered screen — the "invented menu items" and "a filter the server drops
+ * is a filter that lies to the tutor" failures this repo has already refused
+ * twice (`students-toolbar.tsx:14-21, 38-47`). `C6_DRILL` in
+ * `@/lib/dashboard-drill` already declares each bucket's destination and its
+ * spoken filter, so the wiring becomes four `onClick`s the moment the Fees store
+ * gains a reader.
+ *
  * Colour is never the only signal (Rule 10): every figure carries its status
  * word, and the counts themselves are text, so the card reads identically in
  * greyscale, in high contrast and to a screen reader.
  */
 function BreakdownCard({
-  name,
+  card,
   breakdown,
   onDrill,
 }: {
-  name: string;
+  card: CardId;
   breakdown: DashboardKpis["paymentBreakdown"];
-  onDrill: (screen: ScreenId) => void;
+  onDrill: (card: CardId) => void;
 }) {
-  const target = CARD_DRILL[name] ?? "/fees";
   return (
     <button
       type="button"
-      onClick={() => onDrill(target)}
+      onClick={() => onDrill(card)}
       className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
       style={{ border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)" }}
     >
@@ -756,9 +804,13 @@ function BreakdownCard({
         Students by payment status. Does not follow the period.
       </span>
       <span className="sr-only">
-        {`Open ${SCREEN_NAME[target]}. Payment breakdown: ${BREAKDOWN_META.map(
-          ({ key, label }) => `${breakdown[key]} ${label}`,
-        ).join(", ")}.`}
+        {drillAnnouncement(CARD_DRILL[card], {
+          title: "Payment Breakdown",
+          value: BREAKDOWN_META.map(
+            ({ key, label }) => `${breakdown[key]} ${label}`,
+          ).join(", "),
+          filterApplied: isFilterApplied(card),
+        })}
       </span>
     </button>
   );

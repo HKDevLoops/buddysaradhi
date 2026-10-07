@@ -34,6 +34,7 @@ import {
   PIN_MAX_LENGTH,
   PIN_INPUT_MAX_LENGTH,
 } from "@buddysaradhi/shared";
+import { obviousPinError } from "@/lib/settings-gates";
 import { useToast } from "@/components/ui/toast";
 import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,14 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
 
   const newPinFormatProblem = pinFormatError(newPin);
   const currentPinProblem = currentPin.length > 0 ? pinFormatError(currentPin) : null;
+  // 08 §11 EC-02, client half. `pinFormatError` only knows the FORMAT rule, so
+  // `123456` armed this form and the server accepted it. The strength rule is
+  // the same function the server runs (`obviousPinError`), so the reason on
+  // screen and the reason on the wire are the same sentence. It is deliberately
+  // NOT applied to `currentPin` or `biometricPin`: refusing to VERIFY a PIN a
+  // tutor already has would lock them out of their own books.
+  const newPinStrengthProblem = newPin.length > 0 ? obviousPinError(newPin) : null;
+  const newPinProblem = newPinFormatProblem ?? newPinStrengthProblem;
   const pinsMatch = newPin.length === 0 || newPin === confirmPin;
   const biometricPinProblem = biometricPin.length > 0 ? pinFormatError(biometricPin) : null;
 
@@ -133,7 +142,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
   });
 
   const canChangePin =
-    newPin.length > 0 && newPinFormatProblem === null && pinsMatch && !pinMutation.isPending;
+    newPin.length > 0 && newPinProblem === null && pinsMatch && !pinMutation.isPending;
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,12 +289,12 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
                     maxLength={PIN_INPUT_MAX_LENGTH}
                     autoComplete="off"
                     placeholder="New PIN"
-                    aria-invalid={newPinFormatProblem ? true : undefined}
-                    aria-describedby={newPinFormatProblem ? "pin-new-format" : undefined}
+                    aria-invalid={newPinProblem ? true : undefined}
+                    aria-describedby={newPinProblem ? "pin-new-format" : undefined}
                     className={inputCls}
                   />
-                  {newPinFormatProblem && (
-                    <p id="pin-new-format" className="text-[var(--danger)] text-xs mt-2">{newPinFormatProblem}</p>
+                  {newPinProblem && (
+                    <p id="pin-new-format" className="text-[var(--danger)] text-xs mt-2">{newPinProblem}</p>
                   )}
                 </div>
                 <div>

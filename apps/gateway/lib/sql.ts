@@ -804,7 +804,7 @@ export function stmtInsertLedgerEntry(
   const id = typeof d.id === "string" && d.id.length > 0 ? d.id : crypto.randomUUID();
   IdSchema.parse(id);
   return {
-    sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, number, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
+    sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, batch_id, invoice_id, type, debit_paise, credit_paise, balance_after_paise, description, receipt_no, payment_method, payment_ref, prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,

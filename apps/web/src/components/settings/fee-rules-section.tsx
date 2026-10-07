@@ -32,6 +32,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction, updateSettingsBatchAction } from "@/server/actions/settings";
 import { Receipt, Loader2, Save, X, CalendarClock, Zap, Hash } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { toAppErrorState } from "@/lib/app-errors";
 import { cn } from "@/lib/utils";
 import { NeumoToggle } from "./neumo-toggle";
 
@@ -246,9 +247,13 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
 
         {updateMutation.isError && (
           <p role="alert" className="text-[var(--danger)] text-sm font-semibold">
-            {updateMutation.error instanceof Error
-              ? updateMutation.error.message
-              : "Nothing was saved."}
+            {/* Rule 9 + 10_Security.md: mapped, never a raw echo. The mutation
+                error carries whatever the server returned, and rendering
+                `error.message` verbatim puts driver text and payload fragments
+                in the DOM. `toAppErrorState` is the boundary; for a VALIDATION
+                refusal it now carries the field's own reason through the bounded
+                `detail` allowlist, so the tutor still learns WHY. */}
+            {toAppErrorState(updateMutation.error).message}
           </p>
         )}
 

@@ -40,6 +40,15 @@ import {
 } from "@/server/actions/dashboard";
 import { DashboardClient } from "./dashboard-client";
 import { useShellStore } from "@/stores/shell-store";
+import { useStudentsStore } from "@/stores/students-store";
+import {
+  C6_DRILL,
+  CARD_DRILL,
+  applyDrill,
+  drillAnnouncement,
+  isFilterApplied,
+  type CardId,
+} from "@/lib/dashboard-drill";
 import { resolvePeriodWindow, type PeriodWindow } from "@/lib/dashboard-period";
 
 /**
@@ -127,6 +136,286 @@ function renderClient() {
 beforeEach(() => {
   vi.clearAllMocks();
   useShellStore.setState({ activeScreen: "/dashboard" });
+  // The drill writes the roster filter, so a filter left behind by one test
+  // would decide what the next test sees. Reset to a state no drill produces:
+  // narrowed, searched, and on page 3.
+  useStudentsStore.setState({
+    filters: {
+      status: ["active", "graduated"],
+      batchIds: [],
+      feeModels: [],
+      tagIds: [],
+      balanceRange: "overdue_only",
+      admittedInLast: "all",
+    },
+    searchQuery: "aarav",
+    page: 3,
+  });
+});
+
+const CARDS: CardId[] = [
+  "collected",
+  "due-till-date",
+  "due-in-period",
+  "total-students",
+  "students-with-dues",
+  "breakdown",
+  "overdue",
+];
+
+describe("CARD_DRILL — §10.1 names a screen AND the filter it must apply", () => {
+  it("every card declares a screen and a filter, and none falls back to a default", () => {
+    // The defect was a `Record<string, ScreenId>` where a typo in a card's `name`
+    // silently fell back to "/dashboard". A total over the seven keys is the
+    // guard: a new card has to appear here or the table is incomplete.
+    expect(Object.keys(CARD_DRILL).sort()).toEqual([...CARDS].sort());
+    for (const card of CARDS) {
+      expect(CARD_DRILL[card].screen, `${card} names a screen`).toMatch(/^\//);
+      expect(
+        CARD_DRILL[card].filter.target,
+        `${card} names the filter in the destination's own vocabulary`,
+      ).toMatch(/^(students|fees)$/);
+    }
+  });
+
+  it("routes the four money cards to Fees and the two roster cards to Students", () => {
+    // C1 collected, C2 due till date, C3 due in period, C6 breakdown + overdue.
+    for (const card of ["collected", "due-till-date", "due-in-period", "breakdown", "overdue"] as const) {
+      expect(CARD_DRILL[card].screen, `${card} opens Fees`).toBe("/fees");
+    }
+    // C4 total students, C5 students with dues — §10.1's two Students targets.
+    for (const card of ["total-students", "students-with-dues"] as const) {
+      expect(CARD_DRILL[card].screen, `${card} opens Students`).toBe("/students");
+    }
+  });
+
+  it("is writable only for the cards whose destination screen reads its store", () => {
+    // `useStudentsStore.filters` reaches the roster query and the gateway
+    // honours it; the Fees screen reads neither `useFeesStore.mode` nor
+    // `useFeesStore.searchQuery`, so a Fees filter is declared, not written.
+    expect(CARD_DRILL["students-with-dues"].filter).toEqual({
+      target: "students",
+      status: ["active"],
+      balanceRange: "has_dues",
+      clearSearch: true,
+      targetPhrase: expect.any(String),
+    });
+    expect(CARD_DRILL["total-students"].filter).toEqual({
+      target: "students",
+      status: ["active"],
+      balanceRange: "all",
+      clearSearch: true,
+      targetPhrase: expect.any(String),
+    });
+    expect(isFilterApplied("students-with-dues")).toBe(true);
+    expect(isFilterApplied("total-students")).toBe(true);
+    for (const card of ["collected", "due-in-period", "overdue"] as const) {
+      expect(isFilterApplied(card), `${card} cannot be written yet`).toBe(false);
+    }
+  });
+
+  it("§10.1 C6 — every bucket declares the Fees status it must filter to", () => {
+    // Four dots, four destinations, one table. Each bucket's `paymentStatus` is
+    // the BR-CALC-02 word, so the status can never be spelled two ways.
+    expect(Object.keys(C6_DRILL)).toEqual(["paid", "partial", "unpaid", "noDues"]);
+    for (const [key, drill] of Object.entries(C6_DRILL)) {
+      expect(drill.screen, `C6 ${key} opens Fees`).toBe("/fees");
+      expect(drill.filter, `C6 ${key} is a Fees filter`).toMatchObject({ target: "fees" });
+      expect(
+        (drill.filter as { paymentStatus: string }).paymentStatus,
+        `C6 ${key} names its own status`,
+      ).toBe(key);
+    }
+  });
+});
+
+describe("applyDrill — filter first, then the screen", () => {
+  it("writes the roster filter the card names, and the screen after it", () => {
+    const calls: string[] = [];
+    const students = {
+      setFilters: () => calls.push("filters"),
+      setSearchQuery: () => calls.push("search"),
+      setPage: () => calls.push("page"),
+    };
+    const goTo = () => calls.push("screen");
+
+    const applied = applyDrill(CARD_DRILL["students-with-dues"], { students, goTo });
+
+    // Order is the contract: the destination screen mounts on the same commit
+    // and reads its filter on first render.
+    expect(calls).toEqual(["filters", "search", "page", "screen"]);
+    expect(applied.filterApplied).toBe(true);
+    expect(applied.storeWrites).toEqual([
+      "students.filters",
+      "students.searchQuery",
+      "students.page",
+    ]);
+  });
+
+  it("writes nothing to a store the destination does not read", () => {
+    const calls: string[] = [];
+    const students = {
+      setFilters: () => calls.push("filters"),
+      setSearchQuery: () => calls.push("search"),
+      setPage: () => calls.push("page"),
+    };
+    const goTo = () => calls.push("screen");
+
+    const applied = applyDrill(CARD_DRILL.collected, { students, goTo });
+
+    // "Collected" is the card the defect was named after. It navigates, and it
+    // reports `filterApplied: false` rather than claiming a filter it dropped.
+    expect(calls).toEqual(["screen"]);
+    expect(applied.filterApplied).toBe(false);
+    expect(applied.storeWrites).toEqual([]);
+  });
+
+  it("announces a filter only when the filter was written", () => {
+    const written = drillAnnouncement(CARD_DRILL["students-with-dues"], {
+      title: "Students With Dues",
+      value: "12",
+      filterApplied: true,
+    });
+    expect(written).toBe(
+      "Open Students. Students With Dues: 12. Filtered to active students who owe money.",
+    );
+
+    // The same card, pretending it wrote the filter: nothing to announce.
+    const unwritten = drillAnnouncement(CARD_DRILL.collected, {
+      title: "Collected",
+      value: "₹1,24,500.00",
+      filterApplied: false,
+    });
+    expect(unwritten).toBe("Open Fees and Payments. Collected: ₹1,24,500.00.");
+
+    // §10.1 asks C2 for NO filter, so its phrase is null and none is invented.
+    const c2 = drillAnnouncement(CARD_DRILL["due-till-date"], {
+      title: "Due Till Date",
+      value: "₹38,200.00",
+      filterApplied: true,
+    });
+    expect(c2).toBe("Open Fees and Payments. Due Till Date: ₹38,200.00.");
+  });
+});
+
+describe("DashboardClient — a card tap leaves the destination store filtered", () => {
+  it("C5 Students With Dues lands on a roster narrowed to has-dues", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Students With Dues")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open Students\. Students With Dues/ }),
+    );
+
+    // The destination store HOLDS the filter, not merely the screen.
+    const roster = useStudentsStore.getState();
+    expect(useShellStore.getState().activeScreen).toBe("/students");
+    expect(roster.filters.balanceRange).toBe("has_dues");
+    expect(roster.filters.status).toEqual(["active"]);
+    // The pre-drill `searchQuery` and page 3 would have shown one student on an
+    // empty page; the card claims 12.
+    expect(roster.searchQuery).toBe("");
+    expect(roster.page).toBe(1);
+  });
+
+  it("C4 Active Students clears a filter a previous C5 tap left behind", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(() => expect(screen.getByText("Active Students")).toBeInTheDocument(), {
+      timeout: 8000,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Open Students\. Students With Dues/ }));
+    expect(useStudentsStore.getState().filters.balanceRange).toBe("has_dues");
+
+    fireEvent.click(screen.getByRole("button", { name: /Open Students\. Active Students/ }));
+    // "Active Students: 87" and a roster still narrowed to debtors cannot both be
+    // true, so C4 resets `balanceRange` as well as the search.
+    expect(useStudentsStore.getState().filters.balanceRange).toBe("all");
+    expect(useStudentsStore.getState().filters.status).toEqual(["active"]);
+    expect(useStudentsStore.getState().searchQuery).toBe("");
+    expect(useShellStore.getState().activeScreen).toBe("/students");
+  });
+
+  it("a Fees card switches screen and leaves the roster filter untouched", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(() => expect(screen.getByText("Collected")).toBeInTheDocument(), {
+      timeout: 8000,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Open Fees and Payments\. Collected/ }));
+
+    expect(useShellStore.getState().activeScreen).toBe("/fees");
+    // Untouched: the drill owns the Students filter only when it lands on
+    // Students, so a Fees card cannot silently re-narrow the roster.
+    expect(useStudentsStore.getState().filters.balanceRange).toBe("overdue_only");
+    expect(useStudentsStore.getState().searchQuery).toBe("aarav");
+  });
+
+  it("writes the filter BEFORE the screen switches, so the destination mounts filtered", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+
+    // Patched BEFORE the render: `DashboardClient` binds `setActiveScreen` out of
+    // the store at render time, so a patch applied afterwards would never be the
+    // function the card calls.
+    const observed: string[] = [];
+    const realSetActiveScreen = useShellStore.getState().setActiveScreen;
+    useShellStore.setState({
+      setActiveScreen: (screen) => {
+        // Read at the instant the screen write happens — the instant the
+        // destination screen mounts and reads its filter on first render.
+        observed.push(useStudentsStore.getState().filters.balanceRange);
+        realSetActiveScreen(screen);
+      },
+    });
+
+    try {
+      renderClient();
+      await waitFor(
+        () => expect(screen.getByText("Students With Dues")).toBeInTheDocument(),
+        { timeout: 8000 },
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: /Open Students\. Students With Dues/ }),
+      );
+    } finally {
+      useShellStore.setState({ setActiveScreen: realSetActiveScreen });
+    }
+
+    expect(observed).toEqual(["has_dues"]);
+  });
+
+  it("C5's accessible name states the filter its destination will already show", async () => {
+    fetchSummary.mockResolvedValue({ ok: true, value: { summary: summary(), window: WINDOW } });
+    renderClient();
+
+    await waitFor(
+      () => expect(screen.getByText("Students With Dues")).toBeInTheDocument(),
+      { timeout: 8000 },
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: /Students With Dues: 12\. Filtered to active students who owe money\.$/,
+      }),
+    ).toBeInTheDocument();
+    // And the collected card promises no filter, because it writes none. The
+    // sentence is the LAST thing in the card, so it anchors to the end of the
+    // accessible name — the visible figure and caption come before it.
+    expect(
+      screen.getByRole("button", {
+        name: /Open Fees and Payments\. Collected: ₹1,24,500\.00\.$/,
+      }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("DashboardClient — KPI strip", () => {

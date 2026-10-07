@@ -8,6 +8,7 @@ import {
   BACKUP_PASSPHRASE_MIN,
   IMPORT_PIN_REQUIRED_ABOVE_ROWS,
   backupFilename,
+  obviousPinError,
 } from "@/lib/settings-gates";
 import { z } from "zod";
 import { verifyPin, encryptBackup } from "@/lib/crypto";
@@ -568,6 +569,24 @@ export interface SettingsConflictResult {
   error: string;
   code: "CONFLICT";
   serverRow: Record<string, unknown> | null;
+  // Present as `undefined` so the union with `SettingsWriteResult` is
+  // discriminated purely by `success` — a caller that has narrowed to
+  // `success === true` can then read `updatedAt` without a second cast.
+  updatedAt?: undefined;
+}
+
+/**
+ * The successful shape of a settings write. `updatedAt` is the CAS base the
+ * NEXT write must present, read back from the row (see `readFreshUpdatedAt`) —
+ * without it the client sits one write behind and its own second save comes back
+ * as a false CONFLICT. `undefined` rather than a required field because a
+ * post-write read can fail on a committed write; the caller then keeps its
+ * previous base and the next CAS surfaces the conflict WITH the server row,
+ * which is the fail-closed direction.
+ */
+export interface SettingsWriteResult {
+  success: true;
+  updatedAt: string | undefined;
 }
 
 /**
@@ -624,6 +643,39 @@ function isGatewayConflict(error: string): boolean {
  * write, no `sync_outbox` row, no `audit_log` row (nothing happened) — but
  * the boundary is logged for forensics (Rule 9: no silent failures).
  */
+/**
+ * The authoritative post-write `updated_at` — the compare-and-swap base the
+ * NEXT write must present (docs/rfc/004 C4, 12 BR-SYN-03).
+ *
+ * Why this exists. Both write paths stamp `updated_at = now`, so after a
+ * successful save the client's base is one write BEHIND the server's. Returning
+ * `{ success: true }` and nothing else left the client no way to advance, and
+ * the consequence was not theoretical: a tutor who edited the Profile card
+ * twice in a row got `CONFLICT: settings changed elsewhere` on their OWN second
+ * edit — the stale-write guard firing against the tutor it exists to protect.
+ * The conflict branch already returned the fresh row (`settingsConflict`), so
+ * the fix is to complete the CAS on SUCCESS too, which is what a
+ * compare-and-swap actually means.
+ *
+ * Read back from the row rather than returned from the write, because either
+ * path may have performed it (the gateway's PATCH, or the direct-db fallback)
+ * and only the row is guaranteed to be the truth. One indexed single-row read.
+ */
+async function readFreshUpdatedAt(): Promise<string | undefined> {
+  try {
+    const { db, tenantId } = await getAuthenticatedPrisma();
+    const row = await db.setting.findFirst({ where: { tenantId } });
+    const ms = settingsRowMs(row);
+    if (ms !== null) return new Date(ms).toISOString();
+    return undefined;
+  } catch {
+    // A missing base is not a write failure: the caller falls back to its
+    // previous base and the next CAS reports the conflict with the server row.
+    // Swallowed deliberately and ONLY here — the write already committed.
+    return undefined;
+  }
+}
+
 function settingsConflict(serverRow: Record<string, unknown> | null): SettingsConflictResult {
   log.warn("cas_conflict_settings", "Settings CAS mismatch — rejected stale write");
   return {
@@ -778,10 +830,10 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
       });
     }
 
-    revalidatePath("/settings");
+revalidatePath("/settings");
     revalidatePath("/dashboard");
-    if (cacheTenantId) invalidateTenant(cacheTenantId, "settings:"); // workstream C: single setting write
-    return { success: true };
+    if (cacheTenantId) invalidateTenant(cacheTenantId, "settings:"); // workstream C wiring: single setting write
+    return { success: true, updatedAt: await readFreshUpdatedAt() };
   } catch (error) {
     log.error('settings_update_failed', error instanceof Error ? error.message : String(error), { field });
     return { success: false, error: "Failed to update setting" };
@@ -910,7 +962,7 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
     revalidatePath("/settings");
     revalidatePath("/dashboard");
     if (cacheTenantId) invalidateTenant(cacheTenantId, "settings:"); // workstream C wiring: batch settings write
-    return { success: true };
+    return { success: true, updatedAt: await readFreshUpdatedAt() };
   } catch (error) {
     log.error('settings_batch_update_error', error instanceof Error ? error.message : String(error));
     return { success: false, error: "Failed to update settings" };
@@ -1040,6 +1092,17 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     }
     if (!/^\d+$/.test(newPin)) {
       return { success: false, error: "PIN must contain only digits" };
+    }
+    // 08_Settings.md §11 EC-02, server half — the enforcement. This PIN gates
+    // the backup export, the bulk archive and the ledger void (10 §3), so a PIN
+    // of `123456` / `000000` / `111111` was accepted by both the format check and
+    // this action, and EC-02's stated refusal had no implementation anywhere.
+    // Same function the client runs (`@/lib/settings-gates`), so the reason on
+    // screen and the reason on the wire cannot drift. NEVER applied to
+    // verification: refusing to VERIFY would lock a tutor out of their own books.
+    const obvious = obviousPinError(newPin);
+    if (obvious) {
+      return { success: false, error: obvious, code: "VALIDATION" as const };
     }
 
     const { db, tenantId } = await getAuthenticatedPrisma();

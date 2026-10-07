@@ -54,7 +54,9 @@ import {
 import {
   BACKUP_PASSPHRASE_MIN,
   IMPORT_PIN_REQUIRED_ABOVE_ROWS,
+  OBVIOUS_PIN_MESSAGE,
   backupFilename,
+  obviousPinError,
 } from "@/lib/settings-gates";
 
 const TENANT = "t-settings-audit";
@@ -556,5 +558,181 @@ describe("setting VALUE gate — updateSettingsBatchAction (a batch is not an en
     await seed();
     const res = await updateSettingsBatchAction({ invoicePrefix: "INV-", graceDays: 7 });
     expect(res.success, res.error).toBe(true);
+  });
+
+  it("returns the post-write base so a SECOND consecutive save is not a false conflict", async () => {
+    // The bug this pins, exactly as a tutor hit it. The browser run refused the
+    // restore with `CONFLICT: settings changed elsewhere` — on the tutor's OWN
+    // second save of the same card. Both write paths stamp `updated_at = now`, so
+    // after a successful write the client sat one write behind and presented a
+    // base the server had already superseded. The stale-write guard was firing
+    // against the very edit it exists to protect.
+    //
+    // Completing the compare-and-swap is the fix: a successful write returns the
+    // authoritative post-write base, so the next save presents the current one.
+    await seed();
+
+    const first = await updateSettingsBatchAction({ instituteName: "My Tuition QAProbe" });
+    expect(first.success, first.error).toBe(true);
+    expect(first.updatedAt, "a successful write must return a CAS base").toBeTruthy();
+    const firstMs = new Date(first.updatedAt as string).getTime();
+    expect(Number.isNaN(firstMs), "the returned base must be a real date").toBe(false);
+
+    // The base advanced past the row the fixture was seeded with, so the client
+    // is no longer replaying the pre-write value.
+    expect(firstMs).toBeGreaterThan(new Date(NOW).getTime());
+
+    // A second save presenting the returned base is accepted, not refused.
+    const second = await updateSettingsBatchAction(
+      { instituteName: "My Tuition QACheck" },
+      { base_updated_at: first.updatedAt as string },
+    );
+    expect(second.success, `the tutor's own second save was refused: ${second.error}`).toBe(true);
+    expect(second.updatedAt).toBeTruthy();
+    expect(new Date(second.updatedAt as string).getTime()).toBeGreaterThanOrEqual(firstMs);
+
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name).toBe("My Tuition QACheck");
+
+    // And the guard is still armed for the case it is actually FOR: a base that
+    // some other writer has since superseded.
+    const stale = await updateSettingsBatchAction(
+      { instituteName: "Should not land" },
+      { base_updated_at: NOW },
+    );
+    expect(stale.success, "a genuinely stale base must still be refused").toBe(false);
+    const after = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(after[0]?.institute_name, "a refused write changed nothing").toBe("My Tuition QACheck");
+  });
+
+  // 08 §14 EC-17 — the refusal the browser never reaches. The fee-rules card
+  // runs the same `/^[A-Za-z0-9-]+$/` rule through `zodResolver`, and
+  // `handleSubmit` refuses to submit while the resolver fails, so the Playwright
+  // run stopped at the client error and NEVER POSTED. The server gate was
+  // therefore untested by the browser even though it exists — and a client gate
+  // is a suggestion (08 §13's whole reason for the map). This is the canary:
+  // a prefix that would be printed on every receipt for the rest of the business
+  // must be refused server-side, with a stated reason and nothing written.
+  it("refuses a non-alphanumeric prefix (EC-17) with a reason and writes nothing", async () => {
+    await seed();
+    const res = await updateSettingsBatchAction({ invoicePrefix: 'INV/"x', graceDays: 7 });
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/alphanumeric/i);
+    expect(res.code).toBe("VALIDATION");
+    const rows = await rowsOf(client, "SELECT invoice_prefix, grace_days FROM settings");
+    expect(rows[0]?.invoice_prefix ?? null).toBeNull();
+    expect(rows[0]?.grace_days ?? null).toBeNull();
+    // Refused ⇒ no outbox row, no audit row (Rule 7 binds a write, not a refusal).
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(0);
+    expect(await auditActions(client)).toHaveLength(0);
+  });
+
+  it("accepts the same batch once the prefix is legal, proving the gate is the rule", async () => {
+    await seed();
+    const res = await updateSettingsBatchAction({ invoicePrefix: "INV-2026", graceDays: 7 });
+    expect(res.success, res.error).toBe(true);
+    const rows = await rowsOf(client, "SELECT invoice_prefix FROM settings");
+    expect(rows[0]?.invoice_prefix).toBe("INV-2026");
+  });
+
+  // 08 §6.2.1 — the three optional profile fields are OPTIONAL, and the Profile
+  // card sends `value || null` for each of them, so "no address" IS a null.
+  // These were typed `z.string()`, which made null a validation failure, and
+  // because the batch is refused whole on the first bad field a tutor with any
+  // empty optional field could not save their own institute name — which is the
+  // default state of every brand-new account.
+  it("accepts the profile batch with all three optional fields null (08 §6.2.1)", async () => {
+    await seed();
+    const res = await updateSettingsBatchAction({
+      instituteName: "My Tuition",
+      instituteAddress: null,
+      institutePhone: null,
+      instituteEmail: null,
+      locale: "en-IN",
+    });
+    expect(res.success, res.error).toBe(true);
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name).toBe("My Tuition");
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(1);
+    expect(await auditActions(client)).toHaveLength(1);
+  });
+
+  it("still refuses a real phone-format violation, so nullability did not open the gate", async () => {
+    await seed();
+    const res = await updateSettingsBatchAction({ instituteName: "My Tuition", institutePhone: "not-a-phone" });
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/institutePhone/);
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name ?? null).toBeNull();
+  });
+});
+
+/**
+ * 08 §11 EC-02 — `Tutor enters PIN 123456 / 000000 / 111111` →
+ * `Rejected: "PIN is too obvious. Choose a less sequential pattern."`
+ *
+ * Specified, never implemented: `pinFormatError` (packages/shared/src/pin.ts)
+ * had no strength rule, so both the client form and `setPinAction` accepted an
+ * ascending run. That PIN then guards the backup export, the bulk archive and
+ * the ledger void (10 §3) — the three worst blast radii in the product.
+ */
+describe("EC-02 — an obvious PIN is refused", () => {
+  async function seed(): Promise<void> {
+    ({ client, dir } = await createTestDb());
+    wireSeam(client);
+    mocks.gatewayPatch.mockResolvedValue({ success: false, error: "Gateway 503" });
+    await client.execute({
+      sql: "INSERT INTO settings (id, tenant_id, currency_code, updated_at, created_at) VALUES (?, ?, ?, ?, ?)",
+      args: [randomUUID(), TENANT, "INR", NOW, NOW],
+    });
+  }
+
+  it.each([
+    ["123456", "the EC-02 ascending run"],
+    ["654321", "the EC-02 descending run"],
+    ["000000", "EC-02 all zeros"],
+    ["111111", "EC-02 all ones"],
+    ["121212", "a repeated block"],
+  ])("obviousPinError refuses %s (%s)", (pin) => {
+    expect(obviousPinError(pin)).toBe(OBVIOUS_PIN_MESSAGE);
+  });
+
+  it.each(["135790", "48291573", "7083", "1357900"])("obviousPinError accepts a real PIN (%s)", (pin) => {
+    expect(obviousPinError(pin)).toBeNull();
+  });
+
+  it("flags a descending constant-step run of four, which is the rule working", () => {
+    expect(obviousPinError("9753")).toBe(OBVIOUS_PIN_MESSAGE);
+  });
+
+  it("is a SET-time rule only — it never refuses a PIN a tutor already has", async () => {
+    await seed();
+    // The strength rule must not reach `verifyPinAction`/`verifyPinWithLadder`:
+    // refusing to VERIFY would lock a tutor out of their own books, which is a
+    // far worse failure than a weak PIN.
+    const res = await setPinAction("135790");
+    expect(res.success, res.error).toBe(true);
+    expect(obviousPinError("135790")).toBeNull();
+    const row = await rowsOf(client, "SELECT pin_hash FROM settings");
+    expect(await verifyPin("135790", String(row[0]?.pin_hash))).toBe(true);
+  });
+
+  it("setPinAction refuses an obvious PIN with EC-02's own sentence and writes nothing", async () => {
+    await seed();
+    await setPinAction("135790");
+    const before = await rowsOf(client, "SELECT pin_hash, updated_at FROM settings");
+    await rowsOf(client, "DELETE FROM sync_outbox");
+    await rowsOf(client, "DELETE FROM audit_log");
+
+    const res = await setPinAction("123456");
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toBe(OBVIOUS_PIN_MESSAGE);
+    expect(res.code).toBe("VALIDATION");
+
+    const after = await rowsOf(client, "SELECT pin_hash, updated_at FROM settings");
+    expect(after[0]?.pin_hash).toBe(before[0]?.pin_hash);
+    expect(await verifyPin("123456", String(after[0]?.pin_hash))).toBe(false);
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(0);
+    expect(await auditActions(client)).toHaveLength(0);
   });
 });

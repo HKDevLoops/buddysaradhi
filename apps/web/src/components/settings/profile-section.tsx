@@ -36,7 +36,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getCurrencyLockAction,
@@ -86,6 +86,34 @@ function readCurrency(settings: Settings): CurrencyCode {
   return (CURRENCY_CODES as readonly string[]).includes(raw) ? (raw as CurrencyCode) : "INR";
 }
 
+/** The six fields the card owns, read off whatever `settings` currently holds. */
+function readValues(settings: Settings): ProfileFormValues {
+  return {
+    instituteName: readText(settings, "instituteName", "My Tuition"),
+    instituteAddress: readText(settings, "instituteAddress", ""),
+    institutePhone: readText(settings, "institutePhone", ""),
+    instituteEmail: readText(settings, "instituteEmail", ""),
+    currencyCode: readCurrency(settings),
+    locale: readText(settings, "locale", "en-IN"),
+  };
+}
+
+/** Shape of the `["settings"]` cache entry (`getSettings`'s own envelope). */
+interface SettingsCacheEntry {
+  data?: Record<string, unknown>;
+}
+
+function sameProfileValues(a: ProfileFormValues, b: ProfileFormValues): boolean {
+  return (
+    a.instituteName === b.instituteName &&
+    a.instituteAddress === b.instituteAddress &&
+    a.institutePhone === b.institutePhone &&
+    a.instituteEmail === b.instituteEmail &&
+    a.currencyCode === b.currencyCode &&
+    a.locale === b.locale
+  );
+}
+
 export function ProfileSection({ settings }: ProfileSectionProps) {
   const { markDirty, markClean } = useSettingsStore();
   const queryClient = useQueryClient();
@@ -102,6 +130,11 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
   // sitting over a year of books. EC-01's rule wins over the read.
   const currencyLocked = currencyLock?.success !== true || currencyLock.locked === true;
 
+  // A payload the server ACCEPTED but that the `["settings"]` prop has not yet
+  // caught up with. Read-after-write correctness depends on this: see the
+  // reset effect below and `onMutate`/`onSuccess` on the mutation.
+  const pendingSavedRef = useRef<ProfileFormValues | null>(null);
+
   const {
     register,
     handleSubmit,
@@ -109,27 +142,43 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
     formState: { errors, isDirty },
   } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
-    defaultValues: {
-      instituteName: readText(settings, "instituteName", "My Tuition"),
-      instituteAddress: readText(settings, "instituteAddress", ""),
-      institutePhone: readText(settings, "institutePhone", ""),
-      instituteEmail: readText(settings, "instituteEmail", ""),
-      currencyCode: readCurrency(settings),
-      locale: readText(settings, "locale", "en-IN"),
-    },
+    defaultValues: readValues(settings),
   });
 
+  // DEFECT FIXED (settings audit, 2026-10-06) — the form used to snap back to
+  // the OLD name immediately after a successful save.
+  //
+  // The old effect was `if (settings && !isDirty) reset(<settings>)` with
+  // `isDirty` in its dependency list. A successful save calls `reset(variables)`,
+  // which clears `isDirty` — so the very next effect run saw `!isDirty`, read the
+  // still-stale `settings` prop (the `invalidateQueries` refetch had not landed),
+  // and overwrote the field the tutor had just saved. The tutor watched their
+  // own name revert to the previous value, and whether it came back depended on
+  // how slow the refetch was. That is a save that reports success and then shows
+  // the wrong thing, which is Rule 9 twice: a lie on screen and a value a
+  // read-back cannot confirm.
+  //
+  // The fix is two-sided and both halves are load-bearing:
+  //   1. `onSuccess` writes the accepted payload into the `["settings"]` cache
+  //      and `onMutate` cancels the in-flight read that could land afterwards
+  //      and clobber it, so the prop is correct from the moment of the save.
+  //   2. This effect refuses to apply a prop that is still showing the PRE-save
+  //      row, and only resumes normal syncing once the prop agrees with what was
+  //      saved. A prop that genuinely changed (another device, a CAS refresh)
+  //      still wins.
   useEffect(() => {
-    if (settings && !isDirty) {
-      reset({
-        instituteName: readText(settings, "instituteName", "My Tuition"),
-        instituteAddress: readText(settings, "instituteAddress", ""),
-        institutePhone: readText(settings, "institutePhone", ""),
-        instituteEmail: readText(settings, "instituteEmail", ""),
-        currencyCode: readCurrency(settings),
-        locale: readText(settings, "locale", "en-IN"),
-      });
+    if (!settings || isDirty) return;
+    const incoming = readValues(settings);
+    const pending = pendingSavedRef.current;
+    if (pending) {
+      if (sameProfileValues(incoming, pending)) {
+        // The server row has caught up with the save — nothing left to protect.
+        pendingSavedRef.current = null;
+      } else {
+        return;
+      }
     }
+    reset(incoming);
   }, [settings, isDirty, reset]);
 
   useEffect(() => {
@@ -163,15 +212,61 @@ export function ProfileSection({ settings }: ProfileSectionProps) {
       if (!res.success) {
         throw new Error(res.error || "Could not save your profile.");
       }
+      // The CAS base the NEXT write must present. The server stamps
+      // `updated_at` on every write, so without this the client sits one write
+      // behind and the tutor's own second consecutive save comes back as
+      // `CONFLICT: settings changed elsewhere` — the stale-write guard firing
+      // against the very edit it exists to protect. Completing the swap is what
+      // "compare-and-swap" means; the conflict branch already returned the fresh
+      // row, and this returns the fresh base on SUCCESS.
+      return { values: data, updatedAt: res.updatedAt ?? null };
     },
-    onSuccess: (_, variables) => {
+    // Cancel any `["settings"]` read still in flight BEFORE the write, so its
+    // PRE-save response cannot land after the optimistic write below and put the
+    // old row back in the cache. Same shape as notifications-section / fee-rules.
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["settings"] });
+      return { previous: queryClient.getQueryData<SettingsCacheEntry>(["settings"]) };
+    },
+    onSuccess: (result) => {
+      const variables = result.values;
+      // Seed the shared cache with what the server just accepted, so the shell
+      // brand, this form's remount, and any other `["settings"]` consumer all
+      // read the truth without waiting on the refetch.
+      //
+      // `updatedAt` is advanced to the base the SERVER returned — never
+      // invented locally. It is the CAS base for the next write, so a guessed
+      // value would either manufacture a spurious CONFLICT or, worse, silently
+      // re-present a stale base and lose a genuine conflict against another
+      // device. When the server sends no base (a read failed after a committed
+      // write) the old value is left alone and the next write surfaces the
+      // conflict WITH the server row, which is the fail-closed direction.
+      queryClient.setQueryData<SettingsCacheEntry>(["settings"], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...(old.data ?? {}),
+            instituteName: variables.instituteName,
+            instituteAddress: variables.instituteAddress,
+            institutePhone: variables.institutePhone,
+            instituteEmail: variables.instituteEmail,
+            locale: variables.locale,
+            ...(currencyLocked ? {} : { currencyCode: variables.currencyCode }),
+            ...(result.updatedAt ? { updatedAt: result.updatedAt } : {}),
+          },
+        };
+      });
+      pendingSavedRef.current = variables;
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       markClean("profile");
       reset(variables);
     },
-    onError: () => {
-      // CONFLICT path: refresh to the server row so the form shows current
-      // truth; the mapped copy below tells the tutor what happened.
+    onError: (_error, _variables, context) => {
+      // Nothing was written, so the cache must go back to what it was. The
+      // server row is the truth on this path (RFC-004 C4 CONFLICT).
+      if (context?.previous) queryClient.setQueryData(["settings"], context.previous);
+      pendingSavedRef.current = null;
       queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
