@@ -29,6 +29,16 @@ import type { SearchCandidate } from "@/components/search/student-search-box";
 export function AttendanceClient() {
   const { selectedDateIso, selectedBatch } = useAttendanceStore();
 
+  // The store is persisted with `skipHydration` (see attendance-store.ts), so
+  // the saved date and batch arrive AFTER first paint. Without this effect the
+  // screen would render today's date, then silently swap to the tutor's last
+  // viewed day — a UI that changes under the pointer with no navigation.
+  // Re-hydrating in an effect is also what makes the server markup and the
+  // client's first render agree, which is the whole point of the flag.
+  useEffect(() => {
+    void useAttendanceStore.persist.rehydrate();
+  }, []);
+
   const { data, isPending, isFetching, error, refetch } = useQuery({
     queryKey: ['attendance', selectedDateIso, selectedBatch],
     queryFn: () => fetchAttendanceAction(selectedDateIso, selectedBatch),

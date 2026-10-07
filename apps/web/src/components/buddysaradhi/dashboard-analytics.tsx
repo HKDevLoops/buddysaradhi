@@ -209,7 +209,7 @@ function ExportButton({
       onClick={onExport}
       aria-label={label}
       title={label}
-      className="min-h-[44px] min-w-[44px] px-3 inline-flex items-center justify-center gap-2 rounded-xl text-xs font-semibold text-[var(--text-muted)] border border-[var(--border-default)] bg-[var(--surface-inset)] transition-colors hover:text-[var(--text-primary)] hover:border-[var(--info)]/30 focus-visible:outline-2 focus-visible:outline-[var(--accent-cyan)]"
+      className="min-h-[44px] min-w-[44px] px-3 inline-flex items-center justify-center gap-2 rounded-xl text-xs font-semibold text-[var(--text-muted)] border border-[var(--border-default)] bg-[var(--surface-inset)] transition-colors hover:text-[var(--text-primary)] hover:border-[var(--info)]/30 focus-visible:outline-2 focus-visible:outline-[var(--accent-text)]"
     >
       <Download className="w-4 h-4" aria-hidden="true" />
       <span className="hidden sm:inline">CSV</span>

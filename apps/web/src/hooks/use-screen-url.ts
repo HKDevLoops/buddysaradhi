@@ -1,132 +1,104 @@
 "use client";
 
-// Implements: 02_Core_Logic.md §5 (five screens, ONE route, switched by state)
-// and 03_User_Flows.md (a tutor who reloads or hits Back must land where they
-// were) — inside AGENTS.md §2 Rule 4: a sixth top-level route would need a
-// ratified principle amendment, so the screen is carried as a query parameter on
-// the EXISTING route instead of a path.
+// Implements: AGENTS.md §2 Rule 4 as amended 2026-10-07 — the five screens are
+// five routes, and this hook is the ONLY place the app learns that the route
+// moved. 16_Platform_Delivery_Sequence.md §W1; 03_User_Flows.md (a tutor who
+// reloads or presses Back must land where they were).
 //
-// THE DEFECT THIS FILE EXISTS TO FIX. `NAV_ITEMS` pointed at `/students`,
-// `/attendance`, `/fees`, `/settings` while the only real route was
-// `/dashboard`; the screen lived purely in a Zustand store. So: no deep link (a
-// tutor could not bookmark or send "the Fees screen"), the URL never changed,
-// `document.title` never changed, and the browser Back button did not move
-// between screens — clicking Back after an hour in Fees left the app.
+// WHAT THIS FILE DOES NOW, AND WHAT IT USED TO DO. Until 2026-10-07 it wrote the
+// screen into a `?screen=` query parameter with `history.pushState`, because the
+// screens were query state on one route. They are routes now — `/dashboard`,
+// `/students`, `/attendance`, `/fees`, `/settings` — so Next.js owns the URL and
+// the whole `pushState`/`replaceState`/arrival-normalisation machinery is gone.
+// Two directions remain, and each has exactly one owner:
 //
-// SHAPE: `?screen=fees`.
+//   ROUTE → STORE. `usePathname()` changes; `syncActiveScreenFromPath` records it.
+//   STORE → ROUTE. `setActiveScreen` (the nav, the shortcuts, a KPI drill-down)
+//   calls the navigator this hook registers.
 //
-// OWNERSHIP. This module is the ONLY writer of the query string. The store owns
-// the vocabulary (id ⇄ param ⇄ label, in `shell-store.ts`); this owns the
-// history. One mapping, one writer — two places translating between a screen id
-// and a URL is how the two drift apart.
+// Two owners of one direction is how the two drift, so there is one of each.
 //
-// `window.history.pushState` / `replaceState` are the documented Next.js App
-// Router integration points (next/dist/docs → 01-app/01-getting-started/
-// 04-linking-and-navigating.md §"Native History API"): they update the router
-// without a reload and the router stays in sync. A `router.push` per screen
-// change would re-run the route's server work on every switch, and
-// `useSearchParams` would demand a Suspense boundary around the whole shell for
-// a value only the shell itself needs.
+// WHY THE NAVIGATOR IS INJECTED HERE AND NOT IMPORTED IN THE STORE.
+// `useRouter` is a hook; `shell-store.ts` is also read from `getState()` by
+// non-React code, so the store cannot call it. The chrome registers a navigator
+// on mount and clears it on unmount. Before it registers, `setActiveScreen` is a
+// plain setter — which is exactly why `dashboard-client.test.tsx` can assert
+// `setActiveScreen("/students")` with no router in the tree.
 //
-// WRITES ARE COMPARED, NOT BLIND. A push only happens when the URL and the store
-// disagree. That one rule is what makes Back/Forward work without a feedback
-// loop: a popstate has already put the two in agreement, so this effect writes
-// nothing and the history entry the tutor pressed is not pushed back onto.
-
-import { useEffect } from "react";
+// THE ONE THING THIS HOOK CANNOT DO ANY MORE. The old version listened for
+// `popstate`, ran the destination through `requestScreen` (the dirty-overlay
+// door) and could therefore REFUSE a Back press while a tutor had a typed ₹5,000
+// payment open. With real routes the App Router owns `popstate` and performs the
+// navigation itself; there is no supported way for application code to veto it.
+// So browser Back is no longer guarded, and that is a real regression, stated
+// here rather than left to be discovered.
+//
+// It is partly answered on the route this file DOES control: `glass-shell.tsx`
+// closes the fee sheets when the content subtree unmounts, so a Back press can no
+// longer leave a payment sheet "open" in a module singleton and re-present it
+// over a different student on the tutor's next visit to Fees. What is still
+// unguarded is the typed values inside a sheet that was open when Back was
+// pressed. Closing that gap needs a router that can veto a popstate, and
+// `next/navigation` offers no such API.
+import { useCallback, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
+  registerScreenNavigator,
+  screenFromPathname,
+  syncActiveScreenFromPath,
   useShellStore,
-  DEFAULT_SCREEN,
-  SCREEN_QUERY_PARAM,
-  screenParam,
-  screenFromParam,
+  type ScreenId,
 } from "@/stores/shell-store";
 
 /**
- * The event `popstate` raises so the shell can route a Back/Forward move through
- * its single `requestScreen` door, which owns the dirty-overlay guard. Declared
- * here (the writer of history) and consumed in `glass-shell.tsx`, so the two
- * halves of the same decision cannot drift.
+ * Binds the App Router to the shell store, and answers "which screen am I on?".
+ *
+ * Must be called from a Client Component that is mounted for the whole life of
+ * the app — `GlassShell` — so exactly one navigator is registered at a time. Two
+ * mounted navigators would mean two writers for the same route.
+ *
+ * @returns The screen the CURRENT ROUTE renders. Read during render, not from an
+ *   effect, and that is the load-bearing detail: the store is written in an
+ *   effect, so a server render — and the first client render that has to match it
+ *   — would see the store's constructor value (`/dashboard`) on EVERY route. The
+ *   nav would paint the Dashboard row as current while `/fees` was on screen, in
+ *   the HTML a crawler and a screen reader see. `usePathname()` is the same value
+ *   on the server and on the client, so the highlight is right in the first
+ *   paint.
  */
-export const REQUEST_SCREEN_EVENT = "buddysaradhi:request-screen";
+export function useScreenRoute(): ScreenId {
+  const pathname = usePathname();
+  const router = useRouter();
+  const storeScreen = useShellStore((state) => state.activeScreen);
 
-/** Builds `?<param>=<screen>` while preserving every OTHER parameter, so an
- *  unrelated query survives a screen change. */
-function urlForScreen(screen: string): string {
-  const params = new URLSearchParams(window.location.search);
-  if (screen === DEFAULT_SCREEN) {
-    // The default screen carries NO parameter. `/dashboard` is the honest URL for
-    // the dashboard; rewriting it to `/dashboard?screen=dashboard` says "you are
-    // on a non-default screen" when you are not, and it broke
-    // `waitForURL('**/dashboard')` in both a11y specs (a Playwright glob does not
-    // match across a query string), so every screen timed out at 15s in CI.
-    params.delete(SCREEN_QUERY_PARAM);
-  } else {
-    params.set(SCREEN_QUERY_PARAM, screen);
-  }
-  const query = params.toString();
-  return `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
-}
-
-/** The screen the CURRENT url asks for, or null when it asks for none. */
-function screenFromLocation(): string | null {
-  return new URLSearchParams(window.location.search).get(SCREEN_QUERY_PARAM);
-}
-
-/**
- * Whether this session has already written the arrival URL. Module-scoped on
- * purpose: it describes the app's lifetime, not a component's, and a `useRef`
- * would reset under Strict Mode's double-mount and re-push the arrival entry.
- */
-let arrivalUrlNormalized = false;
-
-export function useScreenUrlSync(): void {
-  const activeScreen = useShellStore((state) => state.activeScreen);
-
-  // Back / Forward. `pushState` never fires `popstate`, so without this the
-  // store would overwrite the URL the tutor just navigated to and that history
-  // entry would be swallowed on the next switch.
-  //
-  // A dirty overlay BLOCKS the move. The nav goes through `requestScreen` in
-  // `glass-shell.tsx`, which asks the same question and raises
-  // `DiscardChangesPrompt`; Back bypassed that, so pressing it with a typed
-  // ₹5,000 payment open unmounted the sheet and lost the values with no prompt.
-  // A keyboard path that skips a safety prompt is worse than no keyboard path.
+  // ROUTE → STORE. Runs on arrival, on Back, on Forward, and on a pasted URL —
+  // every pathname change the router can produce, which is every screen change
+  // there is now. It writes only; it never navigates, so it cannot loop.
   useEffect(() => {
-    const onPopState = () => {
-      // Hand the decision BACK to the single door. `requestScreen` in
-      // `glass-shell.tsx` already asks `findDirtyOverlay` and raises
-      // `DiscardChangesPrompt`; duplicating that logic here would create a
-      // second, subtly different answer to "may I switch screens" — and the
-      // version that gets it wrong is the one on the Back button, where a
-      // typed ₹5,000 payment would be unmounted with no prompt.
-      window.dispatchEvent(
-        new CustomEvent(REQUEST_SCREEN_EVENT, {
-          detail: { screen: screenFromParam(screenFromLocation()) },
-        }),
-      );
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, []);
+    syncActiveScreenFromPath(pathname);
+  }, [pathname]);
+
+  // STORE → ROUTE. `push`, not `replace`: switching screens must leave a history
+  // entry, or Back would leave the app instead of returning to the previous
+  // screen. The guard keeps a no-op request from stacking an identical entry.
+  const navigate = useCallback(
+    (screen: ScreenId) => {
+      if (screen === pathname) return;
+      router.push(screen);
+    },
+    [router, pathname],
+  );
 
   useEffect(() => {
-    const wanted = screenParam(activeScreen);
-    const asked = screenFromLocation();
-    // "No param" and "the default screen" are the same request, so treat them as
-    // agreement. Without this the default screen fires a pointless replaceState
-    // on every arrival and consumes the one normalising write.
-    const urlAgrees = asked === wanted || (asked === null && wanted === screenParam(DEFAULT_SCREEN));
-    if (urlAgrees) return;
+    registerScreenNavigator(navigate);
+    return () => registerScreenNavigator(null);
+  }, [navigate]);
 
-    if (!arrivalUrlNormalized) {
-      // The first write is a REPLACE. The URL the tutor arrived on IS that
-      // entry; pushing here would leave a same-screen entry in front of it, so
-      // Back would appear to do nothing once before doing anything at all.
-      arrivalUrlNormalized = true;
-      window.history.replaceState(window.history.state, "", urlForScreen(wanted));
-      return;
-    }
-    window.history.pushState(null, "", urlForScreen(wanted));
-  }, [activeScreen]);
+  // The store is the fallback, not the source. It is one transition AHEAD of the
+  // committed route — `setActiveScreen` writes it before `router.push` — so
+  // between the click and the commit the route still reads as the previous
+  // screen; the store already answers with the destination. For a pathname that
+  // is genuinely not one of the five, the store's last answer is more honest
+  // than falling back to the Dashboard constructor value.
+  return screenFromPathname(pathname) ?? storeScreen;
 }

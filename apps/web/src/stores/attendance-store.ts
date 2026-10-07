@@ -31,6 +31,12 @@ export const useAttendanceStore = create<AttendanceState>()(
     {
       name: 'buddysaradhi.attendance.v1',
       storage: createJSONStorage(() => sessionStorage),
+      // SSR: see the identical note in settings-store.ts. Without this the
+      // persisted slice restores synchronously on the client while the server
+      // rendered the constructor value — a hydration mismatch on every load for
+      // any tutor who has been here before. AttendanceClient re-hydrates in an
+      // effect.
+      skipHydration: true,
       partialize: (state) => ({
         selectedDateIso: state.selectedDateIso,
         selectedBatch: state.selectedBatch,

@@ -40,6 +40,49 @@ describe("mintIntentKey (RFC-004 C1)", () => {
   });
 });
 
+// ────────────────────────────────────────────────────────────
+// The module-level `lastEntropy` latch (TABS-HARDEN-01 Phase 2 flagged it as
+// cross-request mutable state in a module that SERVER ACTIONS import —
+// `server/actions/students.ts` calls `mintIntentKey`).
+//
+// These tests are the PROOF that keeping it is safe. The claim being defended:
+// interleaved writes to `lastEntropy` cannot corrupt a minted key, because the
+// key is derived entirely from locals and never reads the latch back. If that
+// ever stops being true, the tests below fail rather than a tutor getting a
+// replayed idempotency key in production.
+// ────────────────────────────────────────────────────────────
+describe("lastEntropy latch is per-process-safe", () => {
+  it("a minted key does not depend on the latch (repeated mints stay unique + valid)", () => {
+    // Every call writes the latch, so by the end it holds only the LAST value.
+    // If the key read the latch back, these 200 keys would collide.
+    const keys = new Set(Array.from({ length: 200 }, () => mintIntentKey(1717171717171)));
+    expect(keys.size).toBe(200);
+    for (const key of keys) expect(isIntentKey(key)).toBe(true);
+  });
+
+  it("interleaved mints for two callers never cross-contaminate the keys", () => {
+    // Simulates two concurrent server requests alternating calls: A and B each
+    // mint many keys. Neither may receive a key minted from the other's state.
+    const a: string[] = [];
+    const b: string[] = [];
+    for (let n = 0; n < 50; n += 1) {
+      a.push(mintIntentKey(1_000_000 + n));
+      b.push(mintIntentKey(2_000_000 + n));
+    }
+    expect(new Set([...a, ...b]).size).toBe(100);
+    // Each caller's own timeline stays timestamp-ordered despite the latch churn.
+    expect([...a].sort()).toEqual([...a]);
+    expect([...b].sort()).toEqual([...b]);
+  });
+
+  it("the latch holds ONE value from a three-value union — nothing to accumulate", () => {
+    mintIntentKey();
+    const sources: string[] = ["webcrypto", "uuid-fallback", "math-fallback"];
+    expect(sources).toContain(getIntentKeyEntropy());
+    expect(typeof getIntentKeyEntropy()).toBe("string");
+  });
+});
+
 describe("intentKeyFrom (RFC-004 K1 dedup)", () => {
   it("is deterministic for the same payload", () => {
     const payload = { studentId: "s-1", amountPaise: 150000, method: "cash" };

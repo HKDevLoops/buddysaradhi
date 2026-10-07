@@ -212,9 +212,28 @@ agent. Each rule carries: **the rule**, **why**, **how it's enforced**, and
 > per `01_Product_Principles.md` §Amendment Process.
 
 - **Why.** Screen sprawl is how tutors abandon a tool (P2).
-- **Enforced.** Route lint: only `/` is a user-facing route in web. Mobile has 5
-  bottom-tab entries; a 6th is a build error. New capability goes inside one of
-  the five.
+- **Enforced.** Web has exactly five user-facing screen routes —
+  `/dashboard`, `/students`, `/attendance`, `/fees`, `/settings` — and nothing
+  else (`(auth)` and `api` are not screens). `/` is not a screen; it is the
+  signed-out entry that redirects to `/login`, and `/login` redirects an
+  authenticated tutor to `/dashboard`. Mobile has 5 bottom-tab entries; a 6th is
+  a build error. New capability goes inside one of the five.
+- **WHY FIVE ROUTES IS NOT A SIXTH SCREEN — read this before "fixing" the route
+  list.** What Rule 4 protects is the **screen count**, not the **routing**. The
+  five screens were, until 2026-10-07, one path carrying the screen as query
+  state (`/dashboard?screen=fees`). That was a workaround for an old
+  implementation limit, not the rule: it cost the app deep links, a Back button
+  between screens, per-screen `document.title`, server rendering, and correct
+  `aria-current="page"`. The spec corpus already described them as five routes —
+  `16_Platform_Delivery_Sequence.md` §W1 lists `/dashboard`, `/students`,
+  `/attendance`, `/fees`, `/settings` as the five product screens, and
+  `desktop/01_Architecture.md` §Routing has the desktop shell redirect `/` →
+  `/dashboard` — so the route-based shape was always the intended one and the
+  one-line "only `/`" enforcement was the outlier. **Amended by owner directive
+  of 2026-10-07** (`docs/plans/TABS-HARDEN-01.md` §0 and §2). What the amendment
+  changes is HOW a screen is reached; what it must not change is HOW MANY there
+  are. The prohibition is absolute and unchanged: still five screens, still a
+  ratified amendment required for a sixth, still P2.
 - **If asked to violate.** Refuse. Cite P2. Propose: ship the capability as a
   sub-screen, drawer, or modal inside an existing surface; or draft an RFC.
 
@@ -354,7 +373,7 @@ buddysaradhi/
 
 | Path                                        | What lives here                                                                                                                                                                  | Agent should                                                                                                          | Agent should NOT                                                                                            | Governing spec                                                       |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `apps/web`                                  | Next.js 16 App Router, TS strict, Tailwind 4, shadcn/ui, Framer, Zustand, TanStack, `@libsql/client`, `@supabase/ssr`                                                            | Add Server Components for data; Client Components only for interactive glass; server actions for mutations            | Import `z-ai-web-dev-sdk` or service-role keys into Client Components; add a 2nd user-facing route          | `02_Core_Logic.md` §5, `13_UI_Guidelines.md`                         |
+| `apps/web`                                  | Next.js 16 App Router, TS strict, Tailwind 4, shadcn/ui, Framer, Zustand, TanStack, `@libsql/client`, `@supabase/ssr`                                                            | Add Server Components for data; Client Components only for interactive glass; server actions for mutations            | Import `z-ai-web-dev-sdk` or service-role keys into Client Components; add a 6th user-facing route          | `02_Core_Logic.md` §5, `13_UI_Guidelines.md`                         |
 | `apps/gateway`                              | Deno 2 Edge Functions — REST (`/api/v1/*`), GraphQL (`/graphql`), provisioning (`/provision-db`), libsql schema, auth, security, caching. Canonical backend for all platforms.   | Add route handlers in `routes/`; use typed `Result<T,E>` from `lib/errors.ts`; emit structured logs via `lib/log.ts`  | Import npm packages directly (use Deno ESM imports); add a new top-level entrypoint; bypass auth middleware | `17_API_Gateway_System.md`, `deployment/06_Edge_Function_Hosting.md` |
 | `apps/mobile` (v1.x)                        | Expo SDK 51+, RN, Supabase JS, EAS, `expo-sqlite`, `expo-secure-store`, `expo-haptics`, `expo-local-authentication`                                                              | Use `FlashList` (never `FlatList` for >20 items); 44px targets; haptic on every neumorphic press; custom glass modals | Use `Alert.alert()`; ship without `expo-haptics`                                                            | `13_UI_Guidelines.md` §4, `15_Future_Roadmap.md` v1.x                |
 | `apps/desktop` (v1.x)                       | Tauri v2, Rust (`tokio`, `serde`, `libsql`), Next.js static export                                                                                                               | Validate all IPC inputs with `serde` before touching SQLite; SQLCipher for local DB; strict capability allowlist      | Broaden Tauri capabilities; bypass `serde` validation                                                       | `10_Security.md` §5, `15_Future_Roadmap.md` v1.x                     |
@@ -396,11 +415,14 @@ no abbreviations, no informal shortcuts.
 
 **Web (`apps/web`).** Next.js 16 App Router. Server Components for all data
 fetching and static composition. Client Components only for glass/neumorphic
-interactive surfaces (toggles, sheets, heatmaps, command palette). Only the `/`
-route is user-facing — screen switching is Zustand-driven inside `GlassShell`
-(`02_Core_Logic.md` §5). Forms: `react-hook-form` + `zod`; never submit before
-validation. API routes (`/app/api/*`) are the only place `z-ai-web-dev-sdk` or
-service-role keys may run. Sticky footer is mandatory.
+interactive surfaces (toggles, sheets, heatmaps, command palette). The five
+screens are five real SSR routes (`/dashboard`, `/students`, `/attendance`,
+`/fees`, `/settings`); each `page.tsx` is a Server Component that prefetches its
+own data into a dehydrated TanStack cache, and `GlassShell` is the client chrome
+they all render (`02_Core_Logic.md` §5, §2 Rule 4). Forms: `react-hook-form` +
+`zod`; never submit before validation. API routes (`/app/api/*`) are the only
+place `z-ai-web-dev-sdk` or service-role keys may run. Sticky footer is
+mandatory.
 
 **Mobile (`apps/mobile`).** Expo. `FlashList` (never `FlatList` for >20). Touch
 targets ≥ 44×44px. Haptic on every neumorphic press. Never `Alert.alert()` —
@@ -1194,7 +1216,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 | --------- | ---------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | **FM-01** | Ledger `UPDATE`d; audit gap                          | Edited row directly                                                             | Re-apply trigger; post reversing entry                                                    | Lint `no-ledger-mutation.py`; review gate (Rule 1)                                  |
 | **FM-02** | Fee renders as `₹1,255.5499…`                        | Used `number` (float)                                                           | Migrate to `INTEGER` paise; `paiseAdd`/`paiseMul`                                         | Lint `no-float-money`; Zod rejects `number` for money (Rule 6, BR-M-01)             |
-| **FM-03** | 6th tab or `/route` exists                           | Added top-level surface "just for now"                                          | Remove; re-home inside one of 5 screens                                                   | Route lint: only `/` user-facing in web; mobile 5 tabs (Rule 4, P2)                 |
+| **FM-03** | A 6th screen route or mobile tab exists             | Added top-level surface "just for now"                                          | Remove; re-home inside one of 5 screens                                                   | Route lint: web has exactly `/dashboard` `/students` `/attendance` `/fees` `/settings`; mobile 5 tabs (Rule 4, P2) |
 | **FM-04** | UI uses `bg-indigo-600`/`text-blue-500` as primary   | Reached for default Tailwind palette                                            | Replace with `bg-accent-emerald`/`text-accent-cyan` from `ACCENT_MAP`                     | Lint `no-indigo-accent` rejects `#4F46E5`, `blue-600`, etc. (Rule 5, AP-6)          |
 | **FM-05** | Mutation via `fetch('/api/...')` in Client Component | Called a server action client-side                                              | Move into Server Action (`'use server'`); `startTransition`                               | ESLint `no-fetch-in-client`; review gate on `fetch` imports (§6.4)                  |
 | **FM-06** | `fetch` URL hardcodes `http://localhost:3000`        | Copied a dev URL into prod                                                      | Read base URL from `env.NEXT_PUBLIC_APP_URL`                                              | Lint `no-hardcoded-origin`; review gate on string-literal URLs                      |

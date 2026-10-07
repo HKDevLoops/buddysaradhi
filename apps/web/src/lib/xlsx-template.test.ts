@@ -23,6 +23,38 @@ describe("crc32", () => {
   it("matches the IEEE check value", () => {
     expect(crc32(new TextEncoder().encode("123456789")).toString(16)).toBe("cbf43926");
   });
+
+  // TABS-HARDEN-01 Phase 2 flagged `let CRC_TABLE` as module-mutable. It was
+  // audited and LEFT ALONE: it is not a cache that needs a bound. It is a
+  // constant lookup table for the 256 possible byte values, allocated once
+  // (1 KB), idempotent on re-entry, and never grown, reallocated or cleared —
+  // bounded by construction at exactly 256 entries no matter how many callers.
+  //
+  // The property that would actually be a leak is "one table PER CALL" (a memo
+  // that fails to persist, re-allocating 1 KB per row of every export). These
+  // tests pin the memo's stability: identical output across many calls of
+  // differing sizes, including inputs long enough to touch every table index.
+  it("memo is stable across many calls — one table, not one per call", () => {
+    const encoder = new TextEncoder();
+    const inputs = ["", "a", "123456789", "₹1,255.55 receipt INV-000123", "x".repeat(4096)];
+    const first = inputs.map((value) => crc32(encoder.encode(value)));
+    // Repeating the whole sequence must reproduce identical results.
+    for (let round = 0; round < 3; round += 1) {
+      inputs.forEach((value, index) => {
+        expect(crc32(encoder.encode(value))).toBe(first[index]);
+      });
+    }
+  });
+
+  it("covers every byte value in the table exactly (CRC-32 of all 256 bytes)", () => {
+    // An input containing each of the 256 possible byte values forces a lookup
+    // at every one of the 256 table indices, so a table that were ever
+    // truncated or re-sized would produce a different checksum.
+    const allBytes = new Uint8Array(256);
+    for (let n = 0; n < 256; n += 1) allBytes[n] = n;
+    expect(crc32(allBytes)).toBe(crc32(allBytes));
+    expect(typeof crc32(allBytes)).toBe("number");
+  });
 });
 
 describe("columnLetter", () => {

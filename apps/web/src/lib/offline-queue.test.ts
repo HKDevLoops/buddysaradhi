@@ -12,6 +12,8 @@ import {
   resetQueueStorageForTests,
   getQueueStorageWarning,
   isQueueStorageDurable,
+  memoryFallbackStats,
+  MEMORY_FALLBACK_TENANT_MAX,
   QUEUE_CAP,
   type QueuedIntent,
 } from "./offline-queue";
@@ -209,5 +211,81 @@ describe("offline queue (RFC-004 C3/K5)", () => {
   it("requires a tenant id (typed, never silent)", () => {
     expect(enqueueIntent("", { action: "a", payload: {} }).ok).toBe(false);
     expect(readQueue("").warning).toMatch(/tenant/);
+  });
+});
+
+// ────────────────────────────────────────────────────────────
+// Bounded in-memory fallback (TABS-HARDEN-01 Phase 2)
+// Each tenant's fallback queue was already capped on its own by QUEUE_CAP, but
+// the NUMBER of tenants holding one was unbounded — a tab that never recovers
+// from a storage quota error grew one array per tenant for the life of the
+// page. The tests below ASSERT the ceiling by writing N+1 tenants and proving
+// N remain, and prove the eviction is surfaced rather than silent (Rule 9).
+// ────────────────────────────────────────────────────────────
+describe("memoryFallback bound", () => {
+  /** A storage that always refuses writes — the private-mode / quota case. */
+  function refuseWrites(): Storage {
+    return {
+      ...makeMemoryStorage(),
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    };
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(window, "localStorage", {
+      value: refuseWrites(),
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it("evicts N+1 tenant queues down to N and never exceeds the ceiling", () => {
+    for (let n = 0; n < MEMORY_FALLBACK_TENANT_MAX + 3; n += 1) {
+      enqueueIntent(`bounded-tenant-${n}`, { action: "a", payload: { n }, key: `k-${n}` });
+      expect(memoryFallbackStats().size).toBeLessThanOrEqual(MEMORY_FALLBACK_TENANT_MAX);
+    }
+    const stats = memoryFallbackStats();
+    expect(stats.size).toBe(MEMORY_FALLBACK_TENANT_MAX);
+    expect(stats.max).toBe(MEMORY_FALLBACK_TENANT_MAX);
+  });
+
+  it("SURFACES the eviction instead of losing an intent silently (Rule 9)", () => {
+    for (let n = 0; n <= MEMORY_FALLBACK_TENANT_MAX; n += 1) {
+      enqueueIntent(`surfaced-tenant-${n}`, { action: "a", payload: { n }, key: `k-${n}` });
+    }
+    const warning = getQueueStorageWarning();
+    expect(warning).not.toBeNull();
+    // The dropped tenant is NAMED, so a tutor can be told which queue went.
+    expect(warning).toMatch(/In-memory queue for .* was dropped/);
+    expect(warning).toMatch(String(MEMORY_FALLBACK_TENANT_MAX));
+  });
+
+  it("is a true LRU: a re-read tenant survives the next overflow", () => {
+    const tenant = uniqueTenant();
+    enqueueIntent(tenant, { action: "a", payload: {}, key: "survivor" });
+    // Fill to exactly the ceiling: survivor + (max - 1) others. The survivor is
+    // now the least-recently-used entry.
+    for (let n = 0; n < MEMORY_FALLBACK_TENANT_MAX - 1; n += 1) {
+      enqueueIntent(`lru-tenant-${n}`, { action: "a", payload: {}, key: `k-${n}` });
+    }
+    expect(memoryFallbackStats().size).toBe(MEMORY_FALLBACK_TENANT_MAX);
+    // Reading the survivor's queue promotes it above the LRU tenant, so the
+    // next overflow must evict that LRU tenant rather than the survivor. Under
+    // the previous FIFO behaviour this read changed nothing and the survivor
+    // (oldest) would have been the one dropped.
+    expect(readQueue(tenant).items.map((row) => row.key)).toEqual(["survivor"]);
+    enqueueIntent("overflow-tenant", { action: "a", payload: {}, key: "k-overflow" });
+    expect(readQueue(tenant).items.map((row) => row.key)).toEqual(["survivor"]);
+    expect(memoryFallbackStats().size).toBe(MEMORY_FALLBACK_TENANT_MAX);
+  });
+
+  it("clearing a queue RELEASES its slot instead of pinning an empty array", () => {
+    const tenant = uniqueTenant();
+    enqueueIntent(tenant, { action: "a", payload: {}, key: "k-1" });
+    expect(memoryFallbackStats().size).toBe(1);
+    clearQueue(tenant);
+    expect(memoryFallbackStats().size).toBe(0);
   });
 });

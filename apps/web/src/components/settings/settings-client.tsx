@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
 // Implements: UI/web/08_Settings.md — SettingsClient
 // Settings wrapper layout with full integration of palette variables.
 // AGENTS.md §2 Rule 9: `getSettings` returns a `{ success: false, error }`
@@ -34,6 +36,15 @@ import { ErrorState, ScreenSkeleton } from "@/components/ui/screen-state";
 export function SettingsClient() {
   const { activeSection, pendingNav, confirmDiscard, cancelDiscard } = useSettingsStore();
 
+  // The store is persisted with `skipHydration` (see settings-store.ts), so the
+  // last-visited section arrives AFTER first paint. Re-hydrating in an effect is
+  // what makes the server markup and the client's first render agree; without it
+  // every returning tutor gets a hydration mismatch and a section that silently
+  // jumps back to Profile under their finger.
+  useEffect(() => {
+    void useSettingsStore.persist.rehydrate();
+  }, []);
+
   const {
     data,
     error,
@@ -52,6 +63,43 @@ export function SettingsClient() {
   const envelopeError =
     data && data.success === false ? data.error : undefined;
   const failure: unknown = isError ? error : envelopeError;
+
+  // A BACKGROUND REFRESH FAILURE IS NOT A BLANK SCREEN.
+  //
+  // `data === undefined` means we have never once loaded this tutor's settings;
+  // only then is there genuinely nothing to show and `<ErrorState>` is the honest
+  // surface. `data !== undefined` means a read SUCCEEDED earlier and a later
+  // background refetch (`invalidateQueries` from every section's `onSettled`, or
+  // `refetchOnWindowFocus`) came back as the `success: false` envelope — the
+  // gateway refusing with AUTH_REQUIRED, or an upstream connect timeout.
+  //
+  // Tearing the screen down for that is a real defect, not a cosmetic one: the
+  // `<SettingsNav/>` rail AND every section live inside this same ternary, so one
+  // failed background refresh destroyed the tutor's whole screen — the section
+  // they were reading, the rail, and their place in it — and the recovery
+  // remounted it from scratch, replaying every section's `animate-in
+  // slide-in-from-bottom-2` enter animation. A tutor who toggled one setting and
+  // hit a 503 watched their screen blink out and back.
+  //
+  // The stale values stay on screen, which is the whole point of a cache with a
+  // `staleTime` (02_Core_Logic.md §9): better the previous truth than no truth.
+  // Nothing is swallowed — `getSettings` already logged `settings_read_failed` at
+  // source (`server/queries/settings.ts`), `isError`/`error` remain in scope for
+  // Diagnostics, and `refetch` is still the Retry. Rule 9 is about not pretending
+  // a failure did not happen, and this does not.
+  //
+  // WHY A LATCH AND NOT `data !== undefined`. `getSettings` resolves the refusal
+  // envelope as a SUCCESSFUL query whose payload says `success: false`, so
+  // `data` is always defined once the first attempt settles — reading "we have
+  // loaded" off it would render thirteen sections over `{}` for a tutor whose
+  // read has NEVER succeeded, which is the silent-overwrite hazard this file's
+  // own header exists to prevent (a save would write defaults over the truth).
+  // The latch is monotonic and only ever set from `success: true`, so it answers
+  // "has this session ever seen the tutor's real settings", which is the
+  // question the branch actually needs answered.
+  const hasRealSettings = useRef(false);
+  if (data?.success === true) hasRealSettings.current = true;
+  const blockingFailure = hasRealSettings.current ? undefined : failure;
 
   // A `success: true, data: null` read means the row genuinely does not exist
   // yet (a brand-new tutor), which is NOT a failure — the sections own their
@@ -134,12 +182,14 @@ export function SettingsClient() {
 
       {/* Loading and failure replace the nav AND the sections together: a rail
           of thirteen sections over data that never arrived is the exact screen
-          this branch exists to prevent. */}
+          this branch exists to prevent. `blockingFailure`, not `failure` — see
+          the background-refresh note above; once a read has succeeded, a later
+          failed refresh leaves this screen standing. */}
       {isLoading ? (
         <ScreenSkeleton shape="form" label="your settings" rows={6} />
-      ) : failure ? (
+      ) : blockingFailure ? (
         <ErrorState
-          state={toAppErrorState(failure)}
+          state={toAppErrorState(blockingFailure)}
           onRetry={() => {
             void refetch();
           }}

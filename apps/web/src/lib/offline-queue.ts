@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mintIntentKey } from "./intent-key";
+import { BoundedCache } from "./lru";
 import type { ActionResult } from "./retry-invoke";
 
 export const QUEUE_PREFIX = "buddysaradhi.queue.";
@@ -80,8 +81,39 @@ const SENSITIVE_FIELD_RE = /(passw|secret|token|api[-_ ]?key|pin|otp|ssn|cvv)/i;
 
 // ── storage (every access guarded: private-mode quota throws) ───────────────
 
-const memoryFallback = new Map<string, QueuedIntent[]>();
+/**
+ * Tenants whose in-memory fallback queue is kept at once.
+ *
+ * The fallback only engages when `localStorage` is unavailable (private mode,
+ * quota exhausted, disabled). Each held tenant is already bounded on its own by
+ * `QUEUE_CAP` rows and `MAX_PAYLOAD_BYTES` per row, but the NUMBER of tenants
+ * holding such a row was unbounded — so a long-lived tab on a shared kiosk, or
+ * a browser that never recovers from a quota error, grew one array per tenant
+ * for the life of the page (TABS-HARDEN-01 Phase 2). Eight is far above the
+ * normal case (one tenant per browser) while capping the worst case at
+ * 8 x QUEUE_CAP rows.
+ */
+export const MEMORY_FALLBACK_TENANT_MAX = 8;
+
+const memoryFallback = new BoundedCache<string, QueuedIntent[]>(MEMORY_FALLBACK_TENANT_MAX, (key) => {
+  // Losing a queued intent is the K5 failure this module exists to prevent, so
+  // eviction is SURFACED through the same latch as a durability degradation
+  // (AGENTS.md §2 Rule 9 — never silent). The storage key is
+  // `buddysaradhi.queue.<sanitised tenant>`, so the tenant is named rather than
+  // an opaque key.
+  noteFallbackReason(
+    `In-memory queue for ${key} was dropped: the offline fallback keeps only the ${MEMORY_FALLBACK_TENANT_MAX} most recently used tenants and this one was least recently used.`,
+  );
+});
 let fallbackReason: string | null = null;
+
+/**
+ * Records a durability warning. The first reason is kept whole; later ones are
+ * appended so no occurrence is ever dropped silently.
+ */
+function noteFallbackReason(reason: string): void {
+  fallbackReason = fallbackReason === null ? reason : `${fallbackReason}; ${reason}`;
+}
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -91,6 +123,14 @@ function hasWindow(): boolean {
 export function resetQueueStorageForTests(): void {
   memoryFallback.clear();
   fallbackReason = null;
+}
+
+/**
+ * Live entry count for the bounded in-memory fallback, so the bound is a
+ * runtime fact rather than a claim in a comment.
+ */
+export function memoryFallbackStats(): { size: number; max: number } {
+  return { size: memoryFallback.size, max: memoryFallback.max };
 }
 
 /** Surfaced (never silent) warning when durability degraded to memory. */
@@ -171,8 +211,14 @@ function readRaw(storageKey: string): { items: QueuedIntent[]; corrupt: number }
 
 function writeRaw(storageKey: string, items: QueuedIntent[]): void {
   const raw = JSON.stringify(items);
+  // An emptied queue must RELEASE its bounded slot rather than pin it with an
+  // empty array — otherwise `clearQueue` on a storage-less device left one slot
+  // occupied per tenant forever.
+  if (items.length === 0) {
+    memoryFallback.delete(storageKey);
+  }
   if (!hasWindow()) {
-    memoryFallback.set(storageKey, items);
+    if (items.length > 0) memoryFallback.set(storageKey, items);
     return;
   }
   try {
@@ -180,11 +226,10 @@ function writeRaw(storageKey: string, items: QueuedIntent[]): void {
   } catch {
     // Private-mode quota (or disabled storage): keep the intent in memory and
     // surface the degradation — losing an intent silently is the K5 failure.
-    memoryFallback.set(storageKey, items);
-    if (fallbackReason === null) {
-      fallbackReason =
-        "Offline queue storage is unavailable (private mode or quota) — intents are held in memory only and will not survive a reload.";
-    }
+    if (items.length > 0) memoryFallback.set(storageKey, items);
+    noteFallbackReason(
+      "Offline queue storage is unavailable (private mode or quota) — intents are held in memory only and will not survive a reload.",
+    );
   }
 }
 

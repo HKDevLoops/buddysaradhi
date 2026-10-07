@@ -1,41 +1,50 @@
 "use client";
 
 // Implements: UI/web/03_Dashboard.md — Aurora Cosmic glass shell
-// GlassShell — the persistent 5-screen layout wrapping all app pages.
+// GlassShell — the persistent chrome the five screen ROUTES render inside.
 // Sidebar + topbar + main + sticky-footer.
 //
-// AGENTS.md §2 Rule 4 (five screens, ONE route — the screen is a query
-// parameter, never a sixth path), Rule 5 (colour from the generated palette),
-// Rule 9 (no silent failures), Rule 10 (a11y: 44px targets, keyboard parity,
-// colour never the only signal); apps/web/DESIGN.md §2 Anti-Slop #2 (no
-// decorative pulse or scale motion); docs/design/material-modes.md §2 (one
-// material token, one blur source, and `filter` on a page-background layer is a
-// backdrop-root trap — §5.3).
+// AGENTS.md §2 Rule 5 (colour from the generated palette), Rule 9 (no silent
+// failures), Rule 10 (a11y: 44px targets, keyboard parity, colour never the only
+// signal); apps/web/DESIGN.md §2 Anti-Slop #2 (no decorative pulse or scale
+// motion); docs/design/material-modes.md §2 (one material token, one blur
+// source, and `filter` on a page-background layer is a backdrop-root trap —
+// §5.3).
 //
 // This shell is the ONE place the app's material is applied. Every blur here is
 // `var(--mat-filter)`; no literal, no `opacity` under a material, no animation on
 // a background layer.
 //
-// INTERACTION VELOCITY. This file used to own the app's only global accelerator
-// (⌘K) and its only way to change screens (five pointer-only buttons wired to a
-// Zustand store, with `href`s pointing at routes that do not exist). Now:
-//   - every chord lives in ONE registry (`components/ui/shortcuts.ts`), so the
-//     "never fire while typing, never over an overlay" guards cannot be
-//     re-implemented wrongly on the next accelerator;
-//   - the screen is mirrored into `?screen=` so a tutor can deep link, reload,
-//     and press Back — `hooks/use-screen-url.ts`;
-//   - the screen label drives `document.title` and every nav button reports a
-//     real current state (`aria-current="true"`, not `"page"` on a non-page).
+// CHROME OR CONTENT — WHY THIS FILE STAYS A CLIENT COMPONENT (decided, not
+// deferred). As of 2026-10-07 the five screens are five routes
+// (`/dashboard`, `/students`, `/attendance`, `/fees`, `/settings` — Rule 4 as
+// amended) and each `page.tsx` is a Server Component that prefetches its own
+// data. So the CONTENT is already server-rendered: `children` is a
+// Server-Component slot that Next renders to HTML before this component ever
+// runs. What is left here is chrome, and chrome is browser-only work that cannot
+// be server-rendered without becoming a lie:
 //
-// ITEM 4 — A SCREEN CHANGE IS A DISMISSAL. The screen is no longer a route, so
-// switching it does not navigate; it re-renders the same page. Any sheet mounted
-// on the old screen therefore UNMOUNTS under the tutor's hands, and no layer's own
-// Escape/scrim guard can run, because those guards only fire when a tutor acts on
-// the layer. The money-sheet case is the one that matters: a payment form left open
-// on Fees re-appears already-open on Students, over a different student, with a
-// stale subject. So `requestScreen` is the single door — every screen change (both
-// navs, the account menu, the search result) goes through it, it asks the overlay
-// stack first, and it closes the fee sheets when the answer is yes.
+//   - `PinSetupGate` reads the tutor's session and hides the app;
+//   - the offline/sync pill reads `navigator.onLine` and the outbox count;
+//   - `document.title` follows the screen;
+//   - the nav, the ⌘K registry and `?` are keyboard and focus state;
+//   - the account menu, the discard prompt and the whole shortcut registry are
+//     event handlers.
+//
+// Moving the screen SWITCHING out of this file was the actual work, and it is
+// done: `SCREENS` + `requestScreen` → `setActiveScreen` → the navigator
+// registered by `useScreenRoute` (`hooks/use-screen-url.ts`), which navigates by
+// route. The five `requestScreen` call sites below are unchanged and still the
+// single door; what changed is what happens when it opens.
+//
+// ITEM 4 — A SCREEN CHANGE IS A DISMISSAL. Switching screens navigates, so the
+// old route's subtree unmounts. Any sheet mounted on the old screen therefore
+// UNMOUNTS under the tutor's hands. The money-sheet case is the one that
+// matters: a payment form left open on Fees re-appears already-open on Students,
+// over a different student, with a stale subject. So `requestScreen` is the
+// single door — every screen change (both navs, the account menu, the search
+// result) goes through it, it asks the overlay stack first, and it closes the
+// fee sheets when the answer is yes.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -53,7 +62,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useShellStore, SCREENS, screenLabel, screenFromParam, type ScreenId } from "@/stores/shell-store";
+import { useShellStore, SCREENS, screenLabel, type ScreenId } from "@/stores/shell-store";
 import { useStudentsStore } from "@/stores/students-store";
 import { closeFeeSheets } from "@/stores/fees-store";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -71,7 +80,7 @@ import {
   registerPaletteFocus,
   useGlobalShortcuts,
 } from "@/components/ui/shortcuts";
-import { useScreenUrlSync, REQUEST_SCREEN_EVENT } from "@/hooks/use-screen-url";
+import { useScreenRoute } from "@/hooks/use-screen-url";
 import { toAppErrorState } from "@/lib/app-errors";
 import { clearAllQueues } from "@/lib/offline-queue";
 // Craft floor: "claims come from supplied truth". The footer used to render a
@@ -104,7 +113,16 @@ function screenChord(index: number): string {
 }
 
 export function GlassShell({ children }: { children: React.ReactNode }) {
-  const { activeScreen, setActiveScreen } = useShellStore();
+  // Narrowed to the one action. Subscribing to the whole store re-rendered the
+  // entire shell — canvas, sidebar, topbar, footer — on every screen change, and
+  // since 2026-10-07 the route change already re-renders this subtree anyway. The
+  // nav highlight reads the route through `useScreenRoute`, not this store.
+  const setActiveScreen = useShellStore((state) => state.setActiveScreen);
+  // `activeScreen` comes from the ROUTE, not from the store, so the nav highlight,
+  // the `document.title` and the scroll region's label are right in the server's
+  // first paint on every route — not just on `/dashboard`. Reading the store here
+  // would light up the Dashboard row on `/fees` until an effect caught up.
+  const activeScreen = useScreenRoute();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   /**
@@ -130,10 +148,15 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
    *   3. if clean, close the fee sheets. Their flags are session state; a sheet
    *      that survives its screen re-opens over a different student.
    *   4. switch.
+   *
+   * The "already here" check reads the ROUTE (`activeScreen`), not the store: the
+   * store is written before `router.push` commits, so it would answer "yes" for a
+   * screen the tutor is still looking at, and the nav would feel dead for the
+   * length of a transition.
    */
   const requestScreen = useCallback(
     (next: ScreenId) => {
-      if (next === useShellStore.getState().activeScreen) return;
+      if (next === activeScreen) return;
       const dirty = findDirtyOverlay();
       if (dirty) {
         setBlockedScreen({
@@ -145,29 +168,22 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
       closeFeeSheets();
       setActiveScreen(next);
     },
-    [setActiveScreen],
+    [activeScreen, setActiveScreen],
   );
 
-  // The screen becomes URL state on this same route — `?screen=fees` — so
-  // reload, deep link, Back and Forward all land where the tutor left off.
-  useScreenUrlSync();
-
-  // Back / Forward arrives here rather than in the history writer, so it gets
-  // the SAME dirty-overlay answer the nav gets. Before this, pressing Back with
-  // a typed payment open unmounted the sheet and lost the values with no prompt
-  // — a keyboard path that skipped a safety prompt, which is worse than having
-  // no keyboard path at all.
-  useEffect(() => {
-    const onRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{ screen: unknown }>).detail;
-      const next = screenFromParam(
-        typeof detail?.screen === "string" ? detail.screen : null,
-      );
-      requestScreen(next);
-    };
-    window.addEventListener(REQUEST_SCREEN_EVENT, onRequest);
-    return () => window.removeEventListener(REQUEST_SCREEN_EVENT, onRequest);
-  }, [requestScreen]);
+  // The fee sheets live in a MODULE store, which survives the navigation that
+  // unmounts the screen that drew them. `requestScreen` closes them for every
+  // change it authorises; this cleanup covers the changes it does not see —
+  // browser Back and Forward, which the App Router performs itself, and any
+  // navigation that tears the tree down. Without it, a payment sheet left open on
+  // Fees survives the route change and re-appears over a DIFFERENT student the
+  // next time the tutor opens Fees.
+  //
+  // This does not restore the old Back-button prompt (see the note in
+  // `hooks/use-screen-url.ts`: the App Router owns `popstate` and offers no way to
+  // veto it). It stops the sheet LEAKING, which is the part that could show a
+  // tutor another student's name on a form they were filling in.
+  useEffect(() => () => closeFeeSheets(), []);
 
   const onSignOut = async () => {
     if (isSigningOut) return;
@@ -381,11 +397,19 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
 
           {/* Nav. `role="navigation"` was removed: the element is already a
               <nav>, and a redundant role is a lie an assistive tech has to
-              reconcile. `aria-current="page"` was removed too — it claims the
-              button IS a page, and none of the five is a route (AGENTS.md §2
-              Rule 4: one route, five screens). These buttons switch a screen
-              within the page, so `aria-current="true"` is the honest state:
-              it is what a screen reader announces as "current". */}
+              reconcile. `aria-current="page"` is now HONEST rather than aspirational:
+              since 2026-10-07 each of the five IS a route
+              (`/dashboard` … `/settings`, AGENTS.md §2 Rule 4 as amended), and this
+              button navigates to it. It said `aria-current="true"` for years
+              precisely because it was NOT a page, and saying "page" then would have
+              been a false claim to a screen reader.
+
+              They stay `<button>`s, not `<Link>`s, and that is deliberate: a link
+              navigates on its own and this file could not ask
+              `findDirtyOverlay()` first, so a tutor with a typed ₹5,000 payment
+              open would lose it with no prompt by clicking the row they had
+              deliberately aimed at. `requestScreen` is the single door and it owns
+              the question. A keyboard user gets the same door through `g then N`. */}
           <nav className="flex-1 px-4 py-6 space-y-1" aria-label="Screens">
             {SCREENS.map((screen, index) => {
               const Icon = SCREEN_ICONS[screen.id];
@@ -395,7 +419,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                 <button
                   key={screen.id}
                   onClick={() => requestScreen(screen.id)}
-                  aria-current={isActive ? "true" : undefined}
+                  aria-current={isActive ? "page" : undefined}
                   aria-label={`${screen.label} — press ${chord}`}
                   title={`${screen.label} (${chord})`}
                   className={cn(
@@ -734,11 +758,11 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Mobile bottom-tab navigation — visible only below md. Same
-            correction as the sidebar: these are not pages (one route, five
-            screens — AGENTS.md §2 Rule 4), so they report `aria-current="true"`.
-            The icon and the label are BOTH there, so the active tab is never
-            signalled by colour alone (Rule 10 / AP-14). */}
+        {/* Mobile bottom-tab navigation — visible only below md. Same correction as
+            the sidebar: since 2026-10-07 each of the five IS a route
+            (AGENTS.md §2 Rule 4 as amended), so these report `aria-current="page"`
+            and now actually navigate. The icon and the label are BOTH there, so
+            the active tab is never signalled by colour alone (Rule 10 / AP-14). */}
         <nav
           className="md:hidden fixed bottom-0 inset-x-0 z-30 flex items-stretch justify-around"
           style={{
@@ -756,7 +780,7 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
               <button
                 key={screen.id}
                 onClick={() => requestScreen(screen.id)}
-                aria-current={isActive ? "true" : undefined}
+                aria-current={isActive ? "page" : undefined}
                 aria-label={screen.label}
                 className="flex-1 flex flex-col items-center justify-center gap-1 py-2 min-h-[56px]"
                 style={

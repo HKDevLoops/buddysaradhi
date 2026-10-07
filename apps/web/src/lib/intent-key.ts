@@ -26,6 +26,41 @@ export type KeyEntropy = "webcrypto" | "uuid-fallback" | "math-fallback";
 
 export const STABLE_KEY_PREFIX = "stk";
 
+/**
+ * WHY THIS MODULE-LEVEL `let` IS PER-PROCESS-SAFE (TABS-HARDEN-01 Phase 2
+ * flagged it as cross-request mutable state in a module that server actions
+ * import — `server/actions/students.ts` calls `mintIntentKey` — so it was
+ * audited rather than assumed). Three properties, together, make it safe to
+ * keep:
+ *
+ * 1. IT IS NOT AN INPUT TO ANYTHING. `mintIntentKey` derives the returned key
+ *    entirely from `tsHex` and the local `drawn` (hex + source) produced by
+ *    `drawRandomHex`. The assignment below happens after the key string is
+ *    fully determined and is never read back into it. Two concurrent server
+ *    requests may interleave these writes and neither can observe the other's,
+ *    so no minted key can be corrupted by another request. The minted key stays
+ *    a pure function of (`nowMs`, crypto state).
+ *
+ * 2. ITS ONLY READER IS DIAGNOSTIC AND HAS NO PRODUCTION CALL SITE.
+ *    `getIntentKeyEntropy()` is the sole reader; a repo-wide search finds it
+ *    referenced only by this module's own doc comments and `intent-key.test.ts`.
+ *    No money path, no idempotency check, no ledger read consumes it.
+ *
+ * 3. IT CANNOT ACCUMULATE. The state is one string from a three-value union, so
+ *    there is no growth, no collection and nothing to bound — unlike the
+ *    `Map`s in `lib/db.ts` and `lib/offline-queue.ts`, which hold one entry per
+ *    tenant and DID need a ceiling.
+ *
+ * WHAT CROSSES A REQUEST BOUNDARY: only the reported entropy SOURCE, when two
+ * requests mint concurrently and a later reader asks which source was used.
+ * That is a diagnostics string about the last call, not state that any
+ * behaviour depends on.
+ *
+ * KNOWN GAP (not fixable in this module): the Rule 9 promise in the file header
+ * — that a WebCrypto failure is surfaced rather than silent — currently has no
+ * production reader, so the surfacing exists in code and is asserted by tests
+ * but is not yet shown to a tutor. Wiring it is a component concern.
+ */
 let lastEntropy: KeyEntropy = "webcrypto";
 
 /** Which randomness source the most recent `mintIntentKey()` used. */

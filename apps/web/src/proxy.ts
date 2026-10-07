@@ -119,7 +119,30 @@ export default function proxy(req: NextRequest) {
   // -------------------------------------------------------------------------------------
   // 2. Domain & Routing Interception (Tutor Portal Web App Only)
   // -------------------------------------------------------------------------------------
-  // Redirect root path directly to /login
+  // Redirect root path directly to /login.
+  //
+  // VERIFIED AGAINST THE FIVE SSR ROUTES (2026-10-07, TABS-HARDEN-01 Phase 1). Two
+  // questions were open when `/dashboard` became five routes and both answer
+  // "no change needed", recorded here because the next person WILL re-ask them:
+  //
+  //   1. DOES THIS MATCHER REACH THE NEW ROUTES? Yes — `config.matcher` below is
+  //      every path except static assets, and this function returns `updateSession`
+  //      for all of them.
+  //   2. IS THE AUTH GATE STILL CORRECT FOR THEM? Yes, and it was already correct:
+  //      `lib/supabase/middleware.ts:70` lists EXACTLY
+  //      `/dashboard, /students, /attendance, /fees, /settings` as the app routes
+  //      that require a session and redirect to `/login` when there is none. That
+  //      list was written for a future that had not arrived; promoting the five
+  //      screens to routes is what made it true. `SCREENS` in
+  //      `stores/shell-store.ts` and that `appRoutes` array must agree — change
+  //      one, change the other.
+  //
+  // `/` → `/login` (not `/dashboard`) is deliberate: `/` cannot know whether the
+  // visitor has a session, and `updateSession` is the only thing that does. A
+  // signed-in tutor who types `buddysaradhi.app` is bounced `/` → `/login` →
+  // `/dashboard` (middleware.ts:137-145), which is one extra hop on a cold entry
+  // and zero extra logic here. Redirecting `/` straight to `/dashboard` would
+  // show an unauthenticated tutor a rendered app frame before middleware decided.
   if (pathname === '/') {
     url.pathname = '/login';
     return NextResponse.redirect(url);

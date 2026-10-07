@@ -57,6 +57,15 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'buddysaradhi.settings.v1',
       storage: createJSONStorage(() => sessionStorage),
+      // SSR: the server has no sessionStorage, so the store can only hydrate on
+      // the client. Without this, zustand restores the persisted slice
+      // SYNCHRONOUSLY before first paint, and the server markup (built from the
+      // constructor value) disagrees with the client's first render for every
+      // returning tutor — a structural hydration mismatch on every load, which
+      // AGENTS.md §16 makes a release blocker. The client re-hydrates in an
+      // effect instead (see SettingsClient), which is honest about when the
+      // value becomes known.
+      skipHydration: true,
       partialize: (state) => ({ activeSection: state.activeSection }),
       version: 1,
     }
