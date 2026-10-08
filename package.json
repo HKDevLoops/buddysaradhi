@@ -27,6 +27,11 @@
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "test:a11y": "pnpm --filter web test:a11y",
     "version:check": "node scripts/version-check.ts",
+    "cache:clean": "node scripts/cache-clean.mjs",
+    "cache:clean:apply": "node scripts/cache-clean.mjs --apply",
+    "cache:clean:watch": "node scripts/cache-clean.mjs --apply --interval 30",
+    "cache:clean:schedule": "powershell -ExecutionPolicy Bypass -File scripts/cache-clean-schedule.ps1 -Install",
+    "cache:clean:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/cache-clean-schedule.ps1 -Uninstall",
     "prepare": "husky"
   },
   "devDependencies": {
@@ -37,6 +42,7 @@
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "prisma": "6.2.1",
+    "puppeteer": "^25.12.0",
     "typescript": "^7.0.2",
     "vercel": "^56.5.0",
     "vitest": "^4.1.10",

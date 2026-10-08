@@ -17,6 +17,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import { fetchAttendanceSummaryAction, type AttendancePreset } from "@/server/actions/attendance";
 import { format, parseISO } from "date-fns";
+import { attendancePctText } from "@/lib/attendance-calc";
 import { cn } from "@/lib/utils";
 import { BarChart3, CalendarDays, Users, TrendingUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useOverlayDismiss, OverlayCloseButton } from "@/components/ui/overlay";
@@ -52,15 +53,6 @@ interface OverallSummary {
   overall_late: number;
   overall_excused: number;
   overall_percentage: number | null;
-}
-
-/**
- * BR-CALC-06: a zero denominator is `null` and reads as "—". Rendering `0%`
- * claimed a student attended nothing, which is a different and much worse
- * accusation than "no sessions in this period to measure".
- */
-function pctText(pct: number | null): string {
-  return pct === null ? "—" : `${pct}%`;
 }
 
 /**
@@ -229,7 +221,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
             />
             <StatCard
               title="Attendance %"
-              value={pctText(overall.overall_percentage)}
+              value={attendancePctText(overall.overall_percentage)}
               icon={<TrendingUp className="w-4 h-4" />}
               accent={pctAccent(overall.overall_percentage)}
             />
@@ -330,7 +322,7 @@ export function AttendanceSummary({ selectedDateIso }: { selectedDateIso: string
                     </td>
                     <td className="p-0">
                       <div className="w-full min-h-[36px] rounded-lg flex items-center justify-center text-[11px] font-bold transition-colors num" style={{ color: pctAccent(s.percentage) }}>
-                        {pctText(s.percentage)}
+                        {attendancePctText(s.percentage)}
                       </div>
                     </td>
                   </tr>

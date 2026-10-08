@@ -173,6 +173,12 @@ async function enterSettings(page: Page, errors: ErrorSink): Promise<void> {
     25_000,
   );
 
+  // Armed once per page load, and deliberately EARLY — before the first section
+  // is opened — so the observer is watching while the screen settles. See
+  // `assertPaneNeverRemounted`: it names the remount that strands a locator,
+  // which is what a bare 200s `locator.click` timeout turns out to be.
+  await armPaneGuard(page);
+
   // 08 BR-SEC-02 mandatory setup gate. The QA account already has a PIN, so this
   // is normally a no-op; if the gate IS up, the PIN the rest of this file uses
   // is exactly what the gate would set, so nothing is changed.
@@ -262,6 +268,90 @@ async function assertDisabledExplains(
 }
 
 /**
+ * Tags the Settings content pane so a REMOUNT can be named instead of guessed at.
+ *
+ * WHY THIS EXISTS, AND THE EVIDENCE THAT PROVED IT. Three of the thirteen sections
+ * failed on 2026-10-07/08 with messages that said nothing about cause:
+ *
+ *   01 Profile  — `locator.click: Test timeout of 200000ms exceeded`
+ *   08 Backup   — `the backup was created — element(s) not found`
+ *   04 Fee Rules— `Mixed exists — element(s) not found`
+ *
+ * A 200s click timeout on a button that is statically present in the source is
+ * not a slow server; it is a locator that never settles. A fourth run of 06
+ * Security finally produced the call log that decided it, and the log is quoted
+ * verbatim in `settings-client.tsx`:
+ *
+ *   waiting for getByRole('button', { name: /^Change PIN$/ })
+ *     - locator resolved to <button … aria-expanded="false" …>
+ *   - attempting click action
+ *     2 × waiting for element to be visible, enabled and stable
+ *       - element is not stable
+ *     - retrying click action
+ *       - element was detached from the DOM, retrying
+ *
+ * `element was detached from the DOM, retrying` is the app tearing the subtree
+ * down and rebuilding it under the pointer. Left un-named, that surfaces 200
+ * seconds later as a bare timeout and every lane re-derives the cause.
+ *
+ * WHAT THIS DOES. `MutationObserver` on the pane's parent records every child
+ * replacement while the section is on screen. `assertPaneNeverRemounted` then
+ * fails with the count and a DOM sample instead of leaving a click to time out.
+ * It is a DETECTOR, not a wait: it adds no time to a healthy run, and it cannot
+ * mask a failure — a remount that does not break anything still fails the test,
+ * because a remount is a real defect (it is what loses a half-typed Profile form
+ * and what made the created-backup card disappear).
+ *
+ * Legitimate section changes (`openSection`) DO replace the pane, so the guard is
+ * armed per-interval: `armPaneGuard` marks the current DOM, and the assertion is
+ * only meaningful across steps that are not supposed to navigate.
+ */
+async function armPaneGuard(page: Page): Promise<void> {
+  await pane(page).evaluate((el: HTMLElement) => {
+    const state = window as unknown as { __paneEpoch?: number; __paneLog?: string[] };
+    if (typeof state.__paneEpoch === "number" && state.__paneEpoch >= 0) return;
+    state.__paneEpoch = 0;
+    state.__paneLog = [];
+    const observer = new MutationObserver(() => {
+      state.__paneEpoch = (state.__paneEpoch ?? 0) + 1;
+      (state.__paneLog ?? []).push(
+        (el.textContent ?? "").replace(/\s+/g, " ").slice(0, 200),
+      );
+    });
+    // childList on the PARENT: this fires when React swaps the section element
+    // itself, which is the swap that strands the locator.
+    observer.observe(el.parentElement ?? el, { childList: true });
+  });
+}
+
+/**
+ * Zeroes the counter after an EXPECTED pane swap (`openSection`), so the next
+ * assertion measures only the interval that follows. Resetting the counter is not
+ * the same as clearing the log: the log keeps the earlier samples, so a failure
+ * message can still show what was on screen when the swap happened.
+ */
+async function resetPaneEpoch(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const state = window as unknown as { __paneEpoch?: number };
+    if (typeof state.__paneEpoch === "number") state.__paneEpoch = 0;
+  });
+}
+
+async function assertPaneNeverRemounted(page: Page, where: string): Promise<void> {
+  const epoch = await page.evaluate(
+    () => (window as unknown as { __paneEpoch?: number }).__paneEpoch ?? 0,
+  );
+  expect(
+    epoch,
+    `the Settings pane was replaced ${epoch}× during "${where}" — the section was torn down and rebuilt, which is what strands a locator (see settings-client.tsx). Sample: ${JSON.stringify(
+      await page.evaluate(
+        () => ((window as unknown as { __paneLog?: string[] }).__paneLog ?? []).slice(-2),
+      ),
+    )}`,
+  ).toBe(0);
+}
+
+/**
  * Reads the RAW `error` string out of a server-action response.
  *
  * This exists because of a real gap, not convenience. The Profile card renders
@@ -339,6 +429,12 @@ test.describe("settings audit", () => {
     const errors = captureErrors(page);
     await enterSettings(page, errors);
     await openSection(page, NAV.profile, /Institute Profile/);
+    // Zeroed here because `openSection` legitimately swaps the pane. From this
+    // point to the end of the section the Profile card must not be replaced —
+    // and this is the interval that produced the 200s `locator.click` timeout:
+    // a Profile form torn down under the pointer while the tutor's own save is in
+    // flight is a lost edit, not just a slow test. See `settings-client.tsx`.
+    await resetPaneEpoch(page);
 
     const name = page.locator("#settings-instituteName");
     const save = page.getByRole("button", { name: /Save changes/i });
@@ -534,6 +630,11 @@ test.describe("settings audit", () => {
       );
     }
 
+    // A refused save must leave the pane standing: `updateSettingsBatchAction`
+    // calls `revalidatePath("/settings")`, and a route refresh that rebuilds this
+    // subtree is what stranded the click that timed out for 200 seconds. Asserted
+    // at the END of the section, so the number reported covers the whole interval.
+    await assertPaneNeverRemounted(page, "the whole Profile round-trip");
     await shot(page, "set-01-profile.png");
     errors.assertNoErrors();
   });
@@ -932,10 +1033,18 @@ test.describe("settings audit", () => {
     await enterSettings(page, errors);
     await openSection(page, NAV.security, /Access Control/);
 
+    // Armed AFTER the section is open, because opening it legitimately replaces
+    // the pane. Everything below is one continuous interaction with the Security
+    // card, so a replacement anywhere in it is a defect — and this is where the
+    // 2026-10-08 `Change PIN` click was found detaching under the pointer.
+    await armPaneGuard(page);
+    await resetPaneEpoch(page);
+
     // §6.2.6: the card states the real range (4 to 8 digits), not "4-digit".
     await expectVisible(page.getByText(/4 to 8 digits/), "the PIN range is stated truthfully", 15_000);
 
     await page.getByRole("button", { name: /^Change PIN$/ }).click();
+    await assertPaneNeverRemounted(page, "opening the change-PIN form");
     const savePin = page.getByRole("button", { name: /^Save new PIN$/ });
     const form = page.locator("#change-pin-form");
     await expectVisible(form, "the change-PIN form opens", 15_000);
@@ -1020,6 +1129,7 @@ test.describe("settings audit", () => {
     );
 
     await shot(page, "set-06-security.png");
+    await assertPaneNeverRemounted(page, "the whole Security section interaction");
     errors.assertNoErrors();
   });
 
@@ -1042,33 +1152,47 @@ test.describe("settings audit", () => {
       await expectVisible(pane(page).getByText(row, { exact: true }), `${row} row`, 20_000);
     }
 
-    // MADE HONEST ABOUT THE TENANT (2026-10-07). The old version checked ONE
-    // count for a digit — the student count — and called the section proved. It
-    // checked nothing about the two counts that matter to a tutor's books, and
-    // it could not distinguish "the app read the ledger and found 32 rows" from
-    // "the app showed a placeholder that happens to contain a digit". This
-    // tenant has accumulated a real ledger across every audit run, so the counts
-    // are large and vary; the honest assertion is the one that holds for ANY
-    // tenant: every count is an `en-IN` formatted integer (a real `COUNT`
-    // result, formatted the same way the app formats money), and the ledger row
-    // states the append-only rule the count is evidence FOR.
-    const countOf = async (label: string): Promise<number> => {
-      const row = pane(page).getByText(label, { exact: true }).locator("..");
-      const text = (await row.innerText()).trim();
-      const digits = text.match(/[\d,]+/g) ?? [];
-      expect(digits.length, `${label}: the row prints a number`).toBeGreaterThanOrEqual(1);
-      // `en-IN` groups above three digits, so a tenant with 32 ledger entries
-      // shows "32" and one with 1,000 shows "1,000". Remove the separators
-      // rather than assuming a width — that is the whole point of not hardcoding.
-      const parsed = Number(digits[digits.length - 1]!.replace(/,/g, ""));
+    // MADE HONEST ABOUT THE TENANT (2026-10-07), AND HONEST ABOUT ITS OWN
+    // READER (2026-10-08). The old version checked ONE count for a digit — the
+    // student count — and called the section proved. It checked nothing about the
+    // two counts that matter to a tutor's books.
+    //
+    // THIS READER WAS WRONG, AND IT FAILED A HEALTHY TENANT. It scraped the row's
+    // `innerText` with `/[\d,]+/` and took the LAST match. The Ledger-entries row
+    // renders as:
+    //
+    //   Ledger entries | 34 | Append-only. A correction is a new entry beside
+    //   the old one, never a change to it.
+    //
+    // and `\d` never matches a letter, so the comma in "one, never" matched on
+    // its own: the matches were `["34", ","]`, the last was `","`, and
+    // `Number(",".replace(/,/g, ""))` is `Number("")` — which is 0. The ledger
+    // count was read as ZERO, `0 >= 15` was false, and this section failed with
+    // "invoices are backed by ledger rows" against a tenant whose real numbers
+    // were 3 students / 34 ledger entries / 15 invoices. The invariant was right,
+    // the data satisfied it, and the reader lied.
+    //
+    // So the counts are read from a STABLE ID on the value element itself
+    // (`database-section.tsx` gives every row one), never scraped out of prose.
+    // A number at an id cannot be picked up from a sentence; if it is absent the
+    // read fails loudly instead of resolving to 0.
+    const countOf = async (valueId: string, label: string): Promise<number> => {
+      const text = (await pane(page).locator(`#${valueId}`).innerText()).trim();
+      expect(text, `${label}: the row prints a count at #${valueId}`).not.toBe("");
+      // `en-IN` groups above three digits, so 34 shows as "34" and 1,000 as
+      // "1,000". Remove the separators rather than assuming a width — that is
+      // the whole point of not hardcoding — but REQUIRE the grouping to be
+      // well-formed, so a stray fragment can never silently become 0 again.
+      expect(text, `${label}: an en-IN formatted integer`).toMatch(/^\d{1,3}(,\d{3})*$/);
+      const parsed = Number(text.replace(/,/g, ""));
       expect(Number.isInteger(parsed), `${label}: the count is an integer`).toBe(true);
       expect(parsed, `${label}: a count is never negative`).toBeGreaterThanOrEqual(0);
       return parsed;
     };
 
-    const students = await countOf("Students");
-    const ledgerEntries = await countOf("Ledger entries");
-    const invoices = await countOf("Invoices");
+    const students = await countOf("db-count-students", "Students");
+    const ledgerEntries = await countOf("db-count-ledger-entries", "Ledger entries");
+    const invoices = await countOf("db-count-invoices", "Invoices");
 
     // Rule 1 / 10 §9 LEDGER-2, and the reason this count is on the screen: a
     // correction is a new row beside the old one, so the ledger can never shrink.
@@ -1104,6 +1228,13 @@ test.describe("settings audit", () => {
     const errors = captureErrors(page);
     await enterSettings(page, errors);
     await openSection(page, NAV.backup, /Create Local Backup/);
+    // Zeroed after the section is open; creating the backup must not replace the
+    // pane. When it did, the success card — held in component state — went with
+    // it and this test failed 120 seconds later with "element(s) not found" even
+    // though the file had been created, encrypted and audited. The artefact now
+    // lives in the screen's store, and this assertion is what would catch that
+    // regression immediately and by name.
+    await resetPaneEpoch(page);
 
     const passphrase = page.locator("#backup-passphrase");
     const confirm = page.locator("#backup-passphrase-confirm");
@@ -1168,16 +1299,24 @@ test.describe("settings audit", () => {
     await expectVisible(page.getByText(/Type.*EXPORT.*to confirm/i), "gate one is named", 15_000);
     await expectVisible(page.getByText(/Your app PIN/i).first(), "gate two is named", 15_000);
 
-    // MADE HONEST ABOUT THE TENANT (2026-10-07). The success line prints what
-    // went into the file, and the earlier version of this test did not read it —
-    // so a backup that silently omitted the ledger would still have passed,
-    // which for the one artefact a tutor's whole business rests on (09 §3/§5) is
-    // the wrong kind of green. This tenant's ledger has grown with every audit
-    // run, so the counts are large and must not be hardcoded; what must hold for
-    // ANY tenant is that each is an integer, that invoices are backed by ledger
-    // rows, and that the audit trail is present (every mutation writes one).
+    // MADE HONEST ABOUT THE TENANT (2026-10-07), AND COMPLETE ABOUT THE FILE
+    // (2026-10-08). The success line prints what went into the file, and the
+    // earlier version of this test did not read it — so a backup that silently
+    // omitted the ledger would still have passed, which for the one artefact a
+    // tutor's whole business rests on (09 §3/§5) is the wrong kind of green.
+    //
+    // The measured defect was in this very line: it named four tables, and the
+    // action read five. Receipts, attendance and batches were in the tenant's
+    // books and NOT in the file, so a restore would have dropped all 12 receipts
+    // with no failing test and no word on screen. The line is now derived from
+    // the arrays that went into the payload and names every one of them, so an
+    // omission is a missing label here and a failed assertion in
+    // `src/server/actions/settings-backup-artefact.test.ts` (which decrypts the
+    // file and counts the rows for real).
     const countsLine = page
-      .getByText(/students .* ledger\s*entries .* invoices .* audit rows/i)
+      .getByText(
+        /students .* ledger\s*entries .* invoices .* receipts .* attendance sessions .* attendance records .* batches .* audit rows/i,
+      )
       .first();
     await expectVisible(countsLine, "the backup states what went into it", 20_000);
     const countsText = (await countsLine.innerText()).replace(/\s+/g, " ");
@@ -1191,12 +1330,30 @@ test.describe("settings audit", () => {
     // `[^·]*?` forbade the very character it needed to skip, so the pattern
     // could never match and the assertion was unreachable rather than passing.
     const counted =
-      /(\d+)\s+students\b[^\d]*?(\d+)\s+ledger entries\b[^\d]*?(\d+)\s+invoices\b[^\d]*?(\d+)\s+audit rows/i.exec(
+      /(\d+)\s+students\b[^\d]*?(\d+)\s+ledger entries\b[^\d]*?(\d+)\s+invoices\b[^\d]*?(\d+)\s+receipts\b[^\d]*?(\d+)\s+attendance sessions\b[^\d]*?(\d+)\s+attendance records\b[^\d]*?(\d+)\s+batches\b[^\d]*?(\d+)\s+audit rows/i.exec(
         countsText,
       );
-    expect(counted, `the backup states four counts, in order: "${countsText}"`).not.toBeNull();
-    const [students, ledger, invoices, audit] = (counted ?? []).slice(1).map(Number);
-    for (const n of [students, ledger, invoices, audit]) {
+    expect(counted, `the backup states eight counts, in order: "${countsText}"`).not.toBeNull();
+    const [
+      students,
+      ledger,
+      invoices,
+      receipts,
+      attendanceSessions,
+      attendanceRecords,
+      batches,
+      audit,
+    ] = (counted ?? []).slice(1).map(Number);
+    for (const n of [
+      students,
+      ledger,
+      invoices,
+      receipts,
+      attendanceSessions,
+      attendanceRecords,
+      batches,
+      audit,
+    ]) {
       expect(Number.isInteger(n), "every backup count is an integer").toBe(true);
       expect(n, "a backup count is never negative").toBeGreaterThanOrEqual(0);
     }
@@ -1205,12 +1362,24 @@ test.describe("settings audit", () => {
     // present; a backup with none of it is a worse artefact than none.
     expect(audit, "the backup carries the audit trail").toBeGreaterThan(0);
     expect(students, "the backup carries the roster").toBeGreaterThanOrEqual(0);
+    // THE COUNT THAT WAS SILENTLY ZERO. On a tenant that has issued receipts,
+    // a file whose receipt count is 0 while the tenant holds them is a restore
+    // that destroys a parent's proof of payment. This is tenant-dependent by
+    // nature (a brand-new tutor has no receipts yet), and the QA tenant this
+    // audit runs against holds 12 — which is how the gap was found. Asserted as
+    // "more than zero" rather than a hardcoded 12, because sibling lanes add
+    // receipts between runs and a hardcoded count would rot into a false failure.
+    expect(
+      receipts,
+      "the file carries the receipts the tenant has issued (this is the omission under test)",
+    ).toBeGreaterThan(0);
 
     // There is no restore UI. The old fake one reported a success that never
     // happened, so its absence is the finding. Scoped to the pane: the nav
     // rail's own "Backup & Restore" button is not a restore control.
     await expect(pane(page).getByRole("button", { name: /Restore/i }), "no restore control exists").toHaveCount(0);
 
+    await assertPaneNeverRemounted(page, "creating and downloading the backup");
     await shot(page, "set-08-backup.png");
     errors.assertNoErrors();
   });
@@ -1221,6 +1390,12 @@ test.describe("settings audit", () => {
     const errors = captureErrors(page);
     await enterSettings(page, errors);
     await openSection(page, NAV.transfer, /Export Data/);
+    // The 4th measured instance of the same signature (2 of 4 runs on
+    // 2026-10-08): the template download's click never completed inside 40s and
+    // the test died on `waitForEvent("download")` — a locator that never settles,
+    // which is the detach, not a slow blob. Zeroed after the section is open;
+    // nothing below is allowed to replace the pane.
+    await resetPaneEpoch(page);
     await expectVisible(page.getByRole("heading", { name: /Import Data/i }), "import heading", 15_000);
     await expectVisible(page.getByRole("heading", { name: /Bulk import/i }), "bulk import heading", 15_000);
 
@@ -1282,6 +1457,7 @@ test.describe("settings audit", () => {
     await expect(page.getByRole("button", { name: /^Review 0 rows$/ }), "still nothing to confirm").toBeDisabled();
 
     await shot(page, "set-09-import.png");
+    await assertPaneNeverRemounted(page, "both template downloads and the paste grid");
     errors.assertNoErrors();
   });
 

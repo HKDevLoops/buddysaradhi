@@ -47,6 +47,41 @@ import {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * The local calendar day a tutor picked -> `yyyy-mm-dd`, the shape `students.dob`
+ * and `students.admission_date` are stored in.
+ *
+ * WHY THIS EXISTS (regression, 2026-10-08). The picker's `setDate` used to be
+ * `d.toISOString().slice(0, 10)`. `toISOString()` converts to UTC FIRST, so a
+ * value that is local midnight on the day the tutor chose serialises as the
+ * PREVIOUS day at every offset east of UTC — and the product's tutors are in
+ * IST (UTC+05:30), which is the one zone where a date one day early is also one
+ * day early in the YEAR when the month is January. Measured on this machine
+ * (TZ=Asia/Calcutta): `new Date(2015, 3, 12).toISOString().slice(0, 10)` is
+ * `"2015-04-11"`. A tutor who typed a student's date of birth got the day
+ * BEFORE it persisted, silently, in both date fields, on every save.
+ *
+ * The picker itself is right — it deliberately builds a LOCAL midnight `Date`
+ * precisely so the calendar day survives (`ui/date-picker.tsx`,
+ * `inputValueToLocalDate`). The loss happened on the way back out. So the
+ * formatter reads the same local calendar day back, and the round trip
+ * `isoDayFromLocalDate(d) === typedText` holds at every offset.
+ *
+ * `getFullYear`/`getMonth`/`getDate`, never `toISOString()` — same reasoning as
+ * the money rules: never quietly turn one value into a different one.
+ */
+export function isoDayFromLocalDate(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/** Today, as the local calendar day — the sheet's default admission date. */
+function todayIsoDay(): string {
+  return isoDayFromLocalDate(new Date());
+}
+
+/**
  * A date field: blank stays blank; a value must be ISO and inside §14's window
  * (`checkDateBounds`, the same function the import and the server use).
  *
@@ -143,7 +178,27 @@ export const FormSchema = z.object({
   grade: z.string().trim().max(STUDENT_GRADE_MAX).optional(),
   school: z.string().trim().max(STUDENT_SCHOOL_MAX).optional(),
   board: z.string().trim().max(STUDENT_BOARD_MAX).optional(),
-  gender: z.enum(["M", "F", "O"]).optional(),
+  /**
+   * Gender. The control's first option is "Not stated" with `value=""`, and
+   * react-hook-form reads a `<select>`'s value off the DOM on mount — so the
+   * form ALWAYS holds `""` here, never `undefined`, unless the tutor picks one
+   * of the three real options.
+   *
+   * The blank therefore has to mean "not stated", which is what the option says
+   * in the tutor's own words. It did not: the field was a bare
+   * `z.enum(["M","F","O"]).optional()`, which accepts `undefined` but refuses
+   * `""`, so EVERY save was rejected with
+   * `Invalid enum value. Expected 'M' | 'F' | 'O', received ''` on a field that
+   * renders no error of its own. A tutor who filled in a name, a batch and both
+   * dates got a Save button that silently did nothing — the form was impossible
+   * to submit (AGENTS.md §2 Rule 9: a refused write that says nothing is a lie).
+   *
+   * Normalised to `undefined` so the absent value is the absent value, and the
+   * `createStudent` payload writes `gender: data.gender || null`.
+   */
+  gender: z
+    .union([z.enum(["M", "F", "O"]), z.literal(""), z.null(), z.undefined()])
+    .transform((value) => (value === "" || value === null || value === undefined ? undefined : value)),
   address: z.string().trim().max(STUDENT_ADDRESS_MAX).optional(),
   fee_model: z.enum(["postpaid", "prepaid", "mixed"]).default("postpaid"),
   baseFee: z.coerce.number().nonnegative().optional().default(0),
@@ -213,7 +268,7 @@ export function AddStudentSheet() {
       code: "",
       batch: "",
       phone: "",
-      joined_at: new Date().toISOString().slice(0, 10),
+      joined_at: todayIsoDay(),
       grade: "",
       school: "",
       board: "",
@@ -449,6 +504,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. 10th"
                     />
+                    {errors.grade && <p className="mt-1 text-xs text-[var(--danger)]">{errors.grade.message}</p>}
                   </div>
 
                   <div>
@@ -461,6 +517,7 @@ export function AddStudentSheet() {
                       <option value="prepaid" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Prepaid</option>
                       <option value="mixed" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Mixed</option>
                     </select>
+                    {errors.fee_model && <p className="mt-1 text-xs text-[var(--danger)]">{errors.fee_model.message}</p>}
                   </div>
                   <div>
                     <label htmlFor={"as-baseFee"} className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">Monthly Fee (₹)</label>
@@ -471,6 +528,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. 2000"
                     />
+                    {errors.baseFee && <p className="mt-1 text-xs text-[var(--danger)]">{errors.baseFee.message}</p>}
                   </div>
                 </div>
 
@@ -482,6 +540,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. DPS"
                     />
+                    {errors.school && <p className="mt-1 text-xs text-[var(--danger)]">{errors.school.message}</p>}
                   </div>
 
                   <div>
@@ -491,6 +550,7 @@ export function AddStudentSheet() {
                       className="glass-input"
                       placeholder="e.g. CBSE"
                     />
+                    {errors.board && <p className="mt-1 text-xs text-[var(--danger)]">{errors.board.message}</p>}
                   </div>
                 </div>
 
@@ -503,6 +563,7 @@ export function AddStudentSheet() {
                     placeholder="Enter full address"
                     rows={2}
                   />
+                  {errors.address && <p className="mt-1 text-xs text-[var(--danger)]">{errors.address.message}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -514,6 +575,7 @@ export function AddStudentSheet() {
                       <option value="F" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Female</option>
                       <option value="O" className="bg-[var(--surface-raised)] text-[var(--text-primary)]">Other</option>
                     </select>
+                    {errors.gender && <p className="mt-1 text-xs text-[var(--danger)]">{errors.gender.message}</p>}
                   </div>
 
                   <div>
@@ -525,7 +587,7 @@ export function AddStudentSheet() {
                         <DatePicker
                           id="as-dob"
                           date={field.value ? new Date(field.value) : undefined}
-                          setDate={(d) => field.onChange(d ? d.toISOString().slice(0, 10) : "")}
+                          setDate={(d) => field.onChange(d ? isoDayFromLocalDate(d) : "")}
                           className="glass-input h-[44px]"
                         />
                       )}
@@ -542,8 +604,8 @@ export function AddStudentSheet() {
                     render={({ field }) => (
                       <DatePicker
                         id="as-joined-at"
-                        date={field.value ? new Date(field.value) : undefined}
-                        setDate={(d) => field.onChange(d ? d.toISOString().slice(0, 10) : "")}
+                          date={field.value ? new Date(field.value) : undefined}
+                          setDate={(d) => field.onChange(d ? isoDayFromLocalDate(d) : "")}
                         className="glass-input h-[44px]"
                       />
                     )}

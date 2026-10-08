@@ -235,24 +235,101 @@ test.describe("Students screen audit", () => {
     ] as const) {
       await expectAttached(sheet.getByLabel(label), `sheet field: ${name}`);
     }
-    await expectAttached(
-      sheet.getByRole("button", { name: /^(Pick a date|Date of \w+)/i }),
-      "sheet field: Date of Birth trigger",
-    );
-    await expectAttached(
-      sheet.getByRole("button", { name: /^(Date:|Admission \w+)/i }),
-      "sheet field: Admission Date trigger",
-    );
+    // ---- The two date controls (VERDICT: the SPEC was stale, the swap is right)
+    //
+    // This assertion used to ask for a BUTTON ("Pick a date" / "Date: …") and it
+    // stopped matching. The cause was not a regression: a previous lane replaced
+    // `react-day-picker` with a native `<input type="date">` (Ponytail rung 4 — the
+    // platform primitive is the right answer for one plain single-date field), and
+    // `ui/calendar.tsx` went with it. `ui/date-picker.tsx` now renders an input and
+    // `add-student-sheet.tsx` gives it the `id` its `<label htmlFor>` needs.
+    //
+    // So the SPEC was stale and is corrected here. Deliberately, the old assertion
+    // is not merely deleted: `type === "date"` below FAILS if anyone reverts to a
+    // button trigger, so the swap cannot be silently undone by this file.
+    //
+    // The controls are located by the `id` the caller passes (`as-dob`,
+    // `as-joined-at`) rather than by `getByLabel`, because of a real defect
+    // reported by this lane and owned by `ui/date-picker.tsx`: that component sets
+    // `aria-label="Pick a date"` on EVERY field by default, and `aria-label` wins
+    // over `<label for>` in the accessible-name computation. Both date fields
+    // therefore announce "Pick a date" and nothing says WHICH date (WCAG 2.5.3).
+    // The label association itself is asserted here — it exists and it points at
+    // this control — and the accessible-NAME requirement is asserted against
+    // source in `add-student-sheet.dates.test.tsx`, where the fix can land.
+    for (const [id, name] of [
+      ["as-dob", "Date of Birth"],
+      ["as-joined-at", "Admission Date *"],
+    ] as const) {
+      const control = sheet.locator(`#${id}`);
+      await expectAttached(control, `sheet field: ${name}`);
+      // 1. Reachable BY ITS LABEL — a visible <label> bound to this control, which
+      //    is the mechanism the swap bought and the reason a button trigger fails.
+      await expectVisible(
+        sheet.locator(`label[for="${id}"]`),
+        `${name}: a visible label is bound to the control`,
+      );
+      await expect(
+        sheet.locator(`label[for="${id}"]`),
+        `${name}: the label names this field`,
+      ).toHaveText(new RegExp(`^${name}`));
+      // 2. Focusable and in the tab order.
+      const focusable = await control.evaluate((el) => {
+        const node = el as HTMLElement;
+        return node.tabIndex >= 0 && !node.hasAttribute("disabled");
+      });
+      expect(focusable, `${name} takes keyboard focus`).toBe(true);
+      await control.focus();
+      await expect
+        .poll(
+          () =>
+            control
+              .evaluate((el) => el === document.activeElement)
+              .catch(() => false),
+          { timeout: 5_000, message: `${name} receives keyboard focus` },
+        )
+        .toBe(true);
+      // 3. It really is the date control, not a text box or a button wearing a date
+      //    label. This is the assertion that fails on a revert to the picker.
+      await expect(control, `${name} is a native date input`).toHaveAttribute("type", "date");
+      expect(
+        await control.evaluate((el) => el.tagName),
+        `${name} is an INPUT, not a BUTTON`,
+      ).toBe("INPUT");
+    }
 
-    // KNOWN OPEN DEFECT (found by this lane, report-only — the fix needs a
-    // rebuild, which this lane is not permitted to run). Both date controls are
-    // `<button>`s, and a `<label htmlFor>` does not name a button, so today they
-    // announce as "Pick a date" / "Date: <date>" with nothing saying WHICH date.
-    // The assertion below accepts the fixed names as well, so it keeps passing
-    // once the patch lands and this file needs no edit.
+    const dob = sheet.locator("#as-dob");
+    const admission = sheet.locator("#as-joined-at");
+
+    // The value round trip, on the real control: what a tutor types in Date of
+    // Birth is what the field reports back. This is the same invariant the unit
+    // suite asserts against `createStudent`, checked here at the DOM boundary.
+    // `input[type=date]` accepts an ISO `yyyy-mm-dd` fill exactly as the OS picker
+    // would produce it.
+    await dob.fill("2015-04-12");
+    await expect(dob, "the typed date of birth is on the control").toHaveValue("2015-04-12");
+    await admission.fill("2026-06-01");
+    await expect(admission, "the typed admission date is on the control").toHaveValue(
+      "2026-06-01",
+    );
 
     const save = sheet.getByRole("button", { name: "Save student" });
     await expectVisible(save, "save control");
+
+    // §14: the dates are validated, and the refusal names the field. An admission
+    // date in the future is refused by `checkDateBounds` BEFORE `onSubmit` runs, so
+    // this issues no duplicate check and writes nothing. The message is matched on
+    // its distinguishing phrase, not on "admission date" — the visible LABEL says
+    // that too, so a looser matcher would pass on the label alone.
+    await admission.fill("2999-01-01");
+    await save.click();
+    await expectVisible(
+      sheet.getByText(/Admission date cannot be later than/i),
+      "a date outside the §14 window is refused and named",
+    );
+    await expectVisible(sheet, "the sheet stays open after a refused date");
+    // Put it back so the rest of the walk is not running with a bad value.
+    await admission.fill("2026-06-01");
 
     // §14: an empty name and an empty batch are required, and the error is on
     // the field rather than in a toast.

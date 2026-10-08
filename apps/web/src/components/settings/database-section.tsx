@@ -29,11 +29,42 @@ import { getDbIdentityAction, type DbIdentityResult } from "@/server/actions/set
 /** The success branch of the action's discriminated union, named for the UI. */
 type DbIdentitySuccess = Extract<DbIdentityResult, { success: true }>;
 
-function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/**
+ * One measured fact, as a labelled row.
+ *
+ * `valueId` IS THE CONTRACT, and it exists because of a concrete measurement
+ * failure: the settings audit read these counts by scraping the row's `innerText`
+ * with `/[\d,]+/`, which also matches a bare comma. "Ledger entries / 34 /
+ * Append-only. A correction is a new entry beside the old one, **,** never a
+ * change to it." yielded the matches `["34", ","]`, and the helper took the last
+ * one — `Number(",".replace(/,/g, ""))` is `Number("")` which is `0`. The ledger
+ * count was read as zero, `0 >= 15` was false, and the section that was in fact
+ * perfectly healthy failed with "invoices are backed by ledger rows". A number
+ * that appears next to prose can be scraped wrong; a number at a stable id cannot
+ * be read at all if it is absent. Every count row therefore carries an id on the
+ * VALUE element specifically — not the row — so a reader cannot pick up the hint.
+ */
+function Row({
+  label,
+  value,
+  valueId,
+  hint,
+}: {
+  label: string;
+  value: string;
+  valueId: string;
+  hint?: string;
+}) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-2 py-2 border-b border-[var(--border-default)] last:border-b-0">
       <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">{label}</span>
-      <span className="text-sm font-mono text-[var(--text-primary)] text-right break-all">{value}</span>
+      <span
+        id={valueId}
+        data-db-count="true"
+        className="text-sm font-mono text-[var(--text-primary)] text-right break-all"
+      >
+        {value}
+      </span>
       {hint ? <span className="w-full text-xs text-[var(--text-muted)]">{hint}</span> : null}
     </div>
   );
@@ -104,11 +135,11 @@ export function DatabaseSection() {
           </div>
           {ok ? (
             <dl>
-              <Row label="Account id" value={ok.tenantId} hint="Every row you own carries this id. Quoting it identifies your data and nothing else." />
-              <Row label="Students" value={nf.format(ok.students)} />
-              <Row label="Ledger entries" value={nf.format(ok.ledgerEntries)} hint="Append-only. A correction is a new entry beside the old one, never a change to it." />
-              <Row label="Invoices" value={nf.format(ok.invoices)} />
-              <Row label="Settings row" value={ok.settingsRows === 1 ? "present" : "not created yet"} />
+              <Row valueId="db-count-account-id" label="Account id" value={ok.tenantId} hint="Every row you own carries this id. Quoting it identifies your data and nothing else." />
+              <Row valueId="db-count-students" label="Students" value={nf.format(ok.students)} />
+              <Row valueId="db-count-ledger-entries" label="Ledger entries" value={nf.format(ok.ledgerEntries)} hint="Append-only. A correction is a new entry beside the old one, never a change to it." />
+              <Row valueId="db-count-invoices" label="Invoices" value={nf.format(ok.invoices)} />
+              <Row valueId="db-count-settings-row" label="Settings row" value={ok.settingsRows === 1 ? "present" : "not created yet"} />
             </dl>
           ) : (
             <p className="text-sm text-[var(--text-muted)]" aria-live="polite">

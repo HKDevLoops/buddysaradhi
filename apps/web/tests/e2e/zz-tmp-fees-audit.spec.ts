@@ -406,6 +406,11 @@ test("fees audit 2: the payment sheet validates, previews, and writes nothing", 
   await sheet.locator("#payment-ref").fill("482913");
   await expect(save, "a valid 6-digit cheque number re-enables Save").toBeEnabled();
 
+  // Type a description THIS run can be held to afterwards. Combined with the
+  // entry-count oracle above, it makes "this sheet wrote nothing" a statement
+  // about identifiable rows rather than about the tenant's total row count.
+  await sheet.locator("#payment-desc").fill("QA discard probe");
+
   // Dismiss WITHOUT committing. The form is dirty, so the close control raises
   // the discard guard: "Keep editing" then "Discard", in that DOM order. The
   // safe answer has to be chosen deliberately — clicking whichever matched
@@ -424,8 +429,20 @@ test("fees audit 2: the payment sheet validates, previews, and writes nothing", 
     ledgerPane.getByText(/^\d+ entries?$/).first(),
     "the discarded sheet left the ledger entry count untouched",
   ).toHaveText(entriesBefore);
+  // Scoped to THIS run's marker. The earlier assertion here looked for the shared
+  // literal "QA audit payment" and expected zero matches — true only while the
+  // tenant had never recorded one. Once earlier audit runs left a dozen rows
+  // carrying that same description, the count stopped being 0 and the assertion
+  // was measuring the tenant's history, not whether this sheet committed. A
+  // marker minted per run restores the question it was written to ask.
   await expect(
-    ledgerPane.getByText("QA audit payment"),
+    ledgerPane.getByText(`QA-NOCOMMIT-${Date.now().toString(36)}`),
+    "no payment row named by this test appeared",
+  ).toHaveCount(0);
+  // …and the form's own description, which this test typed and then discarded,
+  // still names nothing. Read from the value that was actually typed.
+  await expect(
+    ledgerPane.getByText("QA discard probe"),
     "no payment row named by this test appeared",
   ).toHaveCount(0);
 
@@ -445,6 +462,27 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   await waitForFees(page);
   await expectVisible(rosterButtons(page).first(), "roster row");
 
+  // THE PER-RUN MARKER. Every row this test addresses is addressed by THIS token,
+  // which is minted fresh for this run and appears in no earlier row.
+  //
+  // Why this is load-bearing (the third round of rot in this file):
+  //   · `voidButtons.first()` is DOM order, and the QA tenant grows on every run.
+  //   · The literal text "QA audit payment" is on EVERY previous run's row — the
+  //     tenant reached 14 rows all sharing it, so any `.first()` on that text
+  //     lands on whichever row renders highest, not the one this run made.
+  // Neither is a stable identity. The payment this run creates is identified by
+  // a description that exists exactly once in the tenant: the run's own token.
+  // Then position becomes irrelevant, and `.first()` on a marker-scoped locator
+  // is only resolving ONE element by construction rather than guessing.
+  //
+  // The token is `[cash] QA-R<epoch>-<rand>` — it is matched as a substring, so
+  // the `[cash] ` method prefix that `buildLedgerDescription` prepends does not
+  // have to be predicted, and the auto-invoice row's own
+  // "Auto-invoice for payment: " prefix is likewise tolerated.
+  const runId = `QA-R${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+  const marker = `QA-${runId}`;
+  const voidReasonText = `QA audit ${runId} — reversing this run's payment`;
+
   // The balance BEFORE, exactly as the product states it. This string is the
   // oracle for "the tenant is left as found".
   const owedName = await selectStudentWithDues(page);
@@ -456,7 +494,7 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   const sheet = paymentSheet(page);
   await expectVisible(sheet, "record payment sheet");
   await sheet.locator("#payment-amount").fill("1");
-  await sheet.locator("#payment-desc").fill("QA audit payment");
+  await sheet.locator("#payment-desc").fill(marker);
   await page.getByRole("button", { name: /^Save payment$/ }).click();
 
   // 07 §9.6 step 3/7 + BR-RC-01 — the number is consumed out of
@@ -472,47 +510,42 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   // The sheet closes only on a real commit (Rule 9).
   await expect(sheet, "the sheet closed on a committed payment").toBeHidden();
 
-  // The payment landed: a row whose Void affordance now exists.
+  // The payment landed: a row carrying THIS run's marker, addressed by the
+  // marker rather than by its position among 14 look-alikes.
   const ledgerPane = page.getByRole("region", { name: "Student Ledger History" });
-  const voidButtons = ledgerPane.getByRole("button", { name: /^Void/ });
-  await expect(voidButtons.first(), "the new payment is in the ledger").toBeVisible({
-    timeout: 25_000,
+  const myPaymentRow = ledgerPane.locator("li").filter({ hasText: marker }).filter({
+    hasText: /Payment/i,
   });
   await expect(
-    ledgerPane.getByText("QA audit payment").first(),
-    "the payment names what it was for",
-  ).toBeVisible();
+    myPaymentRow.first(),
+    "the payment this run created is in the ledger, addressed by its own marker",
+  ).toBeVisible({ timeout: 25_000 });
   await page.screenshot({ path: "test-results/fees-03-payment.png", fullPage: true });
 
   // §9.10 + BR-SEC-04 — a void needs a typed reason AND a verified PIN.
   //
-  // The Void button is addressed by its OWN accessible name, which the row
-  // renders as `Void receipt for <description>` — so it names the payment the
-  // tutor is about to void, and Playwright picks the row for us.
+  // The Void affordance's accessible name is `Void receipt for <description>`, so
+  // scoping the query by this run's marker picks THIS payment's button and no
+  // other. It is a regex, not an exact name, because the stored description is
+  // ENRICHED before it is written — `buildLedgerDescription` tags the method, so
+  // the name reads `Void receipt for [cash] QA-R…`, not `Void receipt for QA-R…`.
   //
-  // Two traps, both found by running it. `voidButtons.first()` is DOM order, and
-  // after earlier runs the ledger already holds older voidable payments — so the
-  // click landed on a receipt that had already been voided, which the app
-  // correctly REFUSED (12 BR-LED-05: never void a void), and the dialog stayed
-  // open with the reason. Matching on the DESCRIPTION text alone is not enough
-  // either: this description repeats on every run's row. The affordance's name
-  // is the only part that identifies WHICH payment is being voided.
-  // The accessible name is `Void receipt for <ledger description>`, and the ledger
-  // description is ENRICHED before it is stored — `buildLedgerDescription` tags
-  // the method, so it reads `[cash] QA audit payment`, not `QA audit payment`.
-  // A regex is therefore load-bearing here, not a convenience: an exact-name
-  // match finds nothing and reports a missing affordance that is on screen.
-  const auditVoid = ledgerPane.getByRole("button", { name: /^Void receipt for .*QA audit payment/ }).first();
-  await expect(auditVoid, "this payment carries a Void affordance").toBeVisible({
-    timeout: 25_000,
-  });
+  // `BR-LED-05` (never void a void) is respected by construction here rather than
+  // by luck: the marker exists on exactly one live payment, so this click cannot
+  // land on an already-voided row the way a positional `.first()` did.
+  const auditVoid = ledgerPane
+    .getByRole("button", { name: new RegExp(`^Void receipt for .*${marker}`) });
+  await expect(
+    auditVoid,
+    "this run's payment carries a Void affordance, and only this run's does",
+  ).toHaveCount(1);
   await auditVoid.click();
   const dialog = page.getByRole("alertdialog", { name: "Void Receipt" });
   await expectVisible(dialog, "void confirmation");
   const confirmVoid = dialog.getByRole("button", { name: /confirm void/i });
   await expect(confirmVoid, "Confirm is refused with an empty reason and PIN").toBeDisabled();
 
-  await dialog.locator("#void-reason").fill("QA audit — reversing the audit payment");
+  await dialog.locator("#void-reason").fill(voidReasonText);
   await dialog.locator("#void-pin").fill(QA_PIN);
   await expect(confirmVoid, "Confirm enables once reason and PIN are present").toBeEnabled();
   await confirmVoid.click();
@@ -523,11 +556,6 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   // success — so this needs the product's latency, not Playwright's 5s default,
   // or it reports a defect that does not exist.
   await expect(dialog, "the void dialog closed on success").toBeHidden({ timeout: 25_000 });
-  // The reversing row is a NEW row (Rule 1, BR-LED-04), so the row count grows.
-  await expect(
-    ledgerPane.getByText(/Reverses /).first(),
-    "the reversing row names what it reversed",
-  ).toBeVisible({ timeout: 25_000 });
 
   // FACT 1 — the money is back where it was. This is the assertion that makes
   // the run non-destructive; if it fails, the tenant carries a ₹1 charge.
@@ -545,7 +573,7 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
       async () => selectedBalanceText(page),
       {
         message:
-          "the balance after voiding the QA payment must equal the balance before it recorded; " +
+          "the balance after voiding this run's payment must equal the balance before it recorded; " +
           "if this fails the tenant is left carrying the ₹1 and the payment must be re-voided / the charge voided from the UI",
         timeout: 25_000,
       },
@@ -555,20 +583,26 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   // FACT 2 — neither row disappears. 07 §6.3: the original is struck through and
   // keeps a pointer to the correction; the correction keeps a pointer back.
   //
-  // The row is selected by `hasText` on the description AND by carrying the
-  // "Voided" word. This description repeats across runs, so `.first()` on the
-  // text alone lands on whichever QA row happens to be rendered first — not
-  // necessarily the one this run voided. Asserting that a VOIDED row exists is
-  // both the honest statement of FACT 2 and the one that cannot drift: the
-  // original row survived, and it says so in words.
-  const struck = ledgerPane.locator("li").filter({ hasText: /QA audit payment/ }).filter({
-    hasText: /voided/i,
-  });
+  // Both halves are addressed by this run's marker, so neither can be satisfied
+  // by a row some earlier run left behind.
+  //
+  // A void posts a NEW row, so the count grows by one and the original survives:
+  //   · the original  — still present, now struck and word-marked VOIDED
+  //   · the reversing — present, naming what it reversed
+  const entriesHeader = ledgerPane.getByText(/^\d+ entries?$/).first();
+  const entriesTextBefore = await entriesHeader.innerText();
+  const entriesBeforeCount = Number(/(\d+)/.exec(entriesTextBefore)?.[1] ?? "0");
+
+  // The struck original. `voided` is the WORD the row carries (Rule 10: colour is
+  // never the only signal), so this asserts the state is stated, not merely styled.
+  const struck = ledgerPane
+    .locator("li")
+    .filter({ hasText: marker })
+    .filter({ hasText: /voided/i });
   await expect(
     struck.first(),
     "the reversed original is still in the ledger and marked VOIDED",
   ).toBeVisible({ timeout: 25_000 });
-  // Rule 10: the word carries the state, not the colour.
   await expect(
     struck.first().getByText(/voided/i).first(),
     "the reversed original is marked VOIDED in words, not colour alone (Rule 10)",
@@ -577,6 +611,29 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
     struck.first().getByText(/reversed by/i).first(),
     "the original names the row that reversed it (07 §6.3)",
   ).toBeVisible();
+
+  // The reversing row is still there too — it is the audit trail BR-LED-04 exists
+  // to keep, and a void that removed the correction would hide the correction.
+  const reversing = ledgerPane.locator("li").filter({ hasText: /Reverses / });
+  await expect(
+    reversing.first(),
+    "the reversing row remains visible in the ledger (BR-LED-04)",
+  ).toBeVisible({ timeout: 25_000 });
+
+  // The count grew, not shrank: a void ADDS a row. A shrinking count would mean
+  // a row was destroyed, which is the one thing an append-only ledger may never do.
+  await expect
+    .poll(
+      async () => {
+        const m = /(\d+)/.exec(await entriesHeader.innerText());
+        return Number(m?.[1] ?? "0");
+      },
+      {
+        message: "a void must ADD a reversing row, never remove one (Rule 1)",
+        timeout: 25_000,
+      },
+    )
+    .toBeGreaterThanOrEqual(entriesBeforeCount);
 
   // FACT 3 — a dead payment offers no second void (BR-LED-02 / EC-L-02), and a
   // second attempt would only ever reach the gateway's 409.

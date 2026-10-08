@@ -240,16 +240,84 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
     //
     // 09 §3/§5: the backup carries the tutor's books. It previously carried
     // only settings + students + ledger, so a restore would have silently lost
-    // every invoice and the audit trail. Invoice + audit rows are in now;
-    // receipts / attendance / batches are NOT — the web ORM shim does not expose
-    // those models (see worklog: P0 gap reported to the lead).
-    const [settingsRows, studentsRows, ledgerRows, invoiceRows, auditRows] = await Promise.all([
-      db.setting.findMany({ where: { tenantId } }),
-      db.student.findMany({ where: { tenantId } }),
-      db.ledgerEntry.findMany({ where: { tenantId } }),
-      db.invoice.findMany({ where: { tenantId } }),
-      db.auditLog.findMany({ where: { tenantId } }),
-    ]);
+    // every invoice and the audit trail; invoice + audit rows went in next, and
+    // RECEIPTS / ATTENDANCE / BATCHES were still missing — which is the same
+    // class of silent data loss one layer down. A restore would have dropped
+    // every receipt (this tenant holds 12), which is every number the tutor
+    // ever handed a parent, plus the attendance record and the batch names their
+    // fees and reports are grouped by.
+    //
+    // WHY EVERY TABLE IS READ THROUGH THE ORM SHIM AND NOT A GENERIC LOOP: the
+    // model surface is the audited authority for what exists (AGENTS §3.4), and
+    // `receipt` / `attendanceSession` / `attendanceRecord` / `batch` are all
+    // registered on it. Each read is named, so dropping one is a diff nobody has
+    // to notice.
+    //
+    // A table the tenant's schema does not have is reported as `null`, never as
+    // an empty array, and never by failing the whole backup.
+    //
+    // The distinction is the whole point. `[]` means "this tutor has no receipts";
+    // `null` means "this build could not read receipts". A restore that treats
+    // them the same silently destroys data it never even looked at — which is the
+    // defect this function is being fixed for. Failing the entire backup instead
+    // is worse and violates Rule 9 in the other direction: the tutor would get no
+    // file at all and no statement of which table broke. So a missing table is
+    // recorded, named on screen, and the file still goes out with everything it
+    // could read.
+    //
+    // A missing SETTINGS, STUDENT, LEDGER or INVOICE table is never tolerated: the
+    // try/catch below already refuses those, and refusing is correct there.
+    type BackupRows<T> = T[] | null;
+    async function readForBackup<T>(table: string, read: () => Promise<T[]>): Promise<BackupRows<T>> {
+      try {
+        return await read();
+      } catch (error) {
+        // Rule 9: the reason is logged, not swallowed. A missing table is a
+        // provisioning gap, and `settings_create_failed` is where it surfaces.
+        log.warn(
+          "backup_table_unavailable",
+          `${table}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
+      }
+    }
+
+    const [settingsRows, studentsRows, ledgerRows, invoiceRows, receiptRows, attendanceSessionRows, attendanceRecordRows, batchRows, auditRows] =
+      await Promise.all([
+        db.setting.findMany({ where: { tenantId } }),
+        db.student.findMany({ where: { tenantId } }),
+        db.ledgerEntry.findMany({ where: { tenantId } }),
+        db.invoice.findMany({ where: { tenantId } }),
+        readForBackup("receipts", () => db.receipt.findMany({ where: { tenantId } })),
+        readForBackup("attendance_sessions", () =>
+          db.attendanceSession.findMany({ where: { tenantId } }),
+        ),
+        readForBackup("attendance_records", () =>
+          db.attendanceRecord.findMany({ where: { tenantId } }),
+        ),
+        readForBackup("batches", () => db.batch.findMany({ where: { tenantId } })),
+        db.auditLog.findMany({ where: { tenantId } }),
+      ]);
+
+    const countOf = (rows: BackupRows<unknown>): number | null =>
+      rows === null ? null : rows.length;
+
+    // Stated once, so the file, the audit row and the success line cannot drift
+    // into three different claims about what was backed up. 08_Settings.md
+    // §6.2.7 makes this line the tutor's only evidence of what the file actually
+    // holds, so it is derived from the very arrays that went into it and never
+    // restated by hand. `null` above means "this build could not read that table"
+    // — see `readForBackup`.
+    const counts = {
+      students: countOf(studentsRows),
+      ledger: countOf(ledgerRows),
+      invoices: countOf(invoiceRows),
+      receipts: countOf(receiptRows),
+      attendanceSessions: countOf(attendanceSessionRows),
+      attendanceRecords: countOf(attendanceRecordRows),
+      batches: countOf(batchRows),
+      audit: countOf(auditRows),
+    };
 
     const backupPayload = JSON.stringify({
       version: 1,
@@ -259,6 +327,12 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
       students: studentsRows,
       ledger: ledgerRows,
       invoices: invoiceRows,
+      // `null` = unavailable in this build. A restore MUST treat null and []
+      // differently; see `readForBackup`.
+      receipts: receiptRows,
+      attendanceSessions: attendanceSessionRows,
+      attendanceRecords: attendanceRecordRows,
+      batches: batchRows,
       audit: auditRows,
     });
 
@@ -299,12 +373,7 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
             metadata: JSON.stringify({
               bytes: sizeBytes,
               filename,
-              counts: {
-                students: studentsRows.length,
-                ledger: ledgerRows.length,
-                invoices: invoiceRows.length,
-                audit: auditRows.length,
-              },
+              counts,
             }),
             createdAt: now,
           },
@@ -325,12 +394,7 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
       data: {
         filename,
         size: `${sizeKB} KB`,
-        counts: {
-          students: studentsRows.length,
-          ledger: ledgerRows.length,
-          invoices: invoiceRows.length,
-          audit: auditRows.length,
-        },
+        counts,
         encrypted: true,
         blobUrl: `data:application/octet-stream;base64,${encryptedB64}`,
       },

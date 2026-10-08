@@ -221,14 +221,51 @@ async function shoot(page: Page, name: string): Promise<void> {
   expect(shot.length, `screenshot ${name} produced no pixels`).toBeGreaterThan(1_000);
 }
 
-/** True when the active screen is the one named. Read off the shell's own nav. */
-async function onScreen(page: Page, label: "Fees & Payments" | "Students"): Promise<boolean> {
+/**
+ * THE SPOKEN DESTINATION → THE ROUTE AND THE HEADING THAT PROVE IT.
+ *
+ * The card announces `Open <SCREEN_NAME>.` — "Fees and Payments", from
+ * `SCREEN_NAME` in `lib/dashboard-drill.ts` — while the chrome's own nav labels
+ * the row "Fees & Payments" (glass-shell.tsx) and the route is `/fees`. Three
+ * different spellings of one screen, which is why this is a table and not the
+ * ternary `destination === "Students" ? ... : ...` that was here before: that
+ * ternary would silently treat any third screen name as Fees.
+ *
+ * `nav` is the nav LABEL (what the chrome calls the screen); `heading` is that
+ * screen's own `<h1>`, so "arrives at" means the route committed AND the screen
+ * actually rendered — a nav highlight alone would be satisfied by a route that
+ * painted an error boundary.
+ */
+const DESTINATIONS: Record<
+  string,
+  { readonly route: string; readonly nav: "Fees & Payments" | "Students"; readonly heading: RegExp }
+> = {
+  "Fees and Payments": { route: "/fees", nav: "Fees & Payments", heading: /^Fees & Payments$/i },
+  Students: { route: "/students", nav: "Students", heading: /^Students$/i },
+};
+
+/**
+ * True when the chrome's nav marks `label` as the current screen.
+ *
+ * `aria-current="page"`, NOT `"true"` — the previous version of this helper asked
+ * for `aria-current="true"`, which the shell has never emitted (glass-shell.tsx:
+ * 422 and :783 both emit `"page"`). The selector therefore matched NOTHING, ever,
+ * so this helper returned a constant `false`, `landed` was a constant `false`,
+ * and the drill loop died on its FIRST card having tested no navigation at all.
+ * That is the whole of failure 1: the app was right and the assertion was blind.
+ */
+async function navMarksCurrent(page: Page, label: string): Promise<boolean> {
   return page
-    .locator('nav[aria-label="Screens"] button[aria-current="true"]')
+    .locator('nav[aria-label="Screens"] button[aria-current="page"]')
     .filter({ hasText: label })
     .first()
     .isVisible()
     .catch(() => false);
+}
+
+/** The route the browser is actually on, with any query string or hash removed. */
+function routeOf(page: Page): string {
+  return new URL(page.url()).pathname.replace(/\/+$/, "") || "/";
 }
 
 /** Waits for the strip (or the first-run composition) to settle. */
@@ -511,23 +548,54 @@ test("dashboard audit 2: every card lands where it says, and the CSV matches the
   // The destination is read out of the card's accessible name rather than a
   // table in the test, so a card cannot pass by drilling somewhere its own
   // screen-reader text does not admit to.
+  //
+  // "ARRIVES AT" IS THREE FACTS, NOT ONE, AND THE OLD VERSION PROVED NONE OF
+  // THEM. It called `onScreen()` in the same tick as the click, with (a) a
+  // selector for an `aria-current` value the shell does not emit, and (b) an
+  // `a || b` that accepted landing on the WRONG screen. `setActiveScreen` →
+  // `router.push` → RSC fetch → commit is asynchronous (use-screen-url.ts:104),
+  // so an un-waited read of the nav observes the screen the tutor came FROM.
+  // Now each card proves, in order: the spoken destination is a screen this
+  // file knows, the ROUTE commits to that screen's path, that screen's own `<h1>`
+  // renders, and the chrome marks exactly that nav row current.
   for (const title of ALL_CARDS) {
     const card = kpiCard(page, title);
     await expect(card, `"${title}" is on screen`).toBeVisible({ timeout: 30_000 });
     const name = (await card.innerText()).replace(/\s+/g, " ").trim();
     const destination = name.match(DRILL_SENTENCE)?.[1];
     expect(destination, `"${title}" states a destination`).toBeTruthy();
-    await card.click({ timeout: 15_000 });
-    const expectedNav = destination === "Students" ? "Students" : "Fees & Payments";
-    const landed =
-      (await onScreen(page, expectedNav)) ||
-      // Report the truth either way; the assertion below is what gates.
-      (await onScreen(page, destination === "Students" ? "Fees & Payments" : "Students"));
-    console.log(`DASH_DRILL:${title} -> claimed=${destination} landedOn=${expectedNav} ok=${landed}`);
+    const target = DESTINATIONS[destination!];
     expect(
-      landed,
-      `"${title}" says it opens ${destination}, so it must not open ${destination === "Students" ? "Fees & Payments" : "Students"}`,
-    ).toBe(true);
+      target,
+      `"${title}" speaks a destination this file can check — ${JSON.stringify(Object.keys(DESTINATIONS))}`,
+    ).toBeDefined();
+    expect(routeOf(page), "the drill starts on the Dashboard").toBe("/dashboard");
+
+    await card.click({ timeout: 15_000 });
+    // Wait for the ROUTE. This is the wait the old version was missing.
+    await page.waitForURL(`**${target!.route}`, { timeout: 30_000 });
+    // …then for the screen itself to have rendered, not merely a URL to have changed.
+    await expect(
+      page.locator("main h1").first(),
+      `"${title}" arrived at the ${destination} screen, which rendered its own heading`,
+    ).toHaveText(target!.heading, { timeout: 30_000 });
+    await expect
+      .poll(() => navMarksCurrent(page, target!.nav), {
+        timeout: 15_000,
+        message: `the chrome must mark "${target!.nav}" as the current screen (aria-current="page")`,
+      })
+      .toBe(true);
+
+    const landedRoute = routeOf(page);
+    console.log(
+      `DASH_DRILL:${title} -> spoke="${destination}" route=${landedRoute} ` +
+        `navCurrent=${await navMarksCurrent(page, target!.nav)}`,
+    );
+    expect(
+      landedRoute,
+      `"${title}" says it opens ${destination} (route ${target!.route}), so it must not open ` +
+        `${landedRoute === "/students" ? "Fees and Payments" : "Students"}`,
+    ).toBe(target!.route);
     await gotoScreen(page, "Dashboard");
     await waitForDashboard(page);
   }
@@ -641,21 +709,84 @@ test("dashboard audit 2: every card lands where it says, and the CSV matches the
 });
 
 /**
- * 04 §16 and Rule 9: loading, empty and failure are three distinguishable
- * states, and a failed read must NEVER render as real zeroes.
+ * ── WHY THIS TEST WAS REWRITTEN, AND WHAT IT STILL PROVES ────────────────────
  *
- * The figures arrive through a server action, so this manufactures the failure
- * at the network edge — hold every action POST open to catch the loading branch,
- * then abort them to reach the failure branch. `captureErrors` is deliberately
- * NOT used here: this test creates the errors it would report.
+ * The previous version asserted "a pending read must render a skeleton, never a
+ * row of ₹0.00 cards" while observing the FIRST PAINT of `/dashboard`. That
+ * premise is FALSE, and it is false because the app got better:
  *
- * A period change is the trigger for each read, because a new period is a new
- * query key and therefore a guaranteed refetch whatever the cache holds.
+ *   `/dashboard` is a real SSR route (app/(app)/dashboard/page.tsx, since
+ *   2026-10-07). Its `ScreenData` prefetches `["dashboard","summary",period]` —
+ *   the client's own key — into the dehydrated TanStack cache on the SERVER, so
+ *   the HTML that reaches the browser already carries the real figures. Measured
+ *   on this tenant: 92 878 bytes of HTML containing `Open Fees and Payments.
+ *   Collected: ₹13.00.` and the tokens ₹0.00 / ₹13.00 / ₹505.00 / ₹1.00, and NOT
+ *   the skeleton's "Loading… your dashboard".
+ *
+ *   So there is no pending window on first paint to catch, and the old assertion
+ *   failed against a page that had already finished loading. Deleting the Rule 9
+ *   check would be the wrong repair — Rule 9 still has a case that genuinely
+ *   exists, a read that happens AFTER hydration — so it is RE-BASED onto that
+ *   case and the replaced premise is proved in its own right (PART A).
+ *
+ * The old locator was wrong as well, and it is the more dangerous of the two
+ * defects: `[role="status"][aria-live="polite"]` `.first()` matched
+ * `glass-shell.tsx:493` — the sync pill, present and visible on every screen at
+ * every moment, saying "Sync". The "loading state is visible" assertion
+ * therefore passed VACUOUSLY: it had been observing a permanently present
+ * element and proving nothing about loading at all. Enumerated on the hydrated
+ * Dashboard, the only two such nodes are `Sync` and `Search ready`. The loading
+ * surface is now located by what it SAYS (`Loading… your dashboard`,
+ * screen-state.tsx:249), not by a role the shell also uses for a status pill.
+ *
+ * §16's three states — loading, empty, failure — are all still distinguished.
+ * `captureErrors` is deliberately NOT used here: this test creates the errors it
+ * would report.
  */
-test("dashboard audit 3: a failed read shows an error, never zeroes (Rule 9)", async ({ page }) => {
-  test.setTimeout(180_000);
+test("dashboard audit 3: first paint is server-rendered; a read AFTER hydration shows a skeleton or a stated error, never zeroes (Rule 9)", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
   await preferReducedMotion(page);
   await login(page);
+
+  // ══ PART A — the first paint is server-rendered, with the real figures ══════
+  /**
+   * Read the route's own HTML over the signed-in context's cookies. This is the
+   * behaviour that REPLACED the pending window, so it is asserted rather than
+   * assumed: if a future change drops the prefetch, this fails and the pending
+   * window it removed has to come back with the skeleton that covers it.
+   */
+  const ssr = await page.context().request.get("/dashboard");
+  expect(ssr.status(), "the dashboard route answers a direct GET").toBe(200);
+  const html = await ssr.text();
+
+  // The card's screen-reader sentence, carrying a paise-derived figure, is in the
+  // HTML. It is plain text in a `<span class="sr-only">`, so it cannot have been
+  // produced by a client-side fetch after paint.
+  expect(
+    html,
+    "the server-rendered HTML already carries a KPI card and its paise-derived figure",
+  ).toMatch(/Open (Fees and Payments|Students)\.[^<]*₹[\d,]*\d\.\d{2}\./);
+  expect(
+    [...new Set(html.match(/₹[\d,]*\d\.\d{2}/g) ?? [])].length,
+    "the SSR HTML renders more than one rupee figure, so the strip is not a placeholder",
+  ).toBeGreaterThan(1);
+  // …and the loading skeleton is NOT, because the read finished on the server.
+  expect(
+    html,
+    "the SSR HTML must not carry the loading skeleton — that is the behaviour replacing the pending window",
+  ).not.toContain("Loading… your dashboard");
+  // `usePathname()` is identical on the server and the client, so the nav
+  // highlight is right in the HTML (use-screen-url.ts:78-84).
+  expect(
+    html,
+    "the nav's current screen is correct in the HTML, before hydration",
+  ).toContain('aria-current="page"');
+  console.log(
+    `DASH_SSR_BYTES:${html.length} ` +
+      `DASH_SSR_RUPEES:${JSON.stringify([...new Set(html.match(/₹[\d,]*\d\.\d{2}/g) ?? [])])}`,
+  );
 
   /**
    * ONE route with a mutable mode, never two. Registering a second handler and
@@ -664,7 +795,7 @@ test("dashboard audit 3: a failed read shows an error, never zeroes (Rule 9)", a
    * "Route is already handled!" — the route is only ever touched once.
    */
   type GateMode = "hold" | "pass" | "abort";
-  const gate = { mode: "hold" as GateMode };
+  const gate = { mode: "pass" as GateMode };
   // Read through a function on purpose: TypeScript narrows a `let` across an
   // `await` and would then reject the second `abort` check as impossible, when
   // it is exactly the check that matters once a handler unparks.
@@ -697,24 +828,48 @@ test("dashboard audit 3: a failed read shows an error, never zeroes (Rule 9)", a
   });
 
   await gotoScreen(page, "Dashboard");
-  await gotoScreen(page, "Students");
-  await gotoScreen(page, "Dashboard");
+  await waitForDashboard(page);
+  await expectVisible(
+    page.getByText("Collected", { exact: true }).first(),
+    "the hydrated strip shows real figures",
+    30_000,
+  );
 
-  // The summary action is in flight, so the strip must not exist yet.
+  // ══ PART B — a read AFTER hydration: pending shows a skeleton, not zeroes ═══
+  // A period change is the trigger: a new period is a new query key
+  // (`["dashboard","summary",period]`, dashboard-client.tsx:292), so `data`
+  // becomes `undefined` and the screen renders `ScreenSkeleton` — the branch the
+  // old assertion was written to observe, reached the only way it can be.
+  gate.mode = "hold";
+  await page.getByRole("button", { name: "All", exact: true }).click();
+
+  const skeleton = page.locator('[role="status"]').filter({ hasText: "Loading" }).first();
   await expect(
-    page.locator('[role="status"][aria-live="polite"]').first(),
-    "the dashboard shows a loading state while the read is in flight",
+    skeleton,
+    "the in-flight refetch renders the shape-matched loading surface (screen-state.tsx ScreenSkeleton)",
   ).toBeVisible({ timeout: 20_000 });
-  const loadingBody = (await page.locator("main").innerText()).replace(/\s+/g, " ");
-  console.log(`DASH_LOADING_HAS_RUPEE:${loadingBody.includes("₹")}`);
+  // It says WHAT is arriving, for a screen-reader user, and it is the Dashboard's
+  // own skeleton rather than some other screen's.
+  await expect(skeleton, "the loading surface names the dashboard it replaces").toHaveText(
+    /Loading… your dashboard/i,
+  );
+
+  const pendingBody = (await page.locator("main").innerText()).replace(/\s+/g, " ");
+  console.log(
+    `DASH_PENDING_HAS_RUPEE:${/₹[\d,.]*\d\.\d{2}/.test(pendingBody)} ` +
+      `DASH_PENDING_CARDS:${await page.getByText("Collected", { exact: true }).count()}`,
+  );
   expect(
-    loadingBody,
+    pendingBody,
     "a pending read must render a skeleton, never a row of ₹0.00 cards (Rule 9)",
   ).not.toMatch(/₹[\d,.]*\d\.\d{2}/);
+  expect(
+    await page.getByText("Collected", { exact: true }).count(),
+    "the KPI strip is replaced wholesale while pending — a half-stripped screen is the same lie",
+  ).toBe(0);
   await shoot(page, "dash-04-loading.png");
 
-  // Let the held read land, so the failure below is proved against a screen that
-  // demonstrably CAN show real figures.
+  // ══ PART C — released: the real figures come back ══════════════════════════
   gate.mode = "pass";
   release?.();
   await expectVisible(
@@ -722,11 +877,46 @@ test("dashboard audit 3: a failed read shows an error, never zeroes (Rule 9)", a
     "the real strip renders once the held read is released",
     30_000,
   );
+  expect(
+    (await page.locator("main").innerText()).replace(/\s+/g, " "),
+    "a settled read renders paise-derived figures again, so the pending branch was a real absence",
+  ).toMatch(/₹[\d,]*\d\.\d{2}/);
 
-  // ── Failure is not zero either ────────────────────────────────────────────
+  // ══ PART D — failure is not zero either ════════════════════════════════════
+  // A FRESH QUERY KEY, and this is not incidental. The first draft of this part
+  // switched back to "Month" — a key the server prefetch had already put in the
+  // cache — and the abort had nothing to abort: TanStack served the cached
+  // `dataUpdatedAt` (still inside the browser client's `staleTime: 30_000`,
+  // `app/query-defaults.ts:35`) and issued no POST, so "a failed dashboard read"
+  // never happened and no failure state could appear. A test that names a
+  // failure it never caused is the same class of lie Rule 9 is about, so the
+  // trigger is a window this session has never asked for. That guarantees a
+  // fresh POST, and a fresh POST is the only thing that can fail.
   gate.mode = "abort";
 
-  await page.getByRole("button", { name: "All", exact: true }).click();
+  const isoDaysAgo = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    return d.toISOString().slice(0, 10);
+  };
+  await page.getByRole("button", { name: "Range", exact: true }).click();
+  const startInput = page.getByLabel("Period start day");
+  const endInput = page.getByLabel("Period end day");
+  await expectVisible(startInput, "range start input");
+  // Start alone is refused by `DashboardPeriodSchema` ("a range needs an end
+  // day"), so only the second fill applies a period — one read, not two.
+  await startInput.fill(isoDaysAgo(60));
+  await endInput.fill(isoDaysAgo(0));
+
+  // The same read shows BOTH of §16's other states, in order: the skeleton while
+  // it is in flight, then the stated failure. One read, two distinct surfaces —
+  // which is precisely what "loading, empty and failure are three states" means.
+  const failureSkeleton = page.locator('[role="status"]').filter({ hasText: "Loading" }).first();
+  await expect(
+    failureSkeleton,
+    "the failing read passes through the loading surface before it fails — a screen that skips straight to an error has collapsed two states into one",
+  ).toBeVisible({ timeout: 20_000 });
+
   const failure = page
     .getByRole("alert")
     .filter({ hasText: /these are not your collections/i });
@@ -736,11 +926,15 @@ test("dashboard audit 3: a failed read shows an error, never zeroes (Rule 9)", a
     30_000,
   );
   const failedBody = (await page.locator("main").innerText()).replace(/\s+/g, " ");
-  console.log(`DASH_FAILED_HAS_RUPEE:${/\u20B9[\d,.]*\d\.\d{2}/.test(failedBody)}`);
+  console.log(`DASH_FAILED_HAS_RUPEE:${/₹[\d,.]*\d\.\d{2}/.test(failedBody)}`);
   expect(
     failedBody,
     "a gateway failure must not render as real zeroes (Rule 9, 04 §16)",
   ).not.toMatch(/₹[\d,.]*\d\.\d{2}/);
+  expect(
+    await page.getByText("Collected", { exact: true }).count(),
+    "a failed read renders no KPI card at all — an empty strip would read as an empty book",
+  ).toBe(0);
   // The header still offers the filter and a route onward: a tutor whose figures
   // are down can still act.
   await expectVisible(

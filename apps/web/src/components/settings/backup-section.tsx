@@ -26,17 +26,24 @@ import {
 // refuses below 12, and those must not be two literals that drift.
 import { BACKUP_PASSPHRASE_MIN, backupFilename } from "@/lib/settings-gates";
 import { PIN_INPUT_MAX_LENGTH } from "@buddysaradhi/shared";
+import { useSettingsStore, type BackupArtefact } from "@/stores/settings-store";
 import { HardDrive, Download, AlertTriangle, Key, Loader2, ShieldCheck, FileJson } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type BackupCounts = { students: number; ledger: number; invoices: number; audit: number };
 
 export function BackupSection() {
   const [passphrase, setPassphrase] = useState("");
   const [passphraseConfirm, setPassphraseConfirm] = useState("");
   const [typedWord, setTypedWord] = useState("");
   const [pin, setPin] = useState("");
-  const [result, setResult] = useState<{ filename: string; size: string; counts: BackupCounts; blobUrl: string } | null>(null);
+  // THE ARTEFACHT LIVES IN THE SCREEN'S STORE, not in a `useState` here. Measured
+  // on 2026-10-08: this section's success card was found missing 120 seconds
+  // after a backup that had actually been created, encrypted and audited. A
+  // component-local result is destroyed by any remount of this pane, and this
+  // pane IS remounted — every settings mutation calls `revalidatePath
+  // ("/settings")`. The consequence is the worst kind for this one file: the
+  // tutor is told nothing, and the only way back is to pay for Argon2id again.
+  const result = useSettingsStore((s) => s.lastBackup);
+  const setLastBackup = useSettingsStore((s) => s.setLastBackup);
 
   const mutation = useMutation({
     mutationFn: () => createBackupAction(passphrase, pin, typedWord),
@@ -44,10 +51,10 @@ export function BackupSection() {
       // A typed refusal is a refusal, not a crash: keep the copy on screen and
       // let the tutor fix the one thing that is wrong (Rule 9).
       if (res.success !== true) {
-        setResult(null);
+        setLastBackup(null);
         return;
       }
-      setResult({ ...res.data, counts: res.data.counts as BackupCounts });
+      setLastBackup({ ...res.data, counts: res.data.counts } as BackupArtefact);
       setPin("");
     },
   });
@@ -233,7 +240,7 @@ export function BackupSection() {
           type="button"
           onClick={() => {
             if (!canSubmit) return;
-            setResult(null);
+            setLastBackup(null);
             mutation.mutate();
           }}
           disabled={!canSubmit || mutation.isPending}
@@ -267,8 +274,25 @@ export function BackupSection() {
               </p>
               <p className="text-xs font-mono text-[var(--text-secondary)] break-all">{result.filename}</p>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                {result.size} · {result.counts.students} students · {result.counts.ledger} ledger
-                entries · {result.counts.invoices} invoices · {result.counts.audit} audit rows
+                {/* EVERY table the action read, in the order it reads them, with
+                    no hand-written summary. `08_Settings.md` §6.2.7 makes this
+                    line the tutor's only evidence of what the file holds, and the
+                    measured defect (settings audit, 2026-10-08) was exactly a
+                    gap in it: receipts, attendance and batches went into the
+                    tenant's books but not into the file, and a restore would have
+                    dropped all 12 receipts without one word on screen. A count
+                    that is printed cannot be silently absent.
+
+                    `null` prints as "not in this build" and NOT as "0" — a zero
+                    would be a claim that the tutor has no receipts, which is the
+                    same lie in a different font. See `readForBackup`. */}
+                {result.size} · {result.counts.students ?? "—"} students ·{" "}
+                {result.counts.ledger ?? "—"} ledger entries ·{" "}
+                {result.counts.invoices ?? "—"} invoices ·{" "}
+                {result.counts.receipts ?? "—"} receipts ·{" "}
+                {result.counts.attendanceSessions ?? "—"} attendance sessions ·{" "}
+                {result.counts.attendanceRecords ?? "—"} attendance records ·{" "}
+                {result.counts.batches ?? "—"} batches · {result.counts.audit ?? "—"} audit rows
               </p>
             </div>
             <button

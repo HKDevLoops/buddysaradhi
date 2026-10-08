@@ -176,6 +176,41 @@ function entryMeta(type: string): EntryMeta {
   }
 }
 
+/**
+ * Is this ledger row DEAD?
+ *
+ * Two independent facts in the payload say so, and the row is dead if EITHER
+ * does:
+ *
+ *   1. `row.isVoid` — the gateway's own flag, derived server-side from the same
+ *      `void_of_id` linkage.
+ *   2. `voidingRowByTarget.has(row.id)` — the linkage itself, read here from the
+ *      reversing rows already in this page.
+ *
+ * This used to consult (1) alone. On the QA tenant that rendered EVERY
+ * already-voided receipt exactly like a live one — no strike-through, no
+ * "Voided" word, and an enabled "Void" button (measured: 6 voided payments in
+ * the tenant, 0 of them flagged). 07 §6.3 and §10.2 BR-LED-03 both require the
+ * original to be visibly struck, and a dead receipt that still looks live is the
+ * worst state this table can be in: a tutor reads it as money they are owed, and
+ * pressing Void then only reaches the gateway's BR-LED-04/05 409.
+ *
+ * Reading both makes the state correct from the payload alone. The two can only
+ * disagree if the gateway's derivation is wrong, and where they agree the union
+ * is the same answer — so this is defence in depth on the financial spine, not
+ * a second opinion that could mask a fault. A row the LINKAGE names is voided
+ * whether or not a flag happens to agree.
+ *
+ * Exported for direct test: `void-sequence.test.ts` pins the linkage arm, and
+ * `ledger-table.void-state.test.ts` pins the flag arm and the union.
+ */
+export function isLedgerRowVoided(
+  row: { id: string; isVoid?: boolean },
+  voidingRowByTarget: ReadonlyMap<string, string>,
+): boolean {
+  return row.isVoid === true || voidingRowByTarget.has(row.id);
+}
+
 export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
   const { setPaymentSheetOpen, setInvoiceSheetOpen } = useFeesStore();
   const queryClient = useQueryClient();
@@ -450,7 +485,13 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                *     the one 07 §6.3 gives a flare-red left border. Dimming it would
                *     hide the audit trail BR-LED-04 exists to keep.
                */
-              const isVoided = entry.isVoid === true;
+              /**
+               * Is this row dead? See `isLedgerRowVoided` above for why BOTH the
+               * gateway flag and the in-payload reversing-row linkage are read —
+               * trusting the flag alone shipped every voided receipt on the QA
+               * tenant looking live, with an enabled Void button on it.
+               */
+              const isVoided = isLedgerRowVoided(entry, voidingRowByTarget);
               const isReversal = reverses !== null;
               const voidingRowId = voidingRowByTarget.get(entry.id);
               const voidedByReceipt = voidingRowId ? receiptByEntryId.get(voidingRowId) : undefined;

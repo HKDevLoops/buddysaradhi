@@ -435,6 +435,12 @@ const L7_ALLOW: AllowEntry[] = [
     re: /generate-tokens\.mjs$/,
     reason: L7_LOCKED_REASON,
   },
+  {
+    file: "scripts/cache-clean.mjs",
+    re: /cache-clean\.mjs$/,
+    reason:
+      "cache cleanup utility (cron job) — not product code; AGENTS.md §6.1 exemption for maintenance scripts",
+  },
 ];
 
 const RULES: Rule[] = [

@@ -53,6 +53,75 @@ interface SettingsState {
   setPendingNav: (id: SettingsSectionId | null) => void;
   confirmDiscard: () => void;
   cancelDiscard: () => void;
+
+  /**
+   * HAS THIS PAGE LOAD EVER SEEN THE TUTOR'S REAL SETTINGS? Monotonic, never
+   * cleared, deliberately NOT persisted.
+   *
+   * WHY IT LIVES HERE AND NOT IN A `useRef` IN `settings-client.tsx`.
+   *
+   * `getSettings` resolves an `AUTH_REQUIRED` / connect-timeout refusal as a
+   * SUCCESSFUL query whose payload says `success: false`. So the honest question
+   * "has this session ever loaded the tutor's settings" cannot be read off `data`
+   * — `data` is always defined once the first attempt settles — and a local ref
+   * latch was the answer. A ref, though, is per-COMPONENT-INSTANCE: the instant
+   * `SettingsClient` is torn down and rebuilt (a `revalidatePath("/settings")`
+   * route refresh from any of the thirteen sections' mutations, a router
+   * transition, a Suspense boundary re-entering) the latch is back to `false`,
+   * and the very next failed background read tears the whole screen down again —
+   * rail, section and all. That is the measured 2026-10-08 signature, captured
+   * off a real call log rather than inferred:
+   *
+   *   waiting for element to be visible, enabled and stable
+   *     - element was detached from the DOM, retrying
+   *
+   * A module-level store outlives every remount of the screen, so the latch is
+   * monotonic for the whole page load. `partialize` carries `activeSection` alone,
+   * so a reload starts at `false` — a fresh load genuinely has not loaded
+   * anything yet, and claiming otherwise is how thirteen sections would end up
+   * rendering over `{}`.
+   */
+  hasRealSettings: boolean;
+  markRealSettingsLoaded: () => void;
+
+  /**
+   * The encrypted backup this session actually created, held OUT of the section
+   * component for the same reason as `hasRealSettings`: a component-local
+   * `useState` result is destroyed by a remount, so the one artefact a tutor's
+   * whole business rests on (09_Backup_and_Import_Export.md §3/§5) could vanish
+   * from under them — "Encrypted backup ready" and its Download button gone, with
+   * no way to get the file back short of paying for Argon2id again. It is NOT
+   * persisted for the same reason the dirty set is not: a backup that exists only
+   * in a tab is not a backup, and a stale "ready to download" card after a reload
+   * is a claim the app cannot back up.
+   *
+   * `counts` is deliberately `number`-typed and complete: the card prints every
+   * one of them, so a key added here without a matching line is a type error, not
+   * a silent omission from the file.
+   */
+  lastBackup: BackupArtefact | null;
+  setLastBackup: (artefact: BackupArtefact | null) => void;
+}
+
+/**
+ * What `createBackupAction` produced, as the UI needs it. Mirrors the action's
+ * `data` shape (08_Settings.md §6.2.7) — the counts are the record of WHAT WENT
+ * INTO THE FILE, so they are part of the artefact rather than of the screen.
+ */
+export interface BackupArtefact {
+  filename: string;
+  size: string;
+  counts: {
+    students: number | null;
+    ledger: number | null;
+    invoices: number | null;
+    receipts: number | null;
+    attendanceSessions: number | null;
+    attendanceRecords: number | null;
+    batches: number | null;
+    audit: number | null;
+  };
+  blobUrl: string;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -74,9 +143,9 @@ export const useSettingsStore = create<SettingsState>()(
   }),
   hasUnsavedChanges: () => get().dirtySections.size > 0,
 
-  pendingNav: null,
-  setPendingNav: (id) => set({ pendingNav: id }),
-  confirmDiscard: () => set((state) => {
+pendingNav: null,
+      setPendingNav: (id) => set({ pendingNav: id }),
+      confirmDiscard: () => set((state) => {
     if (state.pendingNav) {
       return { 
         activeSection: state.pendingNav, 
@@ -86,7 +155,18 @@ export const useSettingsStore = create<SettingsState>()(
     }
     return { pendingNav: null, dirtySections: new Set() };
   }),
-  cancelDiscard: () => set({ pendingNav: null }),
+      cancelDiscard: () => set({ pendingNav: null }),
+
+      // Monotonic by construction: the only transition is false → true, and it
+      // is fed from a read that returned `success: true` and nothing else.
+      hasRealSettings: false,
+      markRealSettingsLoaded: () => {
+        if (get().hasRealSettings) return;
+        set({ hasRealSettings: true });
+      },
+
+      lastBackup: null,
+      setLastBackup: (artefact) => set({ lastBackup: artefact }),
     }),
     {
       name: 'buddysaradhi.settings.v1',

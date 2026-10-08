@@ -1,39 +1,77 @@
-// Attendance audit walkthrough — engineer lane ATTENDANCE-R2, 2026-10-06.
+// Attendance audit walkthrough — engineer lane ATTENDANCE, 2026-10-08.
 //
-// Drives the SHARED harness (tests/e2e/harness.ts): login, Zustand screen
-// switch, element-scoped waits (a cold Supabase edge isolate makes fixed sleeps
-// lie), and console/page error capture that fails the test.
+// Drives the SHARED harness (tests/e2e/harness.ts) for login, element-scoped
+// waits (a cold Supabase edge isolate makes fixed sleeps lie), and
+// console/page/network error capture that fails the test.
 //
 // WHAT THIS SPEC PROVES (06_Attendance.md is the contract):
-//   §6.1/§3   the day view renders, and changing the date / batch re-reads it
-//   §10.2/§18 every mark state is reachable BY KEYBOARD and each carries an
-//             icon AND a text label — colour is never the only signal (Rule 10,
-//             `no-color-only-status`)
-//   §9.7      BR-CALC-06: a period with nothing to measure reads "—", never
-//             "NaN%" and never a fabricated "0%"
-//   §10.7     the bulk-absent gate is a TYPED confirmation, and a dirty sheet
-//             asks before discarding (13_UI §8.7 / EC-AU-01)
-//   §5/§10.3/§10.6 the lock sheet opens and its PIN validation is honest: the
-//             bound is stated, a malformed PIN is refused locally, a wrong PIN is
-//             refused with a message, and NOTHING is written
-//   §7        no heatmap affordance and no "Generate Report" (owner decision)
-//   Rule 9    zero console errors, zero page errors, zero 4xx/5xx
+//   §6.1/§3      the day view renders, and changing the date / batch re-reads it
+//   §10.2/§18    every mark state is reachable BY KEYBOARD and each carries an
+//                icon AND a text label — colour is never the only signal (Rule 10,
+//                `no-color-only-status`)
+//   §9.7         BR-CALC-06: a period with nothing to measure reads "—", never
+//                "NaN%" and never a fabricated "0%"
+//   §10.7        the bulk-absent gate is a TYPED confirmation, and a dirty sheet
+//                asks before discarding (13_UI §8.7 / EC-AU-01)
+//   §5/§10.3/§10.6 the lock sheet opens and its PIN validation is honest: the bound
+//                is stated, a malformed PIN is refused locally, a WRONG PIN is
+//                refused with a message, and NOTHING is written
+//   §7           no heatmap affordance and no "Generate Report" (owner decision)
+//   Rule 9       zero console errors, zero page errors, zero 4xx/5xx
 //
+// ---------------------------------------------------------------------------------
+// WHY THE REVERSIBLE MARK LOOKS DIFFERENT NOW (this is the fix, 2026-10-08)
+// ---------------------------------------------------------------------------------
+// The previous version of this step read: "find a row on TODAY that already
+// carries a mark; if none does, fail, because the per-row control has no unmark
+// and a new mark could not be put back". That guard was RIGHT and it is kept —
+// the control still has no unmark — but it was aimed at the wrong day, so it
+// failed on a tenant whose marks are simply not on today. The failure it produced
+// also left the next run in exactly the same state, which is what made it a
+// deadlock rather than a failure.
+//
+// THE PREMISES, MEASURED ON THE QA TENANT BEFORE THIS CHANGE (see the probe in
+// this lane's report): today and yesterday carry NO marks at all; the most recent
+// marked day is 2026-10-06 (one `present`); 2026-10-02 and 2026-10-01 carry
+// marks too. Every batch on today is unmarked.
+//
+// So the step is now:
+//   1. SCAN BACKWARDS, day by day, for the most recent day that has at least one
+//      marked row AND reports itself unlocked. The scan reads only — it never
+//      clicks a mark control — and it is bounded (14 days, the same window the
+//      Dashboard's attendance heatmap reads).
+//   2. SNAPSHOT that whole day first: every row's own accessible name (which
+//      carries its current status) plus the summary strip's counts.
+//   3. Change ONE mark BY KEYBOARD, assert the row announces the new status,
+//      then put it back BY KEYBOARD — with a `finally` that restores even if an
+//      assertion throws, because a test that leaves the register dirty is worse
+//      than no test: the next run cannot tell whether it broke something or
+//      inherited something.
+//   4. ASSERT THE RESTORE from the screen: the pressed segment, the row's
+//      accessible name, the FULL day's row labels, and the summary strip. Not
+//      "the row I touched" — the whole day, because a botched restore could
+//      corrupt a second row.
+//   5. RE-VISIT that day at the very end of the walk and compare against the same
+//      snapshot, so the final tenant check covers both days.
+//
+// WHY NOT SIMPLY "MARK ONE ON TODAY AND LEAVE IT": because the control cannot
+// clear a mark. That is a real product finding, not a test problem, and it is
+// reported rather than worked around: see the FINDING block below.
+//
+// ---------------------------------------------------------------------------------
 // TENANT SAFETY — the QA tenant is left exactly as found:
 //   * Every bulk-absent path is CANCELLED. The confirm button is never clicked,
 //     so no `attendance_bulk_mark` row and no mark is ever written.
-//   * Exactly ONE mark is changed, and only on a row that ALREADY has one: the
-//     per-row control has no "unmark" affordance, so a row with no mark could
-//     not be put back. The mark is made BY KEYBOARD and restored BY KEYBOARD,
-//     and the restore is asserted on `aria-pressed` AND on the row's own
-//     accessible name — which is the same string the screen reader announces.
-//   * The lock sheet is never submitted with a valid PIN: locking sets
-//     `locked_at`, and nothing in the product can clear it, so a spec that
-//     locked the QA session could not undo it.
+//   * Exactly ONE mark is changed, on a row that ALREADY has one, and it is
+//     restored and the restore asserted (step 4 above, re-asserted at the end).
+//   * The lock sheet is never submitted with a valid PIN. `246813` is a
+//     well-formed PIN that is not the QA PIN, and it is the only PIN this spec
+//     ever types. Locking sets `locked_at`, and nothing in the product can clear
+//     it, so a spec that locked the QA session could not undo it.
 //   * A snapshot of the summary strip is taken before the bulk section and
 //     compared after it, so "the bulk committed nothing" is proved from the
 //     screen rather than assumed.
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { format } from "date-fns";
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +79,6 @@ import {
   captureErrors,
   expectAttached,
   expectVisible,
-  gotoScreen,
   login,
   QA_PIN,
 } from "./harness";
@@ -72,6 +109,20 @@ const MARK_KEYS: Partial<Record<MarkLabel, string>> = {
   Late: "l",
 };
 
+/**
+ * A well-formed PIN that is NOT the QA account's PIN.
+ *
+ * 06 §10.6 / 08 BR-SEC-02: the bound is 4–8 digits, so a shorter string would be
+ * refused by the local FORMAT check and would prove nothing about verification.
+ * `246813` is six digits and wrong, which is the case that has to fail closed.
+ * The real PIN is never typed here: this spec never performs a lock or an unlock,
+ * because neither can be undone.
+ */
+const WRONG_PIN = "246813";
+
+/** How far back the reversible-mark scan will look for a marked day. */
+const MARK_DAY_SCAN_DAYS = 14;
+
 interface ParsedRow {
   readonly name: string;
   readonly status: MarkStatus | "not marked";
@@ -91,20 +142,57 @@ function isoDaysAgo(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Opens one of the five screens through the app's own nav control.
+ *
+ * WHY NOT `gotoScreen` FROM THE SHARED HARNESS. On the current build that
+ * helper dispatches `element.click()` inside the page
+ * (`tests/e2e/harness.ts:185`), and the shell's nav `onClick` NEVER RUNS for it:
+ * measured here — the URL stays `/dashboard`, `aria-current="page"` does not
+ * move, there is no dialog, and there is not one console or page error. The very
+ * same button clicked with a trusted Playwright click navigates to `/attendance`
+ * and moves `aria-current`. Filed as a cross-lane report against
+ * `tests/e2e/harness.ts` (not this lane's file); this local helper keeps the
+ * spec's intent — the APP decides what navigation means — while using an input
+ * event the app actually honours.
+ *
+ * The retry is not a sleep: it re-issues the click and re-waits on the screen's
+ * own heading, so a click that lands before the shell has registered its router
+ * navigator is retried rather than waited on blindly.
+ */
+async function openScreen(page: Page, navLabel: string, heading: RegExp): Promise<void> {
+  const nav = page.locator(`nav[aria-label="Screens"] button[aria-label^="${navLabel} —"]`).first();
+  const h1 = page.getByRole("heading", { level: 1, name: heading }).first();
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await nav.click({ timeout: 15_000 });
+    try {
+      await expect(h1, `${navLabel} screen heading`).toBeVisible({ timeout: 10_000 });
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw new Error(
+    `The ${navLabel} screen never rendered after four nav clicks. URL stayed ${page.url()}. ${String(lastError)}`,
+  );
+}
+
 test.describe("Attendance screen audit", () => {
   test("day view, one reversible keyboard mark, the typed bulk gate, BR-CALC-06 dash, and the lock sheet's honest PIN refusal", async ({
     page,
   }, testInfo) => {
     // The shared `playwright.config.ts` sets a 60s test timeout, which this
     // walkthrough exceeds honestly: it drives five preset summaries, each a
-    // separate server-action round trip, on top of login and the day view.
-    // Per-test only; the config is not this lane's file.
-    test.setTimeout(300_000);
+    // separate server-action round trip, plus a bounded backward scan of the
+    // register looking for a day it can change and put back. Per-test only; the
+    // config is not this lane's file.
+    test.setTimeout(420_000);
 
     const errors = captureErrors(page);
 
-await login(page);
-await gotoScreen(page, "Attendance");
+    await login(page);
+    await openScreen(page, "Attendance", /^Attendance$/);
     // Rule 9's network half. `markSettled()` arms the harness's failed-response
     // listener (it is opt-in, so a signed-out cold start's 401 is not attributed
     // to the screen under audit); this lane asserts the list is empty at a
@@ -184,8 +272,8 @@ await gotoScreen(page, "Attendance");
     // ---- nothing here may need a horizontal scroll to be seen -----------------
     // The shell's scroll region is `overflow-auto`, so a screen whose content is
     // wider than its column hands that region a horizontal scrollbar — and the
-    // FIRST thing that brings an overflowing control into view (a click, a Tab,
-    // a screen reader's "scroll into view") leaves the region scrolled right,
+    // FIRST thing that brings an overflowing control into view (a click, a Tab, a
+    // screen reader's "scroll into view") leaves the region scrolled right,
     // sliding the whole left column under the fixed sidebar. Measured on the
     // pre-fix build at 1280×720: `scrollWidth` 1296 vs `clientWidth` 1024, and
     // once scrolled every roster row's name sat at x=129 — behind the sidebar,
@@ -219,24 +307,46 @@ await gotoScreen(page, "Attendance");
     ).toBe(captionBefore);
     expect(await dateInput.inputValue()).toBe(todayIso);
 
-    // The batch dimension. `selectedBatch` is part of the query key, so a real
-    // switch must re-read. With a single batch in the tenant the selector is
-    // honest about it rather than offering a dead option.
+    // ---- the batch dimension, and the EMPTY-BATCH regression ------------------
+    // `GET /api/v1/attendance/batches` used to answer `[]` on a tenant whose
+    // first mark had already gone somewhere: the mark writer resolves a
+    // batch-less mark to the `batch-default` sentinel, and if that row is never
+    // materialised the selector has nothing to render — the toolbar said "No
+    // batches yet — everyone is marked together" over a tenant that was marking
+    // students into a batch it could not name or select. THIS is the assertion
+    // that would have caught it, and it is why the sentinel is named here rather
+    // than merely counted: a selector with one option that is not the sentinel is
+    // a selector whose marks are unreachable.
     const batchOptions = await batchSelect.locator("option").allTextContents();
+    const batchValues = await batchSelect.locator("option").evaluateAll((els) =>
+      els.map((e) => (e as HTMLOptionElement).value),
+    );
     expect(batchOptions.length, "All batches always exists").toBeGreaterThanOrEqual(1);
     expect(batchOptions[0]).toBe("All batches");
     expect(await batchSelect.inputValue()).toBe("all");
-    if (batchOptions.length > 1) {
-      const other = batchSelect.locator("option").nth(1);
-      const otherValue = await other.getAttribute("value");
-      expect(otherValue).toBeTruthy();
-      await batchSelect.selectOption(otherValue!);
-      await settle("switched batch re-read the roster");
-      expect(await batchSelect.inputValue()).toBe(otherValue);
-      await batchSelect.selectOption("all");
-      await settle("batch restored");
-      expect(await batchSelect.inputValue()).toBe("all");
+    expect(
+      await page.getByText(/No batches yet/i).count(),
+      "the toolbar does not claim the tenant has no batches",
+    ).toBe(0);
+
+    const defaultBatchIndex = batchValues.indexOf("batch-default");
+    expect(
+      defaultBatchIndex,
+      "the materialised default batch is selectable — otherwise marks land in a batch the tutor cannot open",
+    ).toBeGreaterThanOrEqual(0);
+    expect(batchOptions[defaultBatchIndex]).toBe("General Batch");
+
+    // A real switch must re-read (`selectedBatch` is part of the query key).
+    for (let index = 1; index < batchValues.length; index += 1) {
+      const value = batchValues[index];
+      if (!value || value === "all") continue;
+      await batchSelect.selectOption(value);
+      await settle(`switched to batch ${value} — roster re-read`);
+      expect(await batchSelect.inputValue()).toBe(value);
     }
+    await batchSelect.selectOption("all");
+    await settle("batch restored");
+    expect(await batchSelect.inputValue()).toBe("all");
 
     // ---- 06 §10.2 / §18 — marks: icon + text + keyboard, one reversible ------
     const rows = page.locator('[role="group"][aria-label*="Keys:"]');
@@ -262,14 +372,13 @@ await gotoScreen(page, "Attendance");
       .first();
     const lockBadgeLabel = (await lockBadge.getAttribute("aria-label")) ?? "";
     const sessionIsLocked = !/^Lock this session/.test(lockBadgeLabel);
+    const isUnlocked = async (): Promise<boolean> =>
+      /^Lock this session/.test((await lockBadge.getAttribute("aria-label")) ?? "");
 
     const marksBeforeBulk = (await summaryStrip.getAttribute("aria-label")) ?? "";
     /**
-     * THE TENANT BASELINE. Every row's own accessible name carries its current
-     * mark, so this string array is the whole day's attendance as found. It is
-     * re-read at the end of the walk and compared item for item: a spec that
-     * changed a mark and did not put it back fails on the LAST line rather than
-     * leaving the QA tenant altered for the next lane.
+     * THE TENANT BASELINE for TODAY. Every row's own accessible name carries its
+     * current mark, so this string array is the whole day's attendance as found.
      */
     const readRoster = async (): Promise<string[]> => {
       const labels: string[] = [];
@@ -280,9 +389,8 @@ await gotoScreen(page, "Attendance");
     const rosterBaseline = await readRoster();
 
     if (rowCount > 0) {
-      const target = parsed.findIndex((p) => p.status !== "not marked");
-      const row = rows.nth(target >= 0 ? target : 0);
-      const here = target >= 0 ? parsed[target]! : parsed[0]!;
+      const here = parsed[0]!;
+      const row = rows.nth(0);
       const segment = (label: MarkLabel): Locator =>
         row.getByRole("button", { name: `Mark ${here.name} ${label}` }).first();
 
@@ -346,81 +454,142 @@ await gotoScreen(page, "Attendance");
         await row.focus();
         for (let i = 0; i < MARK_LABELS.length; i += 1) await page.keyboard.press("Tab");
         await expect(segment("Excused"), "Excused is reachable by Tab").toBeFocused();
+      }
+    }
 
-        if (target < 0) {
-          // Loud, not quiet. The per-row control has no "unmark" affordance, so
-          // with no pre-marked row on this day a mark could not be put back and
-          // the spec does not make one — but then 06 §18's keyboard contract is
-          // unproven, and a green line here would say otherwise. Fail with the
-          // reason instead.
-          expect(
-            target,
-            "no row on this day already carries a mark, so the reversible keyboard mark cannot be proven (the control has no unmark)",
-          ).toBeGreaterThanOrEqual(0);
-        } else {
-          // Change ONE mark BY KEYBOARD, then put it back BY KEYBOARD.
-          const original = here.status as MarkStatus;
-          const originalLabel = LABEL_FOR_STATUS[original];
-          const probe: MarkStatus = original === "late" ? "absent" : "late";
-          const probeLabel = LABEL_FOR_STATUS[probe];
-          const restore = async (viaKeyboard: boolean): Promise<void> => {
-            const key = MARK_KEYS[originalLabel];
-            if (viaKeyboard && key) {
-              await row.focus();
-              await page.keyboard.press(key);
-              return;
-            }
-            await segment(originalLabel).click();
-          };
+    // ---- 06 §18 — the ONE reversible keyboard mark, on a day that has one -----
+    // See the header for why this scans instead of assuming today. The scan only
+    // READS; the single write is the toggle and its restore, and both are proved.
+    type MarkDay = {
+      day: string;
+      rowIndex: number;
+      student: string;
+      original: MarkStatus;
+      baselineRoster: string[];
+      baselineStrip: string;
+    };
+    const scannedDays: string[] = [];
+    let markDay: MarkDay | null = null;
 
-          try {
-            await row.focus();
-            await page.keyboard.press(MARK_KEYS[probeLabel]!);
-            await expect(segment(probeLabel), `${probeLabel} is set from the keyboard`).toHaveAttribute(
-              "aria-pressed",
-              "true",
-            );
-            await expect(
-              row,
-              "the row announces the new mark",
-            ).toHaveAttribute("aria-label", new RegExp(`\\, ${probe}\\. Keys:`));
-
-            // ---- restore, always, even if an assertion above threw ---------
-            // Keyboard first (the same path the mark was made with); the
-            // pointer click is only the fallback for `excused`, which has no
-            // P/A/L shortcut by design.
-            await restore(true);
-            await expect(
-              segment(originalLabel),
-              `${originalLabel} restored`,
-            ).toHaveAttribute("aria-pressed", "true");
-            await expect(segment(probeLabel), `${probeLabel} cleared`).not.toHaveAttribute(
-              "aria-pressed",
-              "true",
-            );
-            await expect(row, "the row announces the restored mark").toHaveAttribute(
-              "aria-label",
-              new RegExp(`\\, ${original}\\. Keys:`),
-            );
-            await settle("roster settled after the reversible toggle");
-          } finally {
-            // Belt and braces: if the restore above did not land, put the row
-            // back before the spec is allowed to fail.
-            const stillProbe = await segment(probeLabel).getAttribute("aria-pressed");
-            if (stillProbe === "true") {
-              await restore(false);
-              await expect(
-                segment(originalLabel),
-                `${originalLabel} restored in the finally`,
-              ).toHaveAttribute("aria-pressed", "true");
-            }
-          }
-          testInfo.annotations.push({
-            type: "tenant-restored",
-            description: `${here.name} was ${original}, changed to ${probe} by keyboard, and put back to ${original}.`,
-          });
+    for (let back = 0; back < MARK_DAY_SCAN_DAYS && markDay === null; back += 1) {
+      const day = isoDaysAgo(todayIso, back);
+      await dateInput.fill(day);
+      await settle(`scanning ${day}`);
+      scannedDays.push(day);
+      if (!(await isUnlocked())) continue;
+      const labels = await readRoster();
+      let index = -1;
+      for (let i = 0; i < labels.length; i += 1) {
+        const p = parseRowLabel(labels[i] ?? "");
+        if (p && p.status !== "not marked") {
+          index = i;
+          break;
         }
       }
+      if (index < 0) continue;
+      const p = parseRowLabel(labels[index] ?? "")!;
+      markDay = {
+        day,
+        rowIndex: index,
+        student: p.name,
+        original: p.status as MarkStatus,
+        baselineRoster: labels,
+        baselineStrip: (await summaryStrip.getAttribute("aria-label")) ?? "",
+      };
+    }
+
+    if (!markDay) {
+      // Honest failure with the diagnosis, because a green line here would
+      // claim 06 §18's keyboard contract is proven when it is not.
+      throw new Error(
+        `No day in the last ${MARK_DAY_SCAN_DAYS} days (scanned ${scannedDays.join(", ")}) ` +
+          `has a marked row on an unlocked session. The per-row control has no unmark, ` +
+          `so the reversible keyboard mark cannot be proven without leaving a mark behind — ` +
+          `and the spec will not do that. Seed one mark on a recent unlocked day to run this step.`,
+      );
+    }
+
+    const target = markDay;
+    testInfo.annotations.push({
+      type: "reversible-mark-day",
+      description: `${target.day} row ${target.rowIndex} (${target.student}) was ${target.original} and is restored to ${target.original}.`,
+    });
+
+    try {
+      const targetRow = rows.nth(target.rowIndex);
+      const segmentOn = (label: MarkLabel): Locator =>
+        targetRow.getByRole("button", { name: `Mark ${target.student} ${label}` }).first();
+      const originalLabel = LABEL_FOR_STATUS[target.original];
+      const probe: MarkStatus = target.original === "late" ? "absent" : "late";
+      const probeLabel = LABEL_FOR_STATUS[probe];
+
+      const restore = async (): Promise<void> => {
+        const key = MARK_KEYS[originalLabel];
+        if (key) {
+          await targetRow.focus();
+          await page.keyboard.press(key);
+          return;
+        }
+        // `excused` has no shortcut by design, so the pointer is the honest
+        // restore path for it.
+        await segmentOn(originalLabel).click();
+      };
+
+      try {
+        await targetRow.focus();
+        await page.keyboard.press(MARK_KEYS[probeLabel]!);
+        await expect(segmentOn(probeLabel), `${probeLabel} is set from the keyboard`).toHaveAttribute(
+          "aria-pressed",
+          "true",
+        );
+        await expect(targetRow, "the row announces the new mark").toHaveAttribute(
+          "aria-label",
+          new RegExp(`\\, ${probe}\\. Keys:`),
+        );
+
+        // ---- restore, always, even if an assertion above threw ----------------
+        await restore();
+        await expect(segmentOn(originalLabel), `${originalLabel} restored`).toHaveAttribute(
+          "aria-pressed",
+          "true",
+        );
+        await expect(segmentOn(probeLabel), `${probeLabel} cleared`).not.toHaveAttribute(
+          "aria-pressed",
+          "true",
+        );
+        await expect(targetRow, "the row announces the restored mark").toHaveAttribute(
+          "aria-label",
+          new RegExp(`\\, ${target.original}\\. Keys:`),
+        );
+        await settle(`${target.day} settled after the reversible toggle`);
+      } finally {
+        // Belt and braces: if the restore above did not land, put the row back
+        // before the spec is allowed to fail.
+        const stillProbe = await segmentOn(probeLabel).getAttribute("aria-pressed").catch(() => null);
+        if (stillProbe === "true") {
+          await restore();
+          await expect(
+            segmentOn(originalLabel),
+            `${originalLabel} restored in the finally`,
+          ).toHaveAttribute("aria-pressed", "true");
+        }
+      }
+
+      // ASSERT THE RESTORE FROM THE SCREEN — the whole day, not just the row.
+      // A botched restore can leave a second row wrong, and "the row I touched is
+      // back" would not see it.
+      expect(
+        await readRoster(),
+        `${target.day}: every row is exactly as it was before the toggle`,
+      ).toEqual(target.baselineRoster);
+      expect(
+        (await summaryStrip.getAttribute("aria-label")) ?? "",
+        `${target.day}: the summary strip counts are exactly as they were`,
+      ).toBe(target.baselineStrip);
+    } finally {
+      // Whatever happened on the mark day, the register is put back on today.
+      await dateInput.fill(todayIso);
+      await settle("today restored after the reversible mark");
     }
 
     // ---- 06 §10.7 — the typed ABSENT gate, committed never -------------------
@@ -483,8 +652,8 @@ await gotoScreen(page, "Attendance");
 
     // ---- 06 §7 / BR-CALC-06 — the percentage is an em dash, never NaN% -------
     // Checkpoint. Everything above this line — the day view, the reversible
-    // mark, the bulk gate, the lock sheet's PIN refusal — is now covered, so a
-    // failure inside the summary walk below cannot hide a defect up here.
+    // mark, the bulk gate — is now covered, so a failure inside the summary walk
+    // below cannot hide a defect up here.
     errors.assertNoErrors();
 
     const summaryOpen = page.getByRole("button", {
@@ -539,6 +708,8 @@ await gotoScreen(page, "Attendance");
         expect(pct, `${preset}: a percentage is a number or an em dash`).toMatch(/^(—|\d{1,3}%)$/);
         expect(pct, `${preset}: never NaN`).not.toContain("NaN");
         if (total === "0") {
+          // "Nothing to measure" is NOT "nobody was there". A `0%` here accuses a
+          // tutor's roster of absences nobody recorded.
           expect(pct, `${preset}: nothing to measure reads as an em dash, not 0%`).toBe("—");
           dashesSeen += 1;
         }
@@ -555,6 +726,7 @@ await gotoScreen(page, "Attendance");
 
     // ---- 06 §5 / §10.3 / §10.6 — the lock sheet's validation is honest -------
     await expectVisible(lockBadge, "lock control");
+    const lockLabelBefore = (await lockBadge.getAttribute("aria-label")) ?? "";
     await lockBadge.click();
     const lockDialog = page.getByRole("dialog", {
       name: /(Lock|Unlock) Session|Request Unlock|Session Unlocked/i,
@@ -583,7 +755,9 @@ await gotoScreen(page, "Attendance");
     );
     await expect(lockConfirm, "confirm still refused on a malformed PIN").toBeDisabled();
 
-    await pin.fill("000000");
+    // Six digits and wrong: the local bound accepts it, so only the SERVER can
+    // refuse it — which is the whole point (12 BR-SEC-03, fail-closed).
+    await pin.fill(WRONG_PIN);
     await expect(lockConfirm, "a well-formed PIN unlocks the control").toBeEnabled();
     await lockConfirm.click();
     const refusal = lockDialog.getByRole("alert").first();
@@ -594,12 +768,16 @@ await gotoScreen(page, "Attendance");
     ).toMatch(/pin/i);
     expect(await refusal.innerText()).toMatch(/nothing was written/i);
 
-    // Nothing was written: the day is still unlocked.
+    // Nothing was written: the day is still unlocked, and still unmarked.
     await settle("roster settled after the refused PIN");
     expect(
       (await lockBadge.getAttribute("aria-label")) ?? "",
       "the refused PIN left the session unlocked",
-    ).toBe(lockBadgeLabel);
+    ).toBe(lockLabelBefore);
+    expect(
+      await readRoster(),
+      "the refused PIN wrote no mark — today's roster is exactly as found",
+    ).toEqual(rosterBaseline);
 
     // The close button is the direct way out (13_UI §8.7), but a typed PIN is
     // work the tutor would not want to lose silently.
@@ -640,7 +818,7 @@ await gotoScreen(page, "Attendance");
     fs.mkdirSync(path.dirname(shotPath), { recursive: true });
     fs.writeFileSync(shotPath, shot);
     expect(fs.existsSync(shotPath), "the day-view screenshot is on disk").toBe(true);
-errors.assertNoErrors();
+    errors.assertNoErrors();
 
     // ---- THE TENANT IS EXACTLY AS FOUND --------------------------------------
     // Read one last time, after every sheet has closed and every query has
@@ -651,14 +829,32 @@ errors.assertNoErrors();
     await settle("roster settled for the final tenant check");
     expect(
       await readRoster(),
-      "the day's marks are exactly as found — every row carries its original status",
+      "today's marks are exactly as found — every row carries its original status",
     ).toEqual(rosterBaseline);
     expect(
       (await summaryStrip.getAttribute("aria-label")) ?? "",
-      "the summary strip counts are exactly as found",
+      "today's summary strip counts are exactly as found",
     ).toBe(marksBeforeBulk);
+
+    // And the day the one mark was changed on — re-read from a cold navigation,
+    // so this proves the RESTORE persisted, not merely that the screen was never
+    // told otherwise.
+    await dateInput.fill(target.day);
+    await settle(`${target.day} re-read for the final tenant check`);
+    expect(
+      await readRoster(),
+      `${target.day}: every row is exactly as found after the reversible mark`,
+    ).toEqual(target.baselineRoster);
+    expect(
+      (await summaryStrip.getAttribute("aria-label")) ?? "",
+      `${target.day}: the summary strip counts are exactly as found`,
+    ).toBe(target.baselineStrip);
+    await dateInput.fill(todayIso);
+    await settle("today restored for the final tenant check");
+
     expect(await dateInput.inputValue(), "the date is exactly as found").toBe(todayIso);
     expect(await batchSelect.inputValue(), "the batch is exactly as found").toBe("all");
+    expect(await dateCaption.innerText(), "the date caption is exactly as found").toBe(captionBefore);
   });
 });
 

@@ -1,0 +1,8 @@
+$ pnpm --filter @buddysaradhi/design-system build && pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck
+$ tsc -p tsconfig.json
+$ tsc --noEmit
+src/components/settings/fee-rules-section.tsx(109,24): error TS2686: 'React' refers to a UMD global, but the current file is a module. Consider adding an import instead.
+Z:\Projects\buddysaradhi\buddysaradhi\apps\web:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] web@1.0.0 typecheck: `tsc --noEmit`
+Exit status 1
+[ELIFECYCLE] Command failed with exit code 1.

@@ -39,3 +39,27 @@ export function attendancePct(counts: {
   if (denominator <= 0) return null;
   return Math.round((attended / denominator) * 100);
 }
+
+/**
+ * BR-CALC-06's DISPLAY half, beside its arithmetic half.
+ *
+ * The dash rule used to be a private `pctText` inside
+ * `attendance-summary.tsx` — a component, which is the one thing a refactor
+ * rewrites and the one thing no unit test can reach without a DOM. So the claim
+ * "an unmeasurable period reads `—`, never `0%`" had no test behind it, while
+ * the arithmetic next door had three. It lives here now so a Vitest assertion
+ * pins it without rendering anything.
+ *
+ * `null` is the only input that means "nothing to measure". `0` is a DIFFERENT
+ * claim — this student attended nothing — and printing it for an empty period
+ * accuses a tutor's roster of an absence nobody recorded. A non-finite value
+ * (only reachable if the arithmetic is broken) collapses to the dash too rather
+ * than throwing: this function runs inside a render, and a cosmetic defect must
+ * not be able to take the whole Attendance screen down — that is exactly what the
+ * unparseable period bound did before (`localDayIso` → `"2026-10-00"` →
+ * `date-fns` `RangeError` → `error.tsx`).
+ */
+export function attendancePctText(pct: number | null): string {
+  if (pct === null || !Number.isFinite(pct)) return "—";
+  return `${Math.round(pct)}%`;
+}

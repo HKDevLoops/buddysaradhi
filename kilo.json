@@ -45,26 +45,65 @@
   "snapshot": true,
   "lsp": {
     "typescript": {
-      "command": [
-        "node",
-        "C:/Users/haris/AppData/Roaming/npm/node_modules/typescript-language-server/lib/cli.mjs",
-        "--stdio"
-      ],
-      "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs"],
-      "initializationOptions": {
-        "tsserver": {
-          "path": "node_modules/.pnpm/typescript@5.9.3/node_modules/typescript/lib"
-        }
-      }
+      "disabled": false
     },
     "deno": {
       "command": ["C:/Users/haris/scoop/shims/deno.exe", "lsp"],
       "extensions": [".ts", ".tsx"],
-      "env": { "DENO_DIR": ".cache/deno-lsp" }
+      "env": {
+        "DENO_DIR": "Z:/Projects/buddysaradhi/buddysaradhi/apps/gateway/.cache/deno-lsp"
+      }
     },
     "rust": {
-      "command": ["rust-analyzer"],
-      "extensions": [".rs"]
+      "command": [
+        "C:/Program Files/Rust stable MSVC 1.98/bin/rust-analyzer.exe"
+      ],
+      "extensions": [".rs"],
+      "initialization": {
+        "linkedProjects": [
+          "Z:/Projects/buddysaradhi/buddysaradhi/apps/desktop/src-tauri/Cargo.toml"
+        ]
+      }
+    },
+    "yaml": {
+      "command": [
+        "node",
+        "C:/Users/haris/AppData/Roaming/npm/node_modules/yaml-language-server/bin/yaml-language-server",
+        "--stdio"
+      ],
+      "extensions": [".yml", ".yaml"]
+    },
+    "bash": {
+      "command": [
+        "node",
+        "C:/Users/haris/AppData/Roaming/npm/node_modules/bash-language-server/out/cli.js",
+        "start"
+      ],
+      "extensions": [".sh", ".bash", ".ps1"]
+    },
+    "css": {
+      "command": [
+        "node",
+        "C:/Users/haris/AppData/Roaming/npm/node_modules/vscode-langservers-extracted/lib/css-language-server/node/cssServerMain.js",
+        "--stdio"
+      ],
+      "extensions": [".css"]
+    },
+    "html": {
+      "command": [
+        "node",
+        "C:/Users/haris/AppData/Roaming/npm/node_modules/vscode-langservers-extracted/lib/html-language-server/node/htmlServerMain.js",
+        "--stdio"
+      ],
+      "extensions": [".html"]
+    },
+    "json": {
+      "command": [
+        "node",
+        "C:/Users/haris/AppData/Roaming/npm/node_modules/vscode-langservers-extracted/lib/json-language-server/node/jsonServerMain.js",
+        "--stdio"
+      ],
+      "extensions": [".json", ".jsonc", ".json5"]
     }
   }
 }

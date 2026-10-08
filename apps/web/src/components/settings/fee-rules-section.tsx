@@ -24,10 +24,10 @@
 // - The read-only `nextInvoiceSeq` / `nextReceiptSeq` counters §6.2.4 asks for
 //   were absent, so a tutor could not see how far their numbering had got.
 
+import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateSettingAction, updateSettingsBatchAction } from "@/server/actions/settings";
 import { Receipt, Loader2, Save, X, CalendarClock, Zap, Hash } from "lucide-react";
@@ -97,7 +97,7 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
   });
 
   useEffect(() => {
-    if (settings && !isDirty) {
+    if (settings && !isDirty && !wasJustSaved.current) {
       reset({
         invoicePrefix: settings?.invoicePrefix || "INV-",
         receiptPrefix: settings?.receiptPrefix || "RCP-",
@@ -105,6 +105,8 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
       });
     }
   }, [settings, isDirty, reset]);
+
+  const wasJustSaved = useRef(false);
 
   useEffect(() => {
     if (isDirty) {
@@ -125,9 +127,14 @@ export function FeeRulesSection({ settings }: FeeRulesSectionProps) {
       if (!res.success) throw new Error(res.error || "Could not save the fee rules.");
     },
     onSuccess: (_, variables) => {
+      wasJustSaved.current = true;
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       markClean("fee-rules");
       reset(variables);
+    },
+    onSettled: () => {
+      wasJustSaved.current = false;
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 

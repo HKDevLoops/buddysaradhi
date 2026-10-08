@@ -276,27 +276,6 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
   }
 
-  /* ---- Neumorphic Controls ----
-     `.neumo-raised` and `.neumo-inset` were declared TWICE in this file — once
-     here (12px radius, one shadow recipe) and again ~130 lines below under
-     "Neumorphic Recipes" (--radius-full, a different shadow recipe). Two plain
-     class selectors, same `@layer utilities`, so the later block wins every
-     property both declare and this one renders nothing. Deleting the dead block
-     is exactly equivalent by the cascade, not by judgement: what the app shows
-     today is the second block, unchanged. What it removes is a 12px radius that
-     a future agent would reasonably "fix" in the dead copy and see nothing
-     happen. `.neumo-pressed` stays here because the second block only overrides
-     it on `:active`, so its base `background` / `border-radius` / the always-on
-     `translateY(1px)` are still live from here. */
-  .neumo-pressed {
-    background: var(--canvas);
-    border-radius: 12px;
-    box-shadow:
-      inset 2px 2px 5px rgba(0,0,0,0.45),
-      inset -2px -2px 5px rgba(255,255,255,0.04);
-    transform: translateY(1px);
-  }
-
   /* Glass card (full component) */
   .glass-card {
     background: var(--surface-raised);
@@ -639,13 +618,13 @@
       switch promised an effect that never happened; the provider now mirrors it
       onto <html> and this block is where it takes effect.
 
-   The global `0.01ms` kill is NOT applied to the in-app case for spinners and
-   pulses: it freezes them at their first frame with no alternative cue, so a
-   loading indicator simply stops existing. Instead the decorative motion stops and
-   the loading motion is replaced by a static, visible state. Skeletons and blobs
-   are compensated either way; a spinner is not — it gets a non-animated
-   indicator instead.
-   ============================================================================ */
+The global `0.01ms` kill is NOT applied to the in-app case for spinners and
+    pulses: it freezes them at their first frame with no alternative cue, so a
+    loading indicator simply stops existing. Instead the decorative motion stops and
+    the loading motion is replaced by a static, visible state. Skeletons and blobs
+    are compensated either way; a spinner is not — it gets a non-animated
+    indicator instead.
+    ============================================================================ */
 @layer base {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -656,6 +635,10 @@
   .skeleton {
     animation: none;
     background: var(--surface-row);
+  }
+  .animate-spin, .animate-pulse {
+    animation: none !important;
+    opacity: 0.65;
   }
 }
 
@@ -671,13 +654,6 @@ html[data-reduced-motion="1"] .animate-spin,
 html[data-reduced-motion="1"] .animate-pulse {
   animation: none !important;
   opacity: 0.65;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-spin, .animate-pulse {
-    animation: none !important;
-    opacity: 0.65;
-  }
 }
 } /* close reduced-motion @layer base */
 

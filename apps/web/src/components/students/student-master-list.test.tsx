@@ -8,7 +8,7 @@
 // than throws, so the envelope case is the one that actually shipped the bug.
 import { describe, expect, it, beforeEach } from "vitest";
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { useStudentsStore } from "@/stores/students-store";
@@ -249,5 +249,105 @@ describe("StudentMasterList — the roster's three honest states", () => {
 
     await user.click(other);
     expect(useStudentsStore.getState().selectedStudentId).toBe("s-2");
+  });
+});
+
+/**
+ * 05_Students.md §18 + AGENTS.md §2 Rule 10 (keyboard parity).
+ *
+ * The roster is a LIST of records, not a single composite widget, so it must NOT
+ * use a roving tabindex: a keyboard user has to be able to reach every row with
+ * Tab, not arrow through one. A single `tabindex="-1"` on all but the first row
+ * would render a list that only its first entry can be reached by keyboard — the
+ * drawer would be unreachable for anyone not using a mouse.
+ */
+describe("StudentMasterList — the roster is reachable by keyboard (05 §18)", () => {
+  const THREE_STUDENTS = [
+    {
+      id: "s-1",
+      code: "STU-2026-0001",
+      name: "Aarav Sharma",
+      grade: "Cl 10",
+      batch: "Maths 6pm",
+      fee_model: "postpaid" as const,
+      status: "active" as const,
+      balance_due: 450000,
+    },
+    {
+      id: "s-2",
+      code: "STU-2026-0002",
+      name: "Riya Menon",
+      grade: "Cl 9",
+      batch: null,
+      fee_model: "postpaid" as const,
+      status: "active" as const,
+      balance_due: 0,
+    },
+    {
+      id: "s-3",
+      code: null,
+      name: "Kabir Shah",
+      grade: null,
+      batch: "Physics",
+      fee_model: "postpaid" as const,
+      status: "active" as const,
+      balance_due: -50000,
+    },
+  ];
+
+  it("puts EVERY row in the tab order, not just the first", () => {
+    render(<StudentMasterList students={THREE_STUDENTS} isLoading={false} />);
+    const rows = screen.getAllByRole("button", { name: /^Student: / });
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      // A native `<button>` takes focus with no explicit tabindex; an explicit
+      // "0" or "-1" is what a roving tabindex writes, and "-1" is the bug.
+      expect(row.getAttribute("tabindex"), "no row is removed from the tab order").not.toBe(
+        "-1",
+      );
+      expect(row).not.toBeDisabled();
+    }
+  });
+
+  it("moves focus to a row when it is focused programmatically", async () => {
+    render(<StudentMasterList students={THREE_STUDENTS} isLoading={false} />);
+    const third = screen.getByRole("button", { name: /Student: Kabir Shah/ });
+    third.focus();
+    await waitFor(() => expect(third).toHaveFocus());
+  });
+
+  it("opens a row with the keyboard, not only with a click", async () => {
+    const user = userEvent.setup();
+    render(<StudentMasterList students={THREE_STUDENTS} isLoading={false} />);
+
+    const second = screen.getByRole("button", { name: /Student: Riya Menon/ });
+    second.focus();
+    await user.keyboard("{Enter}");
+    expect(useStudentsStore.getState().selectedStudentId).toBe("s-2");
+
+    const first = screen.getByRole("button", { name: /Student: Aarav Sharma/ });
+    first.focus();
+    await user.keyboard(" ");
+    expect(useStudentsStore.getState().selectedStudentId).toBe("s-1");
+  });
+
+  it("reaches a student by Tab without passing through the rows in order first", async () => {
+    // The reachable-and-activatable claims above are per-row; this one is the
+    // end-to-end version: a keyboard user tabs into the roster and lands on a
+    // row that actually opens the drawer.
+    const user = userEvent.setup();
+    render(<StudentMasterList students={THREE_STUDENTS} isLoading={false} />);
+
+    const first = screen.getByRole("button", { name: /Student: Aarav Sharma/ });
+    // Tabbing from the top of the document must eventually reach a row; this
+    // asserts the row is on the natural tab path rather than reachable only by
+    // script.
+    let reached = false;
+    for (let i = 0; i < 20 && !reached; i += 1) {
+      // eslint-disable-next-line no-await-in-loop -- a bounded keyboard walk, in order
+      await user.tab();
+      if (document.activeElement === first) reached = true;
+    }
+    expect(reached, "Tab reaches the first roster row").toBe(true);
   });
 });
