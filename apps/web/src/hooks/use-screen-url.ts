@@ -53,18 +53,35 @@ import {
 /**
  * Binds the App Router to the shell store, and answers "which screen am I on?".
  *
+ * CONTRACT
+ * ────────
+ * OWNS: exactly two edges — ROUTE → STORE (`syncActiveScreenFromPath`, on every
+ *   pathname change including Back, Forward and pasted URLs) and STORE → ROUTE
+ *   (the `router.push` registered for as long as this hook is mounted). Both
+ *   directions have one owner; that is the entire design.
+ * RETURNS: the screen the CURRENT ROUTE renders, read during render from
+ *   `usePathname()` — never from an effect.
+ * ON UNMOUNT: the registered navigator is cleared to `null`. That matters: a
+ *   navigator left behind would `router.push` on a tree that no longer exists.
+ *   Nothing else is registered — no `popstate` listener, no observer, no timer.
+ * DELIBERATELY DOES NOT: veto a browser Back press (see the header — the App
+ *   Router owns `popstate` and exposes no way to refuse it); push history when
+ *   the requested screen is already the current pathname (that would stack
+ *   duplicate entries); or normalise a pathname that is not one of the five
+ *   (`screenFromPathname` answers `null` and the store keeps its last value —
+ *   see `stores/shell-store.ts`).
+ *
  * Must be called from a Client Component that is mounted for the whole life of
  * the app — `GlassShell` — so exactly one navigator is registered at a time. Two
  * mounted navigators would mean two writers for the same route.
  *
- * @returns The screen the CURRENT ROUTE renders. Read during render, not from an
- *   effect, and that is the load-bearing detail: the store is written in an
- *   effect, so a server render — and the first client render that has to match it
- *   — would see the store's constructor value (`/dashboard`) on EVERY route. The
- *   nav would paint the Dashboard row as current while `/fees` was on screen, in
- *   the HTML a crawler and a screen reader see. `usePathname()` is the same value
- *   on the server and on the client, so the highlight is right in the first
- *   paint.
+ * The route, not the store, is the answer, and that is the load-bearing detail:
+ * the store is written in an effect, so a server render — and the first client
+ * render that has to match it — would see the store's constructor value
+ * (`/dashboard`) on EVERY route. The nav would paint the Dashboard row as
+ * current while `/fees` was on screen, in the HTML a crawler and a screen
+ * reader see. `usePathname()` is the same value on the server and on the client,
+ * so the highlight is right in the first paint.
  */
 export function useScreenRoute(): ScreenId {
   const pathname = usePathname();

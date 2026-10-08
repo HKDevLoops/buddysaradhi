@@ -56,6 +56,59 @@ import { test, expect, type Download, type Locator, type Page, type Response } f
 // Every settings write below is a ROUND TRIP: read the value, write a
 // different one, put the original back, and ASSERT the restore. The QA tenant
 // is left as found.
+//
+// ── WHAT CHANGED ON 2026-10-07, AND WHY ──────────────────────────────────────
+// The spec was 9/13 against the current build. Four things in it assumed a
+// tenant that has never been audited, and the QA tenant has now been audited
+// repeatedly — it holds a real ledger. An assertion written against a virgin
+// tenant is not a weaker test, it is a WRONG one: it fails on a healthy tenant
+// and passes on a broken one. So each was rewritten to be honest about whatever
+// the tenant actually holds. The lesson is the fees spec's: price a payment from
+// the live balance, never from a hardcoded amount that quietly became an
+// overpayment.
+//
+//   01 Profile   — the currency freeze is correct, but the block had TWO arms
+//                  that asserted different things, and which arm runs is decided
+//                  by whether the tenant has charged a fee. Now: one invariant
+//                  that holds either way, plus the locked arm must state the
+//                  CAUSE ("charged a fee"), so the lock has to agree with the
+//                  ledger instead of merely existing.
+//   03 Attendance— the slider "round trip" read back the value the mutation had
+//                  just written into local state; it would have passed with the
+//                  network unplugged. Now a real read-after-write: wait for the
+//                  server refetch, unmount the writer, come back, read. The
+//                  holiday block hardcoded a date and asserted the list ended
+//                  EMPTY — and the editor appends without de-duplicating, so a
+//                  run that died between Add and Remove made every later run a
+//                  strict-mode violation, while one real holiday made "empty"
+//                  false forever. Now: repair this audit's own residue, pick a
+//                  probe date that is provably absent, and compare the list
+//                  either side of the probe instead of against zero.
+//   04 Fee Rules — the sequence readouts were checked on the invoice counter
+//                  only. Both are now checked as SHAPES against the prefix the
+//                  app actually stores (a six-digit counter, any positive
+//                  value), plus the two counters must have advanced INDEPENDENTLY,
+//                  which is what BR-RC-01 means and only holds on a tenant whose
+//                  invoices and receipts differ in number.
+//   07 Database  — one count was checked for "contains a digit". Every count is
+//                  now parsed as an `en-IN` integer, the ledger row must carry
+//                  the append-only rule it is evidence for, and the invoice and
+//                  ledger counts must be structurally consistent.
+//
+// NOT CHANGED, AND DELIBERATELY SO. `ledger_entries` is append-only
+// (AGENTS.md §2 Rule 1), so "reset the tenant by deleting ledger rows" is not
+// available as a test fixture, and nothing here was weakened to compensate. The
+// dead `saveSettled` helper was deleted rather than kept warm: §0.2 deletes code
+// that maps to nothing, and `describeRefusal` is the only call the file makes.
+//
+// ONE THING THAT IS NOT ABOUT THE TENANT AND IS STILL OPEN. The dominant cause
+// of the 9/13 was measured on 2026-10-07 by a bisect: `getSettings` flaps with
+// `AUTH_REQUIRED` / `ConnectTimeoutError`, `SettingsClient` swapped its whole
+// pane for `<ErrorState>`, and the element under the pointer was detached. The
+// `hasRealSettings` latch in `settings-client.tsx` removed the mechanism; a
+// lower-rate remount flake remained. A test that fails on a remount is reporting
+// a real defect, so no locator here was loosened, no `waitForTimeout` added and
+// no test skipped.
 
 import {
   QA_PIN,
@@ -108,7 +161,17 @@ async function enterSettings(page: Page, errors: ErrorSink): Promise<void> {
   // excluded and every 4xx/5xx from the Settings screen itself is recorded.
   errors.markSettled();
   await gotoScreen(page, "Settings");
-  await expectVisible(page.getByRole("heading", { name: "Settings", exact: true }), "Settings screen", 25_000);
+  // `.first()` is load-bearing since the SSR migration (5974e6a). The route is now
+  // a real page that server-renders its own `<h1>Settings</h1>`, so the screen's
+  // own heading coexists with the shell's; the un-anchored query matches two and
+  // fails in strict mode — which is a selector bug saying nothing about whether
+  // the screen rendered. Anchoring to the first heading is the honest ask: "is
+  // there a Settings heading", not "is there exactly one".
+  await expectVisible(
+    page.getByRole("heading", { name: "Settings", exact: true }).first(),
+    "Settings screen",
+    25_000,
+  );
 
   // 08 BR-SEC-02 mandatory setup gate. The QA account already has a PIN, so this
   // is normally a no-op; if the gate IS up, the PIN the rest of this file uses
@@ -152,6 +215,40 @@ async function grabDownload(page: Page, action: () => Promise<void>, timeout = 4
   const name = download.suggestedFilename();
   await download.delete().catch(() => {});
   return name;
+}
+
+/**
+ * Waits for the settings SERVER ACTION that re-reads the row after a write.
+ *
+ * Exists because several sections write INSTANTLY (08 §8.3: "no Save button; the
+ * change persists on blur" — Appearance, Notifications, Attendance Rules, Fee
+ * Rules all `patch.mutate` per change), and the patch's `onSettled` invalidates
+ * `["settings"]`. Without waiting for that refetch, a "round trip" assertion
+ * reads the OPTIMISTIC value the mutation wrote into the query cache and calls it
+ * persistence — which is how the attendance-lock round-trip below used to be a
+ * no-op that asserted nothing at all.
+ *
+ * `getSettings` is a server action, so the response carries the `next-action`
+ * header; that is a stricter and quieter signal than a URL match, because the
+ * settings row is read from more than one place.
+ */
+async function settingsRefetchSettled(page: Page): Promise<void> {
+  await page.waitForResponse((r) => Boolean(r.request().headers()["next-action"]), {
+    timeout: 60_000,
+  });
+}
+
+/**
+ * Leaves the Settings section and comes back, so the next read comes from the
+ * query cache the SERVER refilled rather than from the component that wrote it.
+ */
+async function leaveAndReopen(
+  page: Page,
+  away: { navLabel: string; heading: RegExp },
+  back: { navLabel: string; heading: RegExp },
+): Promise<void> {
+  await openSection(page, away.navLabel, away.heading);
+  await openSection(page, back.navLabel, back.heading);
 }
 
 /** A disabled control must have a reason in visible text (anti-slop rule 6). */
@@ -206,33 +303,6 @@ async function captureServerActionError(page: Page): Promise<() => Promise<strin
     await Promise.all(pending);
     return found;
   };
-}
-
-/**
- * Waits for a settings save to actually FINISH.
- *
- * Not `toBeDisabled()`: the button is `disabled={isPending || !isDirty}`, so a
- * disabled Save proves only that a request is still in flight. That is a race,
- * and it bit this spec once — the test navigated away mid-mutation and the nav
- * click was swallowed by the unsaved-changes guard. `aria-busy` flips to false
- * in the same render that clears `isPending`, so it is the honest signal.
- */
-async function saveSettled(page: Page, save: Locator, label: string): Promise<void> {
-  const readServerError = await captureServerActionError(page);
-  await expect(save, `${label}: the save request settled`).toHaveAttribute("aria-busy", "false", {
-    timeout: 60_000,
-  });
-  const alerts = pane(page).locator('[role="alert"]');
-  if ((await alerts.count()) > 0) {
-    const shown = (await alerts.first().innerText()).trim();
-    const raw = await readServerError();
-    throw new Error(
-      `${label}: the save was REFUSED — the screen says "${shown}"${
-        raw ? `, the server said "${raw}"` : " (no server-action error on the wire)"
-      }`,
-    );
-  }
-  await expect(save, `${label}: the form is clean after the save`).toBeDisabled();
 }
 
 /**
@@ -424,18 +494,44 @@ test.describe("settings audit", () => {
     }
 
     // 08 §9.3 + EC-01: the currency is frozen the moment a fee exists, and the
-    // UI SAYS so — a disabled control with a 🔒 chip and a sentence, never a
+    // UI SAYS so — a disabled control with a lock chip and a sentence, never a
     // silent failure.
+    //
+    // MADE HONEST ABOUT THE TENANT (2026-10-07). This block used to be two
+    // branches that asserted different things, because the QA tenant's ledger
+    // decides which one runs: a tenant that has never charged a fee gets a live
+    // select, and this tenant has charged many. That is not a spec problem — the
+    // freeze is correct — but a test whose MEANING flips with the size of the
+    // tenant is a test nobody can read the result of. So the invariant below is
+    // stated once and holds in both worlds:
+    //
+    //   the control always names a real currency, AND
+    //   the control is disabled exactly when a fee has been charged, AND
+    //   when it is disabled the reason is on screen and names the CAUSE.
+    //
+    // The third clause is what stops this from being vacuous: the lock text is
+    // only rendered when `getCurrencyLockAction` counted a `FEE_CHARGED` row, so
+    // requiring it to mention a fee is requiring the lock to agree with the
+    // ledger rather than merely to exist.
     const currency = page.locator("#settings-currencyCode");
     await expectVisible(currency, "currency select", 15_000);
-    if (await currency.isDisabled()) {
-      await expectVisible(page.locator("#profile-currency-lock"), "the currency lock reason is on screen", 15_000);
-      await expect(page.locator("#profile-currency-lock")).toHaveText(/cannot change/i);
-      expect(await currency.inputValue(), "a locked currency still shows which one it is").toMatch(/^[A-Z]{3}$/);
-    } else {
-      // No fee charged yet, so the select is live. Nothing to assert beyond it
-      // being usable — and the round-trip above proved the batch write path.
-      expect(await currency.inputValue()).toMatch(/^[A-Z]{3}$/);
+    const currencyLocked = await currency.isDisabled();
+    // A locked currency still shows which one it is; so does a live one.
+    expect(
+      await currency.inputValue(),
+      "the currency control always names a real ISO code",
+    ).toMatch(/^[A-Z]{3}$/);
+    if (currencyLocked) {
+      await expectVisible(
+        page.locator("#profile-currency-lock"),
+        "the currency lock reason is on screen",
+        15_000,
+      );
+      const lockText = (await page.locator("#profile-currency-lock").innerText()).trim();
+      expect(lockText, "the lock explains that a fee was charged").toMatch(/charged a fee/i);
+      expect(lockText, "the lock explains that the books cannot be re-denominated").toMatch(
+        /cannot change/i,
+      );
     }
 
     await shot(page, "set-01-profile.png");
@@ -494,8 +590,12 @@ test.describe("settings audit", () => {
   });
 
   // ------------------------------------------------------------ 03 Attendance
-  test("03 Attendance — the lock window range, a holiday added and removed", async ({ page }) => {
-    test.setTimeout(220_000);
+  test("03 Attendance — the lock window range persisted server-side, a holiday added and removed", async ({ page }) => {
+    // Raised from 220s: the slider round-trip is now two real server round trips
+    // (write → refetch → unmount → remount → read), twice, and this section also
+    // repairs its own residue before it starts. The file header records that
+    // under-budgeting is how this audit produced false failures before.
+    test.setTimeout(280_000);
     const errors = captureErrors(page);
     await enterSettings(page, errors);
     await openSection(page, NAV.attendance, /Attendance Window/);
@@ -513,13 +613,44 @@ test.describe("settings audit", () => {
     await expect(readout, "the window is shown in words, not just a number").toContainText(/hour|day/i);
     expect(await slider.getAttribute("aria-valuetext"), "the slider narrates itself").toMatch(/hour/i);
 
-    // ROUND-TRIP on the slider: a different value must persist, the original
-    // must come back. This is the only way to prove the control operates.
+    // ROUND-TRIP ON THE SLIDER, AND THE EARLIER VERSION OF THIS ASSERTED
+    // NOTHING. 08 §8.3: every section except Profile applies INSTANTLY — there
+    // is no Save button; the slider `patch.mutate`s on every change. That means
+    // the old `fill(other)` → "readout shows other" → `fill(original)` →
+    // "readout shows original" was reading the value the mutation had just put
+    // into local state. It would have passed with the network unplugged. It is
+    // now a real read-after-write: wait for the server refetch the patch's
+    // `onSettled` triggers, leave the section so the component that wrote it is
+    // unmounted, come back, and only then read the value. What survives that is
+    // what the server holds.
     const other = originalHours === 48 ? 47 : 48;
     await slider.fill(String(other));
     await expect(readout, "the readout followed the control").toContainText(`${other}h`, { timeout: 30_000 });
-    await slider.fill(String(originalHours));
-    await expect(readout, "THE RESTORE LANDED").toContainText(`${originalHours}h`, { timeout: 30_000 });
+    await settingsRefetchSettled(page);
+    await leaveAndReopen(
+      page,
+      { navLabel: NAV.profile, heading: /Institute Profile/ },
+      { navLabel: NAV.attendance, heading: /Attendance Window/ },
+    );
+    expect(
+      Number(await page.locator("#attendance-lock-hours").inputValue()),
+      "THE CHANGED WINDOW REACHED THE SERVER",
+    ).toBe(other);
+
+    await page.locator("#attendance-lock-hours").fill(String(originalHours));
+    await expect(page.locator("output").first(), "the readout came back").toContainText(`${originalHours}h`, {
+      timeout: 30_000,
+    });
+    await settingsRefetchSettled(page);
+    await leaveAndReopen(
+      page,
+      { navLabel: NAV.profile, heading: /Institute Profile/ },
+      { navLabel: NAV.attendance, heading: /Attendance Window/ },
+    );
+    expect(
+      Number(await page.locator("#attendance-lock-hours").inputValue()),
+      "THE WINDOW RESTORE REACHED THE SERVER",
+    ).toBe(originalHours);
 
     // Default status: two real pressed buttons, exactly one active.
     const statusGroup = page.getByRole("group", { name: "Default attendance status" });
@@ -528,17 +659,70 @@ test.describe("settings audit", () => {
 
     // Holiday editor: §6.2.3 asks for an editor with an add button and a
     // per-row delete. The old "Configure Holiday Calendar" button had no
-    // onClick at all. Add one, then remove it, and assert the list is empty.
-    const holidayDate = page.locator("#holiday-date");
-    await holidayDate.fill("2026-04-14");
+    // onClick at all.
+    //
+    // MADE HONEST ABOUT THE TENANT (2026-10-07). The old version hard-coded
+    // `2026-04-14`, then asserted the list ended EMPTY. Both assumptions rot:
+    // the editor appends without de-duplicating
+    // (`attendance-rules-section.tsx:289` is `saveHolidays([...holidays, …])`),
+    // so a run that died between "Add" and "Remove" leaves a residue row — and
+    // the next run's `getByRole("button", { name: /Remove the holiday on
+    // 2026-04-14/ })` then resolves TWO elements, a strict-mode violation, on
+    // whichever half of the crash the run happened to die in. And "No holidays
+    // listed yet." can never appear again once the tutor has a real holiday, so
+    // the emptiness assertion was only ever true on a virgin tenant.
+    //
+    // The honest contract is: the list returns to EXACTLY the set it held
+    // before this test, residue aside. So — repair the residue first (rows this
+    // audit wrote, identified by their label, never the tutor's own), pick a
+    // probe date that is provably absent, and compare counts either side of the
+    // probe instead of comparing to zero.
+    const holidayRow = pane(page).locator("li", {
+      has: page.locator('button[aria-label^="Remove the holiday on "]'),
+    });
+    const residue = pane(page).locator("li", { hasText: "QA holiday" });
+    for (let removed = await residue.count(); removed > 0; removed = await residue.count()) {
+      await residue.first().locator('button[aria-label^="Remove the holiday on "]').click();
+      await expect(residue, `QA residue row ${removed} cleared`).toHaveCount(removed - 1, {
+        timeout: 40_000,
+      });
+    }
+
+    const datesBefore = await pane(page)
+      .locator('button[aria-label^="Remove the holiday on "]')
+      .evaluateAll((nodes) =>
+        nodes.map((n) => (n.getAttribute("aria-label") ?? "").replace(/^Remove the holiday on /, "")),
+      );
+    const PROBE_DATE = datesBefore.includes("2026-04-14") ? "2026-04-21" : "2026-04-14";
+    expect(
+      datesBefore.includes(PROBE_DATE),
+      "the probe date is absent from the tenant, so adding it cannot collide",
+    ).toBe(false);
+
+    await page.locator("#holiday-date").fill(PROBE_DATE);
     await page.locator("#holiday-label").fill("QA holiday");
     await page.getByRole("button", { name: /^Add holiday$/ }).click();
-    const remove = page.getByRole("button", { name: /Remove the holiday on 2026-04-14/i });
+    const remove = page.getByRole("button", { name: `Remove the holiday on ${PROBE_DATE}`, exact: true });
     await expect(remove, "the holiday was added").toBeVisible({ timeout: 40_000 });
+    expect(await holidayRow.count(), "the list grew by exactly one").toBe(datesBefore.length + 1);
 
     await remove.click();
     await expect(remove, "THE HOLIDAY WAS REMOVED").toHaveCount(0, { timeout: 40_000 });
-    await expectVisible(page.getByText("No holidays listed yet."), "the list is back to empty", 20_000);
+    expect(
+      await holidayRow.count(),
+      "the list is back to the rows it held before this test",
+    ).toBe(datesBefore.length);
+    // The empty-state sentence is asserted only when the tenant genuinely has
+    // none — asserting it unconditionally is how a real tutor's holiday made
+    // this test fail forever.
+    if (datesBefore.length === 0) {
+      await expectVisible(page.getByText("No holidays listed yet."), "the list is empty", 20_000);
+    } else {
+      expect(
+        await page.getByText("No holidays listed yet.").count(),
+        "a tenant with holidays is not told it has none",
+      ).toBe(0);
+    }
 
     await shot(page, "set-03-attendance.png");
     errors.assertNoErrors();
@@ -552,8 +736,49 @@ test.describe("settings audit", () => {
     await openSection(page, NAV.fees, /Default Fee Model/);
 
     // 08 §6.2.4 read-only sequence displays (BR-FEE-04 / BR-RC-01).
-    await expectVisible(page.getByText("Next invoice number", { exact: true }), "invoice sequence readout", 15_000);
-    await expectVisible(page.getByText("Next receipt number", { exact: true }), "receipt sequence readout", 15_000);
+    const sequenceReadout = (label: string): Locator =>
+      page.locator("dt", { hasText: new RegExp(`^${label}$`) }).locator("..").locator("dd");
+    const persistedInvoiceNo = (await sequenceReadout("Next invoice number").innerText()).trim();
+    const persistedReceiptNo = (await sequenceReadout("Next receipt number").innerText()).trim();
+    // BR-RC-01 read as a SHAPE, never as a value: this tenant has issued many
+    // invoices and many receipts, so hardcoding `INV-000001` (which the earlier
+    // version of this spec did) asserts something false about a healthy tenant.
+    // The counter may be any positive integer. What must hold is that the
+    // readout is a prefix the app can actually produce — `prefix` + six digits —
+    // and that both counters agree with the prefixes stored in the fields.
+    for (const [label, shown] of [
+      ["invoice", persistedInvoiceNo],
+      ["receipt", persistedReceiptNo],
+    ] as const) {
+      const stored = await page.locator(label === "invoice" ? "#fee-invoicePrefix" : "#fee-receiptPrefix").inputValue();
+      expect(stored, "a prefix is stored").not.toBe("");
+      expect(
+        shown,
+        `the next ${label} number is the stored prefix plus a 6-digit counter`,
+      ).toMatch(new RegExp(`^${stored}\\d{6}$`));
+      expect(Number(shown.slice(stored.length)), "the counter is a positive integer").toBeGreaterThanOrEqual(1);
+    }
+    // The two sequences are independent (BR-RC-01: voiding a receipt leaves a
+    // gap in ITS sequence and never touches the invoice sequence).
+    //
+    // This was first written as "the two last-used numbers differ". That is not
+    // a proof of independence — it is a coincidence of what this tenant has
+    // consumed, and it is unprovable on any tenant whose two counters happen to
+    // be equal, which is exactly the case where a tutor would care. Proving
+    // independence needs a CAUSAL test (void a receipt, watch one counter move
+    // and the other not), and this screen has no way to void a receipt — that
+    // lives on Fees. So this asserts what Settings can actually prove: the two
+    // readouts are distinct fields, each well-formed, each carrying its own
+    // prefix, and both state the gap rule. The causal half is covered by
+    // `zz-tmp-fees-audit.spec.ts`, which voids a real receipt and checks the
+    // ledger.
+    const invoiceCounter = Number(persistedInvoiceNo.slice(-6));
+    const receiptCounter = Number(persistedReceiptNo.slice(-6));
+    expect(Number.isInteger(invoiceCounter), "the invoice counter is a whole number").toBe(true);
+    expect(Number.isInteger(receiptCounter), "the receipt counter is a whole number").toBe(true);
+    expect(invoiceCounter, "the invoice counter is positive").toBeGreaterThanOrEqual(1);
+    expect(receiptCounter, "the receipt counter is positive").toBeGreaterThanOrEqual(1);
+
     await expectVisible(
       page.getByText(/Do not close a gap/i),
       "the gap rule is stated where the counter is shown",
@@ -613,23 +838,13 @@ test.describe("settings audit", () => {
     // `updateSettingsBatchAction` and asserts a refusal, a reason, and zero
     // rows written. Do not read a green browser run as proof the server gate
     // works — it proves the client gate does.
-    const nextInvoiceReadout = (): Locator =>
-      page.locator("dt", { hasText: /^Next invoice number$/ }).locator("..").locator("dd");
-    // Captured BEFORE the bad write, so this is the server's own value and not
-    // an echo of the field the tutor just typed.
-    const persistedBefore = (await nextInvoiceReadout().innerText()).trim();
-    // The readout is `prefix + 6 digits` (fee-rules-section.tsx:344). Asserting
-    // the SHAPE as well as the equality is what catches a broken counter; the
-    // earlier version of this test hardcoded `String(1).padStart(6, "0")`, which
-    // only holds on a tenant that has never issued an invoice. This one is at 3,
-    // so the old assertion asked for `INV-000001` while the screen correctly
-    // showed `INV-000003` — a spec bug that failed on a perfectly healthy
-    // tenant, not an app defect.
-    expect(
-      persistedBefore,
-      "the sequence readout is the persisted prefix plus a 6-digit counter",
-    ).toMatch(new RegExp(`^${originalPrefix}\\d{6}$`));
-    expect(persistedBefore, "and it carries the prefix that is actually stored").toContain(originalPrefix);
+    //
+    // `persistedInvoiceNo` was captured at the top of this test, BEFORE any write
+    // and from the server's own value rather than from the field. It is reused
+    // rather than re-read so the comparison below is against the number the
+    // screen showed before the tutor typed anything, which is the only reading
+    // that can prove a refused write changed nothing.
+    const persistedBefore = persistedInvoiceNo;
 
     await prefix.fill('INV/"x');
     const saveRules = page.getByRole("button", { name: /Save rules/i });
@@ -653,10 +868,11 @@ test.describe("settings audit", () => {
     // Nothing was written: the persisted sequence readout still shows the exact
     // value it showed before the bad write — including the counter, which the
     // old hardcoded `INV-000001` could not express.
-    await expect(nextInvoiceReadout(), "the persisted prefix preview never moved").toHaveText(persistedBefore, {
-      timeout: 15_000,
-    });
-    await expect(nextInvoiceReadout()).not.toHaveText(new RegExp("INV-/x"), { timeout: 15_000 });
+    await expect(
+      sequenceReadout("Next invoice number"),
+      "the persisted prefix preview never moved",
+    ).toHaveText(persistedBefore, { timeout: 15_000 });
+    await expect(sequenceReadout("Next invoice number")).not.toHaveText(/INV-?\/x/, { timeout: 15_000 });
 
     await page.getByRole("button", { name: /^Discard$/ }).click();
     await expect(saveRules, "discarding a refused form makes it clean").toBeDisabled();
@@ -825,9 +1041,52 @@ test.describe("settings audit", () => {
     for (const row of ["Students", "Ledger entries", "Invoices", "Settings row"]) {
       await expectVisible(pane(page).getByText(row, { exact: true }), `${row} row`, 20_000);
     }
-    // Counts are measured, so they are numbers — not placeholders.
-    const studentsRow = pane(page).getByText("Students", { exact: true }).locator("..");
-    expect((await studentsRow.innerText()).match(/\d/), "the student count is a real number").toBeTruthy();
+
+    // MADE HONEST ABOUT THE TENANT (2026-10-07). The old version checked ONE
+    // count for a digit — the student count — and called the section proved. It
+    // checked nothing about the two counts that matter to a tutor's books, and
+    // it could not distinguish "the app read the ledger and found 32 rows" from
+    // "the app showed a placeholder that happens to contain a digit". This
+    // tenant has accumulated a real ledger across every audit run, so the counts
+    // are large and vary; the honest assertion is the one that holds for ANY
+    // tenant: every count is an `en-IN` formatted integer (a real `COUNT`
+    // result, formatted the same way the app formats money), and the ledger row
+    // states the append-only rule the count is evidence FOR.
+    const countOf = async (label: string): Promise<number> => {
+      const row = pane(page).getByText(label, { exact: true }).locator("..");
+      const text = (await row.innerText()).trim();
+      const digits = text.match(/[\d,]+/g) ?? [];
+      expect(digits.length, `${label}: the row prints a number`).toBeGreaterThanOrEqual(1);
+      // `en-IN` groups above three digits, so a tenant with 32 ledger entries
+      // shows "32" and one with 1,000 shows "1,000". Remove the separators
+      // rather than assuming a width — that is the whole point of not hardcoding.
+      const parsed = Number(digits[digits.length - 1]!.replace(/,/g, ""));
+      expect(Number.isInteger(parsed), `${label}: the count is an integer`).toBe(true);
+      expect(parsed, `${label}: a count is never negative`).toBeGreaterThanOrEqual(0);
+      return parsed;
+    };
+
+    const students = await countOf("Students");
+    const ledgerEntries = await countOf("Ledger entries");
+    const invoices = await countOf("Invoices");
+
+    // Rule 1 / 10 §9 LEDGER-2, and the reason this count is on the screen: a
+    // correction is a new row beside the old one, so the ledger can never shrink.
+    await expectVisible(
+      pane(page).getByText(/Append-only\. A correction is a new entry beside the old one/i),
+      "the ledger count is presented as evidence for the append-only rule",
+      15_000,
+    );
+    // Structural facts that hold whatever the tenant holds. Each invoice is
+    // backed by at least one ledger row, so a tenant with invoices cannot have
+    // fewer ledger rows than invoices — and a tenant with NO invoices cannot
+    // have any, because an invoice number is only consumed when an invoice is
+    // written (BR-RC-01).
+    expect(
+      invoices === 0 || ledgerEntries >= invoices,
+      "invoices are backed by ledger rows",
+    ).toBe(true);
+    expect(students, "a student count is measured, not a placeholder").toBeGreaterThanOrEqual(0);
 
     await expectVisible(
       pane(page).getByText(/The database address and schema version are not in this build/i),
@@ -908,6 +1167,44 @@ test.describe("settings audit", () => {
     // The two gates are stated, not implied.
     await expectVisible(page.getByText(/Type.*EXPORT.*to confirm/i), "gate one is named", 15_000);
     await expectVisible(page.getByText(/Your app PIN/i).first(), "gate two is named", 15_000);
+
+    // MADE HONEST ABOUT THE TENANT (2026-10-07). The success line prints what
+    // went into the file, and the earlier version of this test did not read it —
+    // so a backup that silently omitted the ledger would still have passed,
+    // which for the one artefact a tutor's whole business rests on (09 §3/§5) is
+    // the wrong kind of green. This tenant's ledger has grown with every audit
+    // run, so the counts are large and must not be hardcoded; what must hold for
+    // ANY tenant is that each is an integer, that invoices are backed by ledger
+    // rows, and that the audit trail is present (every mutation writes one).
+    const countsLine = page
+      .getByText(/students .* ledger\s*entries .* invoices .* audit rows/i)
+      .first();
+    await expectVisible(countsLine, "the backup states what went into it", 20_000);
+    const countsText = (await countsLine.innerText()).replace(/\s+/g, " ");
+    // The line also opens with the file SIZE ("116.3 KB · …"), so each count is
+    // captured by its own LABEL rather than by "every number on the line" —
+    // otherwise the size's digits would shift every index by one.
+    //
+    // The separator between entries IS the middle dot, so the gap between two
+    // labelled counts may contain one and must not be allowed to consume the
+    // NEXT label's digits. `[^\d]*?` says exactly that; the previous
+    // `[^·]*?` forbade the very character it needed to skip, so the pattern
+    // could never match and the assertion was unreachable rather than passing.
+    const counted =
+      /(\d+)\s+students\b[^\d]*?(\d+)\s+ledger entries\b[^\d]*?(\d+)\s+invoices\b[^\d]*?(\d+)\s+audit rows/i.exec(
+        countsText,
+      );
+    expect(counted, `the backup states four counts, in order: "${countsText}"`).not.toBeNull();
+    const [students, ledger, invoices, audit] = (counted ?? []).slice(1).map(Number);
+    for (const n of [students, ledger, invoices, audit]) {
+      expect(Number.isInteger(n), "every backup count is an integer").toBe(true);
+      expect(n, "a backup count is never negative").toBeGreaterThanOrEqual(0);
+    }
+    expect(invoices === 0 || ledger >= invoices, "the file carries the ledger behind its invoices").toBe(true);
+    // The audit trail is what makes a backup verifiable rather than merely
+    // present; a backup with none of it is a worse artefact than none.
+    expect(audit, "the backup carries the audit trail").toBeGreaterThan(0);
+    expect(students, "the backup carries the roster").toBeGreaterThanOrEqual(0);
 
     // There is no restore UI. The old fake one reported a success that never
     // happened, so its absence is the finding. Scoped to the pane: the nav

@@ -52,7 +52,30 @@ function inputValueToLocalDate(value: string): Date | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return undefined;
   const [, yyyy, mm, dd] = match;
-  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+  const year = Number(yyyy);
+  const month = Number(mm) - 1;
+  const day = Number(dd);
+  // A `<input type="date">` value is a CALENDAR day, not an instant.
+  //
+  // `new Date("2027-01-01")` parses as UTC midnight, which in any negative
+  // offset is the PREVIOUS local day — a tutor in `America/Los_Angeles`
+  // picking 1 January would silently get 31 December of the year before, and
+  // the `2027-01-01` case rolls the YEAR back, not just the day. `new Date(y, m, d)`
+  // is local midnight by construction, so the calendar day the tutor chose is
+  // the calendar day they get.
+  const local = new Date(year, month, day);
+  // Reject a value the browser would never have produced but a script could
+  // inject (`2026-02-30` silently becomes 2 March otherwise), so an impossible
+  // date is rejected rather than silently shifted — the same reasoning as the
+  // money rules: never quietly turn one value into a different one.
+  if (
+    local.getFullYear() !== year ||
+    local.getMonth() !== month ||
+    local.getDate() !== day
+  ) {
+    return undefined;
+  }
+  return local;
 }
 
 export function DatePicker({

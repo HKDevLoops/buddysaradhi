@@ -6,12 +6,16 @@
 // Why these three helpers exist (each is a real trap found in this repo's
 // e2e history, not a convenience wrapper):
 //
-// 1. SCREEN SWITCHING IS ZUSTAND, NOT ROUTING. `apps/web` has exactly ONE
-//    user-facing route (`/`); the five screens are switched by a store-driven
-//    request event (AGENTS.md §2 Rule 4 / §3.1). A spec that does
-//    `page.goto('/fees')` is testing a 404, not the Fees screen. Both desktop
-//    (`nav[aria-label="Screens"]`) and mobile bottom-nav render the same five
-//    controls, so one helper serves every viewport.
+// 1. SCREEN SWITCHING IS NAVIGATION, NOT A STORE EVENT. The five screens are
+//    five REAL ROUTES — `/dashboard`, `/students`, `/attendance`, `/fees`,
+//    `/settings` — since AGENTS.md §2 Rule 4 was amended on 2026-10-07 (owner
+//    directive; see `docs/plans/TABS-HARDEN-01.md` §0 and §2, and
+//    `16_Platform_Delivery_Sequence.md` §W1, which already listed all five).
+//    Before that amendment this harness deliberately warned that
+//    `page.goto('/fees')` tested a 404; that is no longer true and the warning
+//    was removed rather than left to mislead. Use `gotoScreen`, which clicks the
+//    app's own nav control, so the app — not the test — decides what navigation
+//    means.
 //
 // 2. `getByRole("button", {name})` MATCHES THE MOBILE NAV TOO. The nav labels
 //    are `Settings — press g then 5`, so an unanchored query can resolve two

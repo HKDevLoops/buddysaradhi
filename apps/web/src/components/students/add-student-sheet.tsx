@@ -150,10 +150,13 @@ export const FormSchema = z.object({
 });
 
 /**
- * The form's INPUT type, written out rather than derived: `z.input` widens every
- * `.transform` field to `unknown`, which is what pushed `as any` into the
- * resolver. This is the shape react-hook-form holds — every optional text field
- * is a plain string, because that is what a DOM control produces.
+ * The form's INPUT type, written out rather than derived. `z.input` alone is not
+ * the resolver's INPUT type: `phone` widens to `string | null | undefined`,
+ * `fee_model` becomes OPTIONAL (`.default`), and `baseFee` widens to `unknown`
+ * (`.coerce.number()`). Deriving would therefore widen `phone` past what
+ * `<input value>` accepts and weaken a required field — so the honest INPUT shape
+ * is written out. This is the shape react-hook-form holds — every optional text
+ * field is a plain string, because that is what a DOM control produces.
  */
 type FormValues = {
   name: string;

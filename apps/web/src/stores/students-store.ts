@@ -1,3 +1,33 @@
+// Implements: 05_Students.md §Master List — the roster's filters, search, sort,
+// paging, drawer, bulk selection and the two mutation sheets. AGENTS.md §2 Rule 4
+// (this state does not create a screen: it dresses the one Students route).
+//
+// THE CONTRACT
+// ────────────
+// OWNS: what the roster is showing and which row is open. It is CLIENT view
+//   state — the server owns the rows, TanStack Query owns the cache, and this
+//   store owns the intent ("filter status=active, page 3, drawer open on student
+//   X").
+// RETURNS: primitives and stable array references. Every setter builds a NEW
+//   object inside `set(...)`, never in a selector, so `useStudentsStore(s => …)`
+//   never returns a fresh reference and cannot loop a render. That is the whole
+//   Zustand discipline and it is why there is no `useShallow` here.
+// ON UNMOUNT: nothing. A store is not a subscription; nothing is registered and
+//   nothing leaks. State deliberately survives navigation — a tutor who opens a
+//   drawer, visits Settings and comes back must land on the same row.
+// DELIBERATELY DOES NOT: persist. There is no `persist` middleware here, and
+//   that is right: the roster is a view of data the server owns, and rehydrating
+//   a stale filter set would show a tutor students they had filtered out of two
+//   sessions ago with no visible control explaining why the list is short.
+//   It also does not hold student DATA (no row objects) — `["students"]` in the
+//   query cache does.
+//
+// TWO FIELDS THAT ARE DECLARED BY THE SPEC BUT NOT REACHABLE YET. Both are kept
+// because `05_Students.md` §Master List puts them in this store's shape and the
+// spec's shape is the contract; neither has a writer the UI can reach. See the
+// inline notes on `bulkSelectedIds` and `mergeTargetId` — shipping them needs a
+// gateway bulk endpoint and a §8 amendment first, not a button.
+
 import { create } from 'zustand';
 import { StudentFilters, SavedFilter, SortCol, TabKey, StudentDuplicateMatch } from '../types/students';
 
@@ -25,12 +55,21 @@ interface StudentsStoreState {
    * server mutations plus a §8 spec amendment first.
    */
   bulkSelectedIds: string[];
+  /**
+   * 05_Students.md §Master List also declares `mergeTargetId` here — the row a
+   * duplicate match would be merged INTO. Like `bulkSelectedIds` it is kept
+   * because the spec's shape is the contract, and like it, it has no writer: the
+   * merge flow itself does not exist (the gateway exposes single-student
+   * POST/PATCH/DELETE only), so exposing a field that can never change would be
+   * a promise the code does not keep. Deliberately NOT removed — §0.2 deletes
+   * code that maps to nothing, and this maps to a named spec line.
+   */
+  mergeTargetId: string | null;
 
   // Mutation sheets
   addSheetOpen: boolean;
   editSheetOpen: boolean;
   duplicateInterstitial: StudentDuplicateMatch | null;
-  mergeTargetId: string | null;
 
   // Actions
   setFilters: (f: Partial<StudentFilters>) => void;

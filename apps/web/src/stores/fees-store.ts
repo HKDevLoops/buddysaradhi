@@ -12,6 +12,38 @@
 // agree, and which already did not (the payment sheet stayed open across a
 // screen change and re-opened over a different student). That agreement is the
 // complexity, concentrated.
+//
+// THE CONTRACT
+// ────────────
+// OWNS: the Fees screen's own view state — overview/ledger mode, the roster
+//   search string, which student the screen is scoped to, and the two sheet
+//   flags with the description an extra-fee category seeds. NOT the money: no
+//   amount, no invoice, no receipt, no balance lives here.
+// RETURNS: primitives plus one nullable string. `closeFeeSheets()` is also
+//   exported as a MODULE function so the shell can close the sheets without
+//   subscribing to a store it does not render — a hook there would make the
+//   screen change depend on the Fees screen re-rendering.
+// ON UNMOUNT: nothing. No listener, no timer, no observer. The sheet flags are
+//   explicitly NOT cleared on unmount — `closeFeeSheets()` is the deliberate
+//   one-way reset for a screen change, and it is called from the chrome.
+// DELIBERATELY DOES NOT: persist the sheet flags or the selected student. A
+//   payment sheet restored on the next visit would be a form over a student the
+//   tutor is no longer looking at. `partialize` therefore persists only `mode`
+//   and `searchQuery` — the two that are pure conveniences and are safe to
+//   restore into the tutor's own session.
+//
+// WHY THERE IS NO `skipHydration` HERE, WHEN `settings-store` AND
+// `attendance-store` BOTH HAVE IT. Measured, not assumed: `/fees` IS server
+// rendered, and zustand restores a persisted slice synchronously, so a mismatch
+// was possible — but only if a PERSISTED field were also a RENDERED one.
+// `mode` and `searchQuery` have no reader anywhere in the app (the Fees screen
+// destructures `selectedStudentId` only; `dashboard-client.tsx` records the same
+// finding). The rendered fields — the sheet flags, the seed and the selected
+// student — are excluded from `partialize` by construction, so the server value
+// and the first client value are the same object and there is nothing to match.
+// Adding `skipHydration` here would be the wrong fix: with no `rehydrate()` call
+// in `fees-client.tsx` it would silently stop restoring `mode` altogether.
+// MEASURE IT AGAIN THE MOMENT `mode` GAINS A READER.
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';

@@ -6,10 +6,19 @@
 import { useSettingsStore, SettingsSectionId } from "@/stores/settings-store";
 import {
   UserCircle, Palette, Clock, Receipt, Bell, Shield,
-  HardDrive, FileDown, ShieldAlert, Info, HelpCircle, Activity, Database
+  HardDrive, FileDown, ShieldAlert, Info, HelpCircle, Activity, Database,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// `satisfies SettingsSectionId` is the whole point of this annotation. The
+// thirteen section ids are declared TWICE — as the union in `settings-store.ts`
+// and as the `id:` values here — and before it was checked, the two could drift
+// silently: a typo'd id compiled fine and was then laundered into a store call
+// by two `as SettingsSectionId` casts. With the constraint in place a typo is a
+// compile error, the inferred `section.id` stays assignable to the union, and
+// both casts are gone (AGENTS.md §6.1 — no `as` without a SAFETY comment, and
+// this removes two rather than justifying them).
 const SECTIONS = [
   { id: "profile", label: "Profile", icon: UserCircle },
   { id: "appearance", label: "Appearance", icon: Palette },
@@ -24,7 +33,7 @@ const SECTIONS = [
   { id: "about", label: "About", icon: Info },
   { id: "help", label: "Help", icon: HelpCircle },
   { id: "diagnostics", label: "Diagnostics", icon: Activity },
-] as const;
+] as const satisfies readonly { id: SettingsSectionId; label: string; icon: LucideIcon }[];
 
 export function SettingsNav() {
   const { activeSection, setPendingNav, hasUnsavedChanges, setActiveSection, dirtySections } = useSettingsStore();
@@ -43,12 +52,12 @@ export function SettingsNav() {
       <div className="flex sm:flex-col gap-1 min-w-max sm:min-w-0 pb-2 sm:pb-0">
         {SECTIONS.map((section) => {
           const isActive = activeSection === section.id;
-          const isDirty = dirtySections.has(section.id as SettingsSectionId);
+          const isDirty = dirtySections.has(section.id);
 
           return (
             <button
               key={section.id}
-              onClick={() => handleNav(section.id as SettingsSectionId)}
+              onClick={() => handleNav(section.id)}
               aria-label={section.label}
               aria-current={isActive ? "page" : undefined}
               className={cn(

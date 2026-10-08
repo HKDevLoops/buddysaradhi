@@ -1,3 +1,37 @@
+// Implements: 08_Settings.md §6.2 — which of the thirteen sections is on show,
+// and §8.3's `dirtySections` set that the react-hook-form Profile card writes to
+// (`formState.isDirty` drives it, per the spec). AGENTS.md §2 Rule 4 — thirteen
+// sections inside ONE screen, not thirteen screens; the active section is view
+// state on the `/settings` route, not a URL and not a sixth screen.
+//
+// THE CONTRACT
+// ────────────
+// OWNS: `activeSection` (persisted), which sections have unsaved edits, and the
+//   two-step discard confirmation for leaving a dirty section.
+// RETURNS: an id from `SettingsSectionId`, a `Set` of the same ids, a nullable
+//   pending destination, and `hasUnsavedChanges()` as a FUNCTION — not a
+//   boolean. That is deliberate: `useSettingsStore(s => s.hasUnsavedChanges)`
+//   returns the same function reference on every render and therefore never
+//   re-renders a component; `useSettingsStore(s => s.hasUnsavedChanges())`
+//   returns a boolean and is equally stable. Returning the boolean directly
+//   would have been fine, but a consumer writing the first form would have got
+//   an always-truthy object and no re-render on save.
+// ON UNMOUNT: nothing. No listener, no timer, no observer. The dirty set
+//   deliberately SURVIVES a screen change: it is the thing that must still be
+//   true when the tutor comes back, and it is cleared only by `markClean`,
+//   `confirmDiscard`, or the Profile card's own successful save.
+// DELIBERATELY DOES NOT: persist the dirty set or the pending navigation.
+//   `partialize` carries `activeSection` alone. A stale "you have unsaved
+//   changes" banner on the next load, over a form whose contents were never
+//   persisted, is a claim the app cannot back up.
+//
+// `Set` AND WHY IT IS COPIED ON EVERY WRITE. `markDirty`/`markClean` build a new
+// `Set` instead of mutating in place. That is required, not stylistic: the store
+// object is shallow-compared by zustand, and a `Set` mutated in place keeps its
+// identity, so every subscriber would believe nothing changed and the "Unsaved"
+// marker would never appear. It is also the difference between a store that is
+// safe to snapshot and one that mutates shared state under a reader.
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 

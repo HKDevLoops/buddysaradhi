@@ -212,13 +212,79 @@ No comment that only restates the code. A comment earns its place by explaining
 
 ---
 
-## 6. Memory
+## 9. Memory
 
 - `docs/mindmap.md` — the graph: nodes (files, stores, hooks, routes, rules,
   spec ids) and edges (imports, owns, implements, breaks-with).
 - Kilo memory: the node index, the singleton-leak findings, the native-swap
   verdicts, and the gate commands — so the next session recalls them without
   re-reading the repo.
+
+---
+
+## 10. Phase 6 (docs) — DELIVERED 2026-10-07
+
+The DOCS lane owned `docs/stack/*` and `docs/mindmap.md`. Two things the plan
+did not specify and that are now on record, because both were found by looking
+rather than by planning:
+
+**1. The stack list had to be cut against the real tree, not the plan's list.**
+§5 named "Next 16, React 19, TS 7, Tailwind 4, Drizzle/SQLite, Playwright,
+Vitest". There is no Drizzle in this repo — the ORM is Prisma + a hand-rolled
+`libsql-proxy.ts` shim, and the plan's "Drizzle/SQLite" was simply wrong. Import
+sites were counted with `rg` before any file was written, which is how the list
+grew to 18: three of them (`packages/shared`, `packages/core`, the UI-primitive
+grab-bag) exist because they are *used*, and two (`supabase`, `eslint-prettier`)
+were added because each one carries a project-specific trap the brief had not
+listed — `proxy.ts` vs `middleware.ts`, and the fact that `eslint .` does not
+lint `.tsx` at all.
+
+**2. "Gotchas line" had to be symptom-shaped or it was not worth writing.**
+Every note in `docs/stack/` is anchored to a file and line in this tree, and the
+expensive ones are phrased as the *symptom that was actually observed*:
+
+- every screen 500'd with `A "use server" file can only export async functions`
+  while `tsc` and 621 tests were green — a **build-time** error, not a type error
+- `--accent-cyan` exists in none of the 20 palettes, so every focus ring using it
+  resolved to an invalid colour and **had no ring at all** (WCAG 2.4.7), and
+  nothing looked broken
+- the nav renders in both a sidebar and a mobile bottom nav, so a role-based
+  Playwright query matches **two** elements
+- `low-latency.test.ts` / `performance.test.ts` assert wall-clock budgets and
+  fail under CPU contention: 546/548 with a `next build` running, **29/29 clean
+  when read serially**
+- `CREATE TABLE IF NOT EXISTS` cannot relax a column, so the legacy
+  `invoices.invoice_number NOT NULL` shape killed every payment and only a table
+  **rebuild** could fix it
+
+Every URL in the directory was probed and returns 200. Every version was read
+out of a real `package.json` or `node_modules/<pkg>/package.json` — the specifier
+and the resolved version are both cited, because they differ in 6 of the 18 files
+and the difference is exactly the sort of thing a reader would otherwise guess
+wrong.
+
+**`docs/mindmap.md` was also corrected, not just appended to.** Two of its
+sections described a state that had already shipped:
+
+- §1 said "Today: one route `/`, five screens swapped client-side" and framed the
+  five SSR routes as a *target*. They shipped in `5974e6a`. Rewritten to the
+  shipped shape, with the Back-press regression stated rather than dropped.
+- §2 said the module `Map`s were UNBOUNDED. They were already bounded at 64 —
+  FIFO not LRU, two keyspaces, and eviction orphaned the ORM proxy. **A map that
+  reports a bound it does not enforce is worse than an unbounded one, because
+  it is trusted**, and the original text would have let the next agent "confirm"
+  a fixed bug.
+
+New §9 records the lane boundaries including the lesson that a lane is a *file
+list, not a subject* — splitting phase 1 by subject rather than by file would
+have produced two correct half-patches and a broken app.
+
+**Open and deliberately not written:** nothing in `docs/stack/` claims to be a
+tutorial. Where a section had no project-specific content it states the link and
+stops, per the owner's instruction. The `zz-tmp-settings-audit.spec.ts` 9/13
+result is recorded in three places as an **open** item against the uncommitted
+phase-5 lane that is re-basing it, with the explicit instruction not to loosen an
+assertion to make it pass.
 
 ---
 

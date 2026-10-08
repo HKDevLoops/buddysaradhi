@@ -38,14 +38,14 @@ const SEARCH_CANDIDATES_CACHE_KEY = "search:student-candidates";
  * due amount or a fee plan is never selected, so no financial value can reach a client
  * payload through the search path.
  */
-const SEARCH_CANDIDATE_SELECT: Readonly<Record<string, true>> = {
+const SEARCH_CANDIDATE_SELECT = {
   id: true,
   firstName: true,
   lastName: true,
   code: true,
   phone: true,
   status: true,
-};
+} satisfies Readonly<Record<keyof StudentCandidateRow, true>>;
 
 export interface StudentSearchCandidate {
   id: string;
@@ -98,7 +98,7 @@ export const getSearchCandidates = cache(async (): Promise<{
           where: { tenantId },
           orderBy: { lastName: "asc" },
           take: SEARCH_CANDIDATE_LIMIT,
-          select: { ...SEARCH_CANDIDATE_SELECT },
+          select: SEARCH_CANDIDATE_SELECT,
         })) as StudentCandidateRow[],
       DEFAULT_REFERENCE_TTL_MS,
     );

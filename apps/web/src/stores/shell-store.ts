@@ -41,6 +41,40 @@ import { create } from "zustand";
 // and the mapping from a pathname to a screen id. The nav, the mobile tab bar,
 // the document title and the shortcut registry all READ it. Nothing else
 // translates.
+//
+// THE CONTRACT
+// ────────────
+// OWNS: `activeScreen` — a MIRROR of the route, plus the single setter that moves
+//   the tutor. It does not own "which screen is on show"; the ROUTE does, and
+//   this mirror exists so files outside the chrome can read it without importing
+//   `next/navigation`.
+// RETURNS: an id that is ALWAYS the route that renders that screen, and is
+//   therefore also the correct `aria-current="page"` value. Never a label, never
+//   an index, never a display name.
+// ON UNMOUNT: nothing — a zustand store is not a subscription anyone owns. The
+//   navigator registered by `useScreenRoute` is cleared by THAT hook's cleanup,
+//   and this file deliberately does not manage it (see below).
+// DELIBERATELY DOES NOT: touch the URL, read `window.location`, or know anything
+//   about a sixth screen. It stores a string; the router is someone else's job.
+//
+// THE MODULE-LEVEL `navigator` IS SAFE ON THE SERVER, AND IT IS NOT AN ACCIDENT.
+// It looks like the cross-request mutable state AGENTS §3.4 warns about, and it
+// deserves the question. The answer: `registerScreenNavigator` is called ONLY
+// from a `useEffect` cleanup/registration pair inside a `"use client"` hook, and
+// effects do not run during a server render — so on the server `navigator` is
+// permanently `null` and `setActiveScreen` degrades to a plain setter, in every
+// process, for every tenant. There is no window in which one request's registered
+// navigator is visible to another. The invariant is structural, which is the
+// only kind worth relying on; if someone ever moves the registration out of an
+// effect, this stops being true and the store becomes a cross-tenant leak.
+//
+// Note also that `activeScreen` itself is module state in a module this file's
+// own header says is read by non-React code. On the server it therefore holds
+// `DEFAULT_SCREEN` forever — which is fine, because nothing that renders on the
+// server reads it: `useScreenRoute` returns `screenFromPathname(pathname)` first
+// and only falls back to the store for a pathname that is not one of the five.
+// The one reader that does exist on the server is `app/(app)/students/page.tsx`,
+// and it calls `getInitialState()`, which is the constructor — never mutated.
 
 export type ScreenId = "/dashboard" | "/students" | "/attendance" | "/fees" | "/settings";
 

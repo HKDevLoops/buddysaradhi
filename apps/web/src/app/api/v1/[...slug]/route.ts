@@ -12,6 +12,7 @@ import {
   gatewayDelete,
 } from "@/server/get-db";
 import { log } from "@/lib/logger";
+import type { StudentFilters } from "@/types/students";
 
 type GatewayResult<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -99,7 +100,22 @@ async function dispatchGateway(
       try {
         const { getStudents } = await import("@/server/queries/students");
         const qp = Object.fromEntries(req.nextUrl.searchParams.entries());
-        const defaultFilters = { status: [], batchIds: [], feeModels: [], tagIds: [], balanceRange: "all" as const, admittedInLast: "all" as const };
+        // `satisfies StudentFilters` replaces two `as const` clenches with one checked
+        // constraint. Before it the object was never verified: only the two
+        // `as const` narrowed the union-valued fields enough to be assignable, so
+        // a misspelled FILTER KEY would have compiled and been passed to
+        // `getStudents` as-is. The key set and the two enums are now checked.
+        // The four arrays are NOT meaningfully checked — an empty `[]` infers
+        // `never[]`, which satisfies any element type — so they are listed here
+        // for shape, not safety.
+        const defaultFilters = {
+          status: [],
+          batchIds: [],
+          feeModels: [],
+          tagIds: [],
+          balanceRange: "all",
+          admittedInLast: "all",
+        } satisfies StudentFilters;
         const studentsRes = await getStudents(defaultFilters, qp.search || "", 1, 50, { col: "name", dir: "asc" });
         return NextResponse.json(studentsRes.data || { students: [], total: 0 });
       } catch (fbErr) {

@@ -67,7 +67,7 @@
 //    `clearQueue(tenantId)` next to the existing `queryClient.clear()` before
 //    `signOutAction()` so queued intents never leak across tenants.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { UseMutationResult } from "@tanstack/react-query";
 import { mintIntentKey } from "@/lib/intent-key";
@@ -132,11 +132,45 @@ function defaultIsOnline(): boolean {
 }
 
 /**
- * react-query useMutation wired with intent-key + retry + offline queue.
- * Online → retrying invoke (same key), rollback on final failure.
- * Offline → enqueue (same key), optimistic state kept, marked queued.
- * Single-flight UI assumed (all three call sites disable submit while
- * pending); the intent key travels inside the Confirmation result, not refs.
+ * CONTRACT
+ * ────────
+ * OWNS: the lifecycle of ONE server effect that must not be silently dropped.
+ *   It mints an intent key, calls `invoke` through a bounded retry with the SAME
+ *   key on every attempt (C1/C2), or — when the browser is offline — writes the
+ *   intent to the durable queue under that same key and reports `queued` (C3).
+ *   It snapshots before, rolls back after, and invalidates the query keys the
+ *   caller named.
+ * RETURNS: `UseMutationResult<Confirmation<TData>, ConfirmedMutationError, …>`
+ *   plus `intentStatus`, `lastIntentKey` and `queuedCount`.
+ * ON UNMOUNT: nothing — this hook registers no listener, timer or observer. The
+ *   mutation is react-query's to cancel, not this hook's; in-flight work keeps
+ *   running and the caller decides whether to `queryClient.cancelQueries`.
+ * DELIBERATELY DOES NOT: poll (C6 — draining is event-driven, in
+ *   `lib/offline-queue.ts`); retry forever (`invokeWithRetry` is bounded); open a
+ *   second dialog or toast (Rule 9 is this hook's job — it throws a typed
+ *   `ConfirmedMutationError` and the caller decides how to say it); or decide
+ *   `isOnline` for the caller (injectable, and read ONCE per mutate — a device
+ *   that drops mid-retry finishes the retry rather than half-queueing).
+ *
+ * TWO THINGS A CALLER MUST KNOW, because they are the shape of the thing and not
+ * obvious from the types.
+ *
+ * 1. `intentStatus` is terminal once it reaches `confirmed` / `queued` / `failed`
+ *    — it is NOT a "pending" flag and does not return to `idle`. Use
+ *    `isPending` for "is a request in flight". The distinction matters: a sheet
+ *    that disables its Save on `intentStatus !== "idle"` stays disabled forever
+ *    after one use, which is a bug the previous draft invited.
+ * 2. `snapshot()` is called in `onMutate` and is NOT wrapped. If it rejects, the
+ *    mutation rejects with THAT error, not with a `ConfirmedMutationError`, and
+ *    `rollback` is called with `undefined`. Read `error instanceof
+ *    ConfirmedMutationError` before touching `error.intentKey`, and make
+ *    `snapshot` total.
+ *
+ * SSR: `queuedCount` starts at 0 and is filled in after mount. Reading the queue
+ * during the first render — which is also the render React uses to match server
+ * markup — compares an empty server-side fallback against the browser's real
+ * queue and produces a hydration mismatch for any tutor with a queued intent.
+ * Same reason `settings-store`/`attendance-store` set `skipHydration`.
  */
 export function useConfirmedMutation<
   TArgs extends Record<string, unknown>,
@@ -147,9 +181,12 @@ export function useConfirmedMutation<
   const online = config.isOnline ?? defaultIsOnline;
   const [intentStatus, setIntentStatus] = useState<IntentStatus>("idle");
   const [lastIntentKey, setLastIntentKey] = useState<string | null>(null);
-  const [queuedCount, setQueuedCount] = useState<number>(() =>
-    config.tenantId ? readQueue(config.tenantId).items.length : 0,
-  );
+  // 0 until after mount — see the SSR note in the doc comment above.
+  const [queuedCount, setQueuedCount] = useState<number>(0);
+
+  useEffect(() => {
+    setQueuedCount(readQueue(config.tenantId).items.length);
+  }, [config.tenantId]);
 
   const mutation = useMutation<
     Confirmation<TData>,
