@@ -164,7 +164,7 @@ export default function LoginPage() {
             <Button 
               type="submit" 
               disabled={isAnyLoading}
-              className="w-full py-6 rounded-xl neumo-raised bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-6 rounded-xl neumo-raised bg-[var(--success)]/10 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))] hover:bg-[var(--success)]/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In"}
             </Button>

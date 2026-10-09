@@ -111,7 +111,7 @@ function summary(overrides: Partial<SummaryFixture> = {}): DashboardSummary {
       dueTillDateMinor: 3820000,
       dueForMonthMinor: 1450000,
       overdueMinor: 900000,
-      paymentBreakdown: { paid: 42, partial: 8, unpaid: 12, noDues: 5 },
+      paymentBreakdown: { paid: 42, partial: 8, unpaid: 12 },
     },
     activity: [],
     dueToday: [],
@@ -217,7 +217,10 @@ describe("CARD_DRILL — §10.1 names a screen AND the filter it must apply", ()
   it("§10.1 C6 — every bucket declares the Fees status it must filter to", () => {
     // Four dots, four destinations, one table. Each bucket's `paymentStatus` is
     // the BR-CALC-02 word, so the status can never be spelled two ways.
-    expect(Object.keys(C6_DRILL)).toEqual(["paid", "partial", "unpaid", "noDues"]);
+    // Three buckets. `noDues` was a subset of `paid`, so the card's four numbers
+  // summed to more than the roster and "Never invoiced" was false for students
+  // who had paid in full.
+  expect(Object.keys(C6_DRILL)).toEqual(["paid", "partial", "unpaid"]);
     for (const [key, drill] of Object.entries(C6_DRILL)) {
       expect(drill.screen, `C6 ${key} opens Fees`).toBe("/fees");
       expect(drill.filter, `C6 ${key} is a Fees filter`).toMatchObject({ target: "fees" });
@@ -442,7 +445,21 @@ describe("DashboardClient — KPI strip", () => {
     }
     // The C6 figures themselves, in paise→rupees via formatINR.
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Never invoiced")).toBeInTheDocument();
+    for (const bucket of ["Paid", "Partial", "Unpaid"]) {
+      expect(screen.getByText(bucket)).toBeInTheDocument();
+    }
+  });
+
+  it("shows three buckets that add up to the roster, not four that do not", () => {
+    // The defect this guards: a fourth bucket ("Never invoiced") was a SUBSET of
+    // Paid, so the card's numbers summed to MORE than the student count — a
+    // 3-student tenant rendered as "3 Paid, 0 Partial, 0 Unpaid, 2 Never invoiced"
+    // = 5, while claiming two students had never been billed when they had paid
+    // in full. A tutor reading that card is told five people exist.
+    renderClient();
+    for (const gone of ["Never invoiced", "No dues"]) {
+      expect(screen.queryByText(gone)).not.toBeInTheDocument();
+    }
   });
 
   it("states inside each period-independent card that the period does not move it (§6.4)", async () => {
@@ -619,7 +636,7 @@ describe("DashboardClient — states (Rule 9, §11 E1)", () => {
             dueTillDateMinor: 0,
             dueForMonthMinor: 0,
             overdueMinor: 0,
-            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0, noDues: 0 },
+            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0 },
           },
         }),
         window: WINDOW,
@@ -659,7 +676,7 @@ describe("DashboardClient — states (Rule 9, §11 E1)", () => {
             dueTillDateMinor: 450000,
             dueForMonthMinor: 0,
             overdueMinor: 450000,
-            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0, noDues: 0 },
+            paymentBreakdown: { paid: 0, partial: 0, unpaid: 0 },
           },
         }),
         window: WINDOW,

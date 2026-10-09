@@ -73,7 +73,7 @@ function fixture(): DashboardAnalytics {
       { status: "inactive", students: 1 },
     ],
     enrollmentTotal: 4,
-    paymentBreakdown: { paid: 2, partial: 1, unpaid: 1, noDues: 1 },
+    paymentBreakdown: { paid: 2, partial: 1, unpaid: 1 },
     dataPartial: false,
     sourceNotes: [],
   };

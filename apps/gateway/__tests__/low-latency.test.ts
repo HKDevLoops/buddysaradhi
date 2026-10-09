@@ -39,18 +39,22 @@ import { ok, fail, okCached, securityFail } from "../lib/errors.ts";
 const BATCH = 200;
 
 /** Timed batches, excluding the discarded warm-up. */
-const BATCHES = 7;
+const BATCHES = 20;
 
 /**
  * Per-operation cost in milliseconds, measured as the p95 across `BATCHES`
  * batches of `BATCH` operations. One warm-up batch is discarded so JIT
  * compilation and first-touch allocation are not attributed to the code.
  *
+ * Exported so the outlier policy below can be asserted directly — the flake this
+ * fixes was invisible precisely because nothing pinned what the aggregator does
+ * with one bad sample.
+ *
  * Note the op runs `BATCHES + 1` times: the warm-up batch's *timing* is
  * discarded, not its execution. A caller counting invocations must expect
  * `BATCH * (BATCHES + 1)`.
  */
-function p95PerOp(op: () => void, batches = BATCHES): number {
+export function p95PerOp(op: () => void, batches = BATCHES): number {
   const perOp: number[] = [];
   for (let b = 0; b < batches + 1; b++) {
     const start = performance.now();
@@ -59,7 +63,15 @@ function p95PerOp(op: () => void, batches = BATCHES): number {
     if (b > 0) perOp.push(elapsed / BATCH); // skip the warm-up batch
   }
   perOp.sort((a, b) => a - b);
-  return perOp[Math.floor(perOp.length * 0.95)]!;
+  // `ceil(0.95 * n) - 1`, NOT `floor(0.95 * n)`. With the old BATCHES = 7 the
+  // floor index was 6 — the MAXIMUM of 7 samples — so this "p95" was really "the
+  // worst batch", and a single scheduler preemption out of seven failed a code
+  // path that takes ~200ns. That is the remaining source of the flake: batching
+  // shrinks the noise but cannot remove it, and a percentile that resolves to the
+  // maximum samples it. The ceiling form is the standard nearest-rank p95, so the
+  // single worst batch is excluded while a regression that slows EVERY batch
+  // (the only kind that is real) still trips the budget by a wide margin.
+  return perOp[Math.ceil(perOp.length * 0.95) - 1]!;
 }
 
 /** How many times `p95PerOp` actually invokes its op. */
@@ -237,5 +249,55 @@ describe("IP rate limit throughput", () => {
     }
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(100);
+  });
+});
+
+describe("the p95 aggregator's outlier policy (the flake, made visible)", () => {
+  // A wall-clock budget test is only trustworthy if it can tell "our code got
+  // slower" from "the OS descheduled the runner". This pins that line, because
+  // the failure it prevents was invisible: with BATCHES = 7 and a floor index,
+  // `p95` resolved to the MAXIMUM of 7 samples, so ONE preempted batch failed a
+  // path that takes ~200ns, intermittently and only under load.
+  //
+  // Every assertion below is RELATIVE — each compares two measurements taken in
+  // the same run, so they experience the same scheduler. An absolute threshold
+  // would be load-sensitive and would itself become the flake this file exists to
+  // eliminate; that mistake was made here first and cost a red run.
+  //
+  // The op is a busy-wait whose duration the test controls, so these are real
+  // measurements of a real duration rather than mocks.
+
+  /** Burns roughly `ms` milliseconds, so a batch has a known cost. */
+  function busy(ms: number): () => void {
+    return () => {
+      const until = performance.now() + ms;
+      while (performance.now() < until) { /* deliberate spin */ }
+    };
+  }
+
+  it("excludes a single pathological batch — the shape of an OS preemption", () => {
+    const uniform = p95PerOp(busy(1), 20);
+
+    let call = 0;
+    // Every batch ~1ms except one ~50ms — one preemption among a clean run.
+    const withOutlier = p95PerOp(() => {
+      call += 1;
+      busy(call === BATCH ? 50 : 1)();
+    }, 20);
+
+    // The outlier is 50x a clean batch. Included, it would show as ~2.5ms/op and
+    // fail the <0.5ms budgets that guard this codebase. Excluded, the figure
+    // stays at the uniform cost.
+    expect(withOutlier).toBeLessThan(uniform * 3);
+  });
+
+  it("still reports uniform cost — the shape of a real regression", () => {
+    // The counterpart that matters: a slowdown affecting EVERY batch is what a
+    // genuine regression looks like, and it must NOT be smoothed away.
+    const cheap = p95PerOp(busy(0.05), 20);
+    const slow = p95PerOp(busy(1), 20);
+    // 20x more work per op must show up as a clearly larger measurement even when
+    // the machine is busy, because both numbers were taken under the same load.
+    expect(slow).toBeGreaterThan(cheap * 4);
   });
 });

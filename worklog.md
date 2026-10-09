@@ -2496,3 +2496,114 @@ verified by CI on this commit.
 - Resume point: local JWT verification in `apps/gateway/lib/auth.ts` (the highest-value remaining perf item), then the two owner-gated items above.
 - Blocker: none.
 ---
+
+---
+
+Task ID: WEBAPP-AUDIT-01  Agent: web-audit  Task: Manual Playwright audit of the
+recently-implemented webapp code — is it actually working as intended?
+
+Work Log:
+
+Driven manually through Playwright against a live `next start` on :3311 (QA
+tenant, 3 students / 14 invoices / 12 receipts). Per-screen console + network
+capture, axe 4.10.2 on WCAG 2.1 AA, and screenshots read back for visual
+evidence. Every defect below was OBSERVED, not inferred.
+
+1. PAYMENT BREAKDOWN summed to more than the roster. `noDues` was counted as
+   "holds no OPEN invoice" — a strict SUBSET of `paid`, since a student with
+   nothing outstanding is `paid` by definition. The screen rendered
+   "3 Paid, 0 Partial, 0 Unpaid, 2 Never invoiced" for a 3-student roster: five
+   people claimed, and two students labelled "Never invoiced" who had in fact
+   been invoiced and paid in full. The gateway docblock asserted `noDues ⊆ paid`
+   as an invariant, so the defect was written down as intended.
+   PERF-GATEWAY-06 had narrowed `noDues` to the open set and flagged the
+   semantic change; deferring that call is what let it ship.
+   FIX (owner decision: three honest buckets) — gateway partition, both web Zod
+   schemas, `C6_DRILL`, the card. The fourth bucket was dropped rather than
+   relabelled because no exact "never invoiced" is reachable cheaply: the audited
+   builder is `SELECT *` with no projection seam (lib/sql.ts:477), so answering it
+   means restoring the all-time invoice read this pass removed.
+   TESTS — "noDues ⊆ paid" asserted the bug, so it was replaced by an assertion
+   on the SHAPE (`Object.keys` + sum === totalStudents) in two gateway suites, plus
+   a UI test that the removed labels never render. Mutation-checked: re-adding the
+   overlap fails 3 tests. Typecheck independently caught 5 stale fixtures.
+
+2. NAV CHORD rendered as prose. One `<kbd>` containing "g then 4" — wrong markup
+   (`<kbd>` holds one key) and it read as garbled next to the `⌘K` / `S` caps in
+   the palette hint. Now one cap per key: 10 caps, `['g','1',…,'g','5']`. The
+   chord itself was verified working on all four tested screens before touching
+   the markup — this was presentation, not behaviour.
+
+3. SEARCH PLACEHOLDER clipped mid-word: "Search by name, phor" at 230px. Shortened
+   to "Name, phone or code…" (the accessible label already reads "Search
+   students"); verified `scrollWidth <= clientWidth`.
+
+4. KPI CAPTIONS lower-cased a proper noun — "received in october 2026" while the
+   header said "October 2026". `labelLower` called `.toLowerCase()` on the whole
+   label. Month and range labels now keep their capitalisation; the "all time"
+   case, which genuinely needs it, is untouched. Two tests asserted the old
+   output, one via `labelLower === label.toLowerCase()` — corrected to the real
+   invariant.
+
+5. AVATAR INITIALS failed WCAG AA on three screens. `components/ui/avatar.tsx`
+   painted the accent at FULL strength over a background that is a 16% TINT OF
+   THAT SAME ACCENT — 3.69:1–3.75:1 against 4.5:1. The file's comment claimed "an
+   avatar can never introduce an unsolved colour"; the generated palette's gate
+   solves each accent against the CANVAS and has never checked an accent against
+   a per-accent tint of itself. FIX — mix the label toward `--text-primary`, which
+   lifts contrast in BOTH palettes (near-white on dark, near-black on light) and
+   preserves the hue. Worst measured pair lands at 5.04:1.
+
+6. THE AVATAR WAS DUPLICATED THREE TIMES. `fees-client`, `payments-client` and
+   `ledger-table` each re-implemented it inline — three designs for the same
+   person on one screen (accent tint / `--danger` tint / gradient with a single
+   initial), two of them failing the same contrast check, all invisible to a fix
+   applied to the shared component. The two failing ones now render `<Avatar>` and
+   their private `initials` / `studentAccent` helpers are deleted (AGENTS §0.2,
+   no orphan code). `ledger-table`'s gradient passes axe and is left as-is — see
+   Open.
+
+7. ACCENT LABEL ON A TINT OF ITS OWN ACCENT, 19 SITES ACROSS 7 FILES. The
+   "Add Student" button measured 3.99:1. Fifteen of the nineteen are inside
+   sheets and modals that are CLOSED during any a11y sweep, so a rendered
+   assertion could never have caught them. All nineteen now use the mixed label.
+
+TEST SAFETY (the part that keeps this from recurring):
+- NEW `apps/web/src/lib/accent-tint-contrast.test.ts` scans component SOURCE, so
+  a closed sheet is as covered as an open one, and pins the avatar's mix. Verified
+  to bite: re-introducing the defect fails it with file:line and the fix.
+- `testTimeout: 30_000` in the web vitest config. Nine files run the PRODUCTION
+  Argon2id path (Rule 8's m=64MiB/t=3/p=2, deliberately expensive and not
+  reducible). Idle ≈1–2s; loaded 5.0–5.7s against a 5000ms default, so the suite
+  failed intermittently with a bare timeout while passing in isolation every time.
+  Budget raised, no assertion weakened, nothing skipped. 4/4 consecutive green
+  full runs afterwards (3 of 4 had been failing).
+- `low-latency.test.ts`: with `BATCHES = 7` the index `floor(0.95n)` = the MAXIMUM
+  of 7, so one scheduler preemption failed a ~200ns path. Now 20 batches with
+  nearest-rank `ceil(0.95n)-1`; budgets UNCHANGED. Two tests pin the policy. The
+  first version of those tests used absolute thresholds and itself flaked — caught
+  on the next gateway run and rewritten to compare two measurements from the SAME
+  run, so machine load cancels. 6/6 consecutive green.
+
+Stage Summary:
+- State: COMPLETED
+- Verification: typecheck clean · principle-lints 7/7 · deno check clean ·
+  next build green · gateway 641/39 files · web 990/74 files · core 203/17 ·
+  axe 0 serious/critical on all five screens AND on the opened Add Student sheet ·
+  0 console errors across the pass.
+- Files: 32 changed, +333/-156.
+- Open (NOT done, needs a decision): `ledger-table.tsx` still draws the student
+  avatar as a single-initial gradient, so the same person looks different on the
+  Ledger tab than on Pending/Collections. It passes axe, so this is consistency
+  only, and unifying it is a visual change rather than a defect fix.
+- Open: `apps/services/report-svc` computes `noDues = total - paid - partial -
+  unpaid` — a third definition, disjoint by construction and internally
+  consistent, but now a 4-key shape where the gateway returns 3. Outside the WEB
+  In-Flight boundary (AGENTS §9.3) so untouched; needs an RFC if any consumer
+  treats the two as the same contract.
+- Open: audit credentials default to `hkdevloops@gmail.com` / `hkdevs` in
+  `apps/web/tests/e2e/harness.ts:55-56`. Already committed; flagged, not changed.
+- Open: QA credentials are stored in the harness, so anyone with repo read access
+  can sign in as the QA tenant. Not a production secret, but worth moving to CI
+  secrets.
+Next agent: ledger-table avatar consistency, then the RFC items above.

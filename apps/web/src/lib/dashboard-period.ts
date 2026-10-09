@@ -247,20 +247,27 @@ export function resolvePeriodWindow(
     period.end !== null &&
     period.start <= period.end
   ) {
+    const label = `${dayLabelOf(period.start)} to ${dayLabelOf(period.end)}`;
     return {
       periodStartIso: period.start,
       periodEndIso: period.end,
-      label: `${dayLabelOf(period.start)} to ${dayLabelOf(period.end)}`,
-      labelLower: `${dayLabelOf(period.start)} to ${dayLabelOf(period.end)}`.toLowerCase(),
+      label,
+      // NOT lower-cased. This used to call `.toLowerCase()` on the whole label,
+      // which produced "received in 12 aug to 9 sep 2026". A month name and a
+      // month abbreviation are proper nouns in English and are capitalised
+      // wherever they appear, including mid-sentence — "in 12 Aug to 9 Sep 2026".
+      labelLower: label,
       movesMoneyCards: true,
     };
   }
 
+  const monthLabel = monthLabelOf(monthStart);
   return {
     periodStartIso: monthStart,
     periodEndIso: today,
-    label: monthLabelOf(monthStart),
-    labelLower: monthLabelOf(monthStart).toLowerCase(),
+    label: monthLabel,
+    // Same reason as the range label: "received in october 2026" is wrong.
+    labelLower: monthLabel,
     movesMoneyCards: true,
   };
 }

@@ -23,7 +23,7 @@ export function RecordPaymentButton({
       <button
         onClick={() => setPaymentSheetOpen(true)}
         aria-label={studentName ? `Record payment for ${studentName}` : "Record payment"}
-        className="min-h-[44px] flex items-center gap-2 px-4 py-2 bg-[var(--success)]/20 text-[var(--success)] hover:bg-[var(--success)]/30 rounded-lg transition-colors font-medium text-sm"
+        className="min-h-[44px] flex items-center gap-2 px-4 py-2 bg-[var(--success)]/20 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))] hover:bg-[var(--success)]/30 rounded-lg transition-colors font-medium text-sm"
       >
         <Plus className="w-4 h-4" />
         Record Payment

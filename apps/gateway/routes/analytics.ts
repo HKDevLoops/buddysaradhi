@@ -130,17 +130,18 @@ type PaymentState = "paid" | "partial" | "unpaid";
 /**
  * A student's payment state, derived from that student's OWN open invoices:
  *
- *   paid    — nothing outstanding on any open invoice. Includes a student who
- *             has never been invoiced; those are counted in `noDues` as well,
- *             so `noDues` is a SUBSET of `paid`, not a fourth bucket.
+ *   paid    — nothing outstanding on any open invoice, INCLUDING a student who
+ *             has never been invoiced (they have nothing outstanding too).
  *   partial — something outstanding, and at least one open invoice has a
  *             payment attributed to it.
  *   unpaid  — something outstanding, and no payment is attributed to any of
  *             their open invoices.
  *
- * `paid + partial + unpaid === totalStudents` always. The previous
- * implementation reported `partial: dues.length`, `unpaid: 0` and
- * `paid === noDues`, so the four fields described one fact three times and
+ * `paid + partial + unpaid === totalStudents` always, and the three are
+ * DISJOINT — each student is counted exactly once. A fourth `noDues` bucket once
+ * overlapped `paid` entirely; see the breakdown block below for why it went.
+ * The previous implementation reported `partial: dues.length`, `unpaid: 0` and
+ * `paid === noDues`, so the fields described one fact three times and
  * contradicted themselves.
  */
 function paymentState(openInvoices: Row[], paid: Map<string, number>): PaymentState {
@@ -368,21 +369,25 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     // issued and discarded the closed ones a row at a time, which is the O(All
     // invoices) read this route no longer makes.
     //
-    // `noDues` is therefore now "active student holding no OPEN invoice" rather
-    // than "active student who has never been invoiced" — the two differ only
-    // for a student whose every invoice is `paid` or `void`, and for those the
-    // new definition is the one the field's name describes (no dues = nothing
-    // owed), not a regression. Answering the old question exactly would require
-    // an anti-join the audited builder does not express (`__tests__/
-    // sql-range-operators.test.ts` pins the operator vocabulary), or a second
-    // all-time read — which is the cost being removed. The documented invariant
-    // is preserved and is what the dashboard asserts: `noDues ⊆ paid`, because a
-    // student with no open invoice always has nothing outstanding.
+    // THE THREE BUCKETS ARE A PARTITION. `paid + partial + unpaid ===
+    // totalStudents`, always, and each student lands in exactly one.
+    //
+    // There was a fourth bucket, `noDues`, counted as "holds no OPEN invoice".
+    // That is a SUBSET of `paid` — a student with nothing outstanding is `paid` by
+    // definition — so the card rendered a four-way split whose four numbers summed
+    // to MORE than the roster (3 students showed as 3 Paid + 2 Never invoiced = 5),
+    // and it was labelled "Never invoiced" while counting students who had in fact
+    // been invoiced and paid. A tutor reading that card is told five people exist.
+    //
+    // It was dropped rather than relabelled because no exact "never invoiced" is
+    // reachable cheaply here: `stmtSelectWhere` is `SELECT *` with no projection
+    // seam (lib/sql.ts:477), so answering it exactly means re-introducing the
+    // all-time full-row invoice read this pass removed. The honest three-way
+    // split is also what 04_Dashboard.md §1 asks for — "who paid, who didn't, who
+    // is partial". See the report for the owner's decision.
     const openByStudent = new Map<string, Row[]>();
-    const openInvoiceCountByStudent = new Map<string, number>();
     for (const inv of openInvoices) {
       const sid = String(inv.studentId);
-      openInvoiceCountByStudent.set(sid, (openInvoiceCountByStudent.get(sid) ?? 0) + 1);
       // The read already filtered to the open statuses. Kept as a belt-and-
       // braces guard so a future drift between this loop and the read's
       // `OPEN_INVOICE_STATUSES` list cannot start counting a voided invoice.
@@ -392,11 +397,9 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
         else openByStudent.set(sid, [inv]);
       }
     }
-    const paymentBreakdown = { paid: 0, partial: 0, unpaid: 0, noDues: 0 };
+    const paymentBreakdown = { paid: 0, partial: 0, unpaid: 0 };
     for (const s of activeStudents) {
-      const sid = String(s.id);
-      paymentBreakdown[paymentState(openByStudent.get(sid) ?? [], paidByInv)] += 1;
-      if ((openInvoiceCountByStudent.get(sid) ?? 0) === 0) paymentBreakdown.noDues += 1;
+      paymentBreakdown[paymentState(openByStudent.get(String(s.id)) ?? [], paidByInv)] += 1;
     }
 
     const kpis = {

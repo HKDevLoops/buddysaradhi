@@ -36,7 +36,7 @@ interface Kpis {
   dueTillDateMinor: number;
   dueForMonthMinor: number;
   overdueMinor: number;
-  paymentBreakdown: { paid: number; partial: number; unpaid: number; noDues: number };
+  paymentBreakdown: { paid: number; partial: number; unpaid: number };
 }
 
 interface Payload {
@@ -252,11 +252,17 @@ describe("P1 / bounding the reads did not move a single number", () => {
     expect(payload.kpis.dueTillDateMinor).toBe(350000);
   });
 
-  it("noDues stays a subset of paid (the invariant the dashboard asserts)", async () => {
+  it("the breakdown is a disjoint partition of the roster", async () => {
+    // Was: "noDues stays a subset of paid". That assertion ENCODED the bug — a
+    // subset means the same student is counted twice, so the card's numbers summed
+    // to more than the roster. The property now asserted is the one a tutor can
+    // rely on: the visible buckets add up to the number of students.
     const { kpis } = await dashboard(db);
+    expect(Object.keys(kpis.paymentBreakdown).sort()).toEqual(["paid", "partial", "unpaid"]);
+    const sum = Object.values(kpis.paymentBreakdown).reduce((a, b) => a + b, 0);
+    expect(sum).toBe(kpis.totalStudents);
     expect(kpis.paymentBreakdown.paid + kpis.paymentBreakdown.partial + kpis.paymentBreakdown.unpaid)
       .toBe(kpis.totalStudents);
-    expect(kpis.paymentBreakdown.noDues).toBeLessThanOrEqual(kpis.paymentBreakdown.paid);
   });
 });
 

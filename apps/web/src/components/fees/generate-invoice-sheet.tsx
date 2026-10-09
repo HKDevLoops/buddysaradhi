@@ -336,7 +336,7 @@ export function GenerateInvoiceSheet({ studentId, studentName }: GenerateInvoice
               {serverError && (
                 <div
                   role="alert"
-                  className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/25 text-[var(--danger)] text-sm"
+                  className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/25 text-[color-mix(in_srgb,var(--danger)_60%,var(--text-primary))] text-sm"
                 >
                   <span className="font-semibold">Not created. </span>
                   {serverError} Nothing was written — your entry is still here, fix it and try again.

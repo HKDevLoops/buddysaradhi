@@ -56,8 +56,11 @@ export type CardId =
   | "breakdown"
   | "overdue";
 
-/** C6's four buckets — BR-CALC-02's classification, one word each. */
-export type BreakdownKey = "paid" | "partial" | "unpaid" | "noDues";
+/** C6's buckets — BR-CALC-02's classification, one word each. THREE, not four:
+ *  `noDues` was dropped because it was a SUBSET of `paid` (a student with nothing
+ *  outstanding is `paid`), so the card's four numbers summed to more than the
+ *  roster and "never invoiced" was false for students who paid in full. */
+export type BreakdownKey = "paid" | "partial" | "unpaid";
 
 /**
  * The Fees screen's tabs, pinned to `FeesTab` in
@@ -241,16 +244,11 @@ export const C6_DRILL: Record<BreakdownKey, CardDrill> = {
       targetPhrase: "students who have paid nothing against what they owe.",
     },
   },
-  noDues: {
-    screen: "/fees",
-    filter: {
-      target: "fees",
-      view: "pending",
-      paymentStatus: "noDues",
-      period: null,
-      targetPhrase: "students who have never been invoiced.",
-    },
-  },
+  // The fourth bucket (`noDues`, "students who have never been invoiced") was
+  // removed with the overlap. Its destination is restated here because the honest
+  // replacement is still meaningful information — it just is not a partition
+  // member, and a card whose four numbers sum to more than the roster is worse
+  // than a card with three.
 };
 
 /**

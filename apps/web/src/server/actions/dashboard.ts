@@ -151,7 +151,7 @@ const kpisSchema = z.object({
     paid: z.number().int().nonnegative(),
     partial: z.number().int().nonnegative(),
     unpaid: z.number().int().nonnegative(),
-    noDues: z.number().int().nonnegative(),
+  
   }),
 });
 

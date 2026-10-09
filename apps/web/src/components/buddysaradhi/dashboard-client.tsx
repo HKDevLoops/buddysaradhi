@@ -798,7 +798,11 @@ const BREAKDOWN_META: Array<{
   { key: "paid", label: "Paid", accent: "var(--success)" },
   { key: "partial", label: "Partial", accent: "var(--warning)" },
   { key: "unpaid", label: "Unpaid", accent: "var(--danger)" },
-  { key: "noDues", label: "Never invoiced", accent: "var(--info)" },
+  // "Never invoiced" is GONE. It was a subset of Paid, so these four numbers
+  // summed to more than the roster (a 3-student tenant rendered as 3 Paid + 2
+  // Never invoiced = 5) while claiming two students had never been billed when
+  // they had paid in full. Three disjoint buckets that partition the roster is
+  // what a tutor can actually add up.
 ];
 
 /**

@@ -424,7 +424,7 @@ export function AddStudentSheet() {
 
             <div className="p-6 flex-1 overflow-y-auto">
               {error && (
-                <div className="mb-6 p-4 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
+                <div className="mb-6 p-4 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[color-mix(in_srgb,var(--danger)_60%,var(--text-primary))] text-sm">
                   {error}
                 </div>
               )}

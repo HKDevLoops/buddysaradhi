@@ -32,6 +32,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getStudentsForFees } from "@/server/queries/fees";
 import { useFeesStore } from "@/stores/fees-store";
 import { formatINR, fuzzySearch, paiseAdd } from "@buddysaradhi/shared";
+import { Avatar } from "@/components/ui/avatar";
 import { ErrorState } from "@/components/ui/screen-state";
 import { toAppErrorState } from "@/lib/app-errors";
 import {
@@ -49,10 +50,8 @@ interface StudentRow {
   balance_due: number;
 }
 
-function initials(name: string) {
-  return name.split(" ").map((p) => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-}
-
+/** `initials` used to live here — a private copy of the avatar's. Gone: this file
+ *  renders the shared `<Avatar>`, which owns initials and their contrast. */
 /** First name only — a header button has room for one word, not a full roster name. */
 function shortName(name: string): string {
   const first = name.trim().split(/\s+/)[0];
@@ -218,13 +217,10 @@ export function PendingTab() {
                 onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-raised)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "var(--surface-inset)"; }}
               >
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0"
-                  style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)" }}
-                  aria-hidden="true"
-                >
-                  {initials(s.name)}
-                </div>
+{/* The SHARED avatar. This was a third design for the same person's mark —
+                      `--danger` at 15% tint with `--danger` text, 3.69:1. See
+                      `components/ui/avatar.tsx` for the one contrast rule. */}
+                  <Avatar name={s.name} id={s.id} size="md" />
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>{s.name}</p>
                   <div className="flex items-center gap-2 mt-1">

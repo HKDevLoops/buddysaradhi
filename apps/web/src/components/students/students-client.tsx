@@ -150,7 +150,7 @@ export function StudentsClient() {
               type="button"
               onClick={openAddSheet}
               aria-label="Add Student"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20 text-xs font-bold shadow-md hover:bg-[var(--success)]/20 active:translate-y-[1px] transition-all min-h-[44px]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--success)]/10 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))] border border-[var(--success)]/20 text-xs font-bold shadow-md hover:bg-[var(--success)]/20 active:translate-y-[1px] transition-all min-h-[44px]"
             >
               <Plus className="w-3.5 h-3.5" />
               Add

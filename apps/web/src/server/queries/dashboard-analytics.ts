@@ -56,7 +56,7 @@ const DashboardKpisSchema = z.object({
     paid: z.number().int().nonnegative(),
     partial: z.number().int().nonnegative(),
     unpaid: z.number().int().nonnegative(),
-    noDues: z.number().int().nonnegative(),
+  
   }),
 });
 
@@ -182,7 +182,8 @@ export interface DashboardAnalytics {
   heatmapPartial: boolean;
   enrollment: EnrollmentSlice[];
   enrollmentTotal: number;
-  paymentBreakdown: { paid: number; partial: number; unpaid: number; noDues: number };
+  /** A DISJOINT partition: paid + partial + unpaid === totalStudents. A fourth `noDues` bucket was removed — it overlapped `paid` entirely, so the card summed to more than the roster. */
+  paymentBreakdown: { paid: number; partial: number; unpaid: number };
   /** True when at least one leg failed but the anchor held: captions must say so. */
   dataPartial: boolean;
   /** Gateway caps that bound the derivation (honesty footnotes for the UI). */

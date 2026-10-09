@@ -123,7 +123,7 @@ export default function ResetPasswordPage() {
             <Button 
               type="submit" 
               disabled={loading || password.length < 8}
-              className="w-full py-6 rounded-xl neumo-raised bg-[var(--info)]/10 text-[var(--info)] hover:bg-[var(--info)]/25 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-6 rounded-xl neumo-raised bg-[var(--info)]/10 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))] hover:bg-[var(--info)]/25 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save New Password"}
             </Button>

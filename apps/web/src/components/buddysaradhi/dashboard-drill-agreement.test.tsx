@@ -155,7 +155,7 @@ function summary(): DashboardSummary {
       dueTillDateMinor: 3820000,
       dueForMonthMinor: 1450000,
       overdueMinor: 900000,
-      paymentBreakdown: { paid: 42, partial: 8, unpaid: 12, noDues: 5 },
+      paymentBreakdown: { paid: 42, partial: 8, unpaid: 12 },
     },
     activity: [],
     dueToday: [],

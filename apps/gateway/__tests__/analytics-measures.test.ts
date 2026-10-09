@@ -58,7 +58,7 @@ interface DashboardPayload {
     dueTillDateMinor: number;
     dueForMonthMinor: number;
     overdueMinor: number;
-    paymentBreakdown: { paid: number; partial: number; unpaid: number; noDues: number };
+    paymentBreakdown: { paid: number; partial: number; unpaid: number };
   };
   activity: Array<{
     id: string;
@@ -371,14 +371,18 @@ describe("dashboard / paymentBreakdown — a partition of the active roster, not
    *          to either                                                → unpaid
    *   Diya  130000 on INV-000104 with 70000 attributed              → partial
    *   Vivaan no invoices at all                                        → paid
-   *   paid = 1  partial = 1  unpaid = 2  noDues = 1 (Vivaan — a SUBSET of paid)
+   *   paid = 1  partial = 1  unpaid = 2
+   *
+   * THREE buckets, and they PARTITION the roster. There was a fourth, `noDues`
+   * = 1 (Vivaan), which was a SUBSET of paid: it counted him again, so the card
+   * summed to 5 for a 4-student roster while claiming a student who had simply
+   * never been billed was a separate category. Removed.
    */
   it("classifies each active student from their own invoices", async () => {
     expect((await dashboard(f)).kpis.paymentBreakdown).toEqual({
       paid: 1,
       partial: 1,
       unpaid: 2,
-      noDues: 1,
     });
   });
 
@@ -391,7 +395,17 @@ describe("dashboard / paymentBreakdown — a partition of the active roster, not
     const { kpis } = await dashboard(f);
     expect(kpis.paymentBreakdown.paid + kpis.paymentBreakdown.partial + kpis.paymentBreakdown.unpaid)
       .toBe(kpis.totalStudents);
-    expect(kpis.paymentBreakdown.noDues).toBeLessThanOrEqual(kpis.paymentBreakdown.paid);
+  });
+
+  it("carries no bucket that overlaps another", async () => {
+    // The regression that motivated dropping `noDues`: four numbers that summed
+    // to MORE than the roster. Any field that is a subset of another will break
+    // this, so the assertion is on the shape rather than on one value.
+    const { kpis } = await dashboard(f);
+    const keys = Object.keys(kpis.paymentBreakdown).sort();
+    expect(keys).toEqual(["paid", "partial", "unpaid"]);
+    const total = Object.values(kpis.paymentBreakdown).reduce((a, b) => a + b, 0);
+    expect(total).toBe(kpis.totalStudents);
   });
 
   it("does not count a void invoice as owing money", async () => {

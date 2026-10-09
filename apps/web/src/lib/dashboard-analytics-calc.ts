@@ -177,8 +177,10 @@ export function agingFromInvoices(
 /**
  * Per-student outstanding from the same invoice figures the aging view uses,
  * so the two panels can never disagree. Status mirrors the gateway analytics
- * vocabulary (paid ⊆ noDues is the gateway's invariant; here paid rows are
- * dropped because a defaulter list has nothing settled to show).
+ * vocabulary — the gateway's three buckets are a DISJOINT partition (paid +
+ * partial + unpaid === totalStudents); here paid rows are dropped because a
+ * defaulter list has nothing settled to show). The `noDues` bucket the gateway
+ * used to carry was a subset of `paid` and has been removed.
  */
 export function defaultersFromInvoices(
   invoices: Array<Pick<StudentInvoiceRow, "student_id" | "total" | "status" | "paid_amount_minor">>,

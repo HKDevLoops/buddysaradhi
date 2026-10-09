@@ -269,8 +269,28 @@ async function createAndDecrypt(withAttendance = true): Promise<{
   };
 }
 
+/**
+ * Per-test budget for the backup envelope.
+ *
+ * Every test in this file runs the PRODUCTION `createBackupAction` and then the
+ * PRODUCTION `decryptBackup`, so each one pays Argon2id at Rule 8's parameters
+ * (m=64MiB, t=3, p=2) — deliberately expensive, memory-hard by construction, and
+ * exactly what this file exists to verify. On an idle machine that is ~1s per
+ * test. Under the 74-file parallel web suite it measures 5.0–5.7s, straddling
+ * Vitest's 5000ms default, so these tests failed INTERMITTENTLY with a bare
+ * timeout while passing in isolation — a flake in the harness, never a signal
+ * about the code under test.
+ *
+ * The budget is raised; the work is not skipped and no assertion is weakened.
+ * Nothing here is stubbed, so a real regression still fails. The gateway suite's
+ * `low-latency.test.ts` had the same shape of flake — a wall-clock measurement
+ * against a busy runner — and was fixed the same way: by making the harness
+ * honest about how long the work legitimately takes.
+ */
+const CRYPTO_TEST_TIMEOUT = 30_000;
+
 describe("createBackupAction — the ARTEFACT, not the card", () => {
-  it("carries every seeded row of every contracted table, receipts included", async () => {
+  it("carries every seeded row of every contracted table, receipts included", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const { payload } = await createAndDecrypt();
 
     // The file is a real envelope, not a stub: Rule 8 (AES-256-GCM + Argon2id).
@@ -286,7 +306,7 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
     }
   });
 
-  it("carries the audit trail, so the backup is verifiable and not merely present", async () => {
+  it("carries the audit trail, so the backup is verifiable and not merely present", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const { payload } = await createAndDecrypt();
     const audit = payload.audit;
     expect(Array.isArray(audit)).toBe(true);
@@ -295,7 +315,7 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
     expect(Array.isArray(audit) ? audit.length : 0).toBeGreaterThan(0);
   });
 
-  it("the counts the CARD prints are the counts the FILE holds — same source, no restating", async () => {
+  it("the counts the CARD prints are the counts the FILE holds — same source, no restating", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const { payload, counts } = await createAndDecrypt();
     // This is the assertion that was missing from the entire suite: the number
     // shown to the tutor and the number of rows in the artefact cannot disagree.
@@ -308,17 +328,17 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
     }
   });
 
-  it("states receipts: the QA tenant's 12 receipts are the rows that were being dropped", async () => {
+  it("states receipts: the QA tenant's 12 receipts are the rows that were being dropped", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const { payload, counts } = await createAndDecrypt();
     expect(counts.receipts).toBe(SEED.receipts);
     expect(Array.isArray(payload.receipts) ? payload.receipts.length : -1).toBe(12);
   });
 
-  it("the audit row records the same counts the card printed", async () => {
+  it("the audit row records the same counts the card printed", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const made = await createTestDb();
     client = made.client;
     dir = made.dir;
-    mocks.getAuthenticatedPrisma.mockResolvedValue({
+  mocks.getAuthenticatedPrisma.mockResolvedValue({
       db: createLibsqlProxy(made.client),
       userId: TENANT,
       tenantId: TENANT,
@@ -344,7 +364,7 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
 });
 
 describe("createBackupAction — a table the tenant does not have", () => {
-  it("records `null` and still produces a file; it does NOT claim an empty table", async () => {
+  it("records `null` and still produces a file; it does NOT claim an empty table", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     // This is the fail-open-vs-silent-loss decision, pinned. The attendance tables
     // are absent from this tenant's schema.
     const { payload, counts } = await createAndDecrypt(false);

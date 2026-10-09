@@ -437,7 +437,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                       onClick={() => setMethod(m)}
                       className={`min-h-[44px] px-3 rounded-lg text-sm font-semibold border transition-colors ${
                         method === m
-                          ? "bg-[var(--success)]/20 border-[var(--success)]/40 text-[var(--success)]"
+                          ? "bg-[var(--success)]/20 border-[var(--success)]/40 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))]"
                           : "bg-[var(--surface-inset)] border-[var(--border-default)] text-[var(--text-secondary)]"
                       }`}
                     >
@@ -476,7 +476,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   className="neumo-inset w-full bg-[var(--surface-inset)] border border-[var(--border-default)] rounded-lg px-4 py-3 text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--success)] focus:ring-1 focus:ring-[var(--success)]"
                 />
                 {preview.backdated && (
-                  <div className="mt-2 p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-sm text-[var(--warning)]">
+                  <div className="mt-2 p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-sm text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))]">
                     <p className="flex items-center gap-2 font-semibold">
                       <AlertTriangle className="w-4 h-4" /> Backdated payment — fresh PIN required
                     </p>
@@ -575,7 +575,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
               </div>
 
               {serverError && (
-                <div role="alert" className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/25 text-[var(--danger)] text-sm">
+                <div role="alert" className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/25 text-[color-mix(in_srgb,var(--danger)_60%,var(--text-primary))] text-sm">
                   <span className="font-semibold">Not saved. </span>
                   {serverError} Nothing was written — your entry is still here, fix it and try again.
                 </div>
@@ -590,7 +590,7 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
                   inline, directly beneath the input and wired to it through
                   `aria-describedby` — so it is filtered out of this list. */}
               {blockingErrors.length > 0 && (
-                <div role="alert" className="p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-[var(--warning)] text-sm">
+                <div role="alert" className="p-3 rounded-lg bg-[var(--warning)]/10 border border-[var(--warning)]/25 text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))] text-sm">
                   {blockingErrors.join(" · ")}
                 </div>
               )}

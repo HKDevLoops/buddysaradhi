@@ -37,6 +37,7 @@ import { GenerateInvoiceSheet } from "./generate-invoice-sheet";
 import { BalanceStatusChip, BalanceLegend } from "./balance-status";
 import { StudentSearchBox } from "@/components/search/student-search-box";
 import type { SearchCandidate } from "@/components/search/student-search-box";
+import { Avatar } from "@/components/ui/avatar";
 import { ErrorState, ScreenSkeleton } from "@/components/ui/screen-state";
 import { toAppErrorState } from "@/lib/app-errors";
 import { formatINR, fuzzySearch, paiseAdd, paiseSub } from "@buddysaradhi/shared";
@@ -72,29 +73,10 @@ interface StudentRow {
   batch?: string | null;
 }
 
-const ACCENTS = [
-  "success",
-  "info",
-  "warning",
-  "danger",
-  "accent-primary",
-  "accent-text",
-] as const;
-
-function studentAccent(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return ACCENTS[h % ACCENTS.length];
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-
+/** `studentAccent` and `initials` used to live here — a private re-implementation
+ *  of `components/ui/avatar.tsx`. They are gone: the row now renders the shared
+ *  `<Avatar>`, which owns accent selection, initials AND the initials contrast
+ *  rule. A second copy of the avatar is a second copy of a WCAG decision. */
 export function FeesClient() {
   const [tab, setTab] = useState<FeesTab>("ledger");
   const { selectedStudentId, setSelectedStudentId } = useFeesStore();
@@ -261,7 +243,7 @@ export function FeesClient() {
               <div className="flex-1 overflow-y-auto no-scrollbar p-1 divide-y divide-[var(--border-default)]">
                 {filteredStudents.map((s) => {
                   const isActive = s.id === activeStudentId;
-                  const accent = studentAccent(s.id);
+                  // Accent selection moved into the shared <Avatar>; nothing here chooses a colour.
                   const subtitle = [s.grade, s.batch].filter(Boolean).join("·") || s.code || "—";
 
                   return (
@@ -276,18 +258,16 @@ export function FeesClient() {
                       )}
                       aria-pressed={isActive}
                     >
-                      {/* Accent avatar with initials */}
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                        style={{
-                          background: `color-mix(in srgb, var(--${accent}) 16%, var(--surface-raised))`,
-                          color: `var(--${accent})`,
-                          border: `1px solid color-mix(in srgb, var(--${accent}) 35%, transparent)`,
-                        }}
-                        aria-hidden="true"
-                      >
-                        {initials(s.name)}
-                      </div>
+{/* The SHARED avatar, not a second copy of it. This block
+                            was a verbatim re-implementation of
+                            `components/ui/avatar.tsx` that painted the accent at
+                            FULL strength over a 16% tint of itself — axe measured
+                            3.69:1–3.75:1 against the 4.5:1 WCAG AA requires for
+                            text, on every Fees row. The shared component mixes the
+                            initials toward `--text-primary` instead, so the fix
+                            lives in one place. `label` is omitted deliberately:
+                            the full name renders beside it, which is invariant 4. */}
+                        <Avatar name={s.name} id={s.id} size="md" />
 
                       <div className="min-w-0 flex-1">
                         <p

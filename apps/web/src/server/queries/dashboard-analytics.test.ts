@@ -37,7 +37,7 @@ function dashboardPayload() {
       dueTillDateMinor: 50000,
       dueForMonthMinor: 40000,
       overdueMinor: 30000,
-      paymentBreakdown: { paid: 2, partial: 1, unpaid: 1, noDues: 1 },
+      paymentBreakdown: { paid: 2, partial: 1, unpaid: 1 },
     },
     activity: [],
     dueToday: [],

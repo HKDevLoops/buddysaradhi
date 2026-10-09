@@ -105,11 +105,16 @@ const SCREEN_ICONS: Record<ScreenId, LucideIcon> = {
   "/settings": Settings,
 };
 
-/** `g then 4` — the chord the shortcut registry binds to the fourth screen.
+/** The chord bound to the nth screen: `["g", "<digit>"]`.
  *  Lower case because that is the key: letters are matched unshifted, so an
- *  upper-case hint would advertise a chord that does nothing. */
-function screenChord(index: number): string {
-  return `g then ${index + 1}`;
+ *  upper-case hint would advertise a chord that does nothing.
+ *
+ *  Returned as a TUPLE, not a string. This used to render the whole phrase
+ *  `g then 4` inside a single `<kbd>`, which read as garbled text on screen and
+ *  was wrong markup — `<kbd>` holds ONE key. Every other shortcut in the shell
+ *  (⌘K, S) renders as separate key caps, so the nav was the odd one out. */
+function screenChord(index: number): readonly [string, string] {
+  return ["g", String(index + 1)];
 }
 
 export function GlassShell({ children }: { children: React.ReactNode }) {
@@ -459,19 +464,23 @@ export function GlassShell({ children }: { children: React.ReactNode }) {
                   <span className="font-medium text-sm">{screen.label}</span>
                   {/* The chord is visible, not just in the tooltip: a tutor who
                       has never pressed `g` still learns it by looking down the
-                      nav, where "g then 4" sits beside the fourth row. */}
-                  <kbd
-                    aria-hidden="true"
-                    className="ml-auto text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      background: "var(--surface-raised)",
-                      border: "1px solid var(--border-default)",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    {chord}
-                  </kbd>
+                      nav. Each key gets its own cap, matching ⌘K and S. */}
+                  <span className="ml-auto flex items-center gap-0.5 shrink-0" aria-hidden="true">
+                    {chord.map((key) => (
+                      <kbd
+                        key={key}
+                        className="text-[10px] px-1.5 py-0.5 rounded"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          background: "var(--surface-raised)",
+                          border: "1px solid var(--border-default)",
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        {key}
+                      </kbd>
+                    ))}
+                  </span>
                 </button>
               );
             })}

@@ -86,6 +86,30 @@ const ACCENT_SURFACE_ALPHA = "16%";
 const ACCENT_RING_ALPHA = "40%";
 
 /**
+ * Share of the accent kept in the INITIALS colour, the rest coming from
+ * `--text-primary`.
+ *
+ * Why this exists: the initials were painted `var(--accent)` at FULL strength
+ * over a background that is only a 16% TINT OF THAT SAME ACCENT. The generated
+ * palette's contrast gate solves every accent against the CANVAS — it has never
+ * checked an accent against a per-accent tint of itself, which is what an avatar
+ * is. axe measured the result at **3.69:1–3.75:1** against the 4.5:1 required
+ * for text, on three screens at once (roster, attendance, fees), so the comment
+ * claiming "an avatar can never introduce an unsolved colour" was false.
+ *
+ * Mixing toward `--text-primary` fixes it in BOTH palettes without a hardcoded
+ * direction: on a dark palette `--text-primary` is near-white, so the initials
+ * lighten and gain contrast against the dark tint; on a light palette it is
+ * near-black, so they darken and gain contrast against the light tint. At 60%
+ * the worst measured pair (`#d56056` on `#3a2829`, 3.71:1) lands at ~5.0:1, and
+ * the hue is still unmistakably the student's.
+ *
+ * WCAG 2.1 AA 1.4.3. AGENTS.md §2 Rule 10. The hue is preserved because this
+ * only lightens/darkens it — it never replaces it.
+ */
+const INITIALS_ACCENT_MIX = "60%";
+
+/**
  * Deterministic accent role for a stable identity.
  *
  * Hashes over code points with a 32-bit rolling mix, then folds into
@@ -157,7 +181,11 @@ export function Avatar({
   const accent = avatarAccent(id);
   const style: CSSProperties = {
     background: `color-mix(in srgb, var(--${accent}) ${ACCENT_SURFACE_ALPHA}, var(--surface-raised))`,
-    color: `var(--${accent})`,
+    // NOT the bare accent — see INITIALS_ACCENT_MIX for the measured failure this
+    // fixes. The ring below still uses the accent at full strength, because a
+    // decorative border is held to 3:1, not 4.5:1, and the ring is not the thing
+    // carrying the identity to a low-vision tutor.
+    color: `color-mix(in srgb, var(--${accent}) ${INITIALS_ACCENT_MIX}, var(--text-primary))`,
     border: `${scale.ring} solid color-mix(in srgb, var(--${accent}) ${ACCENT_RING_ALPHA}, transparent)`,
     fontWeight: scale.fontWeight,
   };

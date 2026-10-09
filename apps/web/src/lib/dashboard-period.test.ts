@@ -100,7 +100,11 @@ describe("resolvePeriodWindow", () => {
     expect(window.periodStartIso).toBe("2026-10-01");
     expect(window.periodEndIso).toBe("2026-10-05");
     expect(window.label).toBe("October 2026");
-    expect(window.labelLower).toBe("october 2026");
+    // A month name is a proper noun and is capitalised mid-sentence too, so this is
+  // the SAME string as `label`. It used to assert "october 2026", which is what
+  // produced "Payments received in october 2026" on the dashboard while the header
+  // said "October 2026".
+  expect(window.labelLower).toBe("October 2026");
   });
 
   it("all mode is bounded, never an empty string the route would 400 on", () => {
@@ -121,7 +125,10 @@ describe("resolvePeriodWindow", () => {
     // Intl's short month for September is "Sept" in some ICU builds, so the
     // assertion is on the day and the year, which are what must survive.
     expect(window.label).toMatch(/^12 .+ 2026 to 9 .+ 2026$/);
-    expect(window.labelLower).toBe(window.label.toLowerCase());
+    // NOT `label.toLowerCase()` — that assertion is what kept "12 aug to 9 sep
+    // 2026" shipping. The month abbreviations are proper nouns and stay capitalised,
+    // so the mid-sentence form is the same string as `label`.
+    expect(window.labelLower).toBe(window.label);
   });
 
   it("falls back to the calendar month when a range's bounds are unreadable", () => {

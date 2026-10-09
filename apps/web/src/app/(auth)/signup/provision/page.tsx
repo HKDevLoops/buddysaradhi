@@ -136,31 +136,31 @@ export default function ProvisionPage() {
   const statusConfig = {
     checking: {
       icon: <Loader2 className="w-12 h-12 animate-spin" />,
-      color: "bg-[var(--info)]/20 text-[var(--info)]",
+      color: "bg-[var(--info)]/20 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))]",
       title: "Checking your workspace...",
       desc: "Just a moment while we verify your account.",
     },
     creating: {
       icon: <Loader2 className="w-12 h-12 animate-spin" />,
-      color: "bg-[var(--info)]/20 text-[var(--info)]",
+      color: "bg-[var(--info)]/20 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))]",
       title: "Provisioning your database...",
       desc: "We are spinning up an isolated edge database for your tuition center. This usually takes a few seconds.",
     },
     done: {
       icon: <CheckCircle2 className="w-12 h-12" />,
-      color: "bg-[var(--success)]/20 text-[var(--success)]",
+      color: "bg-[var(--success)]/20 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))]",
       title: "Ready to go!",
       desc: "Redirecting you to your dashboard...",
     },
     expired: {
       icon: <KeyRound className="w-12 h-12" />,
-      color: "bg-[var(--warning)]/20 text-[var(--warning)]",
+      color: "bg-[var(--warning)]/20 text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))]",
       title: "Credentials expired",
       desc: "Your database credentials have expired and could not be refreshed automatically. Re-provision below — you will return to where you were.",
     },
     error: {
       icon: <AlertCircle className="w-12 h-12" />,
-      color: "bg-[var(--danger)]/20 text-[var(--danger)]",
+      color: "bg-[var(--danger)]/20 text-[color-mix(in_srgb,var(--danger)_60%,var(--text-primary))]",
       title: "Provisioning failed",
       desc:
         errorMessage ||
@@ -209,7 +209,7 @@ export default function ProvisionPage() {
         <div className="flex flex-col items-center gap-3">
           <Button
             onClick={provision}
-            className="rounded-xl neumo-raised bg-[var(--info)]/10 text-[var(--info)] hover:bg-[var(--info)]/20 px-6"
+            className="rounded-xl neumo-raised bg-[var(--info)]/10 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))] hover:bg-[var(--info)]/20 px-6"
           >
             Try Again
           </Button>
@@ -226,7 +226,7 @@ export default function ProvisionPage() {
         <div className="flex flex-col items-center gap-3">
           <Button
             onClick={provision}
-            className="rounded-xl neumo-raised bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20 px-6"
+            className="rounded-xl neumo-raised bg-[var(--warning)]/10 text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))] hover:bg-[var(--warning)]/20 px-6"
           >
             Re-provision workspace
           </Button>

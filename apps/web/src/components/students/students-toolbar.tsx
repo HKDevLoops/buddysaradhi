@@ -415,7 +415,7 @@ export function StudentsToolbar() {
             onValueChange={setSearchQuery}
             onSelect={(id) => openDrawer(id)}
             candidates={candidates}
-            placeholder={isLoading ? "Loading roster…" : "Search by name, phone or code…"}
+            placeholder={isLoading ? "Loading roster…" : "Name, phone or code…"}
             emptyLabel="No student matches that search"
             error={error}
           />
