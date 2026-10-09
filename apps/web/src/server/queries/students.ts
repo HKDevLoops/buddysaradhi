@@ -4,7 +4,33 @@ import { StudentFilters, SortCol } from "@/types/students";
 import { cache } from "react";
 import { getAuthenticatedDb, createLibsqlProxy, gatewayGet } from "@/server/get-db";
 import { QUERY_TIMEOUT_MS, toTypedQueryError, withQueryTimeout } from "@/server/cache";
+import { extractServerCode } from "@/lib/app-errors";
 import { log } from "@/lib/logger";
+
+/**
+ * The whole story a tutor can be told about a failed roster read, in one fixed
+ * sentence, with NO interpolation.
+ *
+ * It used to end `… and would return a wrong roster. Cause: ${res.error}` — and
+ * `res.error` is `Gateway ${status}: ${await res.text()}` from server/get-db.ts,
+ * i.e. the upstream body verbatim. `fetchStudentsAction` returns this string to the
+ * browser, so a driver leak (SQL text, a `libsql://` host, a token echoed inside a
+ * gateway error) shipped to the client on every roster outage. The cause is not
+ * lost: `log.error` two lines below already has it in full, which is where an
+ * engineer reads it from.
+ *
+ * `extractServerCode` keeps the tutor's recovery affordance alive: it classifies the
+ * raw text with the SAME mapper the UI uses, so an expired-credentials roster still
+ * returns a `CREDENTIALS_EXPIRED`-classified envelope (re-login) and an
+ * unprovisioned one still routes to re-provision, rather than every failure
+ * flattening to "something went wrong". When the raw text matches no known shape,
+ * `toTypedQueryError` produces the module's canonical CONFLICT/UPSTREAM code — the
+ * same judgement the catch block below already returns.
+ */
+const ROSTER_FAILURE =
+  "Student roster unavailable: the read failed and there is no local fallback, because " +
+  "the direct-DB path cannot honour page, page size, sort or filters and would return a " +
+  "wrong roster.";
 
 export const getStudents = cache(async (
   filters: StudentFilters,
@@ -60,12 +86,12 @@ export const getStudents = cache(async (
       sortCol: sort.col,
       sortDir: sort.dir,
     });
+    const dispatchCode = extractServerCode(res.error);
     return {
       success: false,
-      error:
-        `Student roster unavailable: the gateway read failed and there is no local ` +
-        `fallback, because the direct-DB path cannot honour page/pageSize/sort/filters ` +
-        `and would return a wrong roster. Cause: ${res.error}`,
+      error: toTypedQueryError(
+        dispatchCode !== null ? `${dispatchCode}: ${ROSTER_FAILURE}` : res.error,
+      ),
     };
   } catch (error) {
     const typed = toTypedQueryError(error);

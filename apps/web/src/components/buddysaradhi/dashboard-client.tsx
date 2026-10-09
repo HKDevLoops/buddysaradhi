@@ -52,6 +52,7 @@
 // actually write.
 
 import React from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import {
   Users,
@@ -90,7 +91,68 @@ import {
   type DashboardActivityItem,
   type DashboardKpis,
 } from "@/server/actions/dashboard";
-import { DashboardAnalyticsSection } from "@/components/buddysaradhi/dashboard-analytics";
+
+/**
+ * THE ONE CODE-SPLIT BOUNDARY ON THIS SCREEN.
+ *
+ * `dashboard-analytics.tsx` is ~1089 lines of source — six chart panels, their
+ * CSV builders, the ageing classifier, the download path — and it was imported
+ * statically here, so all of it sat in the Dashboard route's client entry chunk
+ * even though it renders BELOW a six-card KPI strip, the due-today page and the
+ * activity feed. `next/dynamic` moves it into its own chunk that the route
+ * fetches in parallel with, rather than ahead of, the interactive chrome.
+ *
+ * WHY `ssr: false` IS DELIBERATELY NOT USED. Turning SSR off for this section
+ * would guarantee a layout shift on every cold load: the server would emit
+ * nothing at all between the KPI strip and the due-today grid, and the six cards
+ * would then push the rest of the page down when the chunk arrived. The SSR path
+ * is preserved instead, so the server still renders the complete section and the
+ * `loading` fallback below only appears if the chunk is somehow still in flight
+ * when hydration reaches it — which Next's flight-manifest preload normally
+ * prevents. Sticky footer (§6.3 / §13) is unaffected either way: this section is
+ * below a tall KPI strip on a page that is already long, so the footer is pushed
+ * below the fold before and after.
+ *
+ * UNVERIFIED, AND SAID SO. The measured chunk split needs a production build,
+ * which this lane does not own, so no size number is claimed here. What is
+ * verifiable without one — and verified in `dashboard-client.test.tsx` — is that
+ * the screen still renders and the section still mounts.
+ */
+const DashboardAnalyticsSection = dynamic(
+  () =>
+    import("@/components/buddysaradhi/dashboard-analytics").then((module) => ({
+      default: module.DashboardAnalyticsSection,
+    })),
+  {
+    loading: AnalyticsChunkFallback,
+  },
+);
+
+/**
+ * The chunk-loading placeholder, not a layout reservation.
+ *
+ * It mirrors the real section's own structure — the same heading and the same
+ * `md:grid-cols-2` grid — so a swap settles onto a block of the same shape, and
+ * it is `aria-hidden` with the busy state on the wrapper so assistive tech hears
+ * one "arriving" announcement rather than a heading appearing out of nowhere.
+ * Motion comes from `.skeleton`, which already honours both reduced-motion
+ * switches in globals.css (AGENTS.md §2 Rule 10).
+ */
+function AnalyticsChunkFallback() {
+  return (
+    <section aria-busy="true" aria-hidden="true">
+      <span className="skeleton block h-6 w-56" />
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <div
+            key={index}
+            className="skeleton block h-40 w-full rounded-xl"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 const DAY_MS = 86_400_000;
 
@@ -292,7 +354,12 @@ export function DashboardClient() {
     queryKey: ["dashboard", "summary", period],
     queryFn: async () => {
       const res = await fetchDashboardSummaryAction(period);
-      if (!res.ok) throw new Error(res.error);
+      // Throw the CODE, not `res.error`. The server action's `error` string is
+      // prose that embeds the upstream cause; `toAppErrorState` only ever
+      // classifies, so handing it prose makes classification depend on
+      // pattern-matching whatever word happens to appear in the cause. The code
+      // is the contract, and it is the only part safe to carry in an Error.
+      if (!res.ok) throw new Error(res.code);
       return res.value;
     },
   });

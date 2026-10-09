@@ -14,7 +14,6 @@ function detectPlatform(ua: string): Platform {
 }
 
 // Configurable Production Base URLs
-const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://buddysaradhi.vercel.app';
 const STORE_BASE_URL = process.env.NEXT_PUBLIC_STORE_URL || 'https://buddysaradhi-product.vercel.app';
 
 // Allowed CORS Origins — explicit list only, no wildcard *.vercel.app
@@ -38,17 +37,39 @@ if (process.env.ALLOWED_ORIGINS) {
   });
 }
 
-function getCorsHeaders(origin: string | null) {
-  const isAllowed = origin && ALLOWED_ORIGIN_PATTERNS.includes(origin);
-  const allowOrigin = isAllowed ? origin : APP_BASE_URL;
-
-  return {
-    'Access-Control-Allow-Origin': allowOrigin,
+/**
+ * Fail-closed CORS resolution — same decision the gateway makes in
+ * apps/gateway/lib/errors.ts `corsHeadersForOrigin` and the OPTIONS handler in
+ * app/api/v1/[...slug]/route.ts.
+ *
+ * It used to fall back to `APP_BASE_URL` for anything unrecognised, so an
+ * `Origin: https://evil.example` was answered with
+ * `Access-Control-Allow-Origin: https://buddysaradhi.vercel.app` AND
+ * `Access-Control-Allow-Credentials: true`. A browser correctly refuses that
+ * pair (the header value must equal the caller's origin), so nothing leaked — but
+ * "the browser saves us" is exactly how a fail-open default gets load-bearing:
+ * the header is now a lie the app tells itself, any future consumer that reads it
+ * without re-checking the origin is credentialed, and the resolver contradicts
+ * the one layer down. No origin → no echo, and no credentials. GUESSING an
+ * allowed value is the wildcard bug this replaced.
+ *
+ * `Vary: Origin` is mandatory and not optional polish: without it a shared cache
+ * can hand one origin's credentialed response to another.
+ *
+ * The method/header/max-age trio is origin-independent and stays for every
+ * origin — they grant nothing on their own.
+ */
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Tutor-Id, X-Requested-With, Accept, Origin',
-    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
+  if (!origin || !ALLOWED_ORIGIN_PATTERNS.includes(origin)) return headers;
+  headers['Access-Control-Allow-Origin'] = origin;
+  headers['Access-Control-Allow-Credentials'] = 'true';
+  return headers;
 }
 
 export default function proxy(req: NextRequest) {
@@ -100,7 +121,12 @@ export default function proxy(req: NextRequest) {
   if (pathname.startsWith('/api/')) {
     const corsHeaders = getCorsHeaders(origin);
 
-    // OPTIONS preflight response
+    // This OPTIONS branch is what actually answers a preflight for `/api/v1/*`:
+    // `config.matcher` below covers every path except static assets, so middleware
+    // returns 204 here and the route's own OPTIONS export is never reached for
+    // those routes. It stays (a matcher change would make it live again) and it
+    // must keep agreeing with getCorsHeaders — the same allow-or-refuse decision,
+    // or one of the two is theatre.
     if (req.method === 'OPTIONS') {
       return new NextResponse(null, {
         status: 204,

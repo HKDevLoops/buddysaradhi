@@ -16,46 +16,139 @@ import type { StudentFilters } from "@/types/students";
 
 type GatewayResult<T> = { success: true; data: T } | { success: false; error: string };
 
-function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: unknown } {
-  if (r.success) return { ok: true, status: 200, body: r.data };
-  const msg = (r as { error: string }).error;
-  if (msg.startsWith("DB_NOT_PROVISIONED")) return { ok: false, status: 503, body: { success: false, error: msg, needs_provision: true } };
-  // Auth/session failures are 401, never the default 500. getGatewayHeaders()
-  // in server/get-db.ts throws "AUTH_REQUIRED: No session — mock tokens not
-  // permitted in production" (:156) for an unauthenticated caller; the
-  // gateway* helpers catch it and surface the prefix here, where it used to
-  // fall through to the 500 default below and fail the response-code matrix
-  // asserted by tests/e2e/settings-auth.spec.ts:121-131 (only 200/401/503 are
-  // allowed for GET /api/v1/students).
-  // Spec: web/04_API_Routes.md §9 Error Code Catalogue — UNAUTHENTICATED → 401
-  // ("No Supabase session; client should redirect to /login") + §4.1
-  // GET /api/students error codes; web/03_Auth_and_Provisioning.md (session
-  // required on protected routes).
-  // Full get-db.ts throw audit: AUTH_REQUIRED (:156) → 401 (this branch);
-  // DB_NOT_PROVISIONED (:186) → 503 + needs_provision (branch above, unchanged);
-  // "Gateway NNN:" (:272/:301/:331/:358) → NNN (branch below); CRITICAL:
-  // GATEWAY_SHARED_SECRET missing (:88) and "Web Crypto API" (:109) are
-  // server misconfigurations and correctly stay 500.
-  if (msg.startsWith("AUTH_REQUIRED") || msg.startsWith("UNAUTHENTICATED")) return { ok: false, status: 401, body: { success: false, error: msg } };
-  if (msg.startsWith("SECURITY_VIOLATION")) return { ok: false, status: 401, body: { success: false, error: msg } };
-  if (msg.startsWith("Free tier limit")) return { ok: false, status: 403, body: { success: false, error: msg } };
-  if (msg.startsWith("Not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
-  if (msg.startsWith("Student not found")) return { ok: false, status: 404, body: { success: false, error: msg } };
-  if (msg.includes("fetch failed") || msg.includes("ECONNREFUSED") || msg.includes("connect ECONNREFUSED")) {
-    return { ok: false, status: 502, body: { success: false, error: msg } };
-  }
+/**
+ * The two halves of a gateway refusal, decided SEPARATELY on purpose.
+ *
+ * `status` is a published contract — web/04_API_Routes.md §9 Error Code Catalogue,
+ * asserted by tests/e2e/settings-auth.spec.ts (GET /api/v1/students answers only
+ * 200/401/503) and read by hooks/use-auto-provision.ts (a 503 carrying
+ * `needs_provision` triggers /api/provision). It is reproduced here branch-for-branch
+ * from the chain this replaced, unchanged, so hardening the message cannot move a
+ * status.
+ *
+ * `error` is the TEXT, and text is what leaks. `msg` is what server/get-db.ts's
+ * gatewayGet/gatewayPatch/gatewayPost/gatewayDelete build out of a non-2xx response —
+ * `Gateway ${res.status}: ${await res.text()}`, the raw upstream body, verbatim.
+ * Nothing leaks today only because the gateway happens to sanitise its own 5xx
+ * (apps/gateway/lib/errors.ts `sanitizeError`); a 4xx that slips through, or any future
+ * gateway that stops sanitising, is forwarded to the browser with zero review. There
+ * was no allowlist here at all: whatever the gateway said, we said. Hence CLIENT_FACING
+ * below — a fixed string per recognised shape, and a canned per-status sentence for
+ * everything else.
+ *
+ * Full get-db.ts throw audit behind the status chain, by symbol (line numbers there
+ * move every week): `getGatewayHeaders` AUTH_REQUIRED → 401; `getAuthenticatedDb` /
+ * `getGatewayHeaders` DB_NOT_PROVISIONED → 503 + needs_provision; the four
+ * `Gateway NNN:` throws → NNN; and CRITICAL: GATEWAY_SHARED_SECRET missing
+ * (`resolveSharedSecret`) plus "Web Crypto API" (`signHmacSha256`) are server
+ * misconfigurations and correctly stay 500.
+ */
+function resolveGatewayFailure(msg: string): { status: number; needsProvision: boolean } {
+  if (msg.startsWith("DB_NOT_PROVISIONED")) return { status: 503, needsProvision: true };
+  // Auth/session failures are 401, never the default 500.
+  // Spec: web/04_API_Routes.md §9 — UNAUTHENTICATED → 401 ("No Supabase session;
+  // client should redirect to /login") + §4.1 GET /api/students codes;
+  // web/03_Auth_and_Provisioning.md (session required on protected routes).
+  if (msg.startsWith("AUTH_REQUIRED") || msg.startsWith("UNAUTHENTICATED")) return { status: 401, needsProvision: false };
+  if (msg.startsWith("SECURITY_VIOLATION")) return { status: 401, needsProvision: false };
+  if (msg.startsWith("Free tier limit")) return { status: 403, needsProvision: false };
+  if (msg.startsWith("Not found")) return { status: 404, needsProvision: false };
+  if (msg.startsWith("Student not found")) return { status: 404, needsProvision: false };
+  if (msg.includes("fetch failed") || msg.includes("ECONNREFUSED")) return { status: 502, needsProvision: false };
   // Workstream A gap: gateway-relayed credential/provision states arrive as
   // "Gateway 401: CREDENTIALS_EXPIRED: ..." / "Gateway 401: DB_NOT_PROVISIONED".
   // The regex below would keep the 401; expired credentials stay 401 (typed,
   // UI routes to re-provision), but an unprovisioned DB must surface 503 +
   // needs_provision like the direct branch above (web/04 §9 catalogue).
-  if (msg.includes("CREDENTIALS_EXPIRED")) return { ok: false, status: 401, body: { success: false, error: msg } };
-  if (msg.includes("DB_NOT_PROVISIONED") || msg.includes("NEEDS_PROVISION")) {
-    return { ok: false, status: 503, body: { success: false, error: msg, needs_provision: true } };
-  }
+  if (msg.includes("CREDENTIALS_EXPIRED")) return { status: 401, needsProvision: false };
+  if (msg.includes("DB_NOT_PROVISIONED") || msg.includes("NEEDS_PROVISION")) return { status: 503, needsProvision: true };
   const m = /^Gateway (\d{3}):/.exec(msg);
-  if (m) return { ok: false, status: Number(m[1]) || 500, body: { success: false, error: msg } };
-  return { ok: false, status: 500, body: { success: false, error: msg } };
+  if (m) return { status: Number(m[1]) || 500, needsProvision: false };
+  return { status: 500, needsProvision: false };
+}
+
+/**
+ * The ONLY strings this BFF will put on the wire for a failure, and every one of
+ * them is a literal written here.
+ *
+ * Each entry keeps the code the browser dispatches on (lib/app-errors.ts
+ * `extractServerCode`, which switches on a leading `CODE:` prefix and falls back to
+ * text heuristics) and DROPS the detail. `route.bff.test.ts` asserts, per row, that
+ * `toAppErrorState(forwarded).code` still equals the code the raw text resolved to
+ * before — so this table cannot quietly break a screen's error state.
+ *
+ * Rows are matched by SUBSTRING because the gateway's text arrives wrapped
+ * ("Gateway 401: CREDENTIALS_EXPIRED: …"), and its 400s arrive as JSON
+ * (`{"success":false,"error":"VALIDATION","details":[…]}` — gateway `failZod`). Order
+ * matters: the first match wins.
+ */
+const CLIENT_FACING: ReadonlyArray<readonly [RegExp, string]> = [
+  [/AUTH_REQUIRED/, "AUTH_REQUIRED: No session — sign in again."],
+  // No "unauthorized"/"session" wording here on purpose: those words are what the UI's
+  // heuristic keys on, and folding them in would silently re-point this 401 at the
+  // re-login state. Parity with the passthrough is the contract until app-errors.ts
+  // grows UNAUTHENTICATED as a real code (that file is not ours to change).
+  [/UNAUTHENTICATED/, "UNAUTHENTICATED: Not signed in."],
+  [/SECURITY_VIOLATION/, "SECURITY_VIOLATION: Request refused by security policy."],
+  [/DB_NOT_PROVISIONED/, "DB_NOT_PROVISIONED: User database is not yet provisioned."],
+  [/NEEDS_PROVISION/, "NEEDS_PROVISION: Database setup is required before continuing."],
+  [/CREDENTIALS_EXPIRED/, "CREDENTIALS_EXPIRED: Database credentials expired or rejected."],
+  [/VALIDATION/, "VALIDATION: Something in the request was invalid — check the details and try again."],
+  [/CONFLICT/, "CONFLICT: This record changed elsewhere — refresh and try again."],
+  [/NOT_FOUND/, "NOT_FOUND: Not found."],
+  [/UPSTREAM/, "UPSTREAM: Could not reach the database — check your connection and retry."],
+  [/Free tier limit/, "Free tier limit reached."],
+  // "Student not found" / "Not found" are our own literals, so they stay readable;
+  // both still trip the mapper's `not found` → NOT_FOUND heuristic.
+  [/Student not found/, "Student not found."],
+  [/Not found/, "Not found."],
+];
+
+/** Canned sentence per status for anything CLIENT_FACING does not recognise — the
+ *  same table the gateway collapses its own 5xx to (apps/gateway/lib/errors.ts `ERROR_MESSAGES`),
+ *  so an unmapped refusal reads identically whichever hop noticed it. */
+const STATUS_FALLBACK: Readonly<Record<number, string>> = {
+  400: "bad request",
+  401: "unauthorized",
+  403: "forbidden",
+  404: "not found",
+  405: "method not allowed",
+  408: "request timeout",
+  409: "conflict",
+  413: "payload too large",
+  414: "uri too long",
+  415: "unsupported media type",
+  422: "unprocessable entity",
+  429: "too many requests",
+  500: "internal server error",
+  502: "bad gateway",
+  503: "service unavailable",
+};
+
+function clientFacingError(msg: string, status: number): string {
+  for (const [pattern, text] of CLIENT_FACING) {
+    if (pattern.test(msg)) return text;
+  }
+  return STATUS_FALLBACK[status] ?? "internal server error";
+}
+
+function unwrap<T>(r: GatewayResult<T>): { ok: boolean; status: number; body: unknown } {
+  if (r.success) return { ok: true, status: 200, body: r.data };
+  const raw = (r as { error: string }).error;
+  const { status, needsProvision } = resolveGatewayFailure(raw);
+  // The raw text is exactly what an engineer needs to debug this and exactly what
+  // must never reach a browser, so it is logged here and nowhere else (Rule 9,
+  // 10_Security.md §8). 5xx goes to the `error` channel (audit-grade); routine 4xx
+  // refusals go to `info`, which is Vercel-logs-only — so a driver string that
+  // carries SQL or a Turso host never lands in the tenant's audit_log table.
+  if (status >= 500) log.error("gateway_refusal_collapsed", raw, { status });
+  else log.info("gateway_refusal_collapsed", raw, { status });
+  const body: { success: false; error: string; needs_provision?: boolean } = {
+    success: false,
+    error: clientFacingError(raw, status),
+  };
+  if (needsProvision) body.needs_provision = true;
+  return { ok: false, status, body };
 }
 
 async function dispatchGateway(
@@ -117,7 +210,21 @@ async function dispatchGateway(
           admittedInLast: "all",
         } satisfies StudentFilters;
         const studentsRes = await getStudents(defaultFilters, qp.search || "", 1, 50, { col: "name", dir: "asc" });
-        return NextResponse.json(studentsRes.data || { students: [], total: 0 });
+        // `getStudents` RESOLVES with a typed error rather than throwing, so the
+        // `catch` above never fires for a gateway outage. The old
+        // `studentsRes.data || { students: [], total: 0 }` therefore answered
+        // **200 with an empty roster**, and the tutor saw "No students found"
+        // next to an Add-Student CTA — a plausible wrong answer that invites
+        // re-creating a roster that still exists. A degraded read is reported as
+        // degraded, never as emptiness.
+        if (!studentsRes.success) {
+          log.error("gateway_fallback_unavailable", String(studentsRes.error));
+          return NextResponse.json(
+            { success: false, error: "UPSTREAM: students unavailable" },
+            { status: 503 },
+          );
+        }
+        return NextResponse.json(studentsRes.data);
       } catch (fbErr) {
         log.error("gateway_fallback_failed", fbErr instanceof Error ? fbErr.message : String(fbErr));
       }
@@ -219,8 +326,13 @@ async function dispatch(req: NextRequest, slug: string[]): Promise<NextResponse>
     const user = userData.user;
     const existingDbUrl = user.user_metadata?.db_url as string | undefined;
 
+    // The Turso hostname is infrastructure detail, not client state. It used to be
+    // echoed here, which handed the browser the exact host a leaked db_token
+    // targets (see the credential audit). The caller already reads `db_url` from
+    // the Supabase session's user_metadata, which is the only place it should
+    // come from, so nothing downstream needs it restated here.
     if (existingDbUrl && !existingDbUrl.includes("dummy-local-dev-url") && !existingDbUrl.includes("file:")) {
-      return NextResponse.json({ success: true, message: "already_provisioned", dbUrl: existingDbUrl });
+      return NextResponse.json({ success: true, message: "already_provisioned" });
     }
 
     let dbUrl: string | null = null;
@@ -334,25 +446,51 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
 
 export async function OPTIONS(req: NextRequest) {
   const origin = req.headers.get("Origin") || "";
+  // The static list is the SAME set src/proxy.ts carries, entry for entry. It used
+  // to be a strict subset — no `tauri://localhost`, no `app.` subdomain, no :3001 —
+  // which meant the two resolvers answered the same preflight differently depending
+  // on which one got there first. route.bff.test.ts pins them together; do not add an
+  // origin on one side only.
   const allowedOrigins = new Set([
-    "https://buddysaradhi.app",
     "https://buddysaradhi.vercel.app",
+    "https://buddysaradhi.app",
+    "https://app.buddysaradhi.app",
     "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "tauri://localhost",
   ]);
-  const envOrigin = process.env.ALLOWED_ORIGIN || "";
-  if (envOrigin) allowedOrigins.add(envOrigin);
-  const matchedOrigin = allowedOrigins.has(origin) ? origin : "https://buddysaradhi.app";
+  // Both spellings, comma/space separated — the same `ALLOWED_ORIGINS ||
+  // ALLOWED_ORIGIN` + `/[,\s]+/` split the gateway does (apps/gateway/lib/errors.ts `allowedCorsOrigins`)
+  // and the same pair src/proxy.ts reads. Three resolvers that each understand one
+  // spelling is how "it works in dev, not on Vercel" happens.
+  const envList = `${process.env.ALLOWED_ORIGINS || ""} ${process.env.ALLOWED_ORIGIN || ""}`;
+  for (const raw of envList.split(/[,\s]+/)) {
+    const trimmed = raw.trim();
+    if (trimmed) allowedOrigins.add(trimmed);
+  }
+  // Fail closed for an unlisted origin: emit NO Access-Control-Allow-Origin and no
+  // Allow-Credentials at all, matching apps/gateway/lib/errors.ts `corsHeadersForOrigin`. It used
+  // to echo the canonical origin to every caller, which browsers correctly reject
+  // (so no credential leaked) but which contradicts the resolver one layer down and
+  // will drift further.
+  //
+  // The `x-db-*` / `x-tutor-id` / `x-signature` headers are also dropped from the
+  // allowlist. This is a same-origin BFF: a browser never needs to send them
+  // itself — only a non-browser caller would, which is exactly the audience that
+  // should not be handing out a CORS preflight.
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "authorization,content-type,x-encrypt-response,x-request-id,x-batch-name",
+    "Access-Control-Max-Age": "86400",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    Vary: "Origin",
+  };
+  if (allowedOrigins.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
 
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": matchedOrigin,
-      "Access-Control-Allow-Methods": "GET,POST,PATCH,PUT,DELETE,OPTIONS",
-      "Access-Control-Allow-Headers": "authorization,content-type,x-db-url,x-db-token,x-tutor-id,x-tenant-id,x-signature,x-timestamp,x-nonce,x-encrypt-response,x-request-id,x-batch-name",
-      "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Max-Age": "86400",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-    },
-  });
+  return new NextResponse(null, { status: 204, headers });
 }

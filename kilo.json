@@ -44,15 +44,16 @@
   },
   "snapshot": true,
   "lsp": {
-    "typescript": {
-      "disabled": false
+"typescript": {
+      "command": [
+        "Z:/Projects/buddysaradhi/buddysaradhi/node_modules/.pnpm/@typescript+typescript-win32-x64@7.0.2/node_modules/@typescript/typescript-win32-x64/lib/tsc.exe",
+        "--lsp",
+        "--stdio"
+      ],
+      "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs"]
     },
     "deno": {
-      "command": ["C:/Users/haris/scoop/shims/deno.exe", "lsp"],
-      "extensions": [".ts", ".tsx"],
-      "env": {
-        "DENO_DIR": "Z:/Projects/buddysaradhi/buddysaradhi/apps/gateway/.cache/deno-lsp"
-      }
+      "disabled": true
     },
     "rust": {
       "command": [

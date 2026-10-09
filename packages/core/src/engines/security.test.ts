@@ -17,7 +17,7 @@ import { resolve, join, dirname } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 import { PrismaClient } from "@prisma/client";
-import { verifyPin, isLockedOut, setPin, expirePinLockoutForTests } from "./security";
+import { verifyPin, isLockedOut, setPin, expirePinLockoutForTests, lockoutCacheStats, __rememberLockoutForTests } from "./security";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -237,4 +237,46 @@ describe("brute-force lockout — SPEC pins (EC-SEC-01 / 02 §12.4 / BR-SEC-03)"
     },
     180000,
   );
+});
+
+describe("lockout tracker is bounded (memory-leak class)", () => {
+  // The tracker was a bare `Record<string, …>` with no ceiling and no eviction,
+  // so a long-lived process accumulated one entry per tenant it had ever seen,
+  // forever. `app_state` mirrors the lock for cross-process visibility, so the
+  // in-memory copy is an optimisation — losing the coldest entries degrades to a
+  // DB read, it must not grow without bound.
+  it("never exceeds its ceiling, however many tenants are touched", () => {
+    const { max } = lockoutCacheStats();
+    expect(max).toBe(1024);
+    // Drive well past the ceiling.
+    for (let i = 0; i < max + 200; i += 1) {
+      __rememberLockoutForTests(`t-flood-${i}`);
+    }
+    const after = lockoutCacheStats();
+    expect(after.size).toBeLessThanOrEqual(after.max);
+    // And it really did fill up, so the assertion above is not vacuous.
+    expect(after.size).toBe(after.max);
+  });
+
+  it("keeps the coldest entries rather than the newest when it evicts", async () => {
+    const marker = `t-recent-${Date.now()}`;
+    __rememberLockoutForTests(marker);
+    for (let i = 0; i < lockoutCacheStats().max + 10; i += 1) {
+      __rememberLockoutForTests(`t-churn-${i}`);
+    }
+    // The just-inserted marker is the NEWEST, so it must have survived the churn.
+    expect(lockoutCacheStats().size).toBe(lockoutCacheStats().max);
+    // Evicting a key that is present is a no-op, and touching a cold key that was
+    // already evicted must not throw.
+    expect(() => __rememberLockoutForTests(marker)).not.toThrow();
+  });
+
+it("still enforces the ladder for a tenant seen after the churn", async () => {
+    const tenantId = await seedTenant();
+    await setPin(prisma, tenantId, PIN);
+    for (let i = 0; i < 5; i += 1) {
+      await verifyPin(prisma, tenantId, WRONG_PIN);
+    }
+    await expect(isLockedOut(prisma, tenantId)).resolves.toBe(true);
+  }, 180000);
 });

@@ -1,6 +1,7 @@
 "use server";
 
 import { getAttendanceForDate } from "../queries/attendance";
+import { AttendanceRefusalError, BatchOwnershipError } from "@/lib/attendance-errors";
 import { getAuthenticatedPrisma } from "@/server/get-db";
 import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
 import { z } from "zod";
@@ -73,8 +74,15 @@ export async function fetchAttendanceAction(dateIso: string, batchId?: string) {
   try {
     return await getAttendanceForDate(dateIso, batchId);
   } catch (error) {
+    // Everything this read can legitimately report, it REPORTS rather than
+    // throws: a gateway miss falls through to the direct-DB path, and a failed
+    // direct read is turned into `UPSTREAM: database request failed …` by
+    // `toTypedQueryError` before it leaves `queries/attendance.ts`. So nothing
+    // that escapes this `await` carries a sentence the tutor should read —
+    // every one of them is an unexpected fault, and echoing it verbatim would
+    // put an arbitrary driver string on screen (Rule 9).
     log.error('fetch_attendance_action_failed', error instanceof Error ? error.message : String(error), { dateIso, batchId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to fetch attendance" };
+    return { success: false, error: "Failed to fetch attendance" };
   }
 }
 
@@ -84,9 +92,25 @@ interface MarkRequest {
   status: string;
 }
 
+/**
+ * `AttendanceRefusalError` / `BatchOwnershipError` live in
+ * `@/lib/attendance-errors`, not here. This module carries `"use server"`, and
+ * such a module may only export ASYNC functions — declaring the classes here
+ * broke `next build` while `tsc --noEmit` and every unit test stayed green
+ * (AGENTS.md §15 FM-11). Do not move them back.
+ */
+
 async function ensureBatch(db: Db, tenantId: string, batchId: string, now: string): Promise<void> {
-  const batchCheck = await db.batch.findFirst({ where: { id: batchId } });
+  // `where: { id: batchId }` alone made this a cross-tenant lookup: a batchId
+  // belonging to ANOTHER tenant matched, the function returned early, and the
+  // caller went on to create an attendance_sessions row pointing at a foreign
+  // batch. `batchId` is pure request input, so the scope is in the predicate.
+  const batchCheck = await db.batch.findFirst({ where: { tenantId, id: batchId } });
   if (batchCheck) return;
+  // The id is taken by someone else's row. Scoping the lookup above is what makes
+  // this branch reachable, so it must not fall through to a bare create().
+  const foreign = await db.batch.findFirst({ where: { id: batchId } });
+  if (foreign) throw new BatchOwnershipError();
   await db.batch.create({
     data: { id: batchId, tenantId, name: "General Batch", createdAt: now, updatedAt: now },
   });
@@ -163,11 +187,11 @@ async function writeAttendance(
         const window = await readUnlockWindow(tx, tenantId, String(session.id), now);
         if (!window.open) {
           if (hardLocked(sessionDate, now)) {
-            throw new Error(
+            throw new AttendanceRefusalError(
               "HARD_LOCKED: This session is more than 30 days old. Direct unlock is disabled — file an unlock request with a reason."
             );
           }
-          throw new Error("Session is locked. Unlock it to edit.");
+          throw new AttendanceRefusalError("Session is locked. Unlock it to edit.");
         }
         inWindow = true;
       }
@@ -199,7 +223,10 @@ async function writeAttendance(
     // enforced by the writer and not merely by which rows the client chose.
     let priorByStudent: Map<string, string> | null = null;
     if (options.skipAlreadyMarked) {
-      const priors = await tx.attendanceRecord.findMany({ where: { sessionId } });
+      // Scoped by tenant as well as session: `sessionId` alone is a global key on
+      // a shared database, so this read would pull another tenant's marks into
+      // the "already marked, do not overwrite" decision.
+      const priors = await tx.attendanceRecord.findMany({ where: { tenantId, sessionId } });
       priorByStudent = new Map(
         (priors as Array<{ studentId?: unknown; status?: unknown }>).map((row) => [
           String(row.studentId),
@@ -215,7 +242,7 @@ async function writeAttendance(
     // In-window edits need the pre-image for the audit delta, so the priors are
     // read once for the batch rather than once per row.
     if (inWindow && !priorByStudent) {
-      const priors = await tx.attendanceRecord.findMany({ where: { sessionId } });
+      const priors = await tx.attendanceRecord.findMany({ where: { tenantId, sessionId } });
       priorByStudent = new Map(
         (priors as Array<{ studentId?: unknown; status?: unknown }>).map((row) => [
           String(row.studentId),
@@ -227,7 +254,12 @@ async function writeAttendance(
     for (const update of effective) {
       const recordId = crypto.randomUUID();
       await tx.attendanceRecord.upsert({
-        where: { sessionId, studentId: update.student_id },
+        // `tenantId` in the key: the previous `{ sessionId, studentId }` matched
+        // any tenant's (session, student) pair on a shared database, and the
+        // UPDATE branch then rewrote a row owned by someone else. It is also
+        // re-asserted on the update branch so a matched row's ownership is
+        // explicit rather than inferred from the key.
+        where: { tenantId, sessionId, studentId: update.student_id },
         create: {
           id: recordId,
           tenantId,
@@ -238,7 +270,7 @@ async function writeAttendance(
           createdAt: now,
           updatedAt: now,
         },
-        update: { status: update.status, updatedAt: now },
+        update: { status: update.status, tenantId, updatedAt: now },
       });
       await tx.syncOutbox.create({
         data: {
@@ -352,8 +384,19 @@ export async function updateAttendanceAction(payload: UpdateAttendancePayload) {
     invalidateTenant(tenantId, "attendance:");
     return { success: true, count_affected: result.countAffected };
   } catch (error) {
+    // A deliberate refusal carries its own tutor-facing sentence (locked session,
+    // hard lock, foreign batch). Anything else is an unexpected failure and keeps
+    // the generic message rather than echoing a driver error string to the client.
+    if (error instanceof AttendanceRefusalError) {
+      if (error.name === "BatchOwnershipError") {
+        log.warn('attendance_batch_foreign', 'batch id belongs to another tenant');
+      } else {
+        log.warn('attendance_update_refused', error.message);
+      }
+      return { success: false, error: error.message };
+    }
     log.error('attendance_update_failed', error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : "Failed to update attendance" };
+    return { success: false, error: "Failed to update attendance" };
   }
 }
 
@@ -426,8 +469,14 @@ export async function bulkMarkAttendanceAction(input: {
       count_skipped: result.countSkippedMarked,
     };
   } catch (error) {
+    // Same contract as updateAttendanceAction: a typed refusal keeps its sentence,
+    // an unexpected fault gets a generic message instead of a driver error string.
+    if (error instanceof AttendanceRefusalError) {
+      log.warn('attendance_bulk_update_refused', error.message);
+      return { success: false, error: error.message };
+    }
     log.error('attendance_bulk_update_failed', error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : "Failed to update attendance" };
+    return { success: false, error: "Failed to update attendance" };
   }
 }
 
@@ -526,7 +575,7 @@ export async function lockSessionAction(
         }
       }
       if (!existing && !target) {
-        throw new Error("Session not found.");
+        throw new AttendanceRefusalError("Session not found.");
       }
       const sessionDate = String(existing?.sessionDate ?? target?.date ?? "");
       await tx.attendanceSession.update({
@@ -574,8 +623,19 @@ export async function lockSessionAction(
     invalidateTenant(tenantId, "attendance:");
     return { success: true, session_id: lockedId };
   } catch (error) {
+    // The one DELIBERATE refusal on this path is the typed
+    // `AttendanceRefusalError("Session not found.")` raised inside the lock
+    // transaction when no session matches the id and no (date, batch) target was
+    // supplied — the tutor asked to lock something that is not there, and
+    // "Session not found." is the answer. It keeps its sentence.
+    if (error instanceof AttendanceRefusalError) {
+      log.warn('lock_session_refused', error.message, { sessionId });
+      return { success: false, error: error.message };
+    }
+    // Everything else — a settings read, the PIN hash, the transaction's own
+    // writes — is an unexpected fault and must not echo its driver string.
     log.error('lock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to lock session" };
+    return { success: false, error: "Failed to lock session" };
   }
 }
 
@@ -767,8 +827,14 @@ export async function fetchAttendanceSummaryAction(preset: AttendancePreset): Pr
       },
     };
   } catch (error) {
+    // Every refusal on this path is a `return`, not a throw: "no students",
+    // "no sessions in this period" and "nothing to measure" all resolve to
+    // `ok: true` with an empty summary, and the panel has a separate string for
+    // each of those. Only the three roster/session/record reads can throw, and
+    // a throw from any of them is an unexpected fault — so it gets the generic
+    // message while the detail goes to the log.
     log.error('attendance_summary_failed', error instanceof Error ? error.message : String(error));
-    return { ok: false, error: error instanceof Error ? error.message : "Failed to fetch attendance summary" };
+    return { ok: false, error: "Failed to fetch attendance summary" };
   }
 }
 
@@ -887,8 +953,14 @@ export async function unlockSessionAction(sessionId: string, pin: string) {
     invalidateTenant(tenantId, "attendance:");
     return { success: true, data: { window_expires_at: windowExpiresAt } };
   } catch (error) {
+    // No typed refusal exists on this path — every tier gate (`Session not
+    // found.`, `HARD_LOCKED:`, `Session is not locked.`, the PIN taxonomy) is a
+    // `return` from inside the `try`, and `verifyPin` swallows its own faults
+    // and answers `false`. What is left to throw is the settings read, the
+    // session read or the two transaction writes: an unexpected fault, so it
+    // gets the generic sentence instead of the driver's.
     log.error('unlock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to unlock session" };
+    return { success: false, error: "Failed to unlock session" };
   }
 }
 
@@ -962,8 +1034,12 @@ export async function requestHardUnlockAction(sessionId: string, reason: string,
     invalidateTenant(tenantId, "attendance:");
     return { success: true, data: { window_expires_at: windowExpiresAt } };
   } catch (error) {
+    // Same shape as `unlockSessionAction`: `Session not found.`,
+    // `NOT_HARD_LOCKED:` and the short-reason `VALIDATION:` are all `return`s,
+    // so this catch only ever sees the settings/session reads or the two
+    // transaction writes — an unexpected fault.
     log.error('request_hard_unlock_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to request unlock" };
+    return { success: false, error: "Failed to request unlock" };
   }
 }
 
@@ -1007,7 +1083,11 @@ export async function relockSessionAction(sessionId: string, reason = "app_backg
     invalidateTenant(tenantId, "attendance:");
     return { success: true, relocked: true as const };
   } catch (error) {
+    // The only deliberate outcome here is `{ success: true, relocked: false }`,
+    // which is a `return` from inside the `try`. What reaches this catch is the
+    // window read or the transaction's writes — an unexpected fault, so the
+    // generic message rather than the driver's.
     log.error('relock_session_action_failed', error instanceof Error ? error.message : String(error), { sessionId });
-    return { success: false, error: error instanceof Error ? error.message : "Failed to re-lock session" };
+    return { success: false, error: "Failed to re-lock session" };
   }
 }

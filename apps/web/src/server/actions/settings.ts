@@ -469,7 +469,12 @@ export async function deleteTenantDataAction(pin: string) {
  * written only by the checkout flow — never by a client-supplied PATCH.
  * Shared by `updateSettingAction` and `updateSettingsBatchAction`.
  */
-const SETTING_WRITE_FIELDS: Record<string, boolean> = {
+// Null-prototype on purpose. `field`/`key` is attacker-controlled (a server-action
+  // argument / a JSON body key), and on a normal object literal `map["__proto__"]`,
+  // `map["constructor"]` and `map["toString"]` all resolve to a TRUTHY inherited
+  // value, so an inherited key walked straight through the gate. Built with
+  // Object.create(null) so an inherited key is simply `undefined`.
+const SETTING_WRITE_FIELDS: Record<string, boolean> = Object.assign(Object.create(null) as Record<string, boolean>, {
   instituteName: true, instituteAddress: true, institutePhone: true,
   instituteEmail: true, currencyCode: true, locale: true, timezone: true,
   defaultFeeModel: true, invoicePrefix: true, receiptPrefix: true,
@@ -481,7 +486,7 @@ const SETTING_WRITE_FIELDS: Record<string, boolean> = {
   sessionTimeoutMin: true, biometricEnabled: true,
   autoArchiveInactiveDays: true, theme: true, density: true,
   reducedMotion: true, palette: true,
-};
+});
 
 /**
  * The VALUE gate, added because the FIELD gate above was the only one.
@@ -501,7 +506,11 @@ const SETTING_WRITE_FIELDS: Record<string, boolean> = {
  * fee-rules UI exposes them READ-ONLY (08 §6.2.4) and a hand-written value must
  * never reach them.
  */
-const SETTING_VALUE_SCHEMAS: Record<string, z.ZodTypeAny> = {
+// Null-prototype for the same reason as SETTING_WRITE_FIELDS above: an inherited
+  // key (`__proto__`, `constructor`, `toString`) used to resolve to a truthy
+  // value here too, and `SETTING_VALUE_SCHEMAS[key].safeParse` on the inherited
+  // object threw an unguarded TypeError instead of a typed VALIDATION refusal.
+const SETTING_VALUE_SCHEMAS: Record<string, z.ZodTypeAny> = Object.assign(Object.create(null) as Record<string, z.ZodTypeAny>, {
   // 08 §6.2.1 Institute Profile
   instituteName: z.string().min(1).max(120),
   // DEFECT FIXED (settings audit, 2026-10-06). These three are OPTIONAL in
@@ -583,7 +592,7 @@ const SETTING_VALUE_SCHEMAS: Record<string, z.ZodTypeAny> = {
   density: z.enum(["comfortable", "compact"]),
   reducedMotion: z.enum(["system", "on", "off"]),
   palette: z.string().min(1).max(32),
-};
+});
 
 /**
  * 08 §9.3 + 12_Business_Rules.md — the currency a tutor's books are denominated
@@ -768,14 +777,16 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
     // Prisma uses camelCase so we don't need to manually map to snake_case.
     const allowedFields = SETTING_WRITE_FIELDS;
 
-    if (!allowedFields[field]) {
+    if (!Object.hasOwn(allowedFields, field)) {
       return { success: false, error: "Invalid setting field: " + field };
     }
 
     // 08 §13 schema block + §14 EC-17: the field allowlist says nothing about
     // the VALUE. Reject before any DB touch, with the spec's own message, so the
     // client and the server cannot disagree about what a legal setting is.
-    const valueSchema = SETTING_VALUE_SCHEMAS[field];
+    const valueSchema = Object.hasOwn(SETTING_VALUE_SCHEMAS, field)
+      ? SETTING_VALUE_SCHEMAS[field]
+      : undefined;
     if (valueSchema) {
       const parsedValue = valueSchema.safeParse(value);
       if (!parsedValue.success) {
@@ -831,7 +842,7 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
       if (user && user.email !== value) {
         const { error: authError } = await supabase.auth.updateUser({ email: value as string });
         if (authError) {
-          log.error('settings_update_auth_email_failed', authError.message, { instituteEmail: value });
+          log.error('settings_update_auth_email_failed', authError.message, { field });
           return { success: false, error: "Failed to update auth email: " + authError.message };
         }
       }
@@ -916,14 +927,30 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
     }
     // Same allowlist as updateSettingAction — a batch payload must not be an
     // end-run around the single-field guard (pinHash/plan stay server-managed).
+    // A batch is held to the SAME allowlist as the single-field path, and an
+    // unrecognised key is REJECTED rather than stripped-and-ignored. It used to
+    // `continue` past it, so a client that sent `{ next_receipt_seq: 1 }` — the
+    // monotonic sequence counter BR-RC-01 says is consumed forever and never
+    // rewound — got `success: true` and a settings row unchanged. That is the
+    // "accept and drop" defect: the caller is told the write happened. It is the
+    // same defect the gateway already fixed in routes/settings.ts:91-122, so the
+    // two paths now agree. `undefined` is still skipped silently — that means
+    // "field not supplied", which is a legitimate shape for a partial payload.
+    const rejectedFields: string[] = [];
     const updateData: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(settingsObj)) {
-      if (val === undefined || !SETTING_WRITE_FIELDS[key]) continue;
+      if (val === undefined) continue;
+      if (!Object.hasOwn(SETTING_WRITE_FIELDS, key)) {
+        rejectedFields.push(key);
+        continue;
+      }
       // The batch path is held to the SAME value gate as the single-field path.
       // A batch is not an end-run around validation just because it is one call:
       // the fee-rules card sends three fields in one transaction, and each of
       // them is individually specified.
-      const valueSchema = SETTING_VALUE_SCHEMAS[key];
+      const valueSchema = Object.hasOwn(SETTING_VALUE_SCHEMAS, key)
+        ? SETTING_VALUE_SCHEMAS[key]
+        : undefined;
       if (valueSchema) {
         const parsedValue = valueSchema.safeParse(val);
         if (!parsedValue.success) {
@@ -943,6 +970,20 @@ export async function updateSettingsBatchAction(settingsObj: Record<string, unkn
         };
       }
       updateData[key] = val;
+    }
+    if (rejectedFields.length > 0) {
+      log.warn("settings_field_rejected", "not a writable settings field", {
+        fields: rejectedFields.join(","),
+      });
+      return {
+        success: false,
+        error:
+          `not a writable settings field: ${rejectedFields.join(", ")}. ` +
+          "Secret columns (pinHash, tenantSecret, backupPassphraseHash) and the " +
+          "monotonic sequence counters (nextInvoiceSeq, nextReceiptSeq, " +
+          "nextStudentSeq) are server-owned (BR-RC-01) and are never client-writable.",
+        code: "VALIDATION" as const,
+      };
     }
     if (Object.keys(updateData).length === 0) {
       return { success: false, error: "No valid settings fields" };
@@ -1103,9 +1144,18 @@ export async function deleteAccountAction(pin: string) {
       await tx.attendanceSession.deleteMany({ where: { tenantId } });
       await tx.studentDocument.deleteMany({ where: { tenantId } });
       await tx.studentNote.deleteMany({ where: { tenantId } });
-      // student_tags is a join table with no tenant_id column (single-tenant
-      // DB): unfiltered delete is the only valid form.
-      await tx.studentTag.deleteMany({});
+      // student_tags is a pure join table (student_id, tag_id) with NO tenant_id
+      // column — the comment above was factually right. But `deleteMany({})` is
+      // still the wrong predicate: on a shared database it wipes EVERY tutor's
+      // tags, and it is the only unscoped delete in the whole cascade. Scoped by
+      // this tenant's own student ids instead. Must stay ABOVE the student
+      // delete below (SQLite FK), so the ids are read first.
+      const tenantStudentIds = (
+        await tx.student.findMany({ where: { tenantId }, select: { id: true } })
+      ).map((row) => row.id);
+      if (tenantStudentIds.length > 0) {
+        await tx.studentTag.deleteMany({ where: { studentId: { in: tenantStudentIds } } });
+      }
       await tx.tag.deleteMany({ where: { tenantId } });
       await tx.studentEnrollment.deleteMany({ where: { tenantId } });
       await tx.guardian.deleteMany({ where: { tenantId } });
@@ -1171,14 +1221,26 @@ export async function setPinAction(newPin: string, currentPin?: string) {
 
     const { db, tenantId } = await getAuthenticatedPrisma();
 
-    if (currentPin) {
-      const settingsRow = await db.setting.findFirst({ where: { tenantId } });
-      const existingHash = (settingsRow?.pinHash ?? null) as string | null;
-      if (existingHash) {
-        const gate = await verifyPinWithLadder(db, tenantId, currentPin, existingHash);
-        if (!gate.ok) {
-          return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
-        }
+    // 10_Security.md §3 SR-04: changing an existing PIN requires the old one.
+    // This used to be gated on `if (currentPin)` — truthy — so an attacker who
+    // simply omitted the argument skipped verification ENTIRELY and replaced the
+    // PIN. That collapsed every PIN-gated surface (backup export, tenant wipe,
+    // account erase, bulk import, ledger void) to bare session auth. The gate is
+    // now keyed on whether a hash EXISTS, never on whether the caller supplied a
+    // PIN, so it fails closed (10_Security.md §3 fail-closed, BR-SEC-03).
+    const settingsRow = await db.setting.findFirst({ where: { tenantId } });
+    const existingHash = (settingsRow?.pinHash ?? null) as string | null;
+    if (existingHash) {
+      if (!currentPin) {
+        return {
+          success: false,
+          error: "Enter your current PIN to change it.",
+          code: "PIN_REQUIRED" as const,
+        };
+      }
+      const gate = await verifyPinWithLadder(db, tenantId, currentPin, existingHash);
+      if (!gate.ok) {
+        return { success: false, error: pinGateMessage(gate), code: gate.code, retryInSeconds: gate.retryInSeconds };
       }
     }
 

@@ -6,12 +6,24 @@
 
 export const APP_ERROR_CODES = [
   "AUTH_REQUIRED",
+  // The gateway emits UNAUTHENTICATED (lib/auth.ts) where the web emits
+  // AUTH_REQUIRED (get-db.ts) for the same condition. Both mean "re-login", and
+  // both reach the mapper — via the BFF passthrough allowlist and via direct
+  // server-action throws. Without this entry a 401 classified as UNKNOWN, which
+  // told a tutor with an expired session to CONTACT SUPPORT instead of logging
+  // in again.
+  "UNAUTHENTICATED",
   "DB_NOT_PROVISIONED",
   "CREDENTIALS_EXPIRED",
   "NEEDS_PROVISION",
   "VALIDATION",
   "CONFLICT",
   "UPSTREAM",
+  // Raised by fetchDashboardSummaryAction (server/actions/dashboard.ts) when the
+  // gateway read failed and the local-DB fallback is deliberately refused. It is
+  // transient by construction, so it belongs with UPSTREAM/retry — as an unknown
+  // code it fell to UNKNOWN/contact, sending a tutor to support for a blip.
+  "DASHBOARD_GATEWAY_FAILED",
   "NOT_FOUND",
   "UNKNOWN",
 ] as const;
@@ -37,6 +49,15 @@ export interface AppErrorState {
 const STATES: Record<AppErrorCode, AppErrorState> = {
   AUTH_REQUIRED: {
     code: "AUTH_REQUIRED",
+    title: "Session expired",
+    message: "Your session has expired. Please log in again to continue.",
+    action: "re-login",
+  },
+  // Same condition and same affordance as AUTH_REQUIRED; the gateway names it
+  // UNAUTHENTICATED. Kept as a distinct code rather than aliased so the mapper's
+  // output names the origin honestly, but it must never reach "contact support".
+  UNAUTHENTICATED: {
+    code: "UNAUTHENTICATED",
     title: "Session expired",
     message: "Your session has expired. Please log in again to continue.",
     action: "re-login",
@@ -77,6 +98,15 @@ const STATES: Record<AppErrorCode, AppErrorState> = {
   },
   UPSTREAM: {
     code: "UPSTREAM",
+    title: "Couldn't reach the database",
+    message: "Check your connection and retry. Your local data is unaffected.",
+    action: "retry",
+  },
+  // Transient by construction: the gateway read failed and the fallback is
+  // deliberately refused rather than returning a wrong dashboard. Retry is the
+  // correct affordance; "contact support" was the cost of it being unclassified.
+  DASHBOARD_GATEWAY_FAILED: {
+    code: "DASHBOARD_GATEWAY_FAILED",
     title: "Couldn't reach the database",
     message: "Check your connection and retry. Your local data is unaffected.",
     action: "retry",

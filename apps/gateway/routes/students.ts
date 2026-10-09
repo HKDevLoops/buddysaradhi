@@ -132,6 +132,42 @@ const STUDENT_PATCH_SCHEMA = z.object({
 }).partial();
 
 
+// ── Path-segment id validation (AGENTS.md §6.1 — Zod at EVERY boundary) ──────
+//
+// A `:id` path segment used to be taken with `path.split("/").pop()!` and passed
+// straight into `where: { id }`. That value is `?`-bound, so it was never an
+// injection — but it was an UNVALIDATED boundary: any string reached the ORM, so
+// a caller could probe with arbitrary values and every malformed id cost a full
+// database round trip instead of a 400. `11_Data_Model.md` §1 makes every `id` a
+// UUID (`prisma/schema.prisma` `@default(uuid())`), so a non-UUID id can never
+// name a real row — rejecting it changes no legitimate behaviour.
+//
+// Mirrors the web actions, which already do `z.string().uuid().safeParse(...)`
+// (`apps/web/src/server/actions/students.ts:510,678`).
+//
+// The failure is a typed 400 VALIDATION (`failZod`), NOT a 404: "this is not a
+// well-formed id" and "this id does not exist" are different facts, and
+// collapsing them reports a probe as a hit. `failZod` also does not echo the
+// offending value — 10_Security.md §8 (the error body is JSON, but an error that
+// needs no attacker input to act on should carry none).
+//
+// No shared schema existed to reuse: `lib/sql.ts:283`'s `IdSchema` is
+// module-private and is deliberately `min(1).max(128)` (it bounds a bound
+// parameter, it does not assert identity), and `routes/ledger.ts:57`'s
+// `uuidSchema` is module-private too. This is the single exported path-id
+// schema for the route modules — `routes/notifications.ts` imports it from here.
+const PATH_ID_SCHEMA = z.object({ id: z.string().uuid("must be a UUID") });
+
+export type PathIdResult = { ok: true; id: string } | { ok: false; response: Response };
+
+/** Parse the last segment of a route path as a UUID. Returns either the id or
+ *  the typed 400 to hand straight back to the caller. */
+export function parsePathId(raw: string): PathIdResult {
+  const parsed = PATH_ID_SCHEMA.safeParse({ id: raw });
+  if (!parsed.success) return { ok: false, response: failZod(parsed.error) };
+  return { ok: true, id: parsed.data.id };
+}
+
 /**
  * Rule 9 (no silent failures): a rejection with a defined HTTP status is
  * carried out of the write transaction as a typed error; anything else keeps
@@ -180,6 +216,12 @@ const STUDENT_STATUS = ["active", "inactive", "graduated", "archived"] as const;
 const STUDENT_STATUS_SCHEMA = z.enum(STUDENT_STATUS);
 const STUDENT_FEE_MODEL = ["postpaid", "prepaid", "mixed"] as const;
 const STUDENT_FEE_MODEL_SCHEMA = z.enum(STUDENT_FEE_MODEL);
+
+/** The invoice statuses in which money is still owed — the two states that are
+ *  NOT here (`paid`, `void`) are exactly the states in which nothing is due.
+ *  Module literal, never taken from the request (10_Security.md §8), and the
+ *  same vocabulary `routes/analytics.ts` filters the overdue population by. */
+const OPEN_INVOICE_STATUSES = ["unpaid", "partial", "overdue"] as const;
 
 function splitCsv(raw: string | null): string[] {
   return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -283,10 +325,95 @@ export const handleStudents: RouteHandler = async (
     }
     const orderBy = { [ROSTER_SORT_COLUMN[sortCol.data]]: sortDir.data };
 
+    // ── Pure, request-scoped inputs (no database access) ────────────────────
+    //
+    // Everything below this line that touches the DB moved AFTER the cache read.
+    // `batchIds` and `balanceRange=overdue_only` both resolve to a SET OF STUDENT
+    // IDS through an audited read, and both reads used to be awaited BEFORE
+    // `getCached()` — so a cache hit still paid for both of them in full. That is
+    // the worst possible arrangement: the 63s TTL bought nothing for exactly the
+    // two filters that make the roster expensive to answer, and the two filters
+    // a tutor reaches for when chasing an unpaid invoice were the two that got
+    // no cache at all.
+    const batchIds = splitCsv(sp.get("batchIds"));
+
+    /** The UTC calendar day this request is being answered on. It is the
+     *  watermark for BOTH date-dependent resolutions below: the `overdue_only`
+     *  invoice read (`due_date < today`) and the `admittedInLast` cutoff
+     *  (`admission_date >= today - Nd`). Both are day-granular, so both are a
+     *  pure function of this day. See the cache-key block for why it is in the
+     *  key. */
+    const today = new Date().toISOString().slice(0, 10);
+
+    // admittedInLast=Nd — the ISO date the window opens on. TEXT 'YYYY-MM-DD'
+    // compares lexicographically, so `>=` is a correct date comparison and no
+    // date math happens in SQL.
+    const ADMITTED_DAYS: Record<string, number> = {
+      "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365,
+    };
+    const admittedDays = ADMITTED_DAYS[admittedInLast];
+    const admissionCutoff = admittedDays === undefined
+      ? null
+      : new Date(Date.now() - admittedDays * 86_400_000).toISOString().slice(0, 10);
+
+    // ── Cache key: every INPUT that changes the result set. The previous key
+    // (page + search + status only) served a cached 50-row page to a client that
+    // asked for 100, and served one sort's rows to a client that asked for
+    // another — a data-correctness bug, not a performance one. Labelled,
+    // pipe-delimited components so a `search` containing the separator cannot
+    // collide with a different request.
+    //
+    // The key is built from REQUEST INPUTS ONLY, never from a resolved row set.
+    // It used to carry `overdueIds=<every overdue student id, sorted, joined>`,
+    // which was wrong twice over:
+    //
+    //   · it was computed only AFTER the overdue invoice read, so it could not
+    //     exist before that read — which is what forced the P2 ordering above;
+    //   · it is ~36 bytes PER OVERDUE STUDENT (a UUID), so a 200-student arrears
+    //     list produced a ~2KB cache key, and the key changed the moment any
+    //     single invoice passed its due date. `balanceRange=overdue_only` — the
+    //     single most expensive filter on this route — therefore had a near-zero
+    //     hit rate and a permanent 512-entry LRU churn to show for it.
+    //
+    // The overdue id set is a pure function of (tenantId, today,
+    // balanceRange=overdue_only), and those three are already in this key, so
+    // nothing discriminative is lost by dropping the expansion. The same holds
+    // for the `admittedInLast` cutoff, which is why `dayWatermark` covers both:
+    // any two requests with the same filters on the same UTC day resolve to the
+    // same id sets and therefore to the same rows.
+    //
+    // Correctness of serving yesterday's answer within today: the entry still
+    // expires after REFERENCE_TTL_MS (63s), so the watermark does NOT extend
+    // staleness — it only stops the key from churning. And a real mutation never
+    // waits for the TTL: every mutating route (students POST/PATCH/DELETE,
+    // ledger, settings, attendance, erase) calls `invalidateTenant(tenantId)`,
+    // which pattern-matches the tenant id out of this key and drops it. An
+    // invoice that becomes overdue without any write (the clock crossing
+    // midnight) is the only way a key outlives its inputs — and `dayWatermark`
+    // is precisely what makes THAT rotate the key.
+    const cacheKey = [
+      "students",
+      tenantId,
+      `page=${page}`,
+      `pageSize=${pageSize}`,
+      `search=${search}`,
+      `status=${statusFilter.join("|")}`,
+      `feeModels=${feeModelFilter.join("|")}`,
+      `batchIds=${batchIds.join("|")}`,
+      `balanceRange=${balanceRange}`,
+      `admittedInLast=${admittedInLast}`,
+      `dayWatermark=${today}`,
+      `sort=${sortCol.data}:${sortDir.data}`,
+    ].join("::");
+
+    const cached = getCached<{ students: unknown[]; total: number }>(cacheKey);
+    if (cached) return ok(cached);
+
+    // ── Cache MISS: now, and only now, pay for the two id-set resolutions ────
+    //
     // batchIds — HONOURED in two audited reads: resolve the batch's enrolled
     // student ids via student_enrollments, then intersect on students.id
     // (`IN` is supported by the builder; an empty list renders `1=0`).
-    const batchIds = splitCsv(sp.get("batchIds"));
     let batchStudentIds: string[] | null = null;
     if (batchIds.length > 0) {
       const enrollments = await orm.studentEnrollment.findMany({
@@ -303,49 +430,16 @@ export const handleStudents: RouteHandler = async (
     // `students.id`. Defining `overdue_only` as "has_dues" instead would be the
     // accept-and-drop defect: the tutor narrows to "owes money" and believes
     // they narrowed to "owes money AND the due date has passed".
-    const today = new Date().toISOString().slice(0, 10);
     let overdueStudentIds: string[] | null = null;
     if (balanceRange === "overdue_only") {
       const overdue = await orm.invoice.findMany({
-        where: { dueDate: { lt: today }, status: { in: ["unpaid", "partial", "overdue"] } },
+        where: {
+          dueDate: { lt: today },
+          status: { in: [...OPEN_INVOICE_STATUSES] },
+        },
       });
       overdueStudentIds = [...new Set(overdue.map((i) => String(i.studentId)))];
     }
-
-    // admittedInLast=Nd — the ISO date the window opens on. TEXT 'YYYY-MM-DD'
-    // compares lexicographically, so `>=` is a correct date comparison and no
-    // date math happens in SQL.
-    const ADMITTED_DAYS: Record<string, number> = {
-      "7d": 7, "30d": 30, "90d": 90, "180d": 180, "365d": 365,
-    };
-    const admittedDays = ADMITTED_DAYS[admittedInLast];
-    const admissionCutoff = admittedDays === undefined
-      ? null
-      : new Date(Date.now() - admittedDays * 86_400_000).toISOString().slice(0, 10);
-
-    // ── Cache key: every input that changes the result set. The previous key
-    // (page + search + status only) served a cached 50-row page to a client that
-    // asked for 100, and served one sort's rows to a client that asked for
-    // another — a data-correctness bug, not a performance one. Labelled,
-    // pipe-delimited components so a `search` containing the separator cannot
-    // collide with a different request.
-    const cacheKey = [
-      "students",
-      tenantId,
-      `page=${page}`,
-      `pageSize=${pageSize}`,
-      `search=${search}`,
-      `status=${statusFilter.join("|")}`,
-      `feeModels=${feeModelFilter.join("|")}`,
-      `batchIds=${batchIds.join("|")}`,
-      `balanceRange=${balanceRange}`,
-      `admittedInLast=${admittedInLast}`,
-      `overdueIds=${overdueStudentIds === null ? "" : [...overdueStudentIds].sort().join("|")}`,
-      `sort=${sortCol.data}:${sortDir.data}`,
-    ].join("::");
-
-    const cached = getCached<{ students: unknown[]; total: number }>(cacheKey);
-    if (cached) return ok(cached);
 
     const where: Record<string, unknown> = {};
     if (statusFilter.length > 0) where.status = { in: statusFilter };
@@ -406,26 +500,41 @@ export const handleStudents: RouteHandler = async (
 
   // GET /api/v1/students/:id
   if (path.startsWith("/api/v1/students/") && path !== "/api/v1/students/" && method === "GET") {
-    const id = path.split("/").pop()!;
+    const parsedId = parsePathId(path.split("/").pop() ?? "");
+    if (!parsedId.ok) return parsedId.response;
+    const id = parsedId.id;
     const row = await orm.student.findFirst({ where: { id } });
     if (!row) return fail("not_found", 404);
     return ok(row);
   }
 
-  // POST /api/v1/students
+  /**
+ * The POST body is validated by the SAME schema the PATCH route uses. It used to
+ * Zod-parse only `firstName` and pass the raw JSON through to `student.create`
+ * for the other sixteen fields, so `status`/`gender`/`fee_model` bypassed the
+ * enums PATCH enforces, `base_fee_paise` accepted a float or a string
+ * (Rule 6 / BR-M-01), and `notes` was unbounded. Unknown keys are stripped by
+ * Zod's default object behaviour, so a caller can no longer smuggle `id`,
+ * `balance_paise`, `tenant_id` or `dup_key` past validation.
+ */
+const STUDENT_CREATE_SCHEMA = STUDENT_PATCH_SCHEMA.refine(
+  (v) => (v.first_name ?? v.firstName ?? "").trim().length > 0,
+  { message: "first name is required", path: ["first_name"] },
+);
+
+// POST /api/v1/students
   if (path === "/api/v1/students" && method === "POST") {
     // RFC-004 C1 — fail-closed (see routes/ledger.ts payment path).
     const idemKey = requireIdempotencyKey(req);
     if (idemKey instanceof Response) return idemKey;
     const idemRoute = idempotencyRoute(method, path);
     const body = await req.json().catch(() => ({}));
-    // AGENTS.md §6.1 — Zod before any DB touch (RFC-003 G-FEES strictness
-    // parity for all mutating routes): a missing/blank name is typed 400
-    // VALIDATION, never an implicit "Unknown".
-    const nameParsed = z.object({
-      firstName: z.string().trim().min(1, "first name is required").max(200),
-    }).safeParse({ firstName: body.first_name ?? body.firstName });
-    if (!nameParsed.success) return failZod(nameParsed.error);
+    const parsed = STUDENT_CREATE_SCHEMA.safeParse({
+      ...body,
+      first_name: body.first_name ?? body.firstName,
+    });
+    if (!parsed.success) return failZod(parsed.error);
+    const b = parsed.data;
     const id = body.id ?? crypto.randomUUID();
 
     // Rule 7 / BR-SYN-01 — student + enrollment + outbox + audit commit as
@@ -437,24 +546,26 @@ export const handleStudents: RouteHandler = async (
       const row = await txOrm.student.create({
         data: {
           id,
-          code: body.code ?? null,
-          firstName: nameParsed.data.firstName,
-          lastName: body.last_name ?? body.lastName ?? null,
-          dob: body.dob ?? null,
-          gender: body.gender ?? null,
-          phone: body.phone ?? null,
-          email: body.email ?? null,
-          address: body.address ?? null,
-          school: body.school ?? null,
-          grade: body.grade ?? null,
-          board: body.board ?? null,
-          admissionDate: body.admission_date ?? body.admissionDate ?? new Date().toISOString().slice(0, 10),
-          status: body.status ?? "active",
-          feeModel: body.fee_model ?? body.feeModel ?? "postpaid",
-          baseFeePaise: body.base_fee_paise ?? body.baseFeePaise ?? 0,
+          code: b.code ?? null,
+          firstName: (b.first_name ?? b.firstName)!,
+          lastName: b.last_name ?? b.lastName ?? null,
+          dob: b.dob ?? null,
+          gender: b.gender ?? null,
+          phone: b.phone ?? null,
+          email: b.email ?? null,
+          address: b.address ?? null,
+          school: b.school ?? null,
+          grade: b.grade ?? null,
+          board: b.board ?? null,
+          admissionDate:
+            b.admission_date ?? b.admissionDate ?? new Date().toISOString().slice(0, 10),
+          status: b.status ?? "active",
+          feeModel: b.fee_model ?? b.feeModel ?? "postpaid",
+          baseFeePaise: b.base_fee_paise ?? b.baseFeePaise ?? 0,
           balancePaise: 0,
-          dupKey: body.dup_key ?? body.dupKey ?? body.code ?? id,
-          notes: body.notes ?? null,
+          dupKey: b.code ?? id,
+          notes: b.notes ?? null,
+          customFields: b.custom_fields ?? b.customFields ?? null,
         },
       });
 
@@ -499,7 +610,9 @@ export const handleStudents: RouteHandler = async (
     const idemKey = requireIdempotencyKey(req);
     if (idemKey instanceof Response) return idemKey;
     const idemRoute = idempotencyRoute(method, path);
-    const id = path.split("/").pop()!;
+    const parsedId = parsePathId(path.split("/").pop() ?? "");
+    if (!parsedId.ok) return parsedId.response;
+    const id = parsedId.id;
     const body = await req.json().catch(() => ({}));
     // RFC-004 C4 — the CAS base is read from the RAW body, never from the Zod
     // allowlist below (which becomes the DB update).
@@ -557,7 +670,9 @@ export const handleStudents: RouteHandler = async (
     const idemKey = requireIdempotencyKey(req);
     if (idemKey instanceof Response) return idemKey;
     const idemRoute = idempotencyRoute(method, path);
-    const id = path.split("/").pop()!;
+    const parsedId = parsePathId(path.split("/").pop() ?? "");
+    if (!parsedId.ok) return parsedId.response;
+    const id = parsedId.id;
 
     // Rule 7 / BR-SYN-01 — existence check, cascade deletes, outbox and audit
     // share one write transaction: a failed audit write aborts the delete.

@@ -1,6 +1,11 @@
 import type { RouteHandler } from "./students.ts";
 import { ok, failZod } from "../lib/errors.ts";
-import { recordAudit, recordOutbox } from "./students.ts";
+// AGENTS.md §6.1 — the `:id` path segment is validated as a UUID before it can
+// reach the idempotency store, for the same reason the students routes validate
+// it (see `parsePathId` in routes/students.ts). `notifications.id` is a UUID
+// (prisma/schema.prisma `@default(uuid())`), so a non-UUID id can never name a
+// real row; rejecting it changes no legitimate behaviour.
+import { parsePathId, recordAudit, recordOutbox } from "./students.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
 import { withWriteTransaction } from "../lib/tx.ts";
 import {
@@ -110,7 +115,9 @@ export const handleNotifications: RouteHandler = async (req, db, tenantId, path,
     const idemKey = requireIdempotencyKey(req);
     if (idemKey instanceof Response) return idemKey;
     const idemRoute = idempotencyRoute(method, path);
-    const id = path.split("/").pop()!;
+    const parsedId = parsePathId(path.split("/").pop() ?? "");
+    if (!parsedId.ok) return parsedId.response;
+    const id = parsedId.id;
     const env = okEnvelope(200, { id, read: true });
     try {
       await storeIdempotentResponse(db, tenantId, idemRoute, idemKey, env.code, env.body);

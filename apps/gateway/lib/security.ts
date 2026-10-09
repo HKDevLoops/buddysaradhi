@@ -302,12 +302,24 @@ export function validateNonce(nonce: string, tenantId: string): SecurityCheckRes
     logWarn("security.nonce_replay", { tenantId, nonce: nonce.substring(0, 8) + "..." });
     return { allowed: false, status: 409, error: "nonce already used" };
   }
+  // No eviction sweep here. This used to iterate the WHOLE nonceCache — capped
+  // at NONCE_CACHE_MAX_ENTRIES (10,000) — on every attendance mark and every
+  // payment, making the hot mutation path O(cache size) for pure memory hygiene.
+  //
+  // `periodicSecurityCleanup` already does exactly this work, and does it in the
+  // right place: it runs at the top of `runSecurityChecks` (every request),
+  // evicts nonces older than NONCE_EXPIRY_MS, and enforces the max size. It is
+  // interval-gated (CLEANUP_INTERVAL_MS) precisely so that per-request work
+  // stays constant.
+  //
+  // Removing the sweep does NOT weaken the replay defence, and this is why: the
+  // check above reads `nonceCache.get(cacheKey)` and compares the age against
+  // NONCE_EXPIRY_MS itself. An entry the sweep had removed and an entry the
+  // sweep left behind are indistinguishable to the replay test — an entry older
+  // than NONCE_EXPIRY_MS is already outside the replay window and would be
+  // accepted (and overwritten) either way. The cache is a replay WINDOW, not the
+  // authority on what has been used; the window length is.
   nonceCache.set(cacheKey, now);
-  for (const [key, ts] of nonceCache) {
-    if (now - ts > NONCE_EXPIRY_MS) {
-      nonceCache.delete(key);
-    }
-  }
   return { allowed: true };
 }
 

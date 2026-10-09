@@ -13,8 +13,21 @@
 //   - audit on the client routes to /api/v1/audit-log (server-only writes the row) — see apps/web/src/app/api/v1/[...slug]/route.ts
 //
 // We export a singleton `log` plus the structured `auditAction` helper so call sites can pick the right verb.
+//
+// REDACTION IS NOT OPTIONAL AND NOT THE CALL SITE'S JOB (10_Security.md §8).
+// `build()` is the single choke point every verb goes through, and it runs
+// `action`, `message` and `context` through the shared redactor
+// (`@buddysaradhi/shared` → `src/redact.ts`, the same module the gateway uses)
+// BEFORE anything is written. That matters because this logger has two sinks with
+// different lifetimes: `console.*` goes to Vercel's log retention, while the
+// `/api/v1/audit-log` POST is PERSISTED to `audit_log` — so a token or a PIN that
+// reaches the context object is not merely printed, it is written down. The
+// doc comment on `LogContext` says "ids, counts, status codes, NOT free-form user
+// input"; that used to be a convention, and a convention is not a control. It is
+// a control now.
 
 import { formatISO } from 'date-fns';
+import { redact, redactLogContext } from '@buddysaradhi/shared';
 
 export type LogLevel = 'info' | 'warn' | 'error' | 'audit';
 
@@ -27,9 +40,9 @@ export interface LogPayload {
   level: LogLevel;
   /** Stable machine-readable action, e.g. `payment_recorded`, `ledger_void`. */
   action: string;
-  /** Human-readable description, NEVER PII. */
+  /** Human-readable description. Redacted before it leaves this module. */
   message: string;
-  /** Optional structured context — ids, counts, status codes, NOT free-form user input. */
+  /** Optional structured context. Redacted before it leaves this module. */
   context?: LogContext;
   /** ISO-8601 UTC timestamp. */
   timestamp: string;
@@ -44,9 +57,9 @@ const AUDIT_PATH = '/api/v1/audit-log';
 function build(level: LogLevel, action: string, message: string, context?: LogContext): LogPayload {
   return {
     level,
-    action,
-    message,
-    context,
+    action: redact(action),
+    message: redact(message),
+    context: context === undefined ? undefined : redactLogContext(context),
     timestamp: formatISO(new Date()),
   };
 }

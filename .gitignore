@@ -67,6 +67,10 @@ coverage/
 Thumbs.db
 
 # Scratch/temp files
+# `scratch_*.ts` only matched files at the repo root, so everything inside the
+# scratch/ DIRECTORY was committed. scratch/test-turso-web.ts shipped a live
+# Turso auth token to origin/main because of this gap.
+scratch/
 scratch_*.ts
 scratch_*.js
 

@@ -397,6 +397,76 @@ describe("06 §6/§9.2 — the first mark materialises the batch it belongs to",
   });
 });
 
+describe("cross-tenant scoping — a foreign batchId must not be adopted", () => {
+  // `ensureBatch` used to look up `where: { id: batchId }` with no tenant in the
+  // predicate. On a shared database a batchId belonging to ANOTHER tutor matched,
+  // the function returned early, and the caller created an attendance_sessions
+  // row pointing at a batch someone else owns. `batch_id` is pure request input.
+  const OTHER_TENANT = "t-att-other";
+
+  async function seedForeignBatch(client: Client, id: string): Promise<void> {
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: "INSERT INTO batches (id, tenant_id, name, created_at, updated_at) VALUES (?, ?, 'Neighbour Class', ?, ?)",
+      args: [id, OTHER_TENANT, now, now],
+    });
+  }
+
+  it("refuses a foreign batchId with a typed, tutor-facing error", async () => {
+    ({ client, dir } = await createTestDb());
+    await seedStudent(client, "stu-1");
+    await seedForeignBatch(client, "batch-default");
+    wireSeam(client);
+
+    const res = await updateAttendanceAction({
+      session_date: daysAgoIso(1),
+      batch_id: "batch-default",
+      updates: [{ student_id: "stu-1", status: "present" }],
+    });
+
+    // Fail CLOSED, and with a reason the tutor can act on. Before the scope was
+    // added to the predicate, this call silently adopted the neighbour's batch.
+    // With the scope but no collision check it failed on the raw SQLite primary-key
+    // constraint instead — still safe, still a Rule 9 defect.
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/belongs to another tutor/i);
+    expect(res.error ?? "").not.toMatch(/UNIQUE constraint|SQLITE|libsql/i);
+
+    // Nothing was written under either tenant.
+    expect((await client.execute("SELECT id FROM attendance_sessions")).rows).toHaveLength(0);
+    expect((await client.execute("SELECT id FROM attendance_records")).rows).toHaveLength(0);
+    expect((await client.execute("SELECT id FROM sync_outbox")).rows).toHaveLength(0);
+  });
+
+  it("leaves the other tenant's rows entirely alone", async () => {
+    ({ client, dir } = await createTestDb());
+    const now = new Date().toISOString();
+    await seedStudent(client, "stu-1");
+    await seedForeignBatch(client, "batch-default");
+    await client.execute({
+      sql: "INSERT INTO attendance_records (id, tenant_id, session_id, student_id, status, marked_at, created_at, updated_at) VALUES (?, ?, 'foreign-session', 'foreign-student', 'absent', ?, ?, ?)",
+      args: [crypto.randomUUID(), OTHER_TENANT, now, now, now],
+    });
+    wireSeam(client);
+
+    await updateAttendanceAction({
+      session_date: daysAgoIso(1),
+      batch_id: "batch-default",
+      updates: [{ student_id: "stu-1", status: "present" }],
+    });
+
+    // The neighbour's mark is byte-identical: the "already marked, do not
+    // overwrite" pre-read must not have seen it, and nothing was rewritten.
+    const foreign = await client.execute(
+      "SELECT status, tenant_id FROM attendance_records WHERE tenant_id = ?",
+      [OTHER_TENANT],
+    );
+    expect(foreign.rows).toHaveLength(1);
+    expect(String(foreign.rows[0].status)).toBe("absent");
+    expect(String(foreign.rows[0].tenant_id)).toBe(OTHER_TENANT);
+  });
+});
+
 describe("06 §10.6 — the PIN ladder is fail-closed (12 BR-SEC-03)", () => {
   it(`refuses ${WRONG_PIN} on a day with NO session and does not create one (06 §11 E9)`, async () => {
     ({ client, dir } = await createTestDb());

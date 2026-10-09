@@ -6,6 +6,7 @@
 import { createClient as createSb } from "@supabase/supabase-js";
 import { hmacVerify, checkRateLimit } from "./crypto.ts";
 import { logWarn, logError } from "./log.ts";
+import { isDeployed, isDevAuthEnabled } from "./env.ts";
 
 const JWT_MIN_LENGTH = 100;
 const JWT_MAX_LENGTH = 2048;
@@ -40,14 +41,16 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
     throw new AuthError("AUTH_REQUIRED: missing authorization header", 401, "AUTH_REQUIRED");
   }
 
-  // mock-token bypass is DEV-ONLY. Supabase Edge sets DENO_DEPLOYMENT_ID on all
-  // real deployments. If that var is present, the mock path is forbidden.
-  // Ref: 10_Security.md §3 (AUTH-1), Rule 9 (no silent failures).
+  // The dev-auth path is OPT-IN (see isDevAuthEnabled). It authenticates by
+  // trusting an `x-tutor-id` header the CALLER supplies, so it must be closed
+  // unless an operator deliberately opened it — not open unless the environment
+  // happened to look like production. Previously that gate was `isDeployed()`,
+  // which fails open on a real deployment with unset/misspelled env vars.
+  // Ref: 10_Security.md §3 (AUTH-1), Rule 9.
   if (jwt.startsWith("mock-token-")) {
-    const isDeployed = typeof Deno !== "undefined" && !!Deno.env.get("DENO_DEPLOYMENT_ID");
-    if (isDeployed) {
+    if (!isDevAuthEnabled()) {
       throw new AuthError(
-        "UNAUTHENTICATED: development tokens not permitted in production",
+        "UNAUTHENTICATED: development tokens not permitted",
         401,
         "UNAUTHENTICATED",
       );
@@ -77,19 +80,37 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
 
   let tenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id") || "";
 
-  const { data: ud, error: ue } = await (sb.auth as any).getUser(jwt);
-  if (ue || !ud.user) {
-    // Expired, revoked, or otherwise rejected Supabase JWT — the web maps this
-    // to its re-login state (RFC-003 G-AUTH; apps/web/src/lib/app-errors.ts).
+  // Identity is established by VERIFYING THE SIGNATURE of the token we were just
+  // handed, against Supabase's JWKS, in-process. It used to be
+  // `sb.auth.getUser(jwt)` — an outbound HTTPS round trip to the Auth server on
+  // EVERY authenticated request, purely to read `user.id` out of a JWT the caller
+  // already supplied. The 14-day attendance heatmap alone issues 14 gateway
+  // calls, so one dashboard load cost roughly 20 Auth round trips before any
+  // Turso query. `getClaims` does the same verification locally and caches the
+  // JWKS, so the network is touched only on cache miss / key rotation.
+  //
+  // WHAT MUST NOT RELAX HERE. `getClaims` is signature verification, NOT a decode:
+  //   - `allowExpired` is deliberately NOT set, so `exp` is still enforced.
+  //   - a `claims` object is only trusted when `error` is null; there is no
+  //     "decode anyway" path, because accepting unverified claims here would let
+  //     a caller assert any `sub` — i.e. authenticate as any tenant.
+  //   - the caller-supplied `x-tutor-id` is still checked for EQUALITY against
+  //     `sub` below, exactly as before.
+  const { data: claimData, error: claimErr } = await (sb.auth as any).getClaims(jwt);
+  const claims = claimErr ? null : (claimData?.claims ?? null);
+  if (!claims || typeof claims.sub !== "string" || claims.sub.length === 0) {
+    // Expired, revoked, malformed, or badly signed — the web maps this to its
+    // re-login state (RFC-003 G-AUTH; apps/web/src/lib/app-errors.ts).
     throw new AuthError(
       "UNAUTHENTICATED: session expired or invalid; sign in again",
       401,
       "UNAUTHENTICATED",
     );
   }
+  const verifiedUserId = claims.sub;
 
   if (!tenantId) {
-    tenantId = ud.user.id;
+    tenantId = verifiedUserId;
   }
 
   if (!tenantId) {
@@ -100,9 +121,9 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
     );
   }
 
-  if (ud.user.id !== tenantId) {
+  if (verifiedUserId !== tenantId) {
     logError("auth.tenant_mismatch", {
-      tokenUserId: ud.user.id,
+      tokenUserId: verifiedUserId,
       headerTenantId: tenantId,
     });
     throw new AuthError("UNAUTHENTICATED: tenant mismatch", 401, "UNAUTHENTICATED");
@@ -116,17 +137,24 @@ export async function authenticateRequest(req: Request): Promise<AuthResult> {
   const isMutation =
     method === "POST" || method === "PATCH" || method === "PUT" || method === "DELETE";
 
-  if (isMutation) {
-    if (!signature || !timestamp || !nonce) {
-      throw new AuthError(
-        "UNAUTHENTICATED: signature, timestamp, and nonce required for mutations",
-        401,
-        "UNAUTHENTICATED",
-      );
-    }
+  // Required on EVERY method, not only mutations. The binding is what ties the
+  // caller-supplied `x-db-url`/`x-db-token` headers to this tenant; skipping it
+  // on GET/HEAD meant a read could name any database in the fleet and the
+  // gateway would connect to it. The web client already signs every request
+  // (apps/web/src/server/get-db.ts:229-241), so this costs the honest caller
+  // nothing. 10_Security.md §7 request binding, fail-closed.
+  if (!signature || !timestamp || !nonce) {
+    throw new AuthError(
+      "UNAUTHENTICATED: signature, timestamp, and nonce are required",
+      401,
+      "UNAUTHENTICATED",
+    );
   }
 
-  if (signature && timestamp) {
+  // All three are guaranteed present by the gate above, so this is no longer a
+  // conditional — a present-but-invalid header is now a hard failure rather than
+  // being treated as absent and skipped.
+  {
     if (signature.length < HMAC_MIN_LENGTH || signature.length > HMAC_MAX_LENGTH) {
       throw new AuthError(
         "UNAUTHENTICATED: invalid signature format",

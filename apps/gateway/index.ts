@@ -3,6 +3,7 @@ import { ensureSelfRepairingSchema } from "./lib/schema.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
 import { ok, json, fail, securityFail, isTursoAuthFailure, corsHeadersForOrigin } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
+import { isDeployed } from "./lib/env.ts";
 import {
   enforceIdempotencyPrecondition,
   idempotencyRoute,
@@ -62,6 +63,103 @@ const ROUTE_HANDLERS = [
 ];
 
 const MUTATION_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
+
+// ── Boot gate: GATEWAY_ADMIN_TOKEN (10_Security.md §3 admin surface; AGENTS.md
+// Rule 9 — fail closed, never fail open) ─────────────────────────────────────
+//
+// `.env.example` ships `GATEWAY_ADMIN_TOKEN=change-me` with the comment "CHANGE
+// THIS in every environment", and NOTHING read it: the variable was never
+// enforced at boot and (as of this audit) is never read by any request handler
+// either. An operator who read the comment, rotated the value, and thought they
+// had protected the destructive admin surface had protected nothing — and an
+// operator who did not rotate it had a value that is published in this repo.
+// A documented control that does not exist is worse than an undocumented one:
+// it converts an open question into a false certainty. So the variable now has
+// a gate: in a deployed context the gateway refuses to boot unless the token is
+// set, is not the example literal, and clears the same entropy floor
+// `lib/crypto.ts` applies to the signing secrets.
+//
+// The gate is a BOOT check, not a per-request check, deliberately. A gateway that
+// boots with a placeholder admin token has already failed open, and no
+// per-request validation can undo that — the same reasoning `assertSecretStrength`
+// in lib/crypto.ts records for `GATEWAY_SHARED_SECRET`.
+//
+// Deployment detection is now shared. This was a FOURTH copy of the predicate;
+// lib/auth.ts held the loose variant, which left the mock-token auth bypass open
+// on any self-hosted production deployment. See lib/env.ts for the full account.
+
+/** The literal `.env.example` ships. Present in the repo, therefore public, and
+ *  therefore never a valid production value (10_Security.md §3). */
+const ADMIN_TOKEN_EXAMPLE = "change-me";
+
+/** Minimum entropy floor. Same 32-char floor `assertSecretStrength` applies to
+ *  the HMAC/data secrets: the admin token authorises a destructive operation, so
+ *  it is held to the same bar, not a lower one. */
+const MIN_ADMIN_TOKEN_LENGTH = 32;
+
+function readEnv(name: string): string {
+  if (typeof Deno === "undefined") return "";
+  return Deno.env.get(name) || "";
+}
+
+/**
+ * Startup gate for the admin token. Runs ONCE, at module load, before
+ * `Deno.serve` — a gateway that boots with a placeholder admin token has already
+ * failed open and no per-request check can undo that.
+ *
+ * Production: THROW. The edge fails to boot, which is a loud, correct outcome.
+ * Development: warn and continue, so `deno task dev` and the vitest suite work
+ * without a secret store — but the warning is emitted, not swallowed (Rule 9).
+ *
+ * The token VALUE is never echoed into the error or the log — only its length —
+ * so the failure cannot become the leak (10_Security.md §8, and the same
+ * discipline lib/log.ts's redaction enforces for every other event).
+ */
+export function assertAdminTokenStrength(): void {
+  const value = readEnv("GATEWAY_ADMIN_TOKEN").trim();
+  if (value.length === 0) {
+    if (isDeployed()) {
+      throw new Error(
+        "CRITICAL: GATEWAY_ADMIN_TOKEN is not set. The destructive admin surface " +
+          "(POST /api/v1/security/erase) has no second factor behind it, so a " +
+          "compromised session is enough to destroy a tutor's data. Set it in " +
+          "your Supabase Edge Function secrets and redeploy.",
+      );
+    }
+    logWarn("gateway.weak_admin_token", {
+      reason: "unset",
+      minimum: MIN_ADMIN_TOKEN_LENGTH,
+    });
+    return;
+  }
+  if (value === ADMIN_TOKEN_EXAMPLE) {
+    if (isDeployed()) {
+      throw new Error(
+        "CRITICAL: GATEWAY_ADMIN_TOKEN is still the `.env.example` placeholder " +
+          `("${ADMIN_TOKEN_EXAMPLE}"). That value is published in this repository, ` +
+          "so it is not a secret. Generate a random token of at least " +
+          `${MIN_ADMIN_TOKEN_LENGTH} characters, set it in your Supabase Edge ` +
+          "Function secrets, and redeploy.",
+      );
+    }
+    logWarn("gateway.weak_admin_token", { reason: "example_value", length: value.length });
+    return;
+  }
+  if (value.length < MIN_ADMIN_TOKEN_LENGTH) {
+    if (isDeployed()) {
+      throw new Error(
+        `CRITICAL: GATEWAY_ADMIN_TOKEN is only ${value.length} characters ` +
+          `(minimum ${MIN_ADMIN_TOKEN_LENGTH}). It authorises a destructive ` +
+          "operation, so it must be a random token, not a memorable one.",
+      );
+    }
+    logWarn("gateway.weak_admin_token", { reason: "too_short", length: value.length, minimum: MIN_ADMIN_TOKEN_LENGTH });
+    return;
+  }
+  // Strong. Nothing to log: a token that IS strong should leave no trace.
+}
+
+assertAdminTokenStrength();
 
 function cacheKey(req: Request, path: string, tenantId: string): string | null {
   if (req.method !== "GET") return null;

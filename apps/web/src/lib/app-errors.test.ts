@@ -155,3 +155,62 @@ describe("a real settings VALUE-gate refusal is never degraded to UNKNOWN", () =
     }
   });
 });
+
+describe("GW-TAXONOMY-08 — codes the gateway emits must be classifiable", () => {
+  // Two codes the product genuinely emits were absent from APP_ERROR_CODES, so
+  // `toAppErrorState` fell through to UNKNOWN — whose only affordance is
+  // "contact support". Both were recoverable conditions:
+  //
+  //   UNAUTHENTICATED          an expired session  -> should re-login
+  //   DASHBOARD_GATEWAY_FAILED a gateway blip       -> should retry
+  //
+  // Sending a tutor to support for either is a defect in its own right, and it is
+  // the same failure mode the raw-error work addressed: the error path that cannot
+  // classify itself is an error path that cannot be acted on.
+  it("classifies an expired session as re-login, not contact-support", () => {
+    const state = toAppErrorState(new Error("UNAUTHENTICATED: signature verification failed"));
+    expect(state.code).toBe("UNAUTHENTICATED");
+    expect(state.action).toBe("re-login");
+    expect(state.message).not.toMatch(/contact support/i);
+  });
+
+it("classifies a refused dashboard gateway read as retry, not contact-support", () => {
+    // The client throws `res.code`, not the prose `res.error` (dashboard-client.tsx
+    // queryFn), so the code reaches the mapper intact. It resolves to UPSTREAM —
+    // same retry affordance — because the widening pattern also matches "gateway".
+    // Asserting the AFFORDANCE rather than the exact code is the honest assertion:
+    // what a tutor gets is "check your connection and retry", not "contact support".
+    const state = toAppErrorState(new Error("DASHBOARD_GATEWAY_FAILED"));
+    expect(state.action).toBe("retry");
+    expect(state.code).not.toBe("UNKNOWN");
+    expect(state.message).not.toMatch(/contact support/i);
+  });
+
+  it("every code this app can raise classifies to something other than UNKNOWN", () => {
+    // A guard for the family, not just the two instances: any code the server
+    // emits must map to a real affordance.
+    const raised = [
+      "AUTH_REQUIRED",
+      "UNAUTHENTICATED",
+      "DB_NOT_PROVISIONED",
+      "CREDENTIALS_EXPIRED",
+      "NEEDS_PROVISION",
+      "VALIDATION",
+      "CONFLICT",
+      "UPSTREAM",
+      "DASHBOARD_GATEWAY_FAILED",
+      "NOT_FOUND",
+    ];
+    for (const code of raised) {
+      const state = toAppErrorState(new Error(`${code}: something happened`));
+      expect(state.code, `${code} degraded to UNKNOWN`).not.toBe("UNKNOWN");
+    }
+  });
+
+  it("still degrades an unrecognised code to UNKNOWN", () => {
+    // The guard above must not make the mapper accept everything.
+    const state = toAppErrorState(new Error("SOMETHING_ELSE: mystery"));
+    expect(state.code).toBe("UNKNOWN");
+    expect(state.action).toBe("contact");
+  });
+});

@@ -18,15 +18,47 @@ import { logError } from "../lib/log.ts";
 
 type DB = ReturnType<typeof createLibsql>;
 
-const tursoCache = new Map<string, DB>();
-function getTurso(dbUrl: string, dbToken: string): DB {
-  const key = `${dbUrl}::${dbToken}`;
-  let c = tursoCache.get(key);
-  if (!c) {
-    c = createLibsql({ url: dbUrl, authToken: dbToken });
-    tursoCache.set(key, c);
+// This function is bundled separately from the REST gateway, so it keeps its own
+// client cache rather than importing lib/db.ts (which would drag the whole
+// lib/sql.ts statement graph into this bundle). It had the same defect as the
+// REST one — unbounded, and keyed on the FULL db_token — plus the worse detail
+// that the raw credential was retained as a Map key for the isolate's lifetime.
+// Now bounded, keyed on URL, with the token reduced to a change-detector.
+const MAX_TURSO_CLIENTS = 64;
+
+interface TursoEntry {
+  tokenFingerprint: string;
+  client: DB;
+}
+
+const tursoCache = new Map<string, TursoEntry>();
+
+/** Change-detector for rotation only. Not a MAC, not a secret derivation. */
+function tokenFingerprint(token: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < token.length; i += 1) {
+    h ^= token.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return c;
+  return `${h.toString(16)}:${token.length}`;
+}
+
+function getTurso(dbUrl: string, dbToken: string): DB {
+  const existing = tursoCache.get(dbUrl);
+  if (existing && existing.tokenFingerprint === tokenFingerprint(dbToken)) {
+    tursoCache.delete(dbUrl);
+    tursoCache.set(dbUrl, existing);
+    return existing.client;
+  }
+  const client = createLibsql({ url: dbUrl, authToken: dbToken });
+  tursoCache.delete(dbUrl);
+  tursoCache.set(dbUrl, { tokenFingerprint: tokenFingerprint(dbToken), client });
+  while (tursoCache.size > MAX_TURSO_CLIENTS) {
+    const coldest = tursoCache.keys().next();
+    if (coldest.done) break;
+    tursoCache.delete(coldest.value);
+  }
+  return client;
 }
 
 async function allRows(
@@ -347,12 +379,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
         headers: { "Content-Type": "application/json" },
       });
     }
-    tenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id") || user?.id || null;
+    // Tenant identity comes from the VERIFIED JWT only. This used to prefer a
+    // caller-supplied `x-tutor-id` header and fall back to `user?.id`, so a caller
+    // could name any tenant while presenting their own valid Supabase token —
+// and because the resolver guards compare `args.tenantId` against `ctx.tenantId`,
+    // and `variables` overwrite field args, the caller satisfied BOTH sides. The
+    // REST path has always enforced `ud.user.id !== tenantId -> 401`
+    // (apps/gateway/lib/auth.ts:103); this entrypoint did not. A mismatching
+    // header is now rejected outright rather than honoured.
+    const headerTenantId = req.headers.get("x-tutor-id") || req.headers.get("X-Tutor-Id");
+    tenantId = user?.id ?? null;
+    if (headerTenantId && tenantId && headerTenantId !== tenantId) {
+      logError("graphql.tenant_mismatch", { headerTenantId });
+      return new Response(JSON.stringify({ errors: [{ message: "unauthenticated" }] }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (!tenantId && !isHealthOnly) {
+      return new Response(JSON.stringify({ errors: [{ message: "unauthenticated" }] }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    // No hardcoded host fallback: this branch silently pointed every request at
+    // one shared database, which is an isolation decision made by a fallback
+    // rather than by an authenticated principal. Fail closed like lib/sql.ts.
     const dbUrl =
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
       Deno.env.get("TURSO_DATABASE_URL") ||
-      "libsql://buddysaradhi-shared-harish2222.aws-ap-south-1.turso.io";
+      "";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||

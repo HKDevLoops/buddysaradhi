@@ -73,11 +73,8 @@ const DEVELOPMENT_CORS_ORIGINS = [
 /** Deployment is a positive signal, never the absence of one. The previous
  *  check treated a missing `SUPABASE_URL` as "local" and skipped the secret
  *  validation entirely — the fail-open direction (lib/crypto.ts shares this). */
-function isDeployed(): boolean {
-  if (typeof Deno === "undefined") return false;
-  return Boolean(Deno.env.get("DENO_DEPLOYMENT_ID")) ||
-    Deno.env.get("DENO_ENV") === "production";
-}
+// Deployment detection is shared — see lib/env.ts for why it had four copies.
+import { isDeployed } from "./env.ts";
 
 let originCache: { key: string; set: Set<string> } | null = null;
 

@@ -11,6 +11,8 @@ import { redirect } from "next/navigation";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { evictDbClient } from "@/lib/db";
 import { auditAction, log } from "@/lib/logger";
+import { invalidateTenant } from "@/server/cache";
+import { invalidateCredentialHealth } from "@/server/get-db";
 
 const APP_COOKIES = new Set(["buddysaradhi_session"]);
 const isSupabaseAuthCookie = (name: string) =>
@@ -52,6 +54,26 @@ export async function signOutAction(): Promise<SignOutResult> {
         // below is used for cache-key eviction only — never logged.
         const dbUrl = data.user.user_metadata?.db_url as string | undefined;
         if (dbUrl) evictDbClient(dbUrl);
+        // Session hygiene (defect 2): the DB handle was the ONLY thing sign-out
+        // evicted. Two in-process caches survived it, both keyed by the verified
+        // `user.id` and both readable by anyone who later reaches this module:
+        //   - the credential-health cache (server/get-db.ts), which would keep
+        //     serving a "healthy" verdict for a revoked session for up to 60s;
+        //   - the tenant reference cache (server/cache.ts), which keeps the
+        //     signed-out tutor's settings singleton, batch list and student
+        //     search candidates resident for up to 63s (DEFAULT_REFERENCE_TTL_MS).
+        // Both are wiped here, BEFORE the revoke, and by tenant id — not by
+        // prefix — because a full tenant wipe is the only correct scope: any
+        // prefix left behind is another surface where a revoked tutor's rows
+        // outlive the session. `invalidateTenant` returns the entries removed,
+        // which is logged as a COUNT (never ids or payloads — Rule 9).
+        const userId = data.user.id;
+        const healthDropped = invalidateCredentialHealth(userId);
+        const referenceDropped = invalidateTenant(userId);
+        log.info("signout_cache_evicted", "Evicted in-process caches for the signed-out tenant", {
+          healthEntriesDropped: healthDropped ? 1 : 0,
+          referenceEntriesDropped: referenceDropped,
+        });
         await supabase.auth.signOut({ scope: "global" });
         auditAction("logout_completed");
       }

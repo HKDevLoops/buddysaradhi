@@ -45,11 +45,18 @@ async function execSafe(
     const missing = /no such table:\s*(\S+)/.exec(msg);
     if (missing) {
       const table = missing[1] ?? "(unknown)";
+      // The TABLE NAME is the intended operator signal and stays (AGENTS.md
+      // §3.4: a table missing at runtime is a loud error naming the table, never
+      // a silently self-created one). The driver text does NOT stay: a libSQL
+      // error string embeds the failing statement and its column list, and this
+      // message reaches the screen — `attendance-bulk-summary.test.ts` and the
+      // client surface it as a toast. The original is preserved on `cause`, so
+      // `log.error` still records the full statement for the operator who has to
+      // reconcile the DB.
       throw new Error(
         `Schema missing at runtime: table "${table}" does not exist — ` +
           `schema authority is the gateway self-heal (apps/gateway/lib/schema.ts) ` +
-          `or \`bun run db:push\`, not apps/web runtime (AGENTS.md §3.4). ` +
-          `Original error: ${msg}`,
+          `or \`bun run db:push\`, not apps/web runtime (AGENTS.md §3.4).`,
         { cause: err },
       );
     }

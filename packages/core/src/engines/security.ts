@@ -14,10 +14,45 @@ import * as argon2 from "argon2";
 
 // In-memory brute-force tracker for PIN lockouts (per-device per EC-SEC-01;
 // app_state mirrors the lock for cross-process visibility).
-const lockoutCache: Record<
-  string,
-  { attempts: number; lockedUntil: number | null }
-> = {};
+//
+// This was a bare `Record<string, …>` with no ceiling and no eviction, so a
+// long-lived process accumulated one entry per tenant it had ever seen, forever.
+// `packages/core` deliberately depends on nothing but @libsql/client and zod, so
+// it cannot import apps/web's BoundedCache; this is the same bound, locally.
+//
+// A Map is used rather than an object literal for two reasons: it has no
+// prototype chain (`cache["__proto__"]` must not resolve to something truthy), and
+// its iteration order is insertion order, which makes eviction-to-oldest a
+// one-liner.
+const LOCKOUT_MAX_ENTRIES = 1024;
+
+const lockoutCache = new Map<string, { attempts: number; lockedUntil: number | null }>();
+
+/** Insert, then evict the coldest entries until the ceiling holds. */
+function rememberTenant(tenantId: string, state: { attempts: number; lockedUntil: number | null }): void {
+  lockoutCache.delete(tenantId);
+  lockoutCache.set(tenantId, state);
+  while (lockoutCache.size > LOCKOUT_MAX_ENTRIES) {
+    const coldest = lockoutCache.keys().next();
+    if (coldest.done) break;
+    lockoutCache.delete(coldest.value);
+  }
+}
+
+/** Observable size, so the ceiling is testable rather than assumed. */
+export function lockoutCacheStats(): { size: number; max: number } {
+  return { size: lockoutCache.size, max: LOCKOUT_MAX_ENTRIES };
+}
+
+/**
+ * Test seam. Seeding the tracker through `verifyPin` would cost one argon2id
+ * verify (m=64MiB, t=3) per tenant, so proving the 1024-entry eviction would mean
+ * thousands of deliberate hash verifications. This inserts a neutral entry
+ * directly so the bound can be exercised cheaply.
+ */
+export function __rememberLockoutForTests(tenantId: string): void {
+  rememberTenant(tenantId, { attempts: 0, lockedUntil: null });
+}
 
 const LOCK_30S_MS = 30 * 1000;
 const LOCK_5MIN_MS = 5 * 60 * 1000;
@@ -51,8 +86,13 @@ export async function verifyPin(
     // Graduated ladder (02 §12.4 / BR-SEC-03 / EC-SEC-01): 1–4 are
     // toast-only, 5–9 hold a 30s lock (refreshed on each failure),
     // 10–14 hold a 5min lock (refreshed), 15 wipes the local cache.
-    const state = lockoutCache[tenantId] || { attempts: 0, lockedUntil: null };
-    state.attempts += 1;
+    // A fresh object each time rather than mutating the cached one, so the
+    // ladder state is only ever published through rememberTenant().
+    const prior = lockoutCache.get(tenantId);
+    const state = {
+      attempts: (prior?.attempts ?? 0) + 1,
+      lockedUntil: prior?.lockedUntil ?? null,
+    };
 
     if (state.attempts >= WIPE_THRESHOLD) {
       await wipeLocalCache(db, tenantId);
@@ -90,13 +130,13 @@ export async function verifyPin(
         },
       });
     }
-    lockoutCache[tenantId] = state;
+    rememberTenant(tenantId, state);
     return false;
   }
 
   // Success, reset attempts (EC-SEC-01 cumulative reset)
-  if (lockoutCache[tenantId]) {
-    lockoutCache[tenantId] = { attempts: 0, lockedUntil: null };
+  if (lockoutCache.has(tenantId)) {
+    rememberTenant(tenantId, { attempts: 0, lockedUntil: null });
   }
   return true;
 }
@@ -156,7 +196,7 @@ async function wipeLocalCache(
  * out real 30s/5min lockouts. Production code never calls this.
  */
 export function expirePinLockoutForTests(tenantId: string): void {
-  const state = lockoutCache[tenantId];
+  const state = lockoutCache.get(tenantId);
   if (state) {
     state.lockedUntil = null;
   }
@@ -167,7 +207,7 @@ export async function isLockedOut(
   tenantId: string,
 ): Promise<boolean> {
   // Check memory cache first
-  const state = lockoutCache[tenantId];
+  const state = lockoutCache.get(tenantId);
   if (state && state.lockedUntil && state.lockedUntil > Date.now()) {
     return true;
   }

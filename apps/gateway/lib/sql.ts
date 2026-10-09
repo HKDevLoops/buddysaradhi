@@ -895,9 +895,40 @@ export function stmtInsertSetting(
     now,
     now,
   ];
-  for (const [k, v] of Object.entries(d ?? {})) {
+  // Columns a settings INSERT may carry BEYOND the fixed set above. This used to be
+  // "append every key of `d` that passes the identifier regex", which made this
+  // builder a mass-assignment primitive with no second line of defence: a caller
+  // reaching it with an unfiltered object could set `pin_hash`, `tenant_secret`,
+  // `backup_passphrase_hash`, the monotonic `next_*_seq` counters (BR-RC-01) or
+  // `deleted_at`. routes/settings.ts rejects unknown fields before it gets here,
+  // but a builder should not depend on its only caller for that. Mirrors
+  // SETTINGS_PATCH_SCHEMA in routes/settings.ts; server-owned columns are absent
+  // by construction rather than by rejection.
+const SETTINGS_INSERT_EXTRA = new Set([
+  "institute_address",
+  "institute_phone",
+  "institute_email",
+  "locale",
+  "timezone",
+  "invoice_prefix",
+  "receipt_prefix",
+  "grace_days",
+  "auto_invoice",
+  "attendance_lock_hours",
+  "default_attendance_status",
+  "notify_due_fee",
+  "notify_upcoming_due",
+  "notify_missing_attendance",
+  "notify_inactive_student",
+  "session_timeout_min",
+  "biometric_enabled",
+  "auto_archive_inactive_days",
+  "reduced_motion",
+]);
+
+for (const [k, v] of Object.entries(d ?? {})) {
     const col = auditedCamelToSnake(k);
-    if (!cols.includes(col)) {
+    if (!cols.includes(col) && SETTINGS_INSERT_EXTRA.has(col)) {
       cols.push(col);
       vals.push(v);
     }

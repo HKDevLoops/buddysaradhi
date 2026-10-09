@@ -1,6 +1,7 @@
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { cache } from "react";
 import { getDb, getDbCredentials } from "@/lib/db";
+import { BoundedCache } from "@/lib/lru";
 import { log } from "@/lib/logger";
 import type { Client } from "@libsql/client";
 import { createLibsqlProxy } from "@/lib/libsql-proxy";import {
@@ -188,8 +189,16 @@ export async function getGatewayHeaders(): Promise<{
   const { user, accessToken } = await getUserAndSession();
   const timestamp = String(Date.now());
   const nonce = generateNonce();
-  // SECURITY: mock-token is dev-only. In production, unauthenticated requests must not reach gateway with mock.
-  if (!accessToken && process.env.NODE_ENV === 'production') {
+  // SECURITY: a `mock-token-*` is authentication that trusts a CALLER-supplied
+  // tenant id, so it is OPT-IN, not opt-out. This used to be gated on
+  // `NODE_ENV === "production"`, which fails OPEN on a real deployment where that
+  // variable is unset — the web would then mint `mock-token-<user.id>` and hand it
+  // to the gateway. The gateway is a backstop, but the two sides must agree.
+  // Now both require the same explicit ALLOW_DEV_AUTH=true, and the gateway
+  // additionally re-checks its own deployment signal.
+  // Ref: 10_Security.md §3 (AUTH-1), AGENTS.md §2 Rule 9.
+  const devAuthEnabled = process.env.ALLOW_DEV_AUTH === "true";
+  if (!accessToken && !devAuthEnabled) {
     // Debuggability (Rule 9): user-null (session unreadable) and token-null
     // (user known, session token missing) are different faults with different
     // fixes — cookie transport vs token assembly. Booleans only, never ids.
@@ -197,9 +206,11 @@ export async function getGatewayHeaders(): Promise<{
       hasUser: Boolean(user),
       hasAccessToken: Boolean(accessToken),
     });
-    throw authError("AUTH_REQUIRED", "No session — mock tokens not permitted in production.");
+    throw authError("AUTH_REQUIRED", "No session — dev tokens require ALLOW_DEV_AUTH=true.");
   }
-  const tokenHeader = accessToken ? `Bearer ${accessToken}` : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
+  const tokenHeader = accessToken
+    ? `Bearer ${accessToken}`
+    : `Bearer mock-token-${user?.id || LOCAL_TENANT}`;
   
   let clientIp = "127.0.0.1";
   let userAgent = "unknown";
@@ -245,6 +256,16 @@ export async function getGatewayHeaders(): Promise<{
     };
   }
   
+  // Sessionless branch: mint a dev token for LOCAL_TENANT against env-var
+  // credentials. Same OPT-IN rule as the session branch above — this one has no
+  // session at all, so it is strictly more privileged, and it reads the shared
+  // TURSO_* env credentials. Refusing it by default is what stops a production
+  // deployment with unset NODE_ENV from silently falling through to it.
+  if (process.env.ALLOW_DEV_AUTH !== "true") {
+    log.warn("getGatewayHeaders_sessionless_refused", "dev auth is not enabled");
+    throw authError("AUTH_REQUIRED", "No session — dev tokens require ALLOW_DEV_AUTH=true.");
+  }
+
   const dbUrl = process.env.TURSO_DATABASE_URL || "";
   const dbToken = process.env.TURSO_AUTH_TOKEN || "";
   const dataToSign = `${LOCAL_TENANT}:${dbUrl}:${dbToken}:${timestamp}:${nonce}`;
@@ -302,7 +323,53 @@ export interface CredentialHealth {
 
 const CREDENTIAL_PROBE_TIMEOUT_MS = 5000;
 const CREDENTIAL_HEALTH_TTL_MS = 60_000;
-const healthCache = new Map<string, { health: CredentialHealth; atMs: number }>();
+
+/**
+ * Hard ceiling on the health cache (AGENTS.md §2 Rule 9: bounded state must
+ * REPORT its bound, never grow silently).
+ *
+ * The previous bound was `if (healthCache.size > 500) healthCache.clear()` — a
+ * blunt instrument: the 501st distinct user in a burst wiped ALL 500 warm
+ * entries, including the hot tutors serving live traffic, so the very event the
+ * bound exists to absorb (a signup wave, a gateway burst) was the one that
+ * flushed the cache. `BoundedCache` (lib/lru.ts — the primitive `lib/db.ts`
+ * and `lib/offline-queue.ts` already share) evicts exactly ONE least-recently-
+ * used entry per insert and promotes on read, so a burst costs the coldest
+ * entry and nothing else. Reused, not reimplemented: a fourth cache class in
+ * this repo would be a fourth copy of an LRU invariant to keep correct.
+ */
+export const CREDENTIAL_HEALTH_MAX_ENTRIES = 500;
+
+const healthCache = new BoundedCache<string, { health: CredentialHealth; atMs: number }>(
+  CREDENTIAL_HEALTH_MAX_ENTRIES,
+);
+
+/**
+ * KEY PROVENANCE (defect 4 audit). `checkCredentialsHealthCached` below is the
+ * only producer and the key is `user.id`, where `user` comes from
+ * `getUserAndSession()` → `supabase.auth.getUser()`. That call is the SUPABASE
+ * REMOTE's verification of the bearer JWT — not a decode of the cookie — so
+ * `user.id` is an auth uid the server has proven. It is never a query
+ * parameter, header, cookie value, `X-Tutor-Id`, or anything else a request can
+ * set: `getGatewayHeaders` reads request headers only for `X-Client-IP` /
+ * `X-Client-UA`, which are never used as a cache key or tenant id. The only
+ * non-uid tenant in the file is the `LOCAL_TENANT` constant, and it is returned
+ * from the sessionless branch BEFORE the cache is consulted, so it is never a
+ * key. Consequence: a request cannot address another tenant's cached health.
+ */
+export function credentialHealthCacheSize(): number {
+  return healthCache.size;
+}
+
+/**
+ * Drops one tenant's cached health. Wired to sign-out (`server/actions/
+ * signout.ts`, BR-SEC-04) so a signed-out tutor's credential verdict does not
+ * outlive the session that produced it. Returns true when an entry was present.
+ */
+export function invalidateCredentialHealth(userId: string): boolean {
+  if (!userId) return false;
+  return healthCache.delete(userId) !== undefined;
+}
 
 async function probeCredentials(client: Client): Promise<number> {
   const started = Date.now();
@@ -382,10 +449,12 @@ export async function checkCredentialsHealthCached(intentNext?: string): Promise
       skipped: true,
     };
   }
+  // `get` promotes on read, so a tutor who keeps working stays warm through a
+  // burst that evicts the cold entries instead (see CREDENTIAL_HEALTH_MAX_ENTRIES).
   const cached = healthCache.get(user.id);
   if (cached && Date.now() - cached.atMs < CREDENTIAL_HEALTH_TTL_MS) return cached.health;
   const health = await checkCredentialsHealth(intentNext);
-  if (healthCache.size > 500) healthCache.clear();
+  // `set` evicts exactly ONE least-recently-used entry when at the ceiling.
   healthCache.set(user.id, { health, atMs: Date.now() });
   return health;
 }

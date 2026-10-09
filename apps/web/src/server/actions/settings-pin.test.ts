@@ -145,6 +145,32 @@ describe("setPinAction: setup + change", () => {
     expect(await pinHashOf(client)).toBe(before);
   });
 
+  it("refuses to change an existing PIN when currentPin is omitted entirely", async () => {
+    // Regression: the gate used to be `if (currentPin)`, so a caller that simply
+    // did not send the argument skipped verification and replaced the PIN. That
+    // collapsed backup export, tenant wipe, account erase, bulk import and ledger
+    // void — every PIN-gated surface — to bare session auth.
+    ({ client, dir } = await createTestDb());
+    wireSeam(client);
+    expect((await setPinAction("135790")).success).toBe(true);
+    const before = await pinHashOf(client);
+
+    const res = await setPinAction("246813");
+    expect(res.success).toBe(false);
+    expect(res.code).toBe("PIN_REQUIRED");
+    expect(await pinHashOf(client)).toBe(before);
+    // The old PIN must still be the live one, not merely a byte-identical row.
+    expect((await verifyPinAction("135790")).success).toBe(true);
+  });
+
+  it("still allows a first PIN with no current PIN (setup path unchanged)", async () => {
+    ({ client, dir } = await createTestDb());
+    wireSeam(client);
+    const res = await setPinAction("135790");
+    expect(res.success).toBe(true);
+    expect((await verifyPinAction("135790")).success).toBe(true);
+  });
+
   it("refuses bad formats without touching the store", async () => {
     ({ client, dir } = await createTestDb());
     wireSeam(client);

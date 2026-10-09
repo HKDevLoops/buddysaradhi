@@ -522,6 +522,88 @@ describe("setting VALUE gate (08 §13 schemas, §14 EC-17) — updateSettingActi
   });
 });
 
+describe("inherited-key guard — SETTING_WRITE_FIELDS / SETTING_VALUE_SCHEMAS", () => {
+  // Regression: both maps were plain object literals, so `map["constructor"]`,
+  // `map["toString"]` and `map["__proto__"]` all resolved to a TRUTHY inherited
+  // value and walked straight through the field gate. The value map then threw an
+  // unguarded TypeError (`.safeParse` on Object.prototype) instead of a typed
+  // VALIDATION refusal — Rule 9 broken as "no reason shown".
+  async function seed(): Promise<void> {
+    ({ client, dir } = await createTestDb());
+    wireSeam(client);
+    mocks.gatewayPatch.mockResolvedValue({ success: false, error: "Gateway 503" });
+    await client.execute({
+      sql: "INSERT INTO settings (id, tenant_id, currency_code, updated_at, created_at) VALUES (?, ?, ?, ?, ?)",
+      args: [randomUUID(), TENANT, "INR", NOW, NOW],
+    });
+  }
+
+  const INHERITED_KEYS = ["constructor", "toString", "hasOwnProperty", "valueOf"];
+
+  it.each(INHERITED_KEYS)("updateSettingAction refuses the inherited key %s", async (key) => {
+    await seed();
+    const res = await updateSettingAction(key, "pwned");
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/invalid setting field/i);
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name ?? null).not.toBe("pwned");
+  });
+
+  it("updateSettingAction refuses __proto__ without throwing", async () => {
+    await seed();
+    const res = await updateSettingAction("__proto__", "pwned");
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/invalid setting field/i);
+  });
+
+  it("updateSettingsBatchAction rejects an inherited key and writes nothing", async () => {
+    await seed();
+    const entries: Record<string, unknown> = { instituteName: "Legit" };
+    Object.defineProperty(entries, "toString", { value: "pwned", enumerable: true });
+    const res = await updateSettingsBatchAction(entries as never);
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/not a writable settings field/i);
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name ?? null).toBeNull();
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(0);
+  });
+
+  it("updateSettingsBatchAction refuses a server-owned counter", async () => {
+    // BR-RC-01 says nextReceiptSeq is monotonic and never rewound. `next*Seq` IS
+    // in the field allowlist, so it reaches a dedicated branch that refuses it by
+    // name rather than being silently dropped — this asserts that guard holds on
+    // the batch path, not the new allowlist rejection.
+    await seed();
+    const res = await updateSettingsBatchAction({ nextReceiptSeq: 1 } as never);
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/maintained by the app/i);
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(0);
+  });
+
+  it("updateSettingsBatchAction rejects a field outside the allowlist by name", async () => {
+    // The accept-and-drop defect itself: an unrecognised key used to be skipped
+    // and the caller told `success: true` while the row was unchanged.
+    await seed();
+    const res = await updateSettingsBatchAction({ pinHash: "x", theme: "dark" } as never);
+    expect(res.success).toBe(false);
+    expect(res.error ?? "").toMatch(/not a writable settings field: pinHash/i);
+    expect(await rowsOf(client, "SELECT id FROM sync_outbox")).toHaveLength(0);
+  });
+
+  it("updateSettingsBatchAction still skips an undefined value silently", async () => {
+    // `undefined` means "field not supplied" — a legitimate partial payload, and
+    // rejecting it would break every optional Profile field.
+    await seed();
+    const res = await updateSettingsBatchAction({
+      instituteName: "Legit",
+      institutePhone: undefined,
+    } as never);
+    expect(res.success).toBe(true);
+    const rows = await rowsOf(client, "SELECT institute_name FROM settings");
+    expect(rows[0]?.institute_name ?? null).toBe("Legit");
+  });
+});
+
 describe("setting VALUE gate — updateSettingsBatchAction (a batch is not an end-run)", () => {
   async function seed(): Promise<void> {
     ({ client, dir } = await createTestDb());

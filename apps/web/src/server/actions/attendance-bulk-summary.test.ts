@@ -597,8 +597,23 @@ describe("fetchAttendanceSummaryAction — period bounds and the honest percenta
       tenantId: TENANT,
     });
     const res = await fetchAttendanceSummaryAction("current_month");
+    // The Rule 9 intent: a failed read is a FAILURE, not a silent empty month.
     expect(res.ok).toBe(false);
-    expect(res.error ?? "").toMatch(/connection reset/);
+    // SEC-ERRLEAK-05: the driver string must NOT reach the tutor. This assertion
+    // used to be `toMatch(/connection reset/)` — it pinned the leak as expected
+    // behaviour and was the last place in the repo asserting it. The detail is
+    // still recorded server-side via log.error; only the client-facing text is
+    // now a fixed sentence.
+    expect(res.error ?? "").toMatch(/Failed to fetch attendance summary/);
+    expect(res.error ?? "").not.toMatch(/connection reset/);
+    expect(JSON.stringify(res)).not.toMatch(/connection reset/);
+    // And the cause is still captured for diagnosis — a generic message with no
+    // server-side record would just be a different silence.
+    expect(
+      mocks.log.error.mock.calls.some((call) =>
+        call.some((arg) => typeof arg === "string" && arg.includes("connection reset")),
+      ),
+    ).toBe(true);
   });
 });
 

@@ -6,14 +6,14 @@ import { logWarn } from "./log.ts";
 const MIN_SECRET_LENGTH = 32;
 
 /** Deployment is a POSITIVE signal. The previous check inferred production from
- * the ABSENCE of `SUPABASE_URL` (`if (env !== "local")`), so any misconfigured
- * or partially-migrated environment skipped secret validation entirely — the
- * fail-open direction. `DENO_DEPLOYMENT_ID` is set by the Supabase/Deno Deploy
- * edge; `DENO_ENV=production` is the explicit manual override. */
+ *  the ABSENCE of `SUPABASE_URL` (`if (env !== "local")`), so any misconfigured
+ *  or partially-migrated environment skipped secret validation entirely — the
+ *  fail-open direction. Shared with lib/auth.ts, lib/errors.ts and index.ts so
+ *  the four can never drift apart again (see lib/env.ts). */
+import { isDeployed } from "./env.ts";
+
 function isProduction(): boolean {
-  if (typeof Deno === "undefined") return false;
-  return Boolean(Deno.env.get("DENO_DEPLOYMENT_ID")) ||
-    Deno.env.get("DENO_ENV") === "production";
+  return isDeployed();
 }
 
 function readSecret(name: string): string {

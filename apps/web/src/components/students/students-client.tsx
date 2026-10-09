@@ -19,6 +19,30 @@
 //      found" with an Add Student CTA, on every gateway timeout. That told a tutor
 //      their whole roster was empty and invited them to re-enter it.
 
+// AGENTS.md §2 Rule 4 (this state does not create a screen: it dresses the one
+// Students route) and the store-subscription contract below.
+//
+// SUBSCRIBE TO THE SLICE, NOT TO THE STORE. This file used to call
+// `useStudentsStore()` with no selector and destructure eight fields. In Zustand
+// v5 a no-selector subscription re-renders the subscriber on EVERY state write,
+// not on a change to the fields it read. This store is written by four surfaces
+// that have nothing to do with the roster query — `openDrawer` (which writes
+// `selectedStudentId`, `drawerOpen` AND `activeTab`), `openAddSheet` /
+// `openEditSheet`, and the pager — so every one of those writes re-rendered this
+// component and, through it, all fifty rows of `StudentMasterList`, each
+// rebuilding its `aria-label` (one or two `formatINR` calls apiece) for a change
+// that altered nothing any of them read.
+//
+// The selectors are deliberately ONE FIELD EACH rather than a multi-field
+// `s => ({ a: s.a, b: s.b })`. That shape returns a NEW object on every call, so
+// under `useSyncExternalStore` — which is what `useStore` is built on — the
+// snapshot it compares against is never reference-equal, and the component
+// re-renders forever. `useShallow` fixes it, but a single-field selector has no
+// such hazard to fix: the field IS the snapshot, and the store already replaces
+// `filters` / `sort` by reference on write, so identity is the real change
+// signal. Every store action is a stable module-level function, so subscribing
+// to one costs a reference comparison and re-renders nothing.
+
 import { useEffect } from "react";
 import { useStudentsStore } from "@/stores/students-store";
 import { fetchStudentsAction } from "@/server/actions/students";
@@ -41,9 +65,17 @@ function isActiveOnly(status: string[]): boolean {
 }
 
 export function StudentsClient() {
-  const { filters, searchQuery, page, pageSize, sort, openAddSheet, setPage, setPageSize } =
-    useStudentsStore();
+  /* One selector per field read — see the header. Nothing here builds a fresh
+     object, so no subscription can loop. */
+  const filters = useStudentsStore((s) => s.filters);
+  const searchQuery = useStudentsStore((s) => s.searchQuery);
+  const page = useStudentsStore((s) => s.page);
+  const pageSize = useStudentsStore((s) => s.pageSize);
+  const sort = useStudentsStore((s) => s.sort);
   const selectedStudentId = useStudentsStore((s) => s.selectedStudentId);
+  const openAddSheet = useStudentsStore((s) => s.openAddSheet);
+  const setPage = useStudentsStore((s) => s.setPage);
+  const setPageSize = useStudentsStore((s) => s.setPageSize);
 
   const { data, isPending, isFetching, error, refetch } = useQuery({
     queryKey: ["students", filters, searchQuery, page, pageSize, sort],

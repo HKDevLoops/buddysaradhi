@@ -25,6 +25,63 @@ import {
   todayIso,
 } from "@/lib/csv-parse";
 
+/** Cache prefixes a STUDENT mutation makes stale. Keep in sync with server/queries. */
+const STUDENT_CACHE_PREFIXES = ["search:", "attendance:"] as const;
+
+/**
+ * Drops every cached projection of the students table for one tenant.
+ *
+ * `search:` is the roster candidate set (`server/queries/search.ts` — the
+ * toolbar, the Fees/Attendance filters and the ⌘K palette all read it, so a
+ * deleted or renamed student stayed searchable for up to
+ * `DEFAULT_REFERENCE_TTL_MS` = 63s). `attendance:` is the batch list, which a
+ * create mutates when the batch is auto-created.
+ *
+ * WHY BOTH PREFIXES AND NOT ONE: the old code invalidated `attendance:` alone,
+ * and only on the offline path, and only when a batch name was supplied — so a
+ * plain rename or delete invalidated nothing, and a create with no batch
+ * invalidated nothing. The set above is the whole set of keys these three
+ * actions can make stale; adding a cached projection means adding its prefix
+ * here, which is why it is a named constant rather than an inline literal at a
+ * call site.
+ *
+ * NOT a full tenant wipe: `settings:` is untouched by a student mutation, and
+ * the settings singleton is the hottest reference read on the screen. Scope
+ * stays per-prefix so a rename does not cost the tutor a settings re-read.
+ */
+function invalidateStudentCaches(tenantId: string | null): number {
+  if (!tenantId) return 0;
+  let removed = 0;
+  for (const prefix of STUDENT_CACHE_PREFIXES) {
+    removed += invalidateTenant(tenantId, prefix);
+  }
+  return removed;
+}
+
+/**
+ * Resolves the tenant id for cache invalidation on a path that committed
+ * through the GATEWAY and therefore never opened a local DB handle (so has no
+ * `tenantId` in scope). `getAuthenticatedPrisma` is request-memoized via
+ * `getUserAndSession` (React `cache` in server/get-db.ts) and the libsql client
+ * itself is cached in lib/db.ts, so this is an in-process read, not a round
+ * trip — and it only runs AFTER a successful commit, so the worst case is a
+ * logged warning, never a failed write.
+ */
+async function tenantIdForInvalidation(): Promise<string | null> {
+  try {
+    const { tenantId } = await getAuthenticatedPrisma();
+    return tenantId;
+  } catch (error) {
+    // Rule 9: loud, never silent. The mutation already committed — reporting
+    // this is the honest outcome; swallowing it would hide a stale roster.
+    log.error(
+      "student_cache_invalidation_tenant_unresolved",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
 export async function fetchStudentsAction(
   filters: StudentFilters,
   searchQuery: string,
@@ -288,6 +345,8 @@ export async function createStudent(
     );
 
     if (gatewayRes.success) {
+      // Defect 3: a gateway-committed create was invisible to the roster cache.
+      invalidateStudentCaches(await tenantIdForInvalidation());
       revalidatePath("/students");
       revalidatePath("/dashboard");
       return { success: true, data: gatewayRes.data };
@@ -465,9 +524,10 @@ export async function createStudent(
       }
     });
 
-    if (batch !== undefined) {
-      invalidateTenant(tenantId, "attendance:"); // workstream C wiring: batch auto-create
-    }
+    // Workstream C wiring + defect 3: the batch auto-create still needs the
+    // `attendance:` prefix, and the NEW STUDENT needs `search:` — the old
+    // call site did neither when no batch was named.
+    invalidateStudentCaches(tenantId);
     log.info("student_created_locally", `student ${id} written on the direct-db path`, {
       batch_created: createdBatchName !== null,
       duplicate_proceed: options?.duplicateProceed === true,
@@ -522,6 +582,9 @@ export async function deleteStudentAction(studentId: string): Promise<{ success:
       log.error('student_delete_failed', 'Gateway delete returned failure', { studentId });
       return { success: false, error: res.error };
     }
+    // Defect 3: a deleted student stayed in `search:student-candidates` for up
+    // to 63s — the roster toolbar and the ⌘K palette kept offering them.
+    invalidateStudentCaches(await tenantIdForInvalidation());
     revalidatePath("/students");
     revalidatePath("/dashboard");
     return { success: true };
@@ -747,6 +810,9 @@ export async function updateStudentAction(
       { "Idempotency-Key": mintIntentKey() },
     );
     if (gatewayRes.success) {
+      // Defect 3: the gateway-committed rename never invalidated the roster
+      // cache, so search kept serving the old name for 63s.
+      invalidateStudentCaches(tenantId);
       revalidatePath("/students");
       revalidatePath("/dashboard");
       return { success: true, data: gatewayRes.data };
@@ -809,6 +875,8 @@ export async function updateStudentAction(
       });
     });
 
+    // Defect 3: local-fallback edit also made the roster stale.
+    invalidateStudentCaches(tenantId);
     revalidatePath("/students");
     revalidatePath("/dashboard");
     const updated = await db.student.findFirst({ where: { tenantId, id: studentId } });

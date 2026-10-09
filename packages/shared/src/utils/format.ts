@@ -1,14 +1,56 @@
 /**
+ * ONE formatter, built once at module load.
+ *
+ * WHY THIS IS NOT A CONSTANT INSIDE `formatINR`. Constructing an
+ * `Intl.NumberFormat` is the expensive half of formatting a number — resolving the
+ * locale, the currency data and the numbering system — and `.format()` on an
+ * existing instance is the cheap half. The function below used to build a fresh
+ * formatter per call, and it is called roughly twice per roster row per render
+ * (`StudentMasterList` builds an `aria-label` containing a balance), so a
+ * 50-row roster on screen meant ~100 constructor calls per keystroke. On top of
+ * that, every caller of `formatINR` also SUBSCRIBES to the whole students store
+ * — so a keystroke multiplied that by the number of rendered components.
+ *
+ * WHY HOISTING CANNOT CHANGE ANY OUTPUT:
+ *
+ *   1. `NumberFormat` holds RESOLVED OPTIONS, not per-call state. `format()` is a
+ *      pure function of `(value)`; it does not mutate the instance, and there is
+ *      no setter that mutates it either. N fresh instances and one shared
+ *      instance produce byte-identical strings for identical inputs. There is no
+ *      per-call option mutation anywhere in this file to hoist away, because
+ *      there is no per-call option at all.
+ *   2. THE SIGNATURE DID NOT CHANGE. `formatINR` takes exactly one number and has
+ *      no locale, currency or options parameter, so there is no parameterisation
+ *      to preserve. Every caller in the monorepo passes a single paise integer
+ *      (the only other `formatINR` in the tree is a different, web-local
+ *      implementation in `apps/web/src/lib/utils.ts`, which this change does not
+ *      touch). `apps/web/src/lib/format-inr.test.ts` pins the hoisted output
+ *      against a freshly constructed reference formatter for a battery of
+ *      amounts, so a future option added here cannot silently diverge.
+ *
+ * NOTE ON THE SPEC. 12_Business_Rules.md BR-M-04 describes `formatINR()` as
+ * taking a `negativeColor: 'emerald'` option. It has never taken one, and no
+ * caller passes one — the emerald treatment for an advance is applied by the
+ * caller (BR-CALC-01), not by this function. That is pre-existing spec drift,
+ * not something this change introduces or resolves; it is reported rather than
+ * acted on, because adding a colour option here would be a UI decision made in
+ * a money-arithmetic module.
+ *
+ * Implements: 12_Business_Rules.md BR-M-01/BR-M-02, AGENTS.md Rule 6 (integer
+ * paise, never float).
+ */
+const INR_FORMATTER = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 2,
+});
+
+/**
  * BR-M-01: Money is always integer paise. Displayed as ₹ with 2 decimals.
  * Implements: 12_Business_Rules.md BR-M-01, AGENTS.md Rule 6 (integer paise, never float).
  */
 export function formatINR(paise: number): string {
-  const rupees = paise / 100;
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 2,
-  }).format(rupees);
+  return INR_FORMATTER.format(paise / 100);
 }
 
 /**

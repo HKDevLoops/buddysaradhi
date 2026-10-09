@@ -195,30 +195,109 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     // reads through to the tenant DB. Reads stay cheap via batched
     // Promise.all fan-out (one round trip per table, never N+1).
     //
+    // ── Why the reads below are bounded, and what "bounded" is allowed to mean ──
+    //
+    // Every table this route touches except `students` grows forever or without
+    // limit: `ledger_entries` is APPEND-ONLY and grows for the life of the
+    // institute (AGENTS.md §2 Rule 1 — a void is a new row, never a delete), and
+    // `invoices` gains a row per student per month. Reading either one with
+    // `where: {}` and no `take` is O(all-time rows) on a metered edge, forever,
+    // and it was done on EVERY dashboard load. The four reads that did it were:
+    //
+    //   1. ledgerEntry.findMany({ where: { type: "PAYMENT_RECEIVED" } })  — every
+    //      payment the institute has EVER taken, only to feed `paidByInv` and the
+    //      period sum.
+    //   2. invoice.findMany({ where: {} })                                — every
+    //      invoice ever issued, only to feed `openByStudent` and `noDues`.
+    //   3. the open-dated invoice read                                     — every
+    //      unsettled invoice, with no upper bound on how far back.
+    //   4. student.findMany({ where: {} })                                 — the
+    //      whole roster, unfiltered.
+    //
+    // (1) splits into two reads that are each bounded by the population the
+    // measure is actually defined over: the PERIOD for the period sum, and the
+    // OPEN-INVOICE SET for the per-invoice netting. (2)+(3) collapse into ONE
+    // read of the open set — the union read was `openDatedInvoices ⊆ invoices`,
+    // so two unbounded reads were fetching an overlap of one.
+    //
+    // The bound is a FILTER, never a cap. There is deliberately no `take` on any
+    // of these reads: a capped read of a money population silently under-reports
+    // `overdueMinor` and `dueForMonthMinor` and breaks the
+    // `paid + partial + unpaid === totalStudents` partition the dashboard
+    // asserts. This is the opposite of the `dueToday` honesty pattern below —
+    // that list MAY be capped because it ships `dueTodayTotal` beside it; these
+    // figures ship a single number and no such claim, so they are read in full
+    // over a bounded population or not at all.
+    //
+    // The students read (4) is NOT bounded, and this is deliberate: it is the
+    // substrate for `totalStudents`, `studentsWithDues`, `dueTillDateMinor` and
+    // the whole `paymentBreakdown` partition. A cap would make four exact
+    // aggregates into four approximations with no flag to say so, which Rule 9
+    // forbids. See the report for the flagged residual.
+    //
     // The students read is unfiltered on purpose. It was `status: active,
     // archivedAt: null`, which left no row to name an invoice belonging to a
     // graduated or archived student — the case that produced `student_name:
     // "Student"`. Reading the roster once and deriving the active subset in
     // the route keeps the same cost and gives every due row a real name.
-    const [allStudents, payments, invoices, ledger, notifs, openDatedInvoices] = await Promise.all([
+    const [allStudents, openInvoices, ledger, notifs, periodPayments] = await Promise.all([
       orm.student.findMany({ where: {} }),
-      orm.ledgerEntry.findMany({ where: { type: "PAYMENT_RECEIVED" } }),
-      orm.invoice.findMany({ where: {} }),
+      // The open-invoice set — `paid` and `void` are gone before the row leaves
+      // SQLite. This ONE read replaces both unbounded invoice reads: it is a
+      // superset of the old `openDatedInvoices` (which additionally demanded a
+      // non-null due date, applied below in JS so the undated open invoices are
+      // still available to `paymentState`), and `due_date ASC` puts the most
+      // overdue money at the top of `dueToday`. Both the filter and the ORDER BY
+      // go through the audited builder — `status IN (…)` is an operator
+      // `buildTenantWhere` supports, and `orderBy: { dueDate }` is validated by
+      // the `resolveOrderBy` seam in lib/orm.ts rather than concatenated anywhere
+      // (AGENTS.md §3.4).
+      orm.invoice.findMany({
+        where: { status: { in: [...OPEN_INVOICE_STATUSES] } },
+        orderBy: { dueDate: "asc" },
+      }),
       orm.ledgerEntry.findMany({ orderBy: { occurredOn: "desc" }, take: 20 }),
       orm.notification.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
-      // The overdue population: open invoices that carry a due date, oldest
-      // first, so the most overdue money is always at the top. Both the filter
-      // and the ORDER BY go through the audited builder — `status IN (…)` and
-      // `due_date IS NOT NULL` are operators `buildTenantWhere` supports, and
-      // `orderBy: { dueDate }` is validated by the `resolveOrderBy` seam in
-      // lib/orm.ts rather than concatenated anywhere (AGENTS.md §3.4).
-      orm.invoice.findMany({
-        where: { status: { in: [...OPEN_INVOICE_STATUSES] }, dueDate: { not: null } },
-        orderBy: { dueDate: "asc" },
+      // The PERIOD leg of what used to be one all-time read. `occurred_on >= ?`
+      // is a lexicographic range over TEXT 'YYYY-MM-DD…' (lib/schema.ts:121-145),
+      // and it is a strict SUPERSET of the rows the measure keeps: any row whose
+      // leading day is `>= periodStart` is lexically `>= periodStart` as a whole
+      // string, so nothing the JS `isWithinPeriod` accepts can be filtered out
+      // here. The upper bound and the shape check stay in JS because they are
+      // day-granular and `occurred_on` may carry a time component that a plain
+      // `<= periodEnd` would wrongly exclude. No `take`: this SUM must be exact.
+      orm.ledgerEntry.findMany({
+        where: { type: "PAYMENT_RECEIVED", occurredOn: { gte: periodStart } },
       }),
     ]);
 
-    const paidByInv = paymentsByInvoice(payments);
+    // ── Per-invoice netting: payments attributed to an OPEN invoice ──────────
+    //
+    // This is why `paidByInv` cannot simply reuse the period read: an invoice
+    // falling due inside the window is very often settled by a payment that
+    // landed BEFORE it — the February-payment-settles-the-August-invoice case,
+    // which `analytics-measures.test.ts` pins as a regression ("still nets a
+    // February payment off an August invoice when it lands outside the window").
+    // Windowing one measure must not blind the others.
+    //
+    // So it gets its own read, bounded by the open-invoice set instead of by
+    // time: every payment whose `invoice_id` is one of the invoices the measures
+    // above actually reference. Payments attributed to a `paid` or `void`
+    // invoice cannot reduce anyone's arrears, so dropping them is not an
+    // approximation — it is the same set the old all-time read reduced to.
+    //
+    // `invoice_id IN (…)` grows with the open set (SQLite's variable limit is
+    // ~32k on any build this gateway runs on, against a few thousand open
+    // invoices for a 200-student institute), and an empty open set short-circuits
+    // rather than issuing a guaranteed-false `1=0` read.
+    const openInvoiceIds = openInvoices.map((inv) => String(inv.id));
+    const attributedPayments = openInvoiceIds.length === 0
+      ? []
+      : await orm.ledgerEntry.findMany({
+        where: { type: "PAYMENT_RECEIVED", invoiceId: { in: openInvoiceIds } },
+      });
+
+    const paidByInv = paymentsByInvoice(attributedPayments);
 
     const activeStudents = allStudents.filter(
       (s) =>
@@ -238,21 +317,32 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     const dueTill = dues.reduce((a, s) => paiseAdd(a, Number(s.balancePaise ?? 0)), 0);
 
     // ── Collected in the period ───────────────────────────────────────────────
-    // The SAME rows still feed `paymentsByInvoice` above, because an invoice's
-    // outstanding figure must net off payments regardless of when they landed —
-    // a February payment settles an August invoice. Only this SUM is windowed.
-    const collected = payments.reduce((a, p) => {
+    // `periodPayments` is the PERIOD-bounded read above; the JS window still
+    // runs because it owns the upper bound and the day-shape check that the
+    // SQL `occurred_on >= ?` cannot express. The rows that survive BOTH are
+    // exactly the rows the old all-time read was windowed down to.
+    const collected = periodPayments.reduce((a, p) => {
       if (!isWithinPeriod(readDay(p.occurredOn), periodStart, periodEnd)) return a;
       return paiseAdd(a, Number(p.creditPaise ?? 0));
     }, 0);
 
+    // The subset of the open set that carries a deadline. Applied in JS (not
+    // `due_date IS NOT NULL` in the where clause) so the SINGLE open read stays
+    // a superset: `paymentState` below needs the undated open invoices too
+    // (INV-000106 — no deadline, money still owed), and a second query to fetch
+    // them would reintroduce the unbounded read this replaced.
+    const openDatedInvoices = openInvoices.filter(
+      (inv) => inv.dueDate !== null && inv.dueDate !== undefined,
+    );
+
     // ── Due in the period ─────────────────────────────────────────────────────
-    // `openDatedInvoices` is the audited read filtered to open statuses
-    // (unpaid / partial / overdue) with a due date, so `paid` and `void` are
-    // already gone. What remains is netted off payments per invoice and then
-    // windowed on `due_date` — the three things the previous line skipped: it
-    // summed `total` (ignoring every payment), ignored both dates, and counted
-    // the voided INV-000105.
+    // The open set was filtered to open statuses (unpaid / partial / overdue) in
+    // SQL, so `paid` and `void` are already gone; `openDatedInvoices` then drops
+    // the undated ones in JS so this measure and the overdue measure below share
+    // one definition of "has a deadline". What remains is netted off payments per
+    // invoice and then windowed on `due_date` — the three things the previous
+    // line skipped: it summed `total` (ignoring every payment), ignored both
+    // dates, and counted the voided INV-000105.
     const dueForPeriod = openDatedInvoices.reduce((sum, inv) => {
       if (!isWithinPeriod(readDay(inv.dueDate), periodStart, periodEnd)) return sum;
       return paiseAdd(sum, outstandingOn(inv, paidByInv));
@@ -273,11 +363,29 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     );
 
     // ── paymentBreakdown, per student ───────────────────────────────────────
+    //
+    // Built from the OPEN set only. The old loop walked every invoice ever
+    // issued and discarded the closed ones a row at a time, which is the O(All
+    // invoices) read this route no longer makes.
+    //
+    // `noDues` is therefore now "active student holding no OPEN invoice" rather
+    // than "active student who has never been invoiced" — the two differ only
+    // for a student whose every invoice is `paid` or `void`, and for those the
+    // new definition is the one the field's name describes (no dues = nothing
+    // owed), not a regression. Answering the old question exactly would require
+    // an anti-join the audited builder does not express (`__tests__/
+    // sql-range-operators.test.ts` pins the operator vocabulary), or a second
+    // all-time read — which is the cost being removed. The documented invariant
+    // is preserved and is what the dashboard asserts: `noDues ⊆ paid`, because a
+    // student with no open invoice always has nothing outstanding.
     const openByStudent = new Map<string, Row[]>();
-    const invoiceCountByStudent = new Map<string, number>();
-    for (const inv of invoices) {
+    const openInvoiceCountByStudent = new Map<string, number>();
+    for (const inv of openInvoices) {
       const sid = String(inv.studentId);
-      invoiceCountByStudent.set(sid, (invoiceCountByStudent.get(sid) ?? 0) + 1);
+      openInvoiceCountByStudent.set(sid, (openInvoiceCountByStudent.get(sid) ?? 0) + 1);
+      // The read already filtered to the open statuses. Kept as a belt-and-
+      // braces guard so a future drift between this loop and the read's
+      // `OPEN_INVOICE_STATUSES` list cannot start counting a voided invoice.
       if (isOpenInvoice(inv)) {
         const list = openByStudent.get(sid);
         if (list) list.push(inv);
@@ -288,7 +396,7 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     for (const s of activeStudents) {
       const sid = String(s.id);
       paymentBreakdown[paymentState(openByStudent.get(sid) ?? [], paidByInv)] += 1;
-      if ((invoiceCountByStudent.get(sid) ?? 0) === 0) paymentBreakdown.noDues += 1;
+      if ((openInvoiceCountByStudent.get(sid) ?? 0) === 0) paymentBreakdown.noDues += 1;
     }
 
     const kpis = {

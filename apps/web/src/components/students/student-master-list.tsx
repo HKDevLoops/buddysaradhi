@@ -25,6 +25,18 @@
 // due / credit / no-dues. The three inline chips and the `Math.abs` on the credit
 // figure that used to live here are gone: absolutising a signed balance erases the
 // difference between "owes" and "in credit".
+//
+// SUBSCRIBE TO THE SLICE, NOT TO THE STORE. This file used to call
+// `useStudentsStore()` with no selector, which under Zustand v5 re-renders the
+// subscriber on EVERY store write — and this is the component that renders one
+// button per student, each rebuilding an `aria-label` containing one or two
+// `formatINR` calls. So every unrelated write (the pager, `setPageSize`, the Add
+// Student sheet opening, a bulk-selection toggle) re-rendered all fifty rows and
+// re-ran all of that formatting to produce identical strings. The selectors below
+// are one field each, so the snapshot IS the field: `s => ({ a: s.a })` would
+// return a new object on every call and, under `useSyncExternalStore`, never
+// compare equal — the infinite-render trap. The store replaces `filters` by
+// reference on write, so identity is already the real change signal.
 
 import { useStudentsStore } from "@/stores/students-store";
 import { formatINR, paiseSub, type StudentListRow } from "@buddysaradhi/shared";
@@ -70,14 +82,13 @@ function narrowingLabel(
 }
 
 export function StudentMasterList({ students, isLoading }: StudentMasterListProps) {
-  const {
-    openDrawer,
-    openAddSheet,
-    searchQuery,
-    setSearchQuery,
-    filters,
-    setFilters,
-  } = useStudentsStore();
+  /* One selector per field read — see the header. */
+  const openDrawer = useStudentsStore((s) => s.openDrawer);
+  const openAddSheet = useStudentsStore((s) => s.openAddSheet);
+  const searchQuery = useStudentsStore((s) => s.searchQuery);
+  const setSearchQuery = useStudentsStore((s) => s.setSearchQuery);
+  const filters = useStudentsStore((s) => s.filters);
+  const setFilters = useStudentsStore((s) => s.setFilters);
   const selectedStudentId = useStudentsStore((s) => s.selectedStudentId);
 
   if (isLoading) {

@@ -20,6 +20,41 @@
 // a wasted read at one instant a month, never a wrong figure — the screen reads
 // its data from the key it asked for.
 //
+// WHY THE ANALYTICS LEG IS HERE AND NOT LEFT TO THE BROWSER. The Dashboard
+// renders `DashboardAnalyticsSection` (dashboard-client.tsx), whose `useQuery`
+// key is `["dashboard","analytics", periodMonths, batch, status]`
+// (components/buddysaradhi/dashboard-analytics.tsx:301). Until this route
+// prefetched it, the screen shipped in TWO WAVES: the server sent the KPI strip,
+// the Due Today page and the Activity feed, and then the browser mounted the
+// analytics section and issued the whole analytics read itself — a fan-out of
+// roughly twenty gateway legs (six aggregate legs plus one heatmap leg per day in
+// the window). So the tutor saw a complete-looking dashboard with the heaviest
+// read still in flight, and the section's own skeleton sat under a finished
+// screen. Prefetching it here moves that fan-out into the request that was
+// already happening and lets the browser read the dehydrated value.
+//
+// THE ANALYTICS KEY IS NOT TIME-DERIVED, which is what makes this safe. The
+// analytics section keeps its own `useState` defaults — `6` months, batch `"all"`,
+// status `"all"` — and none of them is a function of today, so unlike `period`
+// this key is stable across the server/client boundary and a hydrated query is
+// one the browser actually reads. Those three values MUST stay equal to the
+// section's three `useState` initialisers; a mismatch would hydrate a cache
+// nothing reads and reintroduce exactly the double-fetch this removes.
+// `page.test.tsx` pins the key's shape, and the initialisers are cited at the
+// constant below.
+//
+// `retry: false` is the `ScreenQuery.retry` case documented in `screen-data.tsx`:
+// the server has already made this read, and its failure is dropped from the
+// dehydrated state, so the browser issues the very same query on mount anyway.
+// The app-wide policy is two retries, and on a ~20-leg fan-out that multiplies a
+// screen's time-to-error by the whole backoff for a result that is going to be
+// discarded. (The summary leg above keeps the default policy — changing that is a
+// separate decision about that read, not part of adding this one.)
+//
+// `getDashboardAnalytics` is `React cache`-memoised per request
+// (server/queries/dashboard-analytics.ts:318), so this adds ONE server-side read
+// and cannot fan out twice inside one request.
+//
 // The `queryFn` is the client's own, including its `throw` on `{ ok: false }`. A
 // prefetch that resolved the refusal envelope instead would hydrate a value shape
 // the screen cannot read, and the screen would ignore perfectly good server work.
@@ -27,8 +62,21 @@
 import type { Metadata } from "next";
 import { ScreenData } from "../screen-data";
 import { DashboardClient } from "@/components/buddysaradhi/dashboard-client";
-import { fetchDashboardSummaryAction } from "@/server/actions/dashboard";
+import {
+  fetchDashboardSummaryAction,
+  fetchDashboardAnalyticsAction,
+} from "@/server/actions/dashboard";
 import { defaultDashboardPeriod } from "@/lib/dashboard-period";
+
+/**
+ * The analytics section's OWN initial filter state, quoted from
+ * `DashboardAnalyticsSection`'s three `useState` initialisers
+ * (components/buddysaradhi/dashboard-analytics.tsx:295-297). Duplicated as
+ * literals rather than imported because that module is a Client Component and
+ * importing it into a Server Component route would pull the whole 41KB section
+ * into the server bundle to read three numbers.
+ */
+const ANALYTICS_DEFAULTS = { periodMonths: 6, batch: "all", status: "all" } as const;
 
 // The route's own title, in the HTML. `GlassShell` also sets `document.title`
 // from the active screen once the institute name is known, which is richer — but
@@ -52,6 +100,21 @@ export default async function DashboardPage() {
             if (!res.ok) throw new Error(res.error);
             return res.value;
           },
+        },
+        {
+          queryKey: [
+            "dashboard",
+            "analytics",
+            ANALYTICS_DEFAULTS.periodMonths,
+            ANALYTICS_DEFAULTS.batch,
+            ANALYTICS_DEFAULTS.status,
+          ],
+          queryFn: async () => {
+            const res = await fetchDashboardAnalyticsAction({ ...ANALYTICS_DEFAULTS });
+            if (!res.ok) throw new Error(res.error);
+            return res.value;
+          },
+          retry: false,
         },
       ]}
     >

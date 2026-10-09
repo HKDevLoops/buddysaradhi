@@ -37,6 +37,16 @@
 // `More roster actions` was deleted rather than filled in: nothing anywhere in the app
 // defines a second roster action, and inventing menu items is orphan UI (AGENTS.md §0.2).
 //
+// SUBSCRIBE TO THE SLICE, NOT TO THE STORE. This file used to call
+// `useStudentsStore()` with no selector, so under Zustand v5 every store write
+// re-rendered the whole toolbar — the combobox, the status popover and the sort
+// pair — including writes that change nothing any of them read (`setPage` from
+// the pager, `setPageSize`, `openAddSheet`, `selectedStudentId` from opening a
+// drawer). One field per selector, so each snapshot is the field itself: a
+// multi-field `s => ({ a: s.a, b: s.b })` returns a new object every call and,
+// under `useSyncExternalStore`, never compares equal — the infinite-render trap
+// `useShallow` exists to cover. Single-field selectors have no such hazard.
+//
 // DELETED — the "N selected" indicator that used to sit here. `toggleBulkSelect` had zero
 // callers, so the count could never leave zero, and no bulk action exists anywhere: the
 // gateway exposes only POST / PATCH / DELETE on a single student id
@@ -197,15 +207,14 @@ export function rosterCsv(rows: StudentListRow[]): string {
 }
 
 export function StudentsToolbar() {
-  const {
-    searchQuery,
-    setSearchQuery,
-    filters,
-    setFilters,
-    openDrawer,
-    sort,
-    setSort,
-  } = useStudentsStore();
+  /* One selector per field read — see the header. */
+  const searchQuery = useStudentsStore((s) => s.searchQuery);
+  const setSearchQuery = useStudentsStore((s) => s.setSearchQuery);
+  const filters = useStudentsStore((s) => s.filters);
+  const setFilters = useStudentsStore((s) => s.setFilters);
+  const openDrawer = useStudentsStore((s) => s.openDrawer);
+  const sort = useStudentsStore((s) => s.sort);
+  const setSort = useStudentsStore((s) => s.setSort);
   const { candidates, isLoading, error } = useSearchCandidates();
   const toast = useToast();
   const toastRef = useRef(toast);
@@ -380,6 +389,26 @@ export function StudentsToolbar() {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex-1 min-w-[180px]">
+          {/* `value`/`onValueChange` are wired straight to the store on purpose,
+              and the per-keystroke re-render this screen used to suffer is
+              ALREADY solved one level down, not here. `StudentSearchBox` keeps
+              the typed text in its own local `draft` state and only calls
+              `onValueChange` after `QUERY_DEBOUNCE_MS` (120ms) of quiet
+              (`components/search/student-search-box.tsx:19, 112-133`), so
+              `setSearchQuery` fires at most once per idle window, never per
+              keystroke.
+
+              Adding a second debounce in this toolbar would be a double debounce:
+              it would add up to 240ms of lag to every search and to the clear
+              path, for no reduction in store writes, because the write this
+              component would be delaying is already delayed. It would also break
+              the external-value sync the box performs on its `value` prop
+              (`student-search-box.tsx:119-124`), which is what lets
+              `StudentMasterList`'s "Clear search and filters" button — which
+              writes the store directly — drive the field back to empty.
+
+              The keystroke cost that remained is not the store write, it was the
+              whole-store subscription, and that is what the selectors above fix. */}
           <StudentSearchBox
             label="Search students"
             value={searchQuery}
