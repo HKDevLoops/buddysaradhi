@@ -19,6 +19,19 @@ apps/product-page/.env.local
 
 # Dependencies
 node_modules/
+
+# ReasoningBank / AgentDB — isolated dev tooling (tools/reasoningbank).
+# The STORE holds learned trajectories and their embeddings. It is derived data,
+# never source: it is machine-local, regenerable, and must not be committed or
+# published. See tools/reasoningbank/package.json for the isolation contract and
+# .planning/ROADMAP.md Phase 2 for the supply-chain review this install inherits.
+.agentdb/
+*.agentdb
+tools/reasoningbank/*.db
+tools/reasoningbank/*.db-journal
+tools/reasoningbank/*.db-wal
+tools/reasoningbank/*.db-shm
+tools/reasoningbank/store/
 .pnpm-store/
 
 # Build outputs

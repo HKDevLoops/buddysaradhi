@@ -1,0 +1,64 @@
+{
+  "name": "buddysaradhi-reasoningbank",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated ReasoningBank vector store for agent trajectory learning. Deliberately OUTSIDE the pnpm workspace.",
+  "//": [
+    "ISOLATION CONTRACT — read before adding a dependency here.",
+    "This package is NOT a member of the pnpm workspace (pnpm-workspace.yaml lists only",
+    "apps/*, apps/services/*, apps/gateway, packages/*). That is deliberate: it keeps",
+    "this tree out of the root lockfile, out of apps/* dependency resolution, and out of",
+    "every product bundle. See .planning/ROADMAP.md and worklog.md entry REASONINGBANK-01.",
+    "",
+    "Constraints inherited from AGENTS.md:",
+    "  Rule 2 — no network calls that process user data. Embeddings run LOCALLY via",
+    "           @xenova/transformers. No query text is sent to any provider.",
+    "  Rule 3 — no telemetry/analytics SDK. Nothing here phones home.",
+    "  Rule 11 — one directory, one deployment target. Nothing here is deployed.",
+    "",
+    "WHY agentdb IS PINNED EXACTLY TO 1.6.1:",
+    "  agentic-flow@2.1.4 declares agentdb as an EXACT pin on 3.0.0-alpha.20 (no caret,",
+    "  no range). Installing agentic-flow therefore forces the alpha, and its tree drags",
+    "  in express, gun, axios, http-proxy-middleware, @supabase/supabase-js,",
+    "  @anthropic-ai/sdk and @google/genai — two HTTP servers, an HTTP proxy and three",
+    "  external AI-API clients. That is the exact shape AGENTS.md Rule 2 and Rule 3",
+    "  forbid, in a repo that carefully scopes Supabase credentials.",
+    "",
+    "  Overriding agentdb back to 1.6.1 under agentic-flow would be a TWO-MAJOR jump",
+    "  across an alpha API. A forced override across a major gap is the class of change",
+    "  that appears to work and fails silently later, so it was rejected.",
+    "",
+    "WHAT THIS WINS: agentdb@1.6.1 ships ReasoningBank NATIVELY, so nothing from",
+    "  agentic-flow was needed. Verified exports include ReasoningBank, HNSWIndex,",
+    "  WASMVectorSearch, EmbeddingService, ContextSynthesizer, MMRDiversityRanker,",
+    "  ExplainableRecall, ReflexionMemory, SkillLibrary, LearningSystem and CausalRecall",
+    "  — trajectory storage, verdict retrieval, context synthesis, diversity ranking",
+    "  and memory optimisation all exist here. Verified 7/7 by scripts/smoke.mjs.",
+    "",
+    "  NOTE the API shape differs from the one the ReasoningBank skill documents.",
+    "  The skill describes the agentic-flow adapter (createAgentDBAdapter,",
+    "  pattern_data, type/domain, retrieveWithReasoning). agentdb's own controller is",
+    "  flatter: constructor(db, embedder) where embedder exposes .embed(text),",
+    "  storePattern({ taskType, approach, successRate, uses, avgReward, tags, metadata })",
+    "  and searchPatterns({ taskEmbedding, k, threshold, filters }). storePattern embeds",
+    "  `${taskType}: ${approach}` itself. scripts/smoke.mjs was written against the real",
+    "  source rather than the skill's documented shape, which does not match it."
+  ],
+  "scripts": {
+    "stats": "node ./scripts/stats.mjs",
+    "smoke": "node ./scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "agentdb": "1.6.1"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "allowScripts": {
+    "hnswlib-node@3.0.0": true,
+    "better-sqlite3@11.10.0": true,
+    "sharp@0.32.6": true,
+    "protobufjs@6.11.6": true
+  }
+}

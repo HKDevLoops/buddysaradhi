@@ -2695,3 +2695,85 @@ Stage Summary:
   action only the owner can perform; `report-svc` work sits outside the WEB
   In-Flight boundary and needs an RFC rather than an edit.
 Next agent: /gsd-plan-phase 1
+
+---
+
+Task ID: REASONINGBANK-01  Agent: tooling-setup  Task: Install the ReasoningBank
+/ AgentDB adaptive-learning store as ISOLATED, dev-only tooling with LOCAL
+embeddings, under AGENTS.md §18.3(g) stop-and-ask.
+
+Work Log:
+
+DECISION PATH. The skill was invoked; nothing was installed until the constitution
+was checked first. Four findings changed what got installed.
+
+1. THE ENFORCEMENT AGENTS.md PROMISES DOES NOT EXIST. §2 Rule 3 states telemetry
+   deps are "Enforced: Dependency lint `no-telemetry-deps.py` rejects PRs that add
+   `sentry`, `mixpanel`, etc." No such lint exists. `scripts/principle-lints.ts`
+   exists and runs 7 rules, and grepping it for telemetry|analytics|sentry|
+   mixpanel|beacon returns NOTHING. Rule 3 is currently prose with no enforcement,
+   so nothing would have stopped a telemetry SDK entering the bundle — including
+   via this very install. Recorded as a real gap; NOT silently fixed, because
+   extending the principle lints is a separate change from this one.
+
+2. `agentic-flow@2.1.4` DECLARES agentdb AS AN EXACT PIN ON AN ALPHA —
+   `"agentdb": "3.0.0-alpha.20"`, no caret, no range. So installing agentic-flow
+   forces the alpha, and its tree drags in express, gun, axios,
+   http-proxy-middleware, @supabase/supabase-js, @anthropic-ai/sdk,
+   @anthropic-ai/claude-agent-sdk and @google/genai. Two HTTP servers, an HTTP
+   proxy and three external AI-API clients — the exact shape Rule 2 and Rule 3
+   forbid, in a repo that carefully scopes Supabase credentials.
+   Overriding back to stable would be a TWO-MAJOR jump across an alpha API: the
+   class of change that appears to work and fails silently later. Rejected.
+
+3. agentdb@1.6.1 (STABLE) IS SMALLER AND STRICTLY BETTER HERE. 1.5 MB, deps
+   `zod · chalk · sql.js · commander · hnswlib-node · @xenova/transformers ·
+   @modelcontextprotocol/sdk`. No servers, no external AI SDKs.
+   AND IT WAS NOT A CAPABILITY LOSS: 1.6.1 ships `ReasoningBank` NATIVELY, so
+   nothing from agentic-flow was ever needed. Verified exports include HNSWIndex,
+   WASMVectorSearch, EmbeddingService, ContextSynthesizer, MMRDiversityRanker,
+   ExplainableRecall, ReflexionMemory, SkillLibrary, LearningSystem, CausalRecall.
+   This corrected an earlier note written into package.json that claimed the
+   ReasoningBank API was unavailable; that note was false and was replaced rather
+   than left to mislead the next agent.
+
+4. ISOLATION IS STRUCTURAL, NOT PROMISED. `tools/` is not a member of
+   pnpm-workspace.yaml (which lists only apps/*, apps/services/*, apps/gateway,
+   packages/*), so this tree keeps its own package.json AND its own lockfile.
+   Verified after install: root pnpm-lock.yaml hash byte-identical before and
+   after (428024CC…), zero git-dirty files outside tools/, no workspace package
+   referencing agentdb, no product source importing it, and only 4 files staged
+   (node_modules correctly excluded).
+
+5. TWO INSTALL FAILURES FOUND BY TESTING RATHER THAN ASSUMING. The first install
+   was NON-FUNCTIONAL: npm blocks native build scripts, so `hnswlib-node` never
+   built and `agentdb` threw `this.db.exec is not a function` at import. An
+   install that cannot load is not an install. Approved the scripts and rebuilt.
+   Then the smoke test failed twice more on MY assertions, not the code: the
+   documented API shape is the agentic-flow adapter's, not agentdb's — the real
+   constructor is `(db, embedder)`, `storePattern` takes
+   `{taskType, approach, successRate, uses, avgReward, tags, metadata}`, embeds
+   `${taskType}: ${approach}` itself, and `searchPatterns` returns camelCase
+   `taskType` with a `similarity`. Read from source, not trial and error. A third
+   failure asserted ~1.0 similarity on a PARAPHRASE query and got 0.717 — which is
+   CORRECT for a hashed bag-of-words embedder. Conflating paraphrase-rank and
+   exact-match into one assertion would have hidden that, so the test now asserts
+   both separately: paraphrase ranks correctly at ~0.72, exact scores 1.0000.
+
+VERIFIED WORKING: 7/7 smoke checks — constructor, store x2, retrieval, paraphrase
+ranking, exact-match ranking, stats, payload round-trip. Embeddings are LOCAL
+(deterministic hashed bag-of-words, 128-dim); the smoke test makes no network call
+and needs no API key. Gates unaffected: typecheck clean, principle-lints 7/7,
+gateway 641/39.
+
+Stage Summary:
+- State: COMPLETED
+- Files: tools/reasoningbank/{package.json, package-lock.json, README.md,
+  scripts/smoke.mjs} + .gitignore rules for .agentdb/ and *.db.
+- Not approved for: use inside any workspace package, any hosted embedding
+  provider, or anything that ships. Recorded in README.md and package.json.
+- Open, inherited: this install joins the Phase 2 supply-chain review
+  (.planning/ROADMAP.md) with CI action pinning and credential hygiene.
+- Open, separate: the missing Rule 3 telemetry-dep guard (finding 1) — not fixed
+  here because it is a different change to principle-lints.ts.
+Next agent: Phase 2 supply-chain review; or fix the missing Rule 3 guard.
