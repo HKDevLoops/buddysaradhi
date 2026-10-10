@@ -2607,3 +2607,91 @@ Stage Summary:
   can sign in as the QA tenant. Not a production secret, but worth moving to CI
   secrets.
 Next agent: ledger-table avatar consistency, then the RFC items above.
+
+---
+
+Task ID: GSD-INTEGRATION-01  Agent: gsd-setup  Task: Integrate the GSD new-project
+method with the existing 27-file markdown spec corpus, and link every artifact to
+those spec files.
+
+Work Log:
+
+Context. The repo shipped with NO `.planning/` directory: `smart-entry` reported
+`no-project`, and `init.phase-op` reported `roadmap_exists: false`. The risk raised
+and accepted was that GSD's `.planning/` tree becomes a SECOND source of truth
+sitting beside `AGENTS.md` and the numbered corpus. That risk was contained by
+construction rather than merely noted.
+
+1. AGENTS.md IS SAFE — VERIFIED, NOT ASSUMED. On this runtime
+   (`--runtime kilo`) GSD's project instruction file resolves to `AGENTS.md`, and
+   the workflow's step 8 regenerates it. `AGENTS.md` here is 133,707 characters of
+   ratified constitution carrying no GSD markers, so overwriting it would have been
+   a §8 trigger #6 violation performed by a tool rather than by an agent.
+   Empirically probed before creating anything: `generate-claude-md` writes a
+   15,565-char file to a temp target, and against a dummy file carrying a sentinel
+   it returned `"action": "skipped"`, the sentinel survived, and no GSD markers were
+   written. The generator skips hand-crafted files, as documented. `AGENTS.md` was
+   re-measured afterwards: 133,707 chars, `git status` clean. NEVER pass `--force`
+   against it.
+
+2. CONFIG — the integration is enforced by settings, not by convention.
+   `mode: interactive` (AGENTS.md demands gates); `parallelization: false`
+   (AGENTS.md §9.2.1 permits exactly one in-flight task, and builds share
+   `apps/web/.next` so parallel builds corrupt each other); `research: false` —
+   the domain research is already done AND RATIFIED (132 `BR-*` rules across 13
+   families, 13 `EC-*` families), so spawning generic domain researchers would
+   duplicate ratified content and risk contradicting it; `model_profile: inherit`
+   (non-Claude runtime, a tier alias would not resolve).
+   THE ONE THAT DOES THE WORK: `plan_review.source_grounding: true` — a plan that
+   cannot cite the corpus does not ship. Plus a `spec_corpus` block recording that
+   spec text must never be restated.
+
+3. ARTIFACTS — all five written, each an index over the corpus rather than a
+   parallel description.
+   - PROJECT.md — core value, stack, the 11 non-negotiables summarised, and an
+     explicit integration contract table mapping each concern to its canonical home.
+   - REQUIREMENTS.md — 11 requirements, every one carrying a `## Spec:` anchor to a
+     real verified section. All are observed findings from this session's audit, not
+     hypotheticals. Out-of-Scope records that RFC 009/010 are PARKED, not ratified.
+   - ROADMAP.md — 6 phases, each with an explicit `**Spec files:**` list, an
+     ordering rationale, observable success criteria, and `AGENTS.md` §8 gate flags.
+     Phase 1 is first because the three duplicate spec numbers block the three
+     deferred specs. Phases 3 and 4 are marked ONE-WAY DOORS: Phase 3 changes key
+     derivation (no migration means existing backups become undecryptable) and
+     Phase 4 touches the data model and admin access model.
+   - STATE.md — frontmatter plus a protected-files section and a gate-flags table.
+
+4. EVERY SPEC LINK VERIFIED. Extracted every `*.md` / `*.ts` / `*.tsx` path cited
+   across `.planning/*.md` and tested each on disk: **27 cited, 27 exist, 0
+   missing.** A link to a file that does not exist is worse than no link, so this is
+   asserted rather than trusted.
+
+5. TWO SELF-INFLICTED DEFECTS FOUND AND FIXED, NOT PAPERED OVER.
+   a. `smart-entry` reported `situation: blocked` with one blocker — the blocker was
+      my OWN prose. GSD's parser scrapes the `## Blockers` heading for entries, and
+      the sentence "**None blocking** `/gsd-plan-phase 1`…" was read back as a
+      genuine blocker. Rewrote the section to be parser-safe and recorded why in the
+      file, so the next agent does not "helpfully" restore the prose.
+   b. `situation` stayed `unknown` across two frontmatter guesses (`initialized`,
+      `needs-first-phase`) because the situation literals are not in gsd-tools.cjs
+      and the heuristic is not readable from outside. `planning` is recognised.
+      Rather than keep guessing, confirmed the value against a passing assertion
+      (the situation string) instead of by inspection.
+
+6. STATE VERIFIED END TO END. `roadmap.get-phase` returns `found: true` with the
+   correct name and goal for all 6 phases. `smart-entry` reports
+   "Phase 1 of 6 — needs a plan", `blockers: []`, and recommends `/gsd:plan-phase`.
+
+Stage Summary:
+- State: COMPLETED
+- Files: 5 created under .planning/ (config.json, PROJECT.md, REQUIREMENTS.md,
+  ROADMAP.md, STATE.md).
+- Coverage: 11/11 requirements mapped to 6 phases; 27/27 spec links resolve.
+- Next: `/gsd:plan-phase 1`.
+- Blocked on the owner (NOT blocked for planning — these are execution gates):
+  Phase 1 edits AGENTS.md (§8 #6); Phase 3 changes the crypto envelope (§8 #4,
+  2 reviewers incl. security owner); Phase 4 needs RFC 009/010 ratification.
+- Open, carried from earlier: SEC-TOKEN-02 (Turso rotation) is a provider-side
+  action only the owner can perform; `report-svc` work sits outside the WEB
+  In-Flight boundary and needs an RFC rather than an edit.
+Next agent: /gsd-plan-phase 1
