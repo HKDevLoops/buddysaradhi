@@ -1,9 +1,30 @@
 # .github/workflows/reviewer.yml
 # Implements: deployment/05_CI_CD_GitHub_Actions.md §2 — reviewer agent
+#
+# ── Why this runs on `pull_request`, not `pull_request_target` ──────────────
+# This was `pull_request_target`, and it was the ONLY workflow in the repo using
+# that trigger. That is the trigger GitHub runs in the BASE repository's context
+# WITH repository secrets and a write token, for any pull request anyone can
+# open — including one from a fork. Combined with a third-party action, a fork PR
+# is a path to reading this repo's secrets. `pull_request_target` is only safe
+# when the workflow never executes untrusted code; here the whole point of the job
+# is to analyse a contributor's diff.
+#
+# Every other workflow in `.github/workflows/` (`lint`, `test`, `web-prod-gate`,
+# `security`, `supabase-ci`) already uses `pull_request`. This was the outlier, and
+# it was the outlier with the largest secret surface.
+#
+# Trade-off, stated plainly: a FORK pull request now receives a read-only token
+# and no secrets, so CodeRabbit cannot authenticate for fork contributors and that
+# run will fail rather than silently reviewing nothing. Same-repository branches —
+# every normal contributor path — are unaffected and keep full access. Failing
+# closed on untrusted input is the intent; see 23_Security_Harness_Plan.md §5.1
+# (the supply-chain gate) and §5.2 (secrets are never exposed to uncontrolled
+# code paths).
 name: reviewer-agent
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 concurrency:
@@ -23,9 +44,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: CodeRabbit AI PR Reviewer
+        # `@latest` is a FLOATING TAG: the code that runs — and that reads the env
+        # block below — is whatever the publisher pushed at execution time, with no
+        # review of the change. 23_Security_Harness_Plan.md §5 treats the action and
+        # dependency surface as a supply-chain boundary, and the rest of this repo
+        # pins by major (`@v2`, `@v4`, `@v8`). Pin this to a commit SHA, or at
+        # minimum a released tag, before merging anything sensitive.
         uses: coderabbitai/ai-pr-reviewer@latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # VERIFY: CodeRabbit authenticates with GITHUB_TOKEN. If you are not
+          # deliberately using CodeRabbit's BYOK OpenAI path, delete this line —
+          # it is a second, unnecessary credential in the env of third-party code.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
           debug: false
