@@ -43,7 +43,7 @@
 // TEST 3 — ONE ₹1 PAYMENT, THEN VOIDED THROUGH THE UI. Records exactly one
 //     ₹1 cash payment against the student who actually OWES money (so the payment
 //     credits an existing open invoice instead of auto-invoicing a stray charge),
-//     voids it with a typed reason and `QA_PIN`, and then proves the three facts
+//     voids it with a typed reason and the QA PIN from `qaPin()`, and then proves the three facts
 //     the money depends on:
 //       1. the balance is byte-identical to the value captured before the payment;
 //       2. BOTH rows survive — the payment struck through and marked Voided, and
@@ -75,7 +75,7 @@ import {
   expectVisible,
   gotoScreen,
   login,
-  QA_PIN,
+  qaPin,
 } from "./harness";
 
 const FEES_TABS = [
@@ -546,7 +546,7 @@ test("fees audit 3: a ₹1 payment is voided with a PIN and both rows stay visib
   await expect(confirmVoid, "Confirm is refused with an empty reason and PIN").toBeDisabled();
 
   await dialog.locator("#void-reason").fill(voidReasonText);
-  await dialog.locator("#void-pin").fill(QA_PIN);
+  await dialog.locator("#void-pin").fill(qaPin());
   await expect(confirmVoid, "Confirm enables once reason and PIN are present").toBeEnabled();
   await confirmVoid.click();
 

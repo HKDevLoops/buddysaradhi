@@ -3,7 +3,7 @@
 **Date:** 2026-07-13
 **Tester:** Playwright MCP (manual driver)
 **App:** BuddySaradhi web (`http://localhost:3000`) — Next.js 16 / Tailwind v4
-**Login:** demo creds prefilled on `/login` (email `hkdevloops@gmail.com`, password `hkdevs`)
+**Login:** demo creds prefilled on `/login` (see the `E2E_EMAIL` / `E2E_PASSWORD` environment variables — the credential pair itself was redacted from this report; see `23_Security_Harness_Plan.md` §5.1 STEP 1)
 
 ## Environment
 - Dev server: `bun run dev` on `:3000` (confirmed UP, HTTP 200).

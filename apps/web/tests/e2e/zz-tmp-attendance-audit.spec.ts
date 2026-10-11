@@ -80,7 +80,7 @@ import {
   expectAttached,
   expectVisible,
   login,
-  QA_PIN,
+  qaPin,
 } from "./harness";
 
 /** BR-ATT-02 vocabulary, verbatim. Order is the DOM order of the segments. */
@@ -789,7 +789,7 @@ test.describe("Attendance screen audit", () => {
 
     // The PIN is only ever typed into a field; it is never printed on screen.
     expect(
-      await page.getByText(QA_PIN, { exact: false }).count(),
+      await page.getByText(qaPin(), { exact: false }).count(),
       "the PIN is never echoed on screen",
     ).toBe(0);
 

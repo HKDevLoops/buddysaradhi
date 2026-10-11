@@ -28,6 +28,15 @@ const mockedGatewayGet = vi.mocked(gatewayGet);
 
 const NOW = Date.parse("2026-09-15T12:00:00Z");
 
+/** PERF-ATT-10: a valid but empty range envelope (a window with no sessions). */
+const EMPTY_RANGE = {
+  from: "2026-09-02",
+  to: "2026-09-15",
+  days: [],
+  rosterTotal: 0,
+  rosterTruncated: false,
+};
+
 function dashboardPayload() {
   return {
     kpis: {
@@ -64,7 +73,7 @@ function gatewayFor(fixtures: {
     if (path === "/api/v1/students")
       return { success: true, data: fixtures.students ?? { students: [], total: 0 } };
     if (path === "/api/v1/attendance/batches") return { success: true, data: fixtures.batches ?? [] };
-    if (path === "/api/v1/attendance") return { success: true, data: fixtures.attendance ?? { session: null, records: [] } };
+    if (path === "/api/v1/attendance") return { success: true, data: fixtures.attendance ?? EMPTY_RANGE };
     return { success: false, error: "unknown test path" };
   }) as unknown as typeof gatewayGet);
 }
@@ -280,9 +289,21 @@ describe("getDashboardAnalytics", () => {
         total: 1,
       },
       batches: [{ id: "b-1", name: "Batch A", subject: null }],
+      // PERF-ATT-10: the heatmap reads the RANGE endpoint now, so the fixture is
+      // the range envelope. `to` is the mocked "today" (2026-09-15) and `from` is
+      // 13 days earlier, matching the 14-day heatmap window.
       attendance: {
-        session: { id: "sess-1" },
-        records: [{ student_id: "s-1", name: "Asha", batch: null, status: "present" }],
+        from: "2026-09-02",
+        to: "2026-09-15",
+        days: [
+          {
+            session_date: "2026-09-14",
+            session_id: "sess-1",
+            records: [{ student_id: "s-1", name: "Asha", batch: null, status: "present" }],
+          },
+        ],
+        rosterTotal: 1,
+        rosterTruncated: false,
       },
     });
 

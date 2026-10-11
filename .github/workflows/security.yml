@@ -19,26 +19,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
-      # gitleaks-action@v2 requires a commercial GITLEAKS_LICENSE for org repos.
-      # We run it with continue-on-error so CI doesn't block when the license
-      # secret is not yet configured. Add GITLEAKS_LICENSE to repo secrets to
-      # promote this to a hard gate.
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      # CI-SUPPLY-05 / SEC-CRED-06 — this was `gitleaks-action@v2` with
+      # `continue-on-error: true`, i.e. a scan nobody was blocked by: it printed
+      # findings and CI went green anyway. An advisory secret scan is a comment.
+      #
+      # It is now the OpenGITLEAKS CLI installed directly, matching the OSV job
+      # below (same rationale: the Docker/action wrappers have had versioning and
+      # licensing problems — this one needs a commercial GITLEAKS_LICENSE on org
+      # repos, which is why it was advisory in the first place). The CLI needs no
+      # licence and no token, so the step below has NO secrets at all.
+      #
+      # `--redact` is mandatory, not a preference: without it gitleaks prints the
+      # detected secret into the job log, leaking the credential a second time to
+      # an audience with wider access than the file it was found in.
+      - name: Install Gitleaks
+        run: |
+          # Pinned by SHA256, not just by tag. This PR exists to pin CI to
+          # immutable references (CI-SUPPLY-05); downloading a binary from a
+          # mutable release tag with `curl | tar` would undercut that in the very
+          # step that feeds the gate. A tag can be moved; this digest cannot.
+          # Verified independently against gitleaks' published checksums file.
+          set -euo pipefail
+          VERSION=8.30.1
+          SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xz -C /usr/local/bin gitleaks < /tmp/gitleaks.tar.gz
+          rm -f /tmp/gitleaks.tar.gz
+          chmod +x /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Run Gitleaks (hard gate)
+        run: |
+          gitleaks git \
+            --config .gitleaks.toml \
+            --redact \
+            --verbose .
+      # NOTE: deliberately NO `continue-on-error` and NO GITHUB_TOKEN here.
+      # A finding fails the job. That is the whole point of the change, and it
+      # matches AGENTS.md §2 Rule 9 — a scan that reports and passes is worse than
+      # no scan, because it reads as coverage that does not exist.
 
   semgrep:
     name: SAST Scan (Semgrep)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       # Run only our project-specific custom rules to avoid network calls
       # to the Semgrep registry (which require an account for some rulesets).
       - name: Run Semgrep with Custom Rules
@@ -52,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       # Install OSV-Scanner CLI directly for reliable cross-platform use.
       # The github action wrapper has had versioning issues; direct binary is stable.
       - name: Install OSV-Scanner
@@ -69,18 +99,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
         with:
           version: 11.15.0
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: 22
           cache: pnpm
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
           bun-version: 1.3.4
       - name: Install dependencies
@@ -94,9 +124,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: 22
       # --package-only was removed in cyclonedx-npm v6. Omit to use defaults.
@@ -110,7 +140,7 @@ jobs:
         continue-on-error: true
       - name: Upload SBOM Artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: cyclonedx-sbom
           path: sbom/

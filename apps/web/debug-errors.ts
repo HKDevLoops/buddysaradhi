@@ -20,12 +20,26 @@ page.on("console", (m) => {
   if (m.type() === "error") consoleErrors.push(m.text());
 });
 
+// Implements: 23_Security_Harness_Plan.md §5.1 STEP 1 — a credential must never
+// be committed. This ad-hoc driver used to carry a literal email + password.
+// It now reads the same E2E_EMAIL / E2E_PASSWORD pair as the Playwright suite
+// and refuses to run without them, rather than falling back to a value that
+// would end up in git history again.
+const EMAIL = process.env.E2E_EMAIL;
+const PASSWORD = process.env.E2E_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  throw new Error(
+    "debug-errors requires E2E_EMAIL and E2E_PASSWORD in the environment (apps/web/.env.local or the shell). " +
+      "It carries no built-in credential and will not fall back to one.",
+  );
+}
+
 await page.goto("http://localhost:3000/login", { waitUntil: "domcontentloaded" });
 const signIn = page.getByRole("button", { name: /^Sign In$/i });
 await signIn.waitFor({ state: "visible", timeout: 15000 });
 await page.waitForTimeout(800);
-await fillField(page, "Email", "hkdevloops@gmail.com");
-await fillField(page, "Password", "hkdevs");
+await fillField(page, "Email", EMAIL);
+await fillField(page, "Password", PASSWORD);
 await signIn.click();
 await page.waitForURL("**/dashboard", { timeout: 20000 });
 await page.waitForTimeout(2000);

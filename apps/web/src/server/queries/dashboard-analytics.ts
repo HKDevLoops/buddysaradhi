@@ -21,7 +21,7 @@
 
 import { cache } from "react";
 import { z } from "zod";
-import { paiseAdd, paiseSub } from "@buddysaradhi/shared";
+import { paiseAdd, paiseSub, PaymentBreakdownSchema } from "@buddysaradhi/shared";
 import { gatewayGet } from "@/server/get-db";
 import {
   QUERY_TIMEOUT_MS,
@@ -51,13 +51,12 @@ const DashboardKpisSchema = z.object({
   collectedThisMonthMinor: paiseInt,
   dueTillDateMinor: paiseInt,
   dueForMonthMinor: paiseInt,
-  overdueMinor: paiseInt,
-  paymentBreakdown: z.object({
-    paid: z.number().int().nonnegative(),
-    partial: z.number().int().nonnegative(),
-    unpaid: z.number().int().nonnegative(),
-  
-  }),
+overdueMinor: paiseInt,
+  // RPT-SHAPE-08 — declared once in `@buddysaradhi/shared/paymentBreakdown`.
+  // This was one of two hand-written copies of the identical three-key literal;
+  // see `server/actions/dashboard.ts` for the other. One import now, so a change
+  // to the C6 contract is a change to one file.
+  paymentBreakdown: PaymentBreakdownSchema,
 });
 
 const DashboardSummarySchema = z.object({
@@ -130,10 +129,10 @@ const AttendanceRecordSchema = z.object({
   status: z.enum(["present", "absent", "late"]).nullable().default(null),
 });
 
-const AttendanceDaySchema = z.object({
-  session: z.unknown().nullable().default(null),
-  records: z.array(AttendanceRecordSchema).default([]),
-});
+// PERF-ATT-10: the single-day `AttendanceDaySchema` wrapper was deleted along
+// with the 14 per-day calls that were its only consumer. `AttendanceRecordSchema`
+// above is retained — the range read parses its records with it, so the day and
+// range paths cannot disagree about the status enum.
 
 /* ------------------------------------------------------------------ *
  * Derived view types (all money in integer paise)
@@ -299,15 +298,44 @@ async function readBatches() {
   return z.array(BatchSchema).parse(res.data);
 }
 
-async function readAttendanceDay(dateIso: string, batchId?: string) {
-  const params: Record<string, string> = { date: dateIso };
+/**
+ * PERF-ATT-10 — the heatmap's ONE range read.
+ *
+ * Replaces 14 `readAttendanceDay` calls (one per day), each of which re-read the
+ * roster server-side: 14 roster reads + 14 round trips per dashboard render.
+ * This issues a single `GET /api/v1/attendance?from=&to=` that returns every
+ * session in the window with the roster read once, bounded server-side.
+ *
+ * The response carries `rosterTotal`/`rosterTruncated` so a capped roster is
+ * visible rather than silent (Rule 9) — this mirrors `defaultersTruncated`.
+ */
+const AttendanceRangeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  days: z.array(
+    z.object({
+      session_date: z.string(),
+      session_id: z.string(),
+      // Reused verbatim rather than re-declared: this is the SAME record shape
+      // the single-day path parses, and a second copy of the status enum is
+      // exactly the drift this refactor exists to remove (a widened `string`
+      // would let an unknown status through and render as a wrong heatmap cell).
+      records: z.array(AttendanceRecordSchema),
+    }),
+  ),
+  rosterTotal: z.number().int().nonnegative(),
+  rosterTruncated: z.boolean(),
+});
+
+async function readAttendanceRange(fromIso: string, toIso: string, batchId?: string) {
+  const params: Record<string, string> = { from: fromIso, to: toIso };
   if (batchId) params.batchId = batchId;
   const res = await withQueryTimeout(
     gatewayGet<unknown>("/api/v1/attendance", params),
     QUERY_TIMEOUT_MS,
   );
   if (!res.success) throw new Error(res.error);
-  return AttendanceDaySchema.parse(res.data);
+  return AttendanceRangeSchema.parse(res.data);
 }
 
 /**
@@ -492,39 +520,55 @@ export const getDashboardAnalytics = cache(
     let heatmap: HeatmapCell[] = [];
     let heatmapPartial = false;
     if (heatmapBatch) {
-      const dayLegs = await Promise.allSettled(
-        heatmapDates.map((date) => readAttendanceDay(date, heatmapBatch.id)),
-      );
-      const seenStudents = new Map<string, string>();
-      const cells: HeatmapCell[] = [];
-      dayLegs.forEach((leg, index) => {
-        const date = heatmapDates[index] ?? today;
-        if (leg.status === "rejected") {
+      const rangeStart = heatmapDates[0] ?? today;
+      let range: z.infer<typeof AttendanceRangeSchema> | null = null;
+      try {
+        range = await readAttendanceRange(rangeStart, today, heatmapBatch.id);
+      } catch (err) {
+        heatmapPartial = true;
+        dataPartial = true;
+        log.warn("dashboard_analytics_heatmap_range_failed", toTypedQueryError(err), {
+          from: rangeStart,
+          to: today,
+        });
+      }
+      if (range) {
+        const seenStudents = new Map<string, string>();
+        const cells: HeatmapCell[] = [];
+        for (const day of range.days) {
+          // A session outside the requested window is a server bug, not a tutor
+          // concern; drop it rather than render a cell on a wrong date.
+          if (day.session_date < range.from || day.session_date > range.to) continue;
+          for (const record of day.records) {
+            if (!seenStudents.has(record.student_id) && record.name !== "") {
+              seenStudents.set(record.student_id, record.name);
+            }
+            cells.push({
+              date: day.session_date,
+              studentId: record.student_id,
+              studentName: record.name !== "" ? record.name : "Unnamed student",
+              status: record.status,
+            });
+          }
+        }
+        const orderedIds = Array.from(seenStudents.keys()).slice(0, HEATMAP_MAX_STUDENTS);
+        const kept = new Set(orderedIds);
+        heatmap = cells.filter((cell) => kept.has(cell.studentId));
+        if (seenStudents.size > HEATMAP_MAX_STUDENTS) {
+          heatmapPartial = true;
+          sourceNotes.push(
+            `Attendance heatmap shows the first ${HEATMAP_MAX_STUDENTS} students of ${seenStudents.size}.`,
+          );
+        }
+        // The server caps the roster for the batch. Say so, rather than letting a
+        // clipped heatmap read as "these were the only students" (Rule 9).
+        if (range.rosterTruncated) {
           heatmapPartial = true;
           dataPartial = true;
-          log.warn("dashboard_analytics_heatmap_day_failed", toTypedQueryError(leg.reason), { date });
-          return;
+          sourceNotes.push(
+            `Attendance roster truncated at the server: showing ${range.rosterTotal} students.`,
+          );
         }
-        for (const record of leg.value.records) {
-          if (!seenStudents.has(record.student_id) && record.name !== "") {
-            seenStudents.set(record.student_id, record.name);
-          }
-          cells.push({
-            date,
-            studentId: record.student_id,
-            studentName: record.name !== "" ? record.name : "Unnamed student",
-            status: record.status,
-          });
-        }
-      });
-      const orderedIds = Array.from(seenStudents.keys()).slice(0, HEATMAP_MAX_STUDENTS);
-      const kept = new Set(orderedIds);
-      heatmap = cells.filter((cell) => kept.has(cell.studentId));
-      if (seenStudents.size > HEATMAP_MAX_STUDENTS) {
-        heatmapPartial = true;
-        sourceNotes.push(
-          `Attendance heatmap shows the first ${HEATMAP_MAX_STUDENTS} students of ${seenStudents.size}.`,
-        );
       }
     }
 

@@ -91,6 +91,20 @@ scratch_*.js
 previous_session_back.md
 session-ses_ef88.md
 
+# Full session transcripts dumped at the repo root for an agent to read.
+# `big_rebase.md` was a 45 MB transcript (system prompts, tool JSON, diffs,
+# and — because it embedded the transcript of a gitleaks run — copies of the
+# very findings the scanner reports). It was unreferenced by any code or doc and
+# was sitting UNIGNORED, one `git add -A` away from landing in history. These
+# belong outside the repository entirely, not merely uncommitted.
+big_rebase.md
+sess_prev.md
+sess_*.md
+session_*.md
+session-*.md
+typecheck-out.txt
+test-output.txt
+
 # Agents 
 ./.agent/
 ./.agents/

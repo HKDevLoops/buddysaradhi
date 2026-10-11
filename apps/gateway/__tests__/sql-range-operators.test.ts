@@ -183,6 +183,79 @@ describe("range operators — the vocabulary", () => {
   });
 });
 
+/**
+ * PERF-ATT-10 added `between` so a two-sided window fits in ONE key.
+ *
+ * The risk that addition introduces is specific and worth pinning: `between` is
+ * a second way to write a comparison, so if it were accepted ALONGSIDE the four
+ * one-sided operators it would reopen the hole the single-operator rule closes —
+ * a caller could smuggle a second operator shape past the vocabulary check. These
+ * tests assert it is an ALTERNATIVE, never an addition.
+ */
+describe("between — the one legal two-sided window", () => {
+  it("emits `BETWEEN ? AND ?` and binds BOTH endpoints", () => {
+    const stmt = buildTenantWhere(TENANT, { admissionDate: { between: ["2026-01-05", "2026-01-08"] } });
+    expect(stmt.sql).toBe("tenant_id = ? AND admission_date BETWEEN ? AND ?");
+    expect(stmt.args).toEqual([TENANT, "2026-01-05", "2026-01-08"]);
+  });
+
+  it("binds both endpoints and interpolates neither", () => {
+    const stmt = buildTenantWhere(TENANT, { admissionDate: { between: ["2026-01-05", "2026-01-08"] } });
+    expect(stmt.sql).not.toContain("2026-01-05");
+    expect(stmt.sql).not.toContain("2026-01-08");
+    expect(stmt.args.slice(1)).toEqual(["2026-01-05", "2026-01-08"]);
+  });
+
+  it("executes inclusively against real rows", () => {
+    const stmt = stmtSelectWhere("students", TENANT, { admissionDate: { between: ["2026-01-05", "2026-01-07"] } }, {
+      orderBy: { code: "ASC" },
+      orderAllowed: STUDENT_SORT,
+    });
+    // Both endpoints INCLUDED: 01-05→S-101, 01-06→S-102, 01-07→S-103. The rows
+    // just outside (01-04 S-100, 01-08 S-104) must NOT appear.
+    expect(db.query(stmt.sql, stmt.args).map((r) => String(r.code))).toEqual([
+      "S-101", "S-102", "S-103",
+    ]);
+  });
+
+  it("cannot be combined with another operator on the same column", () => {
+    expect(() =>
+      buildTenantWhere(TENANT, {
+        admissionDate: { between: ["2026-01-01", "2026-12-31"], gte: "2026-01-01" },
+      }),
+    ).toThrow(/unsupported filter operator/);
+  });
+
+  it("cannot smuggle a SQL fragment through an endpoint", () => {
+    for (const bad of [
+      ["2026-01-01' OR 1=1 --", "2026-12-31"],
+      ["2026-01-01", "2026-12-31'); DROP TABLE students; --"],
+      ["1; DELETE FROM students", "2"],
+    ]) {
+      const stmt = buildTenantWhere(TENANT, { admissionDate: { between: bad } });
+      // Whatever the endpoint says, it is a BOUND PARAMETER, so the statement
+      // text is identical for every attempt and no fragment appears in it.
+      expect(stmt.sql).toBe("tenant_id = ? AND admission_date BETWEEN ? AND ?");
+      expect(stmt.args).toEqual([TENANT, bad[0], bad[1]]);
+    }
+  });
+
+  it("rejects a malformed window — not a pair, a float, or an over-long endpoint", () => {
+    expect(() => buildTenantWhere(TENANT, { balancePaise: { between: [1] } })).toThrow();
+    expect(() => buildTenantWhere(TENANT, { balancePaise: { between: [1, 2, 3] } })).toThrow();
+    expect(() => buildTenantWhere(TENANT, { balancePaise: { between: "1-2" } })).toThrow();
+    // Rule 6 still holds through the window form.
+    expect(() => buildTenantWhere(TENANT, { balancePaise: { between: [1.5, 2] } })).toThrow(/BR-M-01/);
+    expect(() =>
+      buildTenantWhere(TENANT, { admissionDate: { between: ["x".repeat(65), "2026-01-01"] } }),
+    ).toThrow();
+  });
+
+  it("rejects an empty window", () => {
+    expect(() => buildTenantWhere(TENANT, { admissionDate: { between: [] } })).toThrow();
+  });
+});
+
 describe("range operators — a caller-supplied operator name CANNOT reach SQL", () => {
   // This is the test the whole seam exists for. Every case is an attempt to get
   // attacker-chosen SQL text into the statement through the filter object.

@@ -50,6 +50,103 @@ const SessionDateSchema = z
   .refine((d) => d <= new Date().toISOString().slice(0, 10), {
     message: "session_date cannot be in the future",
   });
+
+/**
+ * PERF-ATT-10 — the range read (`GET /api/v1/attendance?from=&to=`).
+ *
+ * `YYYY-MM-DD` TEXT. The shape mirrors `session_date`, which sorts
+ * lexicographically (lib/schema.ts:95) — that is what makes `>=`/`<=` on a
+ * date column an exact, index-usable range rather than a string comparison the
+ * caller has to trust.
+ */
+const IsoDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from/to must be YYYY-MM-DD");
+
+/**
+ * The widest window the range read will serve. A bound on the WINDOW, not on the
+ * result size: a 400 here refuses an unbounded query before it reaches SQLite,
+ * where `from=1970-01-01` would otherwise turn one dashboard render into a scan
+ * of the tenant's whole attendance history. 366 days is one calendar year —
+ * wider than any dashboard window (04_Dashboard.md §6.2 tops out at 30 days), so
+ * no real caller is constrained by it.
+ */
+const MAX_RANGE_DAYS = 366;
+
+/**
+ * The roster axis bound (PERF-ATT-10 requirement 2).
+ *
+ * Before this, the roster read had NO bound of any kind and the heatmap ran it 14
+ * times per dashboard render — so a 200-student tutor shipped 14 × 200 rows over
+ * the wire to display at most 30 (dashboard-analytics `HEATMAP_MAX_STUDENTS`).
+ * Two bounds apply, and they are deliberately different in kind:
+ *
+ *   1. BATCH SCOPE — a FILTER, and the primary bound. When `batchId` is supplied
+ *      the roster is narrowed to that batch's enrolled students, which is the
+ *      population the measure is actually defined over. This never under-reports
+ *      the batch, because the batch's members ARE the population.
+ *
+ *   2. `ATTENDANCE_ROSTER_MAX` — a hard ceiling on the batch scope, so a batch
+ *      with 5,000 members still cannot make one dashboard render unbounded. This
+ *      one IS a cap, so it CAN under-report, which is why the response ships
+ *      `rosterTotal` and `rosterTruncated` beside the rows: a truncated roster can
+ *      never masquerade as a complete one (Rule 9 — the same honesty pattern
+ *      `dueTodayTotal` beside a capped `dueToday` uses in analytics.ts).
+ *
+ * The cap sits ABOVE the 30 students the dashboard renders, so for every tenant
+ * this is designed for the cap is invisible and the result is identical to the
+ * uncapped read.
+ */
+const ATTENDANCE_ROSTER_MAX = 200;
+
+interface RosterRead {
+  rows: Array<Record<string, any>>;
+  /** The TRUE population size — before the cap. Never inferred from `rows`. */
+  total: number;
+  truncated: boolean;
+  /** The filter that produced this population, for the audit trail. */
+  scope: "batch" | "active";
+}
+
+/**
+ * The one roster read every attendance GET shares (PERF-ATT-10).
+ *
+ * The single-day and the range path both call this, so the day view and the
+ * heatmap can never disagree about who is markable.
+ *
+ * `archivedAt: null` is load-bearing: BR-ATT-12 / 06 §11 E3-E4 / EC-A-02 all
+ * exclude archived students from the active enrollment roster.
+ */
+async function readAttendanceRoster(
+  orm: ReturnType<typeof createPrismaOrm>,
+  batchId: string | null,
+): Promise<RosterRead> {
+  // Batch scope needs the enrolled ids first — `buildTenantWhere` does not join,
+  // so this is the same two-reads pattern students.ts uses for `batchIds`. An
+  // empty id list renders `1=0`, which is a legitimate empty result, not
+  // "no filter".
+  let batchStudentIds: string[] | null = null;
+  if (batchId) {
+    const enrollments = await orm.studentEnrollment.findMany({ where: { batchId } });
+    batchStudentIds = [...new Set(enrollments.map((e) => String(e.studentId)))];
+  }
+
+  const where: Record<string, unknown> = { status: "active", archivedAt: null };
+  if (batchStudentIds !== null) where.id = { in: batchStudentIds };
+
+  const [rows, total] = await Promise.all([
+    orm.student.findMany({
+      where,
+      orderBy: { firstName: "asc" },
+      take: ATTENDANCE_ROSTER_MAX,
+    }),
+    // The count is over the SAME filter and with no `take`, so `rosterTotal` is
+    // the population and `rows.length` is what we managed to ship. That
+    // difference is the whole honesty contract.
+    orm.student.count({ where }),
+  ]);
+
+  return { rows, total, truncated: total > rows.length, scope: batchId ? "batch" : "active" };
+}
+
 const AttendanceMarkSchema = z.object({
   session_date: SessionDateSchema,
   batch_id: z.string().uuid().nullable().optional(),
@@ -91,22 +188,119 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
   if (path === "/api/v1/attendance" && method === "GET") {
     const date = sp.get("date") ?? new Date().toISOString().slice(0, 10);
     const batchId = sp.get("batchId");
+    const from = sp.get("from");
+    const to = sp.get("to");
+
+    // ── PERF-ATT-10: the range read ──────────────────────────────────────────
+    // The dashboard heatmap used to issue 14 of these (one per day), and each
+    // re-read the roster — so ONE dashboard render cost 14 roster reads and 14
+    // round trips. A caller that supplies BOTH `from` and `to` now gets every
+    // session in the window in ONE read, with the roster read exactly once.
+    //
+    // `from`/`to` are opt-in and independent of `date`: supplying neither is the
+    // unchanged single-day behaviour, so no existing caller can change shape.
+    if (from !== null || to !== null) {
+      if (from === null || to === null) {
+        return fail("BAD_REQUEST: range read requires BOTH from and to");
+      }
+      const fromDay = IsoDaySchema.safeParse(from);
+      const toDay = IsoDaySchema.safeParse(to);
+      if (!fromDay.success || !toDay.success) {
+        return fail("BAD_REQUEST: from and to must both be YYYY-MM-DD");
+      }
+      // Lexicographic order IS chronological order for YYYY-MM-DD, so this is an
+      // exact comparison and not a string guess.
+      if (fromDay.data > toDay.data) {
+        return fail("BAD_REQUEST: from must be on or before to");
+      }
+      // Bound the WINDOW before it reaches SQLite. Without this, `from=1970-01-01`
+      // turns one dashboard render into a scan of the tenant's entire attendance
+      // history — an unbounded read behind an authenticated request.
+      const spanDays =
+        (Date.parse(`${toDay.data}T00:00:00Z`) - Date.parse(`${fromDay.data}T00:00:00Z`)) /
+        86_400_000;
+      if (!Number.isFinite(spanDays) || spanDays < 0 || spanDays > MAX_RANGE_DAYS) {
+        return fail(`BAD_REQUEST: range must be between 1 and ${MAX_RANGE_DAYS} days`);
+      }
+
+      const roster = await readAttendanceRoster(orm, batchId);
+      const sessions = await orm.attendanceSession.findMany({
+        where: {
+          sessionDate: { between: [fromDay.data, toDay.data] },
+          ...(batchId ? { batchId } : {}),
+        },
+        orderBy: { sessionDate: "asc" },
+      });
+      const sessionIds = sessions.map((s) => String(s.id));
+      // An empty window legitimately has no sessions. Skip the read rather than
+      // issue an empty `IN ()`, which is invalid SQL (the builder renders a
+      // client-side empty `IN` as `1=0`, but no round trip is needed at all).
+      const recs =
+        sessionIds.length > 0
+          ? await orm.attendanceRecord.findMany({ where: { sessionId: { in: sessionIds } } })
+          : [];
+      const bySession = new Map<string, Map<string, { status: unknown }>>();
+      for (const r of recs) {
+        const sid = String(r.sessionId);
+        let bucket = bySession.get(sid);
+        if (bucket === undefined) {
+          bucket = new Map();
+          bySession.set(sid, bucket);
+        }
+        bucket.set(String(r.studentId), r as { status: unknown });
+      }
+
+      const days = sessions.map((session) => {
+        const sid = String(session.id);
+        const bucket = bySession.get(sid);
+        return {
+          session_date: String(session.sessionDate),
+          session_id: sid,
+          // One record per ROSTER row, exactly like the single-day path below, so
+          // the two paths cannot disagree about what "missing" looks like (a null
+          // status) — a divergence a heatmap would silently render as a gap.
+          records: roster.rows.map((s) => {
+            const rec = bucket?.get(String(s.id));
+            return {
+              student_id: String(s.id),
+              name: `${s.firstName || ""} ${s.lastName || ""}`.trim(),
+              batch: null,
+              status: rec?.status ?? null,
+            };
+          }),
+        };
+      });
+
+      return ok({
+        from: fromDay.data,
+        to: toDay.data,
+        days,
+        rosterTotal: roster.total,
+        rosterTruncated: roster.truncated,
+        rosterScope: roster.scope,
+      });
+    }
 
     // Free-tier batching (RFC-003 §0 — every round trip costs rows-read):
     // session + roster are independent, so they fan out in one Promise.all
     // instead of two sequential round trips.
-    const [session, roster] = await Promise.all([
+    //
+    // The roster comes from the SHARED `readAttendanceRoster`, so the day view
+    // and the range view cannot disagree about who is markable. This replaced an
+    // inline read that (a) ignored `batchId` and (b) had no bound — meaning the
+    // same `?date=&batchId=X` request returned every active student, not X's
+    // batch, and returned them uncapped. Both were real divergences; routing one
+    // helper is what removed them rather than documenting them.
+    const [session, rosterRead] = await Promise.all([
       orm.attendanceSession.findFirst({
         where: {
           sessionDate: date,
           ...(batchId ? { batchId } : {}),
         },
       }),
-      orm.student.findMany({
-        where: { status: "active", archivedAt: null },
-        orderBy: { firstName: "asc" },
-      }),
+      readAttendanceRoster(orm, batchId),
     ]);
+    const roster = rosterRead.rows;
 
     let records: unknown[];
     if (session) {
@@ -128,6 +322,13 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         status: null,
       }));
     }
+    // The single-day response now carries the same truncation honesty as the
+    // range response, so a capped roster is never silently complete here either.
+    const rosterMeta = {
+      rosterTotal: rosterRead.total,
+      rosterTruncated: rosterRead.truncated,
+      rosterScope: rosterRead.scope,
+    };
     // 06 §10.6: the day view needs the unlock window to render countdowns
     // and route tier-3 sessions to the request sheet. Computed per read (no
     // column to go stale); null when no window is open.
@@ -141,7 +342,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         hard_locked: hardLocked(String((session as { sessionDate?: unknown }).sessionDate ?? ""), nowIso),
       };
     }
-    return ok({ session: enrichedSession, records });
+    return ok({ session: enrichedSession, records, ...rosterMeta });
   }
 
   // POST /api/v1/attendance

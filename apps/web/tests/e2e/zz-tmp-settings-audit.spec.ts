@@ -111,7 +111,7 @@ import { test, expect, type Download, type Locator, type Page, type Response } f
 // no test skipped.
 
 import {
-  QA_PIN,
+  qaPin,
   captureErrors,
   expectVisible,
   gotoScreen,
@@ -185,8 +185,8 @@ async function enterSettings(page: Page, errors: ErrorSink): Promise<void> {
   const gate = page.getByRole("heading", { name: /Set up your app PIN/i });
   if ((await gate.count()) > 0) {
     await expectVisible(gate, "PIN setup gate", 15_000);
-    await page.locator("#pin-setup-new").fill(QA_PIN);
-    await page.locator("#pin-setup-confirm").fill(QA_PIN);
+    await page.locator("#pin-setup-new").fill(qaPin());
+    await page.locator("#pin-setup-confirm").fill(qaPin());
     await expect(page.getByRole("button", { name: /Set PIN and continue/i })).toBeEnabled();
     await page.getByRole("button", { name: /Set PIN and continue/i }).click();
     await expect(gate, "PIN gate dismissed").toHaveCount(0, { timeout: 40_000 });
@@ -1092,7 +1092,7 @@ test.describe("settings audit", () => {
     await page.locator("#pin-confirm").fill(GOOD_PIN);
     await expect(savePin, "EC-02 does not over-reject: a real PIN still arms").toBeEnabled();
 
-    // Close the form without submitting. The PIN is 135790 and stays 135790.
+    // Close the form without submitting, so the tenant's existing PIN is untouched.
     await page.getByRole("button", { name: /^Close$/ }).click();
     await expect(form, "the form closes without submitting").toHaveCount(0);
 
@@ -1275,7 +1275,7 @@ test.describe("settings audit", () => {
 
     // The correct PIN. This also resets the fail counter, so the QA tenant is
     // left with a zero consecutive-failure count.
-    await pin.fill(QA_PIN);
+    await pin.fill(qaPin());
     await expect(create).toBeEnabled();
     await create.click();
     await expectVisible(page.getByText(/Encrypted backup ready/i), "the backup was created", 120_000);
@@ -1544,7 +1544,7 @@ test.describe("settings audit", () => {
     const accountWord = page.locator("#account-confirm-word");
     await expectVisible(accountWord, "account typed-confirm", 15_000);
     await accountWord.fill("DELETE MY ACCOUNT FOREVER");
-    await page.locator("#account-pin").fill(QA_PIN);
+    await page.locator("#account-pin").fill(qaPin());
     const accountCommit = page.getByRole("button", { name: /Close my account for good/i });
     await expect(accountCommit, "account commit armed and NOT clicked").toBeEnabled();
     await expectVisible(page.getByText(/no way back/i), "the irreversibility is stated", 15_000);

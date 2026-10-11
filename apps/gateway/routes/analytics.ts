@@ -44,6 +44,16 @@ import type { RouteHandler } from "./students.ts";
 import { ok, failValidation } from "../lib/errors.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
 import { paiseAdd, paiseSub } from "../lib/vendor/format.ts";
+// RPT-SHAPE-08: the C6 wire contract, vendored byte-identically from
+// `packages/shared/src/paymentBreakdown.ts` (the edge bundler cannot reach
+// `packages/`; see `lib/vendor/paymentBreakdown.ts`). The three buckets are
+// typed as the shared `PaymentBreakdown`, so a key that exists here but not
+// there — or vice versa — is a compile error rather than a runtime surprise.
+// `__tests__/payment-breakdown-contract.test.ts` byte-compares the vendored copy
+// against the shared source and parses this route's real response through the
+// SHARED schema.
+import { PaymentBreakdownSchema } from "../lib/vendor/paymentBreakdown.ts";
+import type { PaymentBreakdown } from "../lib/vendor/paymentBreakdown.ts";
 
 /** `invoices.status` vocabulary, from the CHECK in lib/schema.ts:205. `paid`
  *  and `void` are the two states in which no money is owed. */
@@ -397,10 +407,17 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
         else openByStudent.set(sid, [inv]);
       }
     }
-    const paymentBreakdown = { paid: 0, partial: 0, unpaid: 0 };
+    const paymentBreakdown: PaymentBreakdown = { paid: 0, partial: 0, unpaid: 0 };
     for (const s of activeStudents) {
       paymentBreakdown[paymentState(openByStudent.get(String(s.id)) ?? [], paidByInv)] += 1;
     }
+    // Parse the accumulated counts through the SAME contract the two web
+    // consumers parse with. This is what turns the import above from decoration
+    // into enforcement: a fourth bucket, a negative count, or a float typed in
+    // here fails HERE, at the producer, instead of being silently accepted by a
+    // consumer that trims unknown keys — which is the exact divergence this
+    // contract exists to prevent (RPT-SHAPE-08).
+    PaymentBreakdownSchema.parse(paymentBreakdown);
 
     const kpis = {
       totalStudents,

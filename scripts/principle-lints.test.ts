@@ -34,6 +34,11 @@ const ALLOW: Set<string> = new Set([
   "apps/desktop/scripts/generate-tokens.mjs",
   "apps/desktop/scripts/verify-tokens.mjs",
   "apps/mobile/scripts/generate-tokens.mjs",
+  // Monorepo cache janitor (sizes/reports/wipes regenerable build + tool caches).
+  // Kept in step with `L7_ALLOW` in scripts/principle-lints.ts — the header of
+  // this file requires both lists to change together, which is why this entry
+  // exists rather than the file being converted.
+  "scripts/cache-clean.mjs",
 ]);
 
 function listLintFiles(): string[] {

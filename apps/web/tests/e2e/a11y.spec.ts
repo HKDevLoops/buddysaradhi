@@ -2,6 +2,10 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { neutralizePlainHttpUpgrade } from "./csp-test-helper";
 // F-3 rationale lives on the helper — see csp-test-helper.ts.
+// Credentials come from the shared harness so every e2e lane derives them the
+// same way and none of them can grow its own committed copy of a login
+// (23_Security_Harness_Plan.md §5.1 STEP 1).
+import { qaCredentials } from "./harness";
 
 async function fillField(page: import("@playwright/test").Page, label: string, value: string) {
   const input = page.getByLabel(label);
@@ -17,8 +21,7 @@ async function fillField(page: import("@playwright/test").Page, label: string, v
 
 async function authenticate(page: import("@playwright/test").Page) {
   await neutralizePlainHttpUpgrade(page);
-  const email = process.env.E2E_EMAIL || "hkdevloops@gmail.com";
-  const password = process.env.E2E_PASSWORD || "hkdevs";
+  const { email, password } = qaCredentials();
   await page.goto("/login", { waitUntil: "domcontentloaded" });
   const signIn = page.getByRole("button", { name: /^Sign In$/i });
   await signIn.waitFor({ state: "visible", timeout: 15000 });

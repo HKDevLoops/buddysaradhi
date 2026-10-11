@@ -375,6 +375,33 @@ const RANGE_CLAUSE: Readonly<Record<string, string>> = Object.freeze({
 });
 const RangeThresholdSchema = z.union([z.string().max(64), z.number().int()]);
 
+/**
+ * The one legal two-sided form: an INCLUSIVE window expressed as a single
+ * `between` key holding both endpoints.
+ *
+ * Why this exists instead of letting callers write `{ gte: x, lte: y }`: the
+ * builder's rule is one operator per column, and that rule is load-bearing —
+ * it is what guarantees no caller-supplied SQL fragment ever reaches the query
+ * (10_Security.md §11). A window needs BOTH bounds on ONE column, which a flat
+ * one-key-per-column object cannot express, and loosening the rule to admit
+ * `{ gte, lte }` would let ANY pair of operators through — `{ gt, like }`,
+ * `{ gte, gte }` — reopening exactly the hole the rule closes.
+ *
+ * `between` is therefore an ALTERNATIVE to the four one-sided operators, never
+ * a fifth one: a bag may be either exactly one key from `RANGE_CLAUSE`, or the
+ * single key `between`. Both branches below append their own `?` placeholders,
+ * so no endpoint is ever concatenated into SQL text — `BETWEEN ? AND ?` is
+ * fixed text and both values remain bound parameters.
+ *
+ * Endpoints are validated by the same `RangeThresholdSchema` as every other
+ * threshold, so a float still cannot reach a money comparison (Rule 6), and both
+ * endpoints being `YYYY-MM-DD` strings keeps the window lexicographically exact.
+ */
+const BetweenWindowSchema = z.tuple([
+  RangeThresholdSchema,
+  RangeThresholdSchema,
+]);
+
 /** Audited `tenant_id = ? AND ...` builder (preserves `orm.ts buildWhere`
  * semantics byte-for-byte: `IS NULL` / `IS NOT NULL` / `!= ?` / `IN (?,..)` /
  * empty-IN `1=0` / `= ?`; `tenantId`/`tenant_id` keys skipped), plus the four
@@ -418,25 +445,41 @@ export function buildTenantWhere(
         params.push(...list);
       }
     } else if (typeof val === "object" && val !== null) {
-      // Exactly one recognised range key must be present, and nothing else.
+      // Exactly one recognised range key must be present, and nothing else — UNLESS
+      // it is the single `between` window (see BetweenWindowSchema for why that
+      // is a separate branch and not a second operator).
       const bag = val as Record<string, unknown>;
-      const rangeKeys = Object.keys(bag).filter((k) => k in RANGE_CLAUSE);
-      if (rangeKeys.length !== 1 || Object.keys(bag).length !== 1) {
+      const keys = Object.keys(bag);
+      const isBetween = keys.length === 1 && keys[0] === "between";
+      const rangeKeys = keys.filter((k) => k in RANGE_CLAUSE);
+      if (!isBetween && (rangeKeys.length !== 1 || keys.length !== 1)) {
         throw new Error(
           `unsupported filter operator for column "${key}": expected exactly one of ` +
-            `${Object.keys(RANGE_CLAUSE).join(", ")} (10_Security.md §8 — no operator is ever taken from the request)`
+            `${Object.keys(RANGE_CLAUSE).join(", ")}, or between (10_Security.md §11 — no operator is ever taken from the request)`,
         );
       }
-      const opKey = rangeKeys[0] as string;
-      const threshold = RangeThresholdSchema.safeParse(bag[opKey]);
-      if (!threshold.success) {
-        throw new Error(
-          `filter threshold for column "${key}" must be a date string or an integer ` +
-            `(BR-M-01 — no float money ever reaches a comparison)`
-        );
+      if (isBetween) {
+        const window = BetweenWindowSchema.safeParse(bag.between);
+        if (!window.success) {
+          throw new Error(
+            `filter window for column "${key}" must be a two-element tuple of date strings or integers ` +
+              `(BR-M-01 — no float money ever reaches a comparison)`,
+          );
+        }
+        clauses.push(`${col} BETWEEN ? AND ?`);
+        params.push(window.data[0], window.data[1]);
+      } else {
+        const opKey = rangeKeys[0] as string;
+        const threshold = RangeThresholdSchema.safeParse(bag[opKey]);
+        if (!threshold.success) {
+          throw new Error(
+            `filter threshold for column "${key}" must be a date string or an integer ` +
+              `(BR-M-01 — no float money ever reaches a comparison)`,
+          );
+        }
+        clauses.push(`${col} ${RANGE_CLAUSE[opKey]} ?`);
+        params.push(threshold.data);
       }
-      clauses.push(`${col} ${RANGE_CLAUSE[opKey]} ?`);
-      params.push(threshold.data);
     } else {
       clauses.push(`${col} = ?`);
       params.push(val);

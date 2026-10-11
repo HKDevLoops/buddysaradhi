@@ -30,6 +30,7 @@
 import { gatewayGet } from "@/server/get-db";
 import { log } from "@/lib/logger";
 import { z } from "zod";
+import { PaymentBreakdownSchema } from "@buddysaradhi/shared";
 import {
   AnalyticsFilterSchema,
 } from "@/lib/dashboard-analytics-calc";
@@ -147,12 +148,13 @@ const kpisSchema = z.object({
    */
   dueForMonthMinor: paiseSchema,
   overdueMinor: paiseSchema,
-  paymentBreakdown: z.object({
-    paid: z.number().int().nonnegative(),
-    partial: z.number().int().nonnegative(),
-    unpaid: z.number().int().nonnegative(),
-  
-  }),
+  // RPT-SHAPE-08 — the C6 payment-breakdown shape is declared ONCE in
+  // `@buddysaradhi/shared` (`paymentBreakdown`). This was the second
+  // hand-written copy of the same three-key literal; the third was in
+  // `queries/dashboard-analytics.ts`. Both are now this one import, so the
+  // producer (gateway) and the two consumers can no longer drift apart
+  // silently (AGENTS.md §3.5 — one implementation of a rule).
+  paymentBreakdown: PaymentBreakdownSchema,
 });
 
 const activityItemSchema = z

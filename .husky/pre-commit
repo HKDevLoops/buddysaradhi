@@ -1,0 +1,42 @@
+# .husky/pre-commit — staged secret scan (CI-SUPPLY-05 / SEC-CRED-06)
+#
+# Why this exists: the CI gitleaks job was `continue-on-error: true`, so a leaked
+# secret never blocked anything. CI has been promoted to a hard gate, but a CI
+# gate that only fires after the commit is pushed means the secret is already in
+# git history — which is exactly where you least want it, because history is the
+# thing that must be rewritten to remove it (AGENTS.md §9.3: never commit secrets;
+# if one is committed, ROTATE it, do not just delete the line).
+#
+# Scanning here, before the object is created, is the only point where a leaked
+# credential is still trivially removable.
+#
+# Scans ONLY the staged content (`--staged`, a.k.a. `--cached`), not the working
+# tree: a full-tree scan would fail the commit because of an unrelated untracked
+# file, which is the fastest way to get a safety hook removed by a team.
+#
+# Requires the `gitleaks` binary on PATH. If it is absent the hook exits 0 with a
+# notice rather than blocking every commit for every contributor — CI is the hard
+# gate; this is the early-warning convenience layer, and a missing local binary
+# must not make the repo uncommittable.
+command -v gitleaks >/dev/null 2>&1 || {
+  echo "pre-commit: gitleaks not installed - skipping staged secret scan (CI enforces it)."
+  exit 0
+}
+
+# `gitleaks git --staged` (NOT `protect`, which is the deprecated spelling of
+# this same scan as of v8.30.1 — verified against `gitleaks git --help`, whose
+# own help text says "--staged scan staged commits (good for pre-commit)").
+gitleaks git \
+  --staged \
+  --config .gitleaks.toml \
+  --redact \
+  --verbose \
+  || {
+    echo ""
+    echo "pre-commit: staged content contains a possible secret (values redacted)."
+    echo "  Do NOT 'fix' this by removing the line and recommitting - a committed"
+    echo "  secret stays in git history and must be ROTATED (AGENTS.md 9.3)."
+    echo "  If this is a false positive, add a narrowly-scoped allowlist entry to"
+    echo "  .gitleaks.toml with a comment explaining why, and review that diff."
+    exit 1
+  }

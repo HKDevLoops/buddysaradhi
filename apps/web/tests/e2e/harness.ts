@@ -47,23 +47,55 @@ export const SCREENS = [
 export type ScreenName = (typeof SCREENS)[number];
 
 /**
- * QA account credentials. Read from the environment first; the fallback pair
- * is the same one already committed in `a11y.spec.ts` and `stress.spec.ts`
- * (a shared QA account, never a personal secret). Values are never logged.
+ * QA account credentials. Read from the environment ONLY — there is no
+ * fallback and there is never going to be one again.
+ *
+ * Implements: 23_Security_Harness_Plan.md §5.1 STEP 1 (a secret is caught
+ * before it reaches the remote) + AGENTS.md §2 Rule 9 (no silent failures).
+ *
+ * WHY THIS USED TO BE DIFFERENT. This shipped as
+ * `process.env.E2E_EMAIL || "<a literal address>"` with a `throw` beneath it,
+ * which read like a guard and was not one: the `||` fallback guaranteed a
+ * non-empty value, so the condition could never be true and the `throw` was
+ * unreachable dead code. The credential was committed to git in the meantime.
+ * A check that cannot fail is worse than no check — it tells the reader they
+ * are protected while exposing them. The same pattern had been copy-pasted
+ * into `a11y.spec.ts` and `stress.spec.ts`; both now call this function so
+ * there is exactly one definition of how QA credentials are obtained.
+ *
+ * Mirrors the pattern already used by `apps/web/tests/a11y/a11y.spec.ts`.
  */
 export function qaCredentials(): { email: string; password: string } {
-  const email = process.env.E2E_EMAIL || "hkdevloops@gmail.com";
-  const password = process.env.E2E_PASSWORD || "hkdevs";
+  const email = process.env.E2E_EMAIL;
+  const password = process.env.E2E_PASSWORD;
   if (!email || !password) {
     throw new Error(
-      "QA credentials unavailable: set E2E_EMAIL and E2E_PASSWORD (apps/web/.env.local or the shell).",
+      "QA credentials unavailable: set E2E_EMAIL and E2E_PASSWORD in the environment " +
+        "(apps/web/.env.local or the shell) and re-run. The e2e suite carries no " +
+        "built-in credential and will not fall back to one.",
     );
   }
   return { email, password };
 }
 
-/** The QA tenant's app PIN. Set through the 08 BR-SEC-02 setup gate. */
-export const QA_PIN = "135790";
+/**
+ * The QA tenant's app PIN, set through the 08 BR-SEC-02 setup gate.
+ *
+ * A function rather than a `const` for two reasons: there is no committed
+ * default left to leak, and the value is read at CALL time — after the runner
+ * has loaded `.env.local` — instead of being frozen at module load.
+ */
+export function qaPin(): string {
+  const pin = process.env.E2E_PIN;
+  if (!pin) {
+    throw new Error(
+      "QA PIN unavailable: set E2E_PIN in the environment (apps/web/.env.local " +
+        "or the shell) and re-run. The e2e suite carries no built-in PIN and " +
+        "will not fall back to one.",
+    );
+  }
+  return pin;
+}
 
 export interface ErrorSink {
   /** Every captured error, newest last. */

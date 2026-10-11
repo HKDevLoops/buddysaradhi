@@ -23,10 +23,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Setup Deno
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d  # v1
         with:
           deno-version: v2.x
 
@@ -56,17 +56,17 @@ jobs:
 
       - name: Checkout
         if: steps.check-secrets.outputs.has_token == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: Setup Deno
         if: steps.check-secrets.outputs.has_token == 'true'
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d  # v1
         with:
           deno-version: v2.x
 
       - name: Setup Supabase CLI
         if: steps.check-secrets.outputs.has_token == 'true'
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb  # v1
         with:
           version: latest
 

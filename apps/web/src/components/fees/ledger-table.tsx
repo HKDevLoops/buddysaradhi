@@ -71,6 +71,7 @@ import { mintIntentKey } from "@/lib/intent-key";
 import { toAppErrorState } from "@/lib/app-errors";
 import { useToast } from "@/components/ui/toast";
 import { ErrorState } from "@/components/ui/screen-state";
+import { Avatar } from "@/components/ui/avatar";
 import {
   useOverlayDismiss,
   DiscardChangesPrompt,
@@ -398,15 +399,24 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
         }}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center font-bold shrink-0"
-            style={{
-              background: "linear-gradient(135deg, var(--accent-primary), var(--accent-text))",
-              color: "var(--accent-on-primary)",
-            }}
-          >
-            {studentName.charAt(0).toUpperCase()}
-          </div>
+          {/* UI-AVATAR-09 / RPT-SHAPE-08 — replaced by the shared <Avatar>.
+              This was the last hand-rolled monogram left in the app and it was
+              wrong in three ways, all fixed by using the shared component:
+                1. It showed `studentName.charAt(0)` — ONE letter. The shared
+                   `avatarInitials` shows first+last ("RS"), which is how a
+                   person is identified on a receipt, so it matches every other
+                   surface instead of being a second visual language.
+                2. It painted full-strength `--accent-primary` on a gradient
+                   built from the SAME accent. The shared component tints at 16%
+                   and mixes the initials 60% toward `--text-primary`, because
+                   the raw pairing measured 3.69:1 — a real WCAG AA text failure
+                   (avatar.tsx INITIALS_ACCENT_MIX documents the measurement).
+                3. It had no `aria-hidden`, so a screen reader announced a bare
+                   decorative initial. The name is already adjacent text, so the
+                   shared component renders it decorative by default.
+              `studentId` (not the name) drives the accent, so renaming a student
+              does not repaint them. */}
+          <Avatar name={studentName} id={studentId} />
           <div className="min-w-0">
             <h2
               className="text-lg font-bold truncate"

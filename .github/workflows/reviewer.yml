@@ -41,23 +41,66 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
-      - name: CodeRabbit AI PR Reviewer
-        # `@latest` is a FLOATING TAG: the code that runs — and that reads the env
-        # block below — is whatever the publisher pushed at execution time, with no
-        # review of the change. 23_Security_Harness_Plan.md §5 treats the action and
-        # dependency surface as a supply-chain boundary, and the rest of this repo
-        # pins by major (`@v2`, `@v4`, `@v8`). Pin this to a commit SHA, or at
-        # minimum a released tag, before merging anything sensitive.
-        uses: coderabbitai/ai-pr-reviewer@latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # VERIFY: CodeRabbit authenticates with GITHUB_TOKEN. If you are not
-          # deliberately using CodeRabbit's BYOK OpenAI path, delete this line —
-          # it is a second, unnecessary credential in the env of third-party code.
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        with:
-          debug: false
-          review_simple_changes: false
-          review_comment_lgtm: false
+      # ── DISABLED: the referenced action does not exist ─────────────────────
+      # CI-SUPPLY-05 required this step to be pinned to a commit SHA. Pinning is
+      # IMPOSSIBLE here, and the reason matters more than the missing pin:
+      #
+      #   `coderabbitai/ai-pr-reviewer` does not exist. Verified 2026-10-11:
+      #     - `git ls-remote https://github.com/coderabbitai/ai-pr-reviewer`
+      #         → `remote: Repository not found.`
+      #     - `gh api repos/coderabbitai/ai-pr-reviewer` → HTTP 404
+      #       (both /commits/latest and /tags)
+      #     - `gh api "search/repositories?q=ai-pr-reviewer+in:name+user:coderabbitai"`
+      #       → total_count 0
+      #     - the org's own repo list (`gh api users/coderabbitai/repos`) contains
+      #       `coderabbit-pr-review`, which has NO tags and NO action.yml at HEAD
+      #       (`gh api .../contents/action.yml` → 404), so it is not an
+      #       action either.
+      #
+      # So this step could never have run: every pull request has been failing or
+      # erroring on it. That is a live CI defect the pin audit exposed, and it is
+      # recorded rather than papered over.
+      #
+      # Writing a SHA here would be the WORSE outcome: an unverifiable 40-hex
+      # string that GitHub could never resolve is a supply-chain landmine, and a
+      # fabricated one is indistinguishable from a real pin to every reader and to
+      # every future scanner (AGENTS.md §2 Rule 9 — state the truth, never a
+      # value that looks right).
+      #
+      # OWNER DECISION REQUIRED (not an agent decision — this is a supply-chain
+      # choice with a credential attached). Pick one:
+      #   1. Restore the intended CodeRabbit action by its CORRECT current name and
+      #      pin it to a commit SHA resolved from that repo (never a floating tag).
+      #   2. Delete this job and `reviewer.yml` outright.
+      #   3. Replace with another reviewer action, pinned to a SHA.
+      #
+      # Until then the job runs the checkout and stops. It must NOT fail the
+      # build: a dead optional reviewer is not a reason to block a tutor's
+      # release, and a permanently-red workflow is one nobody reads.
+      #
+      # If you re-enable a third-party reviewer, note the two credential facts
+      # that made this step the largest secret surface in the repo (23_Security_
+      # Harness_Plan.md §5.2 — secrets are never handed to uncontrolled code):
+      #   - `OPENAI_API_KEY` was passed here and is NOT required. CodeRabbit
+      #     authenticates with `GITHUB_TOKEN` alone; `OPENAI_API_KEY` only matters
+      #     if you deliberately use CodeRabbit's BYOK OpenAI path. As written it
+      #     was a second credential in the environment of third-party code.
+      #   - `GITHUB_TOKEN` at `pull-requests: write` is the reviewer's actual
+      #     requirement (it posts review comments), and is safe here ONLY because
+      #     the trigger is `pull_request`, never `pull_request_target`.
+      #
+      # - name: CodeRabbit AI PR Reviewer
+      #   uses: coderabbitai/ai-pr-reviewer@<PIN-TO-SHA>   # action no longer exists
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   with:
+      #     debug: false
+      #     review_simple_changes: false
+      #     review_comment_lgtm: false
+
+      - name: Reviewer disabled — action missing (no failure)
+        run: |
+          echo "::notice::The AI PR reviewer step is disabled: coderabbitai/ai-pr-reviewer"
+          echo "::notice::no longer exists (verified 404 + 'Repository not found'). See reviewer.yml."
