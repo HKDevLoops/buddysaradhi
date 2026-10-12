@@ -18,8 +18,12 @@ import { handleSecurity } from "../routes/security.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import type { DB } from "../lib/db.ts";
 import { SqliteGatewayDb } from "./sqlite-db.ts";
+import { pinProof } from "../lib/crypto.ts";
 
 const OTHER_TENANT = "018f0000-0000-7000-8000-0000000000b2";
+/** The PIN a tutor would have set. Never a realistic-looking value — if this ever
+ *  leaked it would be a real credential in a real file. */
+const PIN = "9137";
 const NOW = "2026-01-01T00:00:00.000Z";
 
 let db: SqliteGatewayDb;
@@ -229,6 +233,22 @@ function setPin(tenantId = TENANT): void {
     .run("$argon2id$v=19$m=65536,t=3,p=2$fake-hash", tenantId);
 }
 
+/**
+ * BR-SEC-04 — configure a PIN *and* its edge-verifiable proof, which is what a
+ * real tutor has after `setPinAction` (both are written in one transaction).
+ *
+ * `setPin` alone models the PRE-FIX state: a PIN hash exists but no proof, so the
+ * gate must refuse. That combination is deliberately reachable in tests because it
+ * is exactly what every existing tenant looks like the day this ships, and the
+ * refusal message is what those tutors will see.
+ */
+async function setPinWithProof(pin: string, tenantId = TENANT): Promise<string> {
+  setPin(tenantId);
+  const proof = await pinProof(tenantId, pin);
+  db.raw.prepare("UPDATE settings SET pin_proof = ? WHERE tenant_id = ?").run(proof, tenantId);
+  return proof;
+}
+
 function countStudents(tenantId = TENANT): number {
   return Number(db.query("SELECT COUNT(*) AS c FROM students WHERE tenant_id = ?", [tenantId])[0].c);
 }
@@ -310,9 +330,9 @@ describe("erase — the gates, in order, each fail-closed", () => {
   });
 
   it("the PIN is never echoed into the audit metadata", async () => {
-    setPin();
+    const proof = await setPinWithProof(PIN);
     insertStudent();
-    await erase({ tutorId: TENANT, confirm: "ERASE" });
+    await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
     const rows = db.query(
       "SELECT metadata FROM audit_log WHERE tenant_id = ? AND action LIKE 'security.erase%'",
       [TENANT],
@@ -356,15 +376,94 @@ describe("erase — a refused request must leave no trace of an attempt beyond n
   });
 });
 
+describe("erase — PIN KNOWLEDGE, not PIN presence (BR-SEC-04 regression)", () => {
+  // This is the test the vulnerability needed. Before the fix, ANY authenticated
+  // session could erase a tutor's entire institute, because the gate only
+  // checked that `pin_hash` was non-null — which proves a PIN was once set, not
+  // that the caller knows it. Each case below is that exact attack.
+
+  it("a stolen session with a CONFIGURED pin_hash but NO proof is refused", async () => {
+    setPin(); // the pre-fix shape: hash present, no proof
+    insertStudent();
+    const { status, body } = await erase({ tutorId: TENANT, confirm: "ERASE" });
+    expect(status).toBe(400);
+    expect(body.details).toContain("Re-confirm");
+    expect(countStudents()).toBe(1); // the attack fails
+  });
+
+  it("a wrong proof is refused and destroys nothing", async () => {
+    await setPinWithProof(PIN);
+    insertStudent();
+    const { status } = await erase({
+      tutorId: TENANT,
+      confirm: "ERASE",
+      pinProof: "0".repeat(64),
+    });
+    expect(status).toBe(401);
+    expect(countStudents()).toBe(1);
+  });
+
+  it("a proof of the RIGHT LENGTH but wrong content is refused", async () => {
+    await setPinWithProof(PIN);
+    insertStudent();
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: "f".repeat(64) });
+    expect(status).toBe(401);
+    expect(countStudents()).toBe(1);
+  });
+
+  it("a proof minted for a DIFFERENT tenant is refused — the proof is tenant-bound", async () => {
+    await setPinWithProof(PIN);
+    const otherProof = await pinProof(OTHER_TENANT, PIN);
+    insertStudent();
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: otherProof });
+    expect(status).toBe(401);
+    expect(countStudents()).toBe(1);
+  });
+
+  it("a missing pinProof field is refused even when a PIN is configured", async () => {
+    await setPinWithProof(PIN);
+    insertStudent();
+    const { status, body } = await erase({ tutorId: TENANT, confirm: "ERASE" });
+    expect(status).toBe(400);
+    expect(body.details).toContain("PIN confirmation required");
+    expect(countStudents()).toBe(1);
+  });
+
+  it("an EMPTY pinProof is refused", async () => {
+    await setPinWithProof(PIN);
+    insertStudent();
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: "" });
+    expect(status).toBe(400);
+    expect(countStudents()).toBe(1);
+  });
+
+  it("the correct proof DOES authorise the wipe", async () => {
+    const proof = await setPinWithProof(PIN);
+    insertStudent();
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
+    expect(status).toBe(200);
+    expect(countStudents()).toBe(0);
+  });
+
+  it("neither the PIN nor the proof is echoed into audit metadata", async () => {
+    const proof = await setPinWithProof(PIN);
+    insertStudent();
+    await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
+    const blob = JSON.stringify(db.query("SELECT metadata FROM audit_log WHERE tenant_id = ?", [TENANT]));
+    expect(blob).not.toContain(PIN);
+    expect(blob).not.toContain(proof);
+  });
+});
+
 describe("erase — the happy path is still a wipe, with the audit chain it promises", () => {
   it("destroys every tenant row and never crosses the tenant boundary", async () => {
-    setPin();
+    const proof = await setPinWithProof(PIN);
     insertStudent(TENANT, "001");
     insertStudent(TENANT, "002");
     insertStudent(OTHER_TENANT, "003");
     invalidateTenant(TENANT);
 
-    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE" });
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
     expect(status).toBe(200);
     expect(countStudents(TENANT)).toBe(0);
     expect(countStudents(OTHER_TENANT)).toBe(1);
@@ -382,9 +481,9 @@ describe("erase — the happy path is still a wipe, with the audit chain it prom
     // a mid-cascade failure rolls the batch back, taking the intent row with it,
     // so a FAILED erase leaves no trace at all. Asserted as-is so the gap is
     // visible; escalated to the owner rather than changed unilaterally.
-    setPin();
+    const proof = await setPinWithProof(PIN);
     insertStudent(TENANT, "011");
-    await erase({ tutorId: TENANT, confirm: "ERASE" });
+    await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
     const actions = db.query("SELECT action FROM audit_log WHERE action LIKE 'security.erase%'")
       .map((r) => String(r.action));
     expect(actions).toContain("security.erase_complete");
@@ -392,14 +491,14 @@ describe("erase — the happy path is still a wipe, with the audit chain it prom
   });
 
   it("erases other tenant-scoped tables too, not just students", async () => {
-    setPin();
+    const proof = await setPinWithProof(PIN);
     db.raw.prepare(
       `INSERT INTO batches (id, tenant_id, name, subject, created_at, updated_at) VALUES (?, ?, 'Alpha', 'Maths', ?, ?)`,
     ).run("018f0000-0000-7000-8000-0000000000b01", TENANT, NOW, NOW);
     db.raw.prepare(
       `INSERT INTO notifications (id, tenant_id, category, title, created_at) VALUES (?, ?, 'general', 'Hi', ?)`,
     ).run("018f0000-0000-7000-8000-0000000000b02", TENANT, NOW);
-    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE" });
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
     expect(status).toBe(200);
     expect(Number(db.query("SELECT COUNT(*) AS c FROM batches WHERE tenant_id = ?", [TENANT])[0].c)).toBe(0);
     expect(Number(db.query("SELECT COUNT(*) AS c FROM notifications WHERE tenant_id = ?", [TENANT])[0].c)).toBe(0);
@@ -410,7 +509,7 @@ describe("erase — the happy path is still a wipe, with the audit chain it prom
     // `fee_schedule_items.fee_plan_id REFERENCES fee_plans(id)` (lib/schema.ts:153-182).
     // Deleting students first aborts on a dangling plan; this is the ordering the
     // cascade depends on, and it is why the two tables were added on 2026-10-04.
-    setPin();
+    const proof = await setPinWithProof(PIN);
     insertStudent(TENANT, "021");
     const studentId = db.query(
       "SELECT id FROM students WHERE tenant_id = ? AND code = '021'", [TENANT],
@@ -424,10 +523,146 @@ describe("erase — the happy path is still a wipe, with the audit chain it prom
        VALUES (?, ?, ?, 'Jan', '2026-01-31', 100000, ?, ?)`,
     ).run("018f0000-0000-7000-8000-0000000000q01", TENANT, "018f0000-0000-7000-8000-0000000000p01", NOW, NOW);
 
-    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE" });
+    const { status } = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
     expect(status).toBe(200);
     expect(countStudents(TENANT)).toBe(0);
     expect(Number(db.query("SELECT COUNT(*) AS c FROM fee_plans WHERE tenant_id = ?", [TENANT])[0].c)).toBe(0);
     expect(Number(db.query("SELECT COUNT(*) AS c FROM fee_schedule_items WHERE tenant_id = ?", [TENANT])[0].c)).toBe(0);
+  });
+});
+
+// ── 7. The PIN-proof replica path (N1) ───────────────────────────────────────
+// Implements: 12_Business_Rules.md BR-SYN-01 (Rule 7) + BR-SEC-04 +
+// 10_Security.md §18.1 step 1 + contracts/openapi.yaml `secureErase`.
+//
+// NOTHING below writes `pin_proof` with test SQL. Every proof in these tests
+// reaches the DB through the public sync-apply route — the same route the web
+// replica stream drives — which is the property that was broken: the only
+// writers used to be web-local `setPinAction` (a different DB) and direct SQL.
+describe("pin_proof sync-apply — the replica path (N1)", () => {
+  /** A 6-digit, non-obvious PIN (BR-SEC-05 floor). */
+  const SYNC_PIN = "481516";
+  /**
+   * Fixture hash: opaque to the edge (presence is all the erase gate reads —
+   * the edge has no argon2 to verify with). In production this value is the
+   * genuine argon2id hash `setPinAction` stored beside the proof; here it only
+   * needs to arrive through the public route, which is the property under test.
+   */
+  const SYNC_HASH = "$argon2id$v=19$m=65536,t=3,p=2$c3luYy1zYWx0$fixture-opaque-hash-value";
+
+  function syncBody(proof: string) {
+    return { pin_proof: proof, pin_hash: SYNC_HASH, pin_updated_at: NOW };
+  }
+
+  async function syncApply(body: unknown, tenantId = TENANT) {
+    const req = new Request(url("/api/v1/settings/sync-apply"), {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    });
+    const res = await handleSettings(
+      req, db as unknown as DB, tenantId, "/api/v1/settings/sync-apply", "POST",
+      url("/api/v1/settings/sync-apply"), {},
+    );
+    if (!res) throw new Error("handleSettings did not match POST /api/v1/settings/sync-apply");
+    return { status: res.status, text: await res.text() };
+  }
+
+  function storedProof(tenantId = TENANT): unknown {
+    return db.query("SELECT pin_proof FROM settings WHERE tenant_id = ?", [tenantId])[0].pin_proof;
+  }
+
+  it("PATCH still rejects pin_proof and pinProof — the proof is never client-settable", async () => {
+    // A client-settable proof is a self-issued erase credential (store a known
+    // constant, offer the same constant), so the tutor-facing allowlist stays
+    // closed while the replica path below opens.
+    for (const field of ["pin_proof", "pinProof"]) {
+      const { status, body } = await patch({ [field]: "f".repeat(64) });
+      expect(status, field).toBe(400);
+      expect(body.error).toBe("VALIDATION");
+      expect(body.details).toContain(field);
+    }
+    expect(storedProof()).toBeNull();
+  });
+
+  it("sync-apply rejects an unknown field instead of stripping it", async () => {
+    const proof = await pinProof(TENANT, SYNC_PIN);
+    const { status, text } = await syncApply({
+      ...syncBody(proof),
+      instituteName: "Sneaky Academy",
+    });
+    expect(status).toBe(400);
+    expect(text).toContain("instituteName");
+    // All-or-nothing: the credentials did not land either.
+    expect(storedProof()).toBeNull();
+    expect(String(settingRow().institute_name)).toBe("Fixture Tuition");
+  });
+
+  it("sync-apply rejects a malformed proof with a typed 400 and writes nothing", async () => {
+    const { status, text } = await syncApply({ ...syncBody("not-hex") });
+    expect(status).toBe(400);
+    expect(text).toContain("VALIDATION");
+    expect(storedProof()).toBeNull();
+    expect(db.query("SELECT id FROM sync_outbox WHERE tenant_id = ?", [TENANT])).toHaveLength(0);
+    expect(
+      db.query("SELECT id FROM audit_log WHERE tenant_id = ? AND action = 'settings.sync_apply'", [TENANT]),
+    ).toHaveLength(0);
+  });
+
+  it("sync-apply requires proof, hash AND marker", async () => {
+    const proof = await pinProof(TENANT, SYNC_PIN);
+    const full = syncBody(proof);
+    const { pin_proof: _dropProof, ...noProof } = full;
+    const { pin_hash: _dropHash, ...noHash } = full;
+    const { pin_updated_at: _dropMarker, ...noMarker } = full;
+    expect((await syncApply(noProof)).status).toBe(400);
+    expect((await syncApply(noHash)).status).toBe(400);
+    expect((await syncApply(noMarker)).status).toBe(400);
+    expect(storedProof()).toBeNull();
+  });
+
+  it("erase succeeds against a gateway DB written ONLY via public routes", async () => {
+    // The N1 regression: before the replica path, the gateway DB could only get
+    // credentials via direct SQL, so this flow — set PIN on web, erase at the
+    // edge — failed closed forever (first "No PIN configured", then the proof
+    // gate). Here both travel the way production carries them: computed from
+    // the PIN the tutor knows (what `setPinAction` stores in its outbox
+    // payload), applied through the public route. No test SQL writes a
+    // credential in this test — only reads assert on it.
+    const proof = await pinProof(TENANT, SYNC_PIN);
+    const { status } = await syncApply(syncBody(proof));
+    expect(status).toBe(200);
+    expect(storedProof()).toBe(proof);
+    expect(settingRow().pin_hash).toBe(SYNC_HASH);
+    // Rule 7: the replica write landed with its own outbox + audit rows.
+    expect(
+      db.query("SELECT op FROM sync_outbox WHERE tenant_id = ? AND table_name = 'settings'", [TENANT]),
+    ).toHaveLength(1);
+    expect(
+      db.query("SELECT action FROM audit_log WHERE tenant_id = ? AND action = 'settings.sync_apply'", [TENANT]),
+    ).toHaveLength(1);
+
+    insertStudent();
+    const erased = await erase({ tutorId: TENANT, confirm: "ERASE", pinProof: proof });
+    expect(erased.status).toBe(200);
+    expect(countStudents()).toBe(0);
+  });
+
+  it("sync-apply never echoes the credentials — response, outbox payload, audit metadata", async () => {
+    const proof = await pinProof(TENANT, SYNC_PIN);
+    const { text } = await syncApply(syncBody(proof));
+    expect(text).not.toContain(proof);
+    expect(text).not.toContain(SYNC_HASH);
+    const outbox = JSON.stringify(
+      db.query("SELECT payload FROM sync_outbox WHERE tenant_id = ?", [TENANT]),
+    );
+    expect(outbox).not.toContain(proof);
+    expect(outbox).not.toContain(SYNC_HASH);
+    expect(outbox).toContain("pin_updated_at");
+    const audit = JSON.stringify(
+      db.query("SELECT metadata FROM audit_log WHERE tenant_id = ? AND action = 'settings.sync_apply'", [TENANT]),
+    );
+    expect(audit).not.toContain(proof);
+    expect(audit).not.toContain(SYNC_HASH);
   });
 });

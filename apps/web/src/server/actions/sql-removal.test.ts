@@ -64,7 +64,7 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
   // op CHECK mirrors 11_Data_Model.md §4.18 exactly, so a CHECK-invalid op
   // literal throws here instead of silently persisting.
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, theme TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, theme TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     // The full 13-field Add Student set, matching `prisma/schema.prisma`'s

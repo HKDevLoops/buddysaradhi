@@ -47,8 +47,10 @@
 //
 // Hardening (round 2), MONEY-CORRECTION PATH — the void dialog's eligibility rule
 // and the table's failure state, both of which used to lie to the tutor:
-//   · The PIN bound is now `pinFormatError()` from `packages/shared/src/pin.ts` —
-//     the SAME fact `setPinAction` enforces (4-8 digits). It used to require
+//   · The PIN bound is now `pinVerifyFormatError()` from `packages/shared/src/pin.ts` —
+//     the VERIFY floor (4-8 digits, grandfathered per
+//     docs/rfc/pin-proof-spec-amendment.md §4.4/EC-P8), matching what the server
+//     verifies with argon2. It used to require
 //     `>= 6` here while the server accepted 4, so a tutor with a 4- or 5-digit PIN
 //     could never void, and voiding a reversing row is the only correction path an
 //     append-only ledger has (Rule 1, BR-LED-04). The client no longer invents a
@@ -65,7 +67,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getLedgerForStudent } from "@/server/queries/fees";
 import { voidReceiptAction } from "@/server/actions/fees";
 import { useFeesStore } from "@/stores/fees-store";
-import { formatINR, paiseAdd, paiseSub, pinFormatError, PIN_INPUT_MAX_LENGTH, PIN_MAX_LENGTH, PIN_MIN_LENGTH } from "@buddysaradhi/shared";
+import { formatINR, paiseAdd, paiseSub, pinVerifyFormatError, PIN_INPUT_MAX_LENGTH, PIN_MAX_LENGTH, PIN_VERIFY_MIN_LENGTH } from "@buddysaradhi/shared";
 import { VoidReasonSchema } from "./payment-contract";
 import { mintIntentKey } from "@/lib/intent-key";
 import { toAppErrorState } from "@/lib/app-errors";
@@ -322,7 +324,8 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
     return r.success ? null : r.error.issues[0]?.message ?? "Invalid reason";
   })();
   /**
-   * ONE PIN rule, from the shared module (`packages/shared/src/pin.ts`).
+   * ONE PIN rule, from the shared module (`packages/shared/src/pin.ts`) —
+   * VERIFY floor (`pinVerifyFormatError`, 4–8), not the setup floor.
    *
    * This panel used to gate Confirm Void on `voidPin.trim().length >= 6`, while
    * `setPinAction` accepted 4-8 digits. A tutor who set a 4- or 5-digit PIN could
@@ -330,11 +333,12 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
    * correction path an append-only ledger has (Rule 1, BR-LED-04). That is a tutor
    * permanently locked out of their own books, caused by the client inventing a
    * tighter bound than the server accepts. The client now states the same bound the
-   * server enforces (`pinFormatError`), adds no gate of its own, and keeps every
-   * substantive check: server-side PIN verification, the non-VOID target rule, the
-   * typed reason, and the in-flight lock.
+   * server verifies (`pinVerifyFormatError`: grandfathered 4–5-digit PINs reach
+   * argon2 per docs/rfc/pin-proof-spec-amendment.md §4.4/EC-P8), adds no gate of
+   * its own, and keeps every substantive check: server-side PIN verification, the
+   * non-VOID target rule, the typed reason, and the in-flight lock.
    */
-  const pinError = voidPin.length > 0 ? pinFormatError(voidPin) : null;
+  const pinError = voidPin.length > 0 ? pinVerifyFormatError(voidPin) : null;
 
   const voidMutation = useMutation({
     mutationFn: () => voidReceiptAction(voidEntryId ?? "", voidPin, voidReason, { intentKey: voidKey }),
@@ -713,7 +717,7 @@ export function LedgerTable({ studentId, studentName }: LedgerTableProps) {
                 </div>
                 <div>
                   <label htmlFor="void-pin" className="block text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-                    PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+                    PIN ({PIN_VERIFY_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
                   </label>
                   <input
                     id="void-pin"

@@ -3,7 +3,7 @@
 import { getAttendanceForDate } from "../queries/attendance";
 import { AttendanceRefusalError, BatchOwnershipError } from "@/lib/attendance-errors";
 import { getAuthenticatedPrisma } from "@/server/get-db";
-import { UpdateAttendancePayload, pinFormatError } from "@buddysaradhi/shared";
+import { UpdateAttendancePayload, pinVerifyFormatError } from "@buddysaradhi/shared";
 import { z } from "zod";
 import { log } from "@/lib/logger";
 // A `"use server"` module may only export async functions, so BR-CALC-06's pure
@@ -517,7 +517,10 @@ export async function lockSessionAction(
     if (!pinHash) {
       return { success: false, error: "No PIN configured. Set one in Settings → Security." };
     }
-    const pinFormatProblem = pinFormatError(pin);
+    // BR-SEC-05 + RFC pin-proof-spec-amendment §4.4: VERIFY accepts 4+ so a
+    // grandfathered pre-floor PIN reaches argon2. Setup (6+) is enforced by
+    // `setPinAction`/`pinFormatError`, never here.
+    const pinFormatProblem = pinVerifyFormatError(pin);
     if (pinFormatProblem) {
       // A 3-digit entry is not a wrong PIN, it is an unusable one. Saying
       // "incorrect" sends the tutor round a loop retyping the same digits.
@@ -846,12 +849,13 @@ async function requireUnlockPin(
   // PIN gate mirrors lockSessionAction exactly (10_Security.md §4 sensitive
   // mutation; 08_Settings.md BR-SEC-02 fresh PIN): no-PIN, format, verify —
   // same taxonomy codes so `lockErrorCopy`-style clients classify identically.
+  // Format is the VERIFY floor (4+ grandfathered per RFC §4.4); argon2 decides.
   const settingsRow = await db.setting.findFirst({ where: { tenantId } });
   const pinHash = (settingsRow?.pinHash ?? null) as string | null;
   if (!pinHash) {
     return { success: false, error: "No PIN configured. Set one in Settings → Security." };
   }
-  const pinFormatProblem = pinFormatError(pin);
+  const pinFormatProblem = pinVerifyFormatError(pin);
   if (pinFormatProblem) {
     return { success: false, error: `VALIDATION: ${pinFormatProblem}` };
   }

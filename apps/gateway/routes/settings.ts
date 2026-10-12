@@ -50,6 +50,25 @@ const SETTINGS_PATCH_SCHEMA = z.object({
   reducedMotion: settingsFlag, reduced_motion: settingsFlag,
 }).partial();
 
+// N1 — the PIN-proof replica schema (12_Business_Rules.md BR-SYN-01 /
+// BR-SEC-04, 10_Security.md §18.1). Narrow by construction: the ONLY fields a
+// sync-apply may carry are the replica payload `setPinAction` mints — the proof,
+// the genuine hash, and the marker (`pin_updated_at` + `pin_proof` + `pin_hash`,
+// either spelling). The proof keeps the openapi `secureErase` bounds (64
+// lowercase hex) so a malformed value is a typed 400 before it can reach
+// storage or the constant-time comparison in routes/security.ts. The hash is a
+// bounded opaque string: the edge never verifies it (no argon2) and must not
+// pin its format, or a future KDF rotation bricks at the sync layer instead of
+// at verification.
+const pinProofHex = z.string().regex(/^[0-9a-f]{64}$/, "pin_proof must be 64 lowercase hex chars");
+const pinHashOpaque = z.string().min(1).max(500);
+const pinUpdatedAtMarker = z.string().min(1).max(100);
+const SETTINGS_SYNC_APPLY_SCHEMA = z.object({
+  pinProof: pinProofHex, pin_proof: pinProofHex,
+  pinHash: pinHashOpaque, pin_hash: pinHashOpaque,
+  pinUpdatedAt: pinUpdatedAtMarker, pin_updated_at: pinUpdatedAtMarker,
+}).partial();
+
 export const handleSettings: RouteHandler = async (req, db, tenantId, path, method) => {
   const orm = createPrismaOrm(db, tenantId);
 
@@ -188,6 +207,136 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
     return ok(updated);
   }
 
+  // POST /api/v1/settings/sync-apply — the ONLY writer of `pin_proof` (and of
+  // the `pin_hash` presence the erase gate reads) on the edge (N1:
+  // 10_Security.md §18.1 step 1, BR-SEC-04, contracts/openapi.yaml
+  // `secureErase`). The web-local `setPinAction`
+  // (apps/web/src/server/actions/settings.ts) stores the argon2id hash AND the
+  // HMAC proof in one transaction and replicates BOTH inside its `sync_outbox`
+  // payload; this endpoint applies that replica payload to the gateway DB the
+  // erase gate actually reads. Without it `storedProof` is "" forever and every
+  // edge erase fails closed forever — and the proof alone would not suffice:
+  // the gate ALSO requires hash presence ("No PIN configured"), which no public
+  // route could establish, so the genuine hash travels with the proof it was
+  // derived beside.
+  //
+  // TRUST REASONING — why this path, and never PATCH:
+  //   1. PATCH is the tutor-facing surface (08_Settings.md — institute
+  //      identity, toggles, theme…). A client-settable proof there is a
+  //      self-issued erase credential: store a known constant, offer the same
+  //      constant, and the constant-time comparison passes. So PATCH keeps
+  //      rejecting `pin_proof`/`pinProof` AND `pin_hash`/`pinHash` (see the
+  //      FORBIDDEN tests), and this schema accepts NOTHING else — any extra key
+  //      is a 400 naming the field, never a silent strip (the accept-and-drop
+  //      defect, above).
+  //   2. The payload this applies is minted server-side by `setPinAction` in
+  //      the SAME transaction that stores the hash: first-time setup mints it
+  //      for the PIN just chosen; a change mints it only after the OLD PIN
+  //      re-verified (08_Settings.md SR-04). Proof and hash travel TOGETHER, in
+  //      outbox order, so the replica converges to the latest set — never to a
+  //      proof detached from its hash. The hash value is opaque to the edge
+  //      (presence is all the gate reads); it is stored, never verified.
+  //   3. The credentials never echo: the response is a bare `{ applied: true }`,
+  //      the gateway's own outbox row carries only the marker (a credential in
+  //      an outbox payload would leak through GET /api/v1/sync/outbox, which
+  //      returns full rows), and the audit row carries only the marker. GET
+  //      /api/v1/settings keeps projecting both columns out (`toSafeSettings`,
+  //      above — `pin_hash` was already stripped there).
+  //   4. Every apply is audited as `settings.sync_apply` (NOT `settings.update`,
+  //      so a replica write is distinguishable from a tutor edit) in the SAME
+  //      write transaction (Rule 7 / BR-SYN-01 / BR-SEC-03, fail-closed).
+  // Residual (v1, stated not hidden): session auth cannot cryptographically
+  // distinguish a web-minted proof from a hand-crafted one carrying the same
+  // shape — same as any v1 replica write. What bounds it: the narrow schema,
+  // the per-apply audit row (bulk self-issue is visible forensics), PATCH
+  // staying closed, and the erase gate's own rate limit + typed confirm.
+  // Long-term hardening is the v2 authenticated sync envelope
+  // (10_Security.md §19).
+  if (path === "/api/v1/settings/sync-apply" && method === "POST") {
+    // RFC-004 C1 — fail-closed like every mutating route.
+    const idemKey = requireIdempotencyKey(req);
+    if (idemKey instanceof Response) return idemKey;
+    const idemRoute = idempotencyRoute(method, path);
+    const body = await req.json().catch(() => ({}));
+    if (typeof body !== "object" || body === null || Object.keys(body).length === 0) {
+      return fail("no_valid_fields", 400);
+    }
+
+    const parsed = SETTINGS_SYNC_APPLY_SCHEMA.safeParse(body);
+    if (!parsed.success) return failZod(parsed.error);
+
+    // Narrow, same as PATCH: an unknown field is REJECTED, not stripped —
+    // the sync payload has exactly three fields and anything else is either a
+    // confused caller or a probe.
+    const rejectedApply = Object.keys(body).filter((k) => !(k in parsed.data));
+    if (rejectedApply.length > 0) {
+      return failValidation(
+        `not a sync-appliable settings field: ${rejectedApply.join(", ")}. ` +
+          "A settings sync-apply may only carry the PIN replica payload " +
+          "(`pin_proof` + `pin_hash` + `pin_updated_at`, either spelling) " +
+          "minted by setPinAction. Every other column — including " +
+          "tenant_secret and the monotonic sequence counters — is never " +
+          "replica-writable (BR-RC-01, BR-SEC-04).",
+      );
+    }
+
+    const proof = parsed.data.pin_proof ?? parsed.data.pinProof;
+    const hash = parsed.data.pin_hash ?? parsed.data.pinHash;
+    const marker = parsed.data.pin_updated_at ?? parsed.data.pinUpdatedAt;
+    if (!proof || !hash || !marker) {
+      return failValidation(
+        "sync-apply requires pin_proof, pin_hash and pin_updated_at " +
+          "(the replica payload setPinAction wrote to its sync_outbox row).",
+      );
+    }
+
+    let stored = false;
+    try {
+      await withWriteTransaction(db, async (tx) => {
+        const txOrm = createPrismaOrm(tx, tenantId);
+        // Ensure the singleton row exists first: `stmtInsertSetting`
+        // (lib/sql.ts SETTINGS_INSERT_EXTRA) deliberately drops server-owned
+        // columns on CREATE, so credentials passed only to the upsert would be
+        // silently lost for a tenant syncing before any PATCH ever ran. The
+        // follow-up UPDATE is the single writer of both columns on this path.
+        await txOrm.setting.upsert({
+          where: { tenantId },
+          create: { instituteName: "My Tuition" },
+          update: {},
+        });
+        await txOrm.setting.update({
+          where: { tenantId },
+          data: { pinProof: proof, pinHash: hash },
+        });
+
+        // Rule 7 — the replica write lands with its own outbox + audit rows in
+        // the SAME transaction. The outbox payload carries ONLY the marker:
+        // credentials there would leak through GET /api/v1/sync/outbox, which
+        // returns full rows. The audit metadata likewise carries only the
+        // marker — never the credentials (10_Security.md §1/§3.4).
+        await recordOutbox(tx, tenantId, "settings", tenantId, "update", { pin_updated_at: marker });
+        await recordAudit(tx, tenantId, tenantId, "settings.sync_apply", "settings", tenantId, {
+          pin_updated_at: marker,
+        });
+        // RFC-004 C1 — response bytes commit atomically with the apply (see the
+        // PATCH path). Never echo the stored row: it carries pin_proof.
+        const env = okEnvelope(200, { applied: true });
+        await storeIdempotentResponse(tx, tenantId, idemRoute, idemKey, env.code, env.body);
+        stored = true;
+      });
+    } catch (err) {
+      // RFC-004 K2/K3 — concurrent-duplicate race (see routes/ledger.ts).
+      const replay = await replayIfDuplicate(db, tenantId, idemRoute, idemKey, err);
+      if (replay) return replay;
+      throw err;
+    }
+
+    // Cache invalidation follows COMMIT (same reasoning as PATCH).
+    if (!stored) throw new Error("settings.sync_apply committed nothing (Rule 9)");
+    invalidateTenant(tenantId);
+    return ok({ applied: true });
+  }
+
   // POST /api/v1/settings/pin removed: uncontracted (absent from
   // contracts/openapi.yaml), zero callers in web/mobile/desktop, and it accepted
   // a client-supplied raw hash — the one path that could replace settings.pin_hash
@@ -208,6 +357,12 @@ function toSafeSettings(row: Record<string, unknown> | null): Record<string, unk
   const {
     pinHash: _pinHash,
     pin_hash: _pinHashSnake,
+    // BR-SEC-04: the edge-verifiable PIN proof. Not the PIN and not reversible,
+    // but it IS a credential — it authorises the destructive erase gate — so it
+    // must never ride out in a settings projection on the same reasoning as
+    // `pin_hash`. Mirrors SETTINGS_SECRET_KEYS in apps/web settings.ts.
+    pinProof: _pinProof,
+    pin_proof: _pinProofSnake,
     panicPinHash: _panicPinHash,
     panic_pin_hash: _panicPinHashSnake,
     tenantSecret: _tenantSecret,

@@ -86,7 +86,7 @@ async function createTestDb(): Promise<void> {
     "CREATE TABLE student_tags (student_id TEXT, tag_id TEXT, PRIMARY KEY (student_id, tag_id))",
   );
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE audit_log (id TEXT PRIMARY KEY, tenant_id TEXT, actor TEXT, action TEXT, ref_type TEXT, ref_id TEXT, metadata TEXT, created_at TEXT)",

@@ -27,10 +27,10 @@ import { useCallback, useState } from "react";
 import { useAttendanceStore } from "@/stores/attendance-store";
 import {
   AttendanceSession,
-  pinFormatError,
+  pinVerifyFormatError,
   PIN_INPUT_MAX_LENGTH,
   PIN_MAX_LENGTH,
-  PIN_MIN_LENGTH,
+  PIN_VERIFY_MIN_LENGTH,
 } from "@buddysaradhi/shared";
 import { lockSessionAction, unlockSessionAction, requestHardUnlockAction } from "@/server/actions/attendance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -89,7 +89,11 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
 
   /**
    * ONE PIN rule, from the shared module (`packages/shared/src/pin.ts`) — the
-   * second site converted after `ledger-table`.
+   * second site converted after `ledger-table`. VERIFY floor
+   * (`pinVerifyFormatError`, 4–8, grandfathered per
+   * docs/rfc/pin-proof-spec-amendment.md §4.4/EC-P8), because this sheet only
+   * ever verifies: `lockSessionAction`, `unlockSessionAction` and
+   * `requestHardUnlockAction` all take the entered PIN to argon2.
    *
    * This input used to carry `maxLength={4}` and gate on `pin.length < 4`, while
    * `setPinAction` accepts 4–8 digits. A tutor who set a 6-digit PIN therefore
@@ -98,11 +102,11 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
    * locked out of their own books — the exact failure that rule exists to
    * prevent, in a different screen.
    *
-   * So the client states the bound the server enforces (`pinFormatError`) and
-   * adds no gate of its own beyond it. Verification stays server-side and
+   * So the client states the bound the server verifies (`pinVerifyFormatError`)
+   * and adds no gate of its own beyond it. Verification stays server-side and
    * unchanged; `maxLength` is the ceiling, never tighter.
    */
-  const pinError = pinFormatError(pin);
+  const pinError = pinVerifyFormatError(pin);
 
   const closeSheet = useCallback(() => {
     setLockSheetOpen(false);
@@ -369,7 +373,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
                   htmlFor="request-pin"
                   className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2"
                 >
-                  Security PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+                  Security PIN ({PIN_VERIFY_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
                 </label>
                 <input
                   id="request-pin"
@@ -439,7 +443,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
                   htmlFor="unlock-pin"
                   className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2"
                 >
-                  Security PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+                  Security PIN ({PIN_VERIFY_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
                 </label>
                 <input
                   id="unlock-pin"
@@ -536,7 +540,7 @@ export function LockSessionSheet({ session }: LockSessionSheetProps) {
                 htmlFor="lock-pin"
                 className="block text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2"
               >
-                Security PIN ({PIN_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
+                Security PIN ({PIN_VERIFY_MIN_LENGTH}–{PIN_MAX_LENGTH} digits)
               </label>
               <input
                 id="lock-pin"

@@ -93,7 +93,7 @@ async function createTenantDb(): Promise<{ client: Client; dir: string }> {
     "CREATE TABLE students (id TEXT PRIMARY KEY, tenant_id TEXT, balance_paise INTEGER DEFAULT 0, updated_at TEXT)",
   );
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, next_receipt_seq INTEGER DEFAULT 1, invoice_prefix TEXT, receipt_prefix TEXT DEFAULT 'RCP-', tenant_secret TEXT, pin_hash TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, next_receipt_seq INTEGER DEFAULT 1, invoice_prefix TEXT, receipt_prefix TEXT DEFAULT 'RCP-', tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE receipts (id TEXT PRIMARY KEY, tenant_id TEXT, number TEXT, ledger_entry_id TEXT, student_id TEXT, invoice_id TEXT, amount INTEGER, payment_method TEXT, payment_ref TEXT, received_on TEXT, tamper_hash TEXT, voided_at TEXT, pdf_blob_key TEXT, created_at TEXT, updated_at TEXT, UNIQUE(tenant_id, number))",

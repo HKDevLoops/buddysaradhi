@@ -1084,15 +1084,26 @@ export function stmtTenantSecret(tenantId: string): BuiltStatement {
   };
 }
 
-/** Presence-only read of the PIN hash, for the secure-erase gate
- * (10_Security.md §18.1 step 1, BR-SEC-04). Deliberately returns the raw column
- *  and NO projection alias: the caller must be able to tell "no PIN configured"
- *  (NULL) from "a PIN is configured" and must not be tempted to carry the hash
- *  anywhere — it is an argon2id hash plus a secret pepper, and the route records
- *  only a boolean in `audit_log`. */
-export function stmtSettingPinPresence(tenantId: string): BuiltStatement {
+/**
+ * BR-SEC-04 / 10_Security.md §18.1 step 1 — reads BOTH the argon2id presence
+ * marker and the edge-verifiable HMAC PIN proof.
+ *
+ * WHY THIS EXISTS. Presence alone is not proof. Checking that `pin_hash` is
+ * non-null proves that a PIN was ever set, not that the caller knows it, so a
+ * stolen session satisfied the gate and could then run the erase cascade. The
+ * web action proves knowledge by verifying the PIN against argon2id; the edge
+ * cannot, so the app also publishes `pin_proof` — an HMAC over the PIN under a
+ * server-side key — which the edge CAN verify in constant time.
+ *
+ * `pin_proof` is NOT the PIN and is not a hash of the hash: it is an HMAC under
+ * a key that never leaves the server, so possessing it does not let an attacker
+ * offline-brute the PIN any more than possessing `pin_hash` would (and `pin_hash`
+ * is already argon2id at m=64MiB). Both columns are read here so the route can
+ * distinguish "no PIN at all" from "PIN set but proof not yet derived".
+ */
+export function stmtSettingPinProof(tenantId: string): BuiltStatement {
   return {
-    sql: "SELECT pin_hash FROM settings WHERE tenant_id = ?",
+    sql: "SELECT pin_hash, pin_proof FROM settings WHERE tenant_id = ?",
     args: [auditedTenant(tenantId)],
   };
 }

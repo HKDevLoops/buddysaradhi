@@ -69,7 +69,7 @@ async function createRealDb(): Promise<{ client: Client; dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), "cas-consecutive-"));
   const client = createClient({ url: `file:${join(dir, "test.db")}` });
   await client.execute(
-    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_phone TEXT, locale TEXT, currency_code TEXT, tenant_secret TEXT, pin_hash TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_phone TEXT, locale TEXT, currency_code TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE sync_outbox (id TEXT PRIMARY KEY, tenant_id TEXT, table_name TEXT, row_id TEXT, op TEXT CHECK(op IN ('insert','update','soft_delete')), payload TEXT, created_at TEXT)",

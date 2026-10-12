@@ -183,11 +183,33 @@ paths:
               required:
                 - tutorId
                 - confirm
+                - pinProof
               properties:
                 tutorId:
                   type: string
                 confirm:
                   type: string
+                pinProof:
+                  # BR-SEC-04 / 10_Security.md 18.1 step 1 — the caller must PROVE
+                  # knowledge of the security PIN. A configured PIN alone proves
+                  # nothing about the caller, which is what let a stolen session
+                  # erase an account. The edge cannot evaluate argon2id, so this
+                  # is the HMAC proof it CAN verify (see `pinProof` in
+                  # apps/gateway/lib/crypto.ts).
+                  #
+                  # The length and pattern bounds are load-bearing, not decoration:
+                  # the value is compared in constant time against a stored string,
+                  # and an unbounded field would let a caller POST a multi-megabyte
+                  # string into that comparison.
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                  pattern: '^[0-9a-f]{64}$'
+                  description: >-
+                    Lowercase hex HMAC-SHA256 proof of PIN knowledge, computed as
+                    HMAC-SHA256(PIN_PEPPER, "buddysaradhi:pin-proof:v1:" + tenantId
+                    + ":" + pin). Domain-separated from every other HMAC in the
+                    system, and bound to the tenant.
       responses:
         '200':
           description: Data erased successfully
@@ -198,6 +220,111 @@ paths:
                 properties:
                   success:
                     type: boolean
+        default:
+          description: Standard error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /settings/sync-apply:
+    post:
+      operationId: settingsSyncApply
+      summary: Apply a PIN replica payload minted by setPinAction
+      description: >-
+        The ONLY edge writer of `pin_proof` (and of the `pin_hash` presence the
+        erase gate reads). The web-local `setPinAction` stores the argon2id hash
+        AND the HMAC proof in one transaction and replicates BOTH inside its
+        `sync_outbox` payload; this endpoint applies that replica payload to the
+        gateway DB the erase gate actually reads. PATCH keeps rejecting
+        `pin_proof`/`pin_hash` — a client-settable proof there would be a
+        self-issued erase credential. Every apply writes its own outbox row
+        (marker only) + `settings.sync_apply` audit row (marker only) in the same
+        transaction; the response, outbox payload and audit metadata never echo
+        the credentials. Requires exactly one proof + one hash + one marker as a
+        group (either spelling each); any unknown field is a 400 naming the
+        field, never a silent strip.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: RFC-004 C1 — fail-closed; missing/malformed key is 400 VALIDATION.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 3
+              properties:
+                pin_proof:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                  pattern: '^[0-9a-f]{64}$'
+                  description: >-
+                    Lowercase hex HMAC-SHA256 proof of PIN knowledge (same
+                    bounds as secureErase pinProof). Either spelling accepted;
+                    one proof is required.
+                pinProof:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                  pattern: '^[0-9a-f]{64}$'
+                  description: camelCase spelling of pin_proof.
+                pin_hash:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: >-
+                    Bounded opaque string: the edge never verifies it (no argon2
+                    at the edge) and must not pin its format, or a future KDF
+                    rotation bricks at the sync layer. Either spelling accepted;
+                    one hash is required.
+                pinHash:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: camelCase spelling of pin_hash.
+                pin_updated_at:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: >-
+                    Marker minted beside the proof; the only value the gateway's
+                    own outbox payload and audit metadata carry. Either spelling
+                    accepted; one marker is required.
+                pinUpdatedAt:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: camelCase spelling of pin_updated_at.
+      responses:
+        '200':
+          description: Replica applied; credentials never echoed
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - applied
+                properties:
+                  applied:
+                    type: boolean
+                    example: true
+        '400':
+          description: >-
+            VALIDATION — unknown field (named), malformed proof, missing
+            proof/hash/marker group member, empty body, or missing/malformed
+            Idempotency-Key. Nothing is written.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         default:
           description: Standard error
           content:

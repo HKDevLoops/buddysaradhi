@@ -68,7 +68,7 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
   const client = createClient({ url: `file:${join(dir, "test.db")}` });
   // Test-setup DDL only — never runtime (AGENTS.md §3.4).
   await client.execute(
-    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_address TEXT, institute_phone TEXT, institute_email TEXT, tenant_secret TEXT, pin_hash TEXT, biometric_enabled INTEGER, currency_code TEXT, locale TEXT, timezone TEXT, default_fee_model TEXT, invoice_prefix TEXT, receipt_prefix TEXT, grace_days INTEGER, auto_invoice INTEGER, attendance_lock_hours INTEGER, default_attendance_status TEXT, holiday_list_json TEXT, session_timeout_min INTEGER, auto_archive_inactive_days INTEGER, theme TEXT, density TEXT, reduced_motion TEXT, palette TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_address TEXT, institute_phone TEXT, institute_email TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, biometric_enabled INTEGER, currency_code TEXT, locale TEXT, timezone TEXT, default_fee_model TEXT, invoice_prefix TEXT, receipt_prefix TEXT, grace_days INTEGER, auto_invoice INTEGER, attendance_lock_hours INTEGER, default_attendance_status TEXT, holiday_list_json TEXT, session_timeout_min INTEGER, auto_archive_inactive_days INTEGER, theme TEXT, density TEXT, reduced_motion TEXT, palette TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE sync_outbox (id TEXT PRIMARY KEY, tenant_id TEXT, table_name TEXT, row_id TEXT, op TEXT CHECK(op IN ('insert','update','soft_delete')), payload TEXT, created_at TEXT)",

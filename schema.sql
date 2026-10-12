@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS settings (
   theme                   TEXT NOT NULL DEFAULT 'system' CHECK(theme IN ('light','dark','system')),
   biometric_enabled       INTEGER NOT NULL DEFAULT 0 CHECK(biometric_enabled IN (0,1)),
   pin_hash                TEXT,                          -- argon2id; NULL if unset
+pin_proof               TEXT,                          -- BR-SEC-04 edge-verifiable HMAC PIN proof; NULL until re-confirmed
   backup_passphrase_hash  TEXT,                          -- hash; never the key
   tenant_secret           TEXT NOT NULL,                 -- 32-byte hex pepper
   created_at              TEXT NOT NULL,

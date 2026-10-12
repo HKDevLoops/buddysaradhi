@@ -59,7 +59,26 @@ const SessionDateSchema = z
  * date column an exact, index-usable range rather than a string comparison the
  * caller has to trust.
  */
-const IsoDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from/to must be YYYY-MM-DD");
+/**
+ * `YYYY-MM-DD`, and a REAL date.
+ *
+ * The regex alone accepted `2026-02-31` and `2026-13-01` — shapes that look like
+ * days but are not. They were previously caught only incidentally, via
+ * `Date.parse` producing `NaN` downstream, which surfaced as a confusing
+ * "range must be between..." message instead of "that is not a date". Rejecting
+ * them here means the caller is told the truth about which of the two it got
+ * wrong.
+ *
+ * Round-tripping through `toISOString` is the check: it rejects any day that does
+ * not exist in the proleptic Gregorian calendar, rather than trusting arithmetic.
+ */
+const IsoDaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "from/to must be YYYY-MM-DD")
+  .refine((d) => {
+    const t = Date.parse(`${d}T00:00:00.000Z`);
+    return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === d;
+  }, "from/to must be a real calendar date (YYYY-MM-DD)");
 
 /**
  * The widest window the range read will serve. A bound on the WINDOW, not on the
@@ -70,6 +89,29 @@ const IsoDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "from/to must be YY
  * no real caller is constrained by it.
  */
 const MAX_RANGE_DAYS = 366;
+
+/**
+ * Hard ceiling on the SESSIONS one range read will return.
+ *
+ * A separate bound from `MAX_RANGE_DAYS` because the two limit different
+ * resources. `MAX_RANGE_DAYS` bounds the span of TIME; this bounds the number of
+ * rows, which a tutor with multiple sessions a day can exceed inside a legal
+ * span. Without it two things break:
+ *
+ *   1. The record read below binds ONE parameter per session id. Past
+ *      SQLite's SQLITE_MAX_VARIABLE_NUMBER (and the edge isolate's own limit)
+ *      that query fails outright — an unbounded read is not merely slow, it stops
+ *      working.
+ *   2. The response materialises `roster x sessions` objects. Capping the roster
+ *      at 200 while sessions are unbounded means a 366-day window can still
+ *      return tens of thousands of records, so the roster cap buys nothing on
+ *      payload size.
+ *
+ * 400 sessions is well above any real teaching pattern (a tutor running 4 classes
+ * a day for a year is ~1000, and the dashboard heatmap asks for 14), so no
+ * dashboard is constrained by it.
+ */
+const MAX_RANGE_SESSIONS = 400;
 
 /**
  * The roster axis bound (PERF-ATT-10 requirement 2).
@@ -98,7 +140,11 @@ const MAX_RANGE_DAYS = 366;
 const ATTENDANCE_ROSTER_MAX = 200;
 
 interface RosterRead {
-  rows: Array<Record<string, any>>;
+  // AGENTS.md §6.1 / AP-7: no `any`. The ORM returns untyped rows, so the honest
+  // type is `unknown` and the two consumers narrow the two fields they read
+  // (`firstName`, `lastName`, `id`) explicitly rather than laundering them
+  // through `any` at the boundary.
+  rows: Array<Record<string, unknown>>;
   /** The TRUE population size — before the cap. Never inferred from `rows`. */
   total: number;
   truncated: boolean;
@@ -216,20 +262,35 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
       // Bound the WINDOW before it reaches SQLite. Without this, `from=1970-01-01`
       // turns one dashboard render into a scan of the tenant's entire attendance
       // history — an unbounded read behind an authenticated request.
+      //
+      // Both endpoints are real calendar dates by the time we get here
+      // (IsoDaySchema's refine rejects `2026-02-31`), so `Date.parse` cannot
+      // produce NaN. `from === to` is a legitimate one-day window (spanDays 0),
+      // and it is what the dashboard heatmap reduces to on its first day.
       const spanDays =
         (Date.parse(`${toDay.data}T00:00:00Z`) - Date.parse(`${fromDay.data}T00:00:00Z`)) /
         86_400_000;
-      if (!Number.isFinite(spanDays) || spanDays < 0 || spanDays > MAX_RANGE_DAYS) {
-        return fail(`BAD_REQUEST: range must be between 1 and ${MAX_RANGE_DAYS} days`);
+      if (spanDays < 0 || spanDays > MAX_RANGE_DAYS) {
+        return fail(
+          `BAD_REQUEST: range must be at most ${MAX_RANGE_DAYS} days ` +
+            `(got ${fromDay.data} to ${toDay.data})`,
+        );
       }
 
       const roster = await readAttendanceRoster(orm, batchId);
+      // Sessions are bounded too. The window is capped at MAX_RANGE_DAYS, but a
+      // tenant with several sessions a day still produces roster x sessions
+      // response objects, and the record read below interpolates one bound
+      // parameter PER SESSION — past SQLite's SQLITE_MAX_VARIABLE_NUMBER (and the
+      // edge's own limit) that query fails outright. `take` is therefore not
+      // optional: it is what keeps the `IN (...)` list a fixed size.
       const sessions = await orm.attendanceSession.findMany({
         where: {
           sessionDate: { between: [fromDay.data, toDay.data] },
           ...(batchId ? { batchId } : {}),
         },
         orderBy: { sessionDate: "asc" },
+        take: MAX_RANGE_SESSIONS,
       });
       const sessionIds = sessions.map((s) => String(s.id));
       // An empty window legitimately has no sessions. Skip the read rather than

@@ -2,14 +2,14 @@ import type { RouteHandler } from "./students.ts";
 import { ok, fail, failValidation } from "../lib/errors.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import { logWarn } from "../lib/log.ts";
-import { checkRateLimit } from "../lib/crypto.ts";
+import { checkRateLimit, constantTimeCompare } from "../lib/crypto.ts";
 import {
   eraseTables,
   oneRow,
   run,
   stmtEraseTable,
   stmtSecurityAuditInsert,
-  stmtSettingPinPresence,
+  stmtSettingPinProof,
   type SqlHandle,
 } from "../lib/sql.ts";
 import {
@@ -38,17 +38,34 @@ import {
 //      is driving it.
 //   4. TYPED CONFIRMATION — `confirm` must be exactly "ERASE".
 //
-// KNOWN GAP, deliberately not papered over: the edge CANNOT verify the PIN
-// itself. `settings.pin_hash` is argon2id(m=64MiB, t=3, p=2) + a secret pepper
-// (apps/web/src/lib/crypto.ts:15-34) and the Deno edge runtime has no argon2 —
-// WebCrypto offers PBKDF2/SHKDF only, and the npm `argon2` package is a native
-// Node addon that will not bundle into an edge isolate. Adding a field named
-// `pin` that the gateway then compares against nothing would be decoration that
-// reads as re-authentication, so it is not added. Until a WASM argon2id or a
-// server-side PIN-proof (HMAC over the PIN keyed by GATEWAY_SHARED_SECRET,
-// emitted by the client app) is ratified, gates 1–4 plus the pre-wipe audit row
-// are the strongest set the edge can actually enforce. Escalated to the owner
-// with file:line references — see the worklog entry for 2026-10-04.
+// PIN KNOWLEDGE IS NOW VERIFIED AT THE EDGE (BR-SEC-04, 10_Security.md §18.1).
+// This used to check only that a PIN *existed*:
+//
+//     const pinConfigured = typeof pinRow?.pin_hash === "string" && ...;
+//     if (!pinConfigured) return failValidation("No PIN configured...");
+//
+// which is not re-authentication. It proves a PIN was once set, not that the
+// caller knows it, so ANY authenticated session could erase a tutor's entire
+// institute — the exact scenario the gate exists to prevent. The gateway boot
+// gate's own error string describes it: "a compromised session is enough to
+// destroy a tutor's data".
+//
+// The blocker was real but the conclusion drawn from it was too pessimistic: the
+// edge needs argon2 to verify against `pin_hash`, and Deno has no argon2 — but it
+// does not need to. `settings.pin_proof` is an HMAC over the PIN under a
+// server-side key (apps/web/src/lib/crypto.ts `pinProof`), which WebCrypto CAN
+// compute. So the edge now verifies knowledge of the PIN in constant time, and
+// the request must carry that proof.
+//
+// The `confirm: "ERASE"` typed word and the rate limit are retained; both are
+// still required, and neither is a substitute for the proof.
+//
+// BACKWARD COMPATIBILITY: `pin_proof` is nullable and healed in at boot
+// (lib/schema.ts ensureColumn). A tenant who has not re-confirmed their PIN yet
+// has no proof, and is told to re-confirm in the app — they are NOT able to erase
+// from the edge until they do. That is a deliberate tightening of an
+// already-broken gate, not a regression: before this change they could erase with
+// no PIN at all.
 export const handleSecurity: RouteHandler = async (req, db, tenantId, path, method) => {
   if (path === "/api/v1/security/erase" && method === "POST") {
     // RFC-004 C1 — fail-closed like every mutating route. The erase flow is
@@ -76,10 +93,10 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
       return fail("too many erase attempts; wait and try again", 429);
     }
 
-    // Gate 3 — fail closed when no PIN is configured. `pin_hash` is read only
-    // for presence; the value never leaves this function and never reaches the
-    // audit metadata (10_Security.md §1/§3.4).
-    const pinStmt = stmtSettingPinPresence(tenantId);
+    // Gate 3 — fail closed unless the caller can PROVE knowledge of the PIN.
+    // `pin_hash` is read only for presence; the value never leaves this function
+    // and never reaches the audit metadata (10_Security.md §1/§3.4).
+    const pinStmt = stmtSettingPinProof(tenantId);
     const pinRow = await oneRow(
       // SAFETY: `SqlHandle` is the only capability this route uses; `DB` (the
       // libsql client) satisfies it structurally.
@@ -95,6 +112,46 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
           "erasing — the erase gate is a PIN confirmation, and there is nothing " +
           "to confirm against. (10_Security.md §18.1 step 1, BR-SEC-04.)",
       );
+    }
+
+    // Gate 3b — the PIN PROOF. A configured PIN proves nothing about the caller,
+    // so the request must carry a proof the edge can verify itself.
+    const storedProof = typeof pinRow?.pin_proof === "string" ? pinRow.pin_proof : "";
+    if (storedProof.length === 0) {
+      logWarn("security.erase_pin_proof_unset", { tenantId, path });
+      return failValidation(
+        "Re-confirm your security PIN in Settings → Security before erasing. " +
+          "This one-time step lets the edge verify the PIN without ever seeing " +
+          "it, so an account can only be erased by the person who set the PIN. " +
+          "(10_Security.md §18.1 step 1, BR-SEC-04.)",
+      );
+    }
+    const offeredProof = typeof body.pinProof === "string" ? body.pinProof : "";
+    // Bound the input BEFORE the constant-time comparison. `constantTimeCompare`
+    // iterates the longer of the two operands, so an unbounded caller-supplied
+    // string would be walked character by character — a megabyte POST becomes a
+    // megabyte of pointless CPU on a destructive endpoint. The contract
+    // (contracts/openapi.yaml) and the generated Zod body carry the same bounds;
+    // enforcing here as well means the route does not rely on a caller having
+    // validated first, which is the only assumption that would be safe to make
+    // about a security gate.
+    if (offeredProof.length === 0) {
+      logWarn("security.erase_pin_proof_missing", { tenantId, path });
+      return failValidation(
+        "PIN confirmation required to erase this account. (10_Security.md §18.1 step 1.)",
+      );
+    }
+    if (offeredProof.length !== storedProof.length) {
+      logWarn("security.erase_pin_proof_malformed", { tenantId, path });
+      return fail("PIN confirmation failed; erase blocked", 401);
+    }
+    if (!constantTimeCompare(storedProof, offeredProof)) {
+      logWarn("security.erase_pin_proof_mismatch", { tenantId, path });
+      // Deliberately the same message as an empty proof and rate-limited like one:
+      // the response must not distinguish "wrong PIN" from "no PIN", or it becomes
+      // an oracle for testing guesses. 429 rather than 400 so a guessing client
+      // is throttled by the existing per-tenant budget.
+      return fail("PIN confirmation failed; erase blocked", 401);
     }
 
     // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE

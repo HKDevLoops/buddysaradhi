@@ -8,7 +8,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { verifyPin } from "@/lib/crypto";
-import { pinFormatError, formatINR, paiseSub } from "@buddysaradhi/shared";
+import { pinVerifyFormatError, formatINR, paiseSub } from "@buddysaradhi/shared";
 import {
   createInvoicePrisma,
   recordPaymentPrisma,
@@ -119,7 +119,10 @@ export async function recordPaymentAction(
   const isBackdated = payload.receivedOn < todayLocalIso();
   if (isBackdated) {
     const pin = options?.pin ?? "";
-    const pinProblem = pinFormatError(pin);
+    // BR-SEC-05 + RFC pin-proof-spec-amendment §4.4: VERIFY accepts 4+ — a
+    // grandfathered pre-floor PIN must reach argon2. Setup (6+) is enforced by
+    // `setPinAction`/`pinFormatError`, never here.
+    const pinProblem = pinVerifyFormatError(pin);
     if (pinProblem) {
       log.audit("fee_record_payment_pin_rejected", "Backdated payment refused on PIN", {
         studentId,
@@ -271,7 +274,9 @@ export async function voidReceiptAction(
 
   // The PIN is never forwarded to the gateway and never logged (Rule 3): it is
   // verified here, in the server action, against the tenant's own stored hash.
-  const pinProblem = pinFormatError(parsed.data.pin);
+  // VERIFY floor is 4 (grandfathered pre-BR-SEC-05 PINs reach argon2); setup
+  // stays 6+ via `pinFormatError`/`setPinAction`.
+  const pinProblem = pinVerifyFormatError(parsed.data.pin);
   if (pinProblem) {
     log.audit("fee_void_receipt_pin_rejected", "Void refused on PIN format", {
       entryIdToVoid,

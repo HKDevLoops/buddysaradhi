@@ -1,6 +1,6 @@
 "use server";
 
-import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch } from "@/server/get-db";
+import { getAuthenticatedDb, getAuthenticatedPrisma, gatewayPatch, gatewayPost } from "@/server/get-db";
 import { createSupabaseServer, createSupabaseAdmin } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
@@ -670,6 +670,12 @@ export interface SettingsWriteResult {
  */
 const SETTINGS_SECRET_KEYS: ReadonlySet<string> = new Set([
   "pin_hash", "pinHash",
+  // The edge-verifiable PIN proof (BR-SEC-04). It is an HMAC under a server
+  // secret, so it is not the PIN and cannot be reversed — but it IS an
+  // authentication credential: anything that can produce a valid erase proof can
+  // pass the destructive gate. It therefore belongs in this set for the same
+  // reason `pin_hash` does, in both casings the projection may carry.
+  "pin_proof", "pinProof",
   "panic_pin_hash", "panicPinHash",
   "tenant_secret", "tenantSecret",
   "backup_passphrase_hash", "backupPassphraseHash",
@@ -1201,8 +1207,16 @@ export async function deleteAccountAction(pin: string) {
 
 export async function setPinAction(newPin: string, currentPin?: string) {
   try {
-    if (newPin.length < 4 || newPin.length > 8) {
-      return { success: false, error: "PIN must be 4-8 digits" };
+    // Implements: 12_Business_Rules.md BR-SEC-05 (PIN ≥ 6 digits) + 08_Settings.md
+    // pinSchema. SETUP ONLY: a 4-5 digit PIN is refused here, but VERIFICATION
+    // (`verifyPin` / `verifyPinWithLadder` below) is deliberately NOT floored —
+    // existing 4-5 digit PINs keep verifying, so no tutor is locked out of their
+    // own books by a rule that did not exist when they set their PIN. Only new
+    // setups are held to 6. This matters now because the PIN backs a
+    // bearer-token credential (the edge-verifiable `pin_proof` for secure erase,
+    // BR-SEC-04): a 4-digit (1-in-10k) PIN falls to the 15-attempt wipe ladder.
+    if (newPin.length < 6 || newPin.length > 8) {
+      return { success: false, error: "PIN must be 6-8 digits" };
     }
     if (!/^\d+$/.test(newPin)) {
       return { success: false, error: "PIN must contain only digits" };
@@ -1244,8 +1258,13 @@ export async function setPinAction(newPin: string, currentPin?: string) {
       }
     }
 
-    const { hashPin } = await import("@/lib/crypto");
+    const { hashPin, pinProof } = await import("@/lib/crypto");
     const newHash = await hashPin(newPin);
+    // BR-SEC-04: derive the edge-verifiable proof for the SAME transaction that
+    // stores the hash. Deriving it here — rather than lazily on first erase —
+    // means a tutor who sets a PIN today can erase from the edge today, with no
+    // extra re-confirmation step and no window where the gate is weaker.
+    const newProof = await pinProof(tenantId, newPin);
     const now = new Date().toISOString();
 
     // Rule 7: pin update must also write sync_outbox + audit_log atomically —
@@ -1258,10 +1277,11 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           instituteName: "My Tuition",
           tenantSecret: crypto.randomUUID(),
           pinHash: newHash,
+          pinProof: newProof,
           createdAt: now,
           updatedAt: now,
         },
-        update: { pinHash: newHash, updatedAt: now },
+        update: { pinHash: newHash, pinProof: newProof, updatedAt: now },
       });
       await tx.syncOutbox.create({
         data: {
@@ -1270,7 +1290,22 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           tableName: "settings",
           rowId: tenantId,
           op: "update",
-          payload: JSON.stringify({ pin_updated_at: now }),
+          // N1 (BR-SEC-04 / 10_Security.md §18.1): replicate the edge-verifiable
+          // proof through the existing sync channel. `setPinAction` writes the
+          // web-local DB while the edge erase gate reads the gateway DB, so a
+          // proof that never leaves this device leaves `storedProof` permanently
+          // "" at the edge and every edge erase fails closed forever. The proof
+          // rides the outbox payload in the SAME transaction as the hash (Rule 7)
+          // so the two can never diverge. It is an HMAC under the PIN pepper,
+          // not the PIN (BR-SEC-07: no plaintext secret), and the gateway
+          // applies it ONLY via its audited sync-apply path — never as a
+          // client-settable PATCH field. The genuine argon2id hash rides with
+          // it: the edge gate checks hash PRESENCE ("a PIN is configured") and
+          // the edge cannot mint that presence truthfully from the proof alone,
+          // while the value itself stays opaque there — never verified (no
+          // argon2 at the edge), never returned, never logged. Applied at
+          // `apps/gateway/routes/settings.ts` POST /api/v1/settings/sync-apply.
+          payload: JSON.stringify({ pin_updated_at: now, pin_proof: newProof, pin_hash: newHash }),
           createdAt: now,
         },
       });
@@ -1287,6 +1322,52 @@ export async function setPinAction(newPin: string, currentPin?: string) {
         },
       });
     });
+
+    // N1 follow-up (BR-SEC-04 / 10_Security.md §18.1): push the replica payload
+    // to the gateway sync-apply route AFTER the local commit above — the edge
+    // erase gate reads the gateway DB, so a proof that never leaves this
+    // device fails closed forever. Server-side only: this action never runs in
+    // a Client Component (AGENTS.md §6.4).
+    //
+    // Best-effort by design (Rule 9, both directions). The PIN change already
+    // committed, so a push failure must NOT fail it — no rollback of a
+    // committed PIN, no `success: false` for a write that landed. And it must
+    // NOT be silent either: the failure is logged AND recorded as a
+    // `pin.sync_push_failed` audit row carrying only the marker + the error,
+    // never the credentials (10_Security.md §1/§3.4). The audit write is itself
+    // guarded — a diagnostics failure cannot fail the committed change. The
+    // outbox row from the transaction above remains the durable retry source.
+    // Idempotency-Key per RFC-004 C1: the route is fail-closed without it.
+    try {
+      const pushRes = await gatewayPost<unknown>(
+        "/api/v1/settings/sync-apply",
+        { pin_proof: newProof, pin_hash: newHash, pin_updated_at: now },
+        { "Idempotency-Key": crypto.randomUUID() },
+      );
+      if (!pushRes.success) throw new Error(pushRes.error);
+    } catch (pushError) {
+      const reason = pushError instanceof Error ? pushError.message : String(pushError);
+      log.error("pin_sync_push_failed", reason);
+      try {
+        await db.auditLog.create({
+          data: {
+            id: crypto.randomUUID(),
+            tenantId,
+            actor: tenantId,
+            action: "pin.sync_push_failed",
+            refType: "settings",
+            refId: tenantId,
+            metadata: JSON.stringify({ pin_updated_at: now, error: reason }),
+            createdAt: new Date().toISOString(),
+          },
+        });
+      } catch (auditError) {
+        log.error(
+          "pin_sync_push_audit_failed",
+          auditError instanceof Error ? auditError.message : String(auditError),
+        );
+      }
+    }
 
     invalidateTenant(tenantId, "settings:"); // workstream C wiring: pin change may insert settings row
     return { success: true };

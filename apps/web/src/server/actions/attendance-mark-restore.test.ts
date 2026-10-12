@@ -75,7 +75,7 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
   const client = createClient({ url: `file:${join(dir, "test.db")}` });
   // Test setup DDL only — never runtime (AGENTS.md §3.4).
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, attendance_lock_hours INTEGER, theme TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, institute_name TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, attendance_lock_hours INTEGER, theme TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE students (id TEXT PRIMARY KEY, tenant_id TEXT, code TEXT, first_name TEXT, last_name TEXT, admission_date TEXT, status TEXT, fee_model TEXT, base_fee_paise INTEGER, balance_paise INTEGER, dup_key TEXT, archived_at TEXT, created_at TEXT, updated_at TEXT)",

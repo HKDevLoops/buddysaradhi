@@ -42,6 +42,7 @@ export const CORE_DDL_STATEMENTS = [
     session_timeout_min INTEGER DEFAULT 5,
     biometric_enabled INTEGER DEFAULT 0,
     pin_hash TEXT,
+    pin_proof TEXT,
     backup_passphrase_hash TEXT,
     auto_archive_inactive_days INTEGER DEFAULT 90,
     theme TEXT DEFAULT 'system',
@@ -379,6 +380,25 @@ export async function ensureSelfRepairingSchema(
     // `receipt_no` → `number` rename is a column RENAME, not an add, so it is
     // left to the forward-only migration rather than guessed at here.
     await ensureColumn(_db, "receipts", "ledger_entry_id", "TEXT");
+    // BR-SEC-04 / 10_Security.md §18.1 step 1 — the destructive-erase PIN
+    // PROOF. `pin_hash` is argon2id, which the Deno edge cannot evaluate
+    // (WebCrypto offers PBKDF2/SHKDF; the npm argon2 package is a native addon
+    // that will not bundle into an edge isolate). So the edge could check only
+    // that a PIN *exists* — and a stolen session was therefore enough to destroy
+    // a tutor's data. `pin_proof` closes that without needing argon2 at the
+    // edge: it is an HMAC over the PIN under the tenant's own proof key, which
+    // the edge CAN compute and compare in constant time.
+    //
+    // It is nullable on purpose, and there is NO fallback to the old presence gate:
+    // a tenant with no `pin_proof` is REFUSED at the erase route with an
+    // instruction to re-confirm their PIN in the app, which re-derives and writes
+    // the proof on their next successful PIN change. (An earlier version of this
+    // comment claimed a presence fallback existed. It never did, and believing it
+    // would lead a future maintainer to think the insecure path was still live.)
+    //
+    // Adding the column is backwards-compatible: no existing tenant's rows are
+    // rewritten and no backup is invalidated.
+    await ensureColumn(_db, "settings", "pin_proof", "TEXT");
     await repairLegacyInvoicesAndReceipts(_db);
     healedTenants.add(tenantId);
   } catch (err) {

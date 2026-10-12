@@ -44,6 +44,10 @@ model Setting {
   sessionTimeoutMin    Int     @default(5) @map("session_timeout_min")
   biometricEnabled     Int     @default(0) @map("biometric_enabled")
   pinHash              String? @map("pin_hash")
+  // Edge-verifiable HMAC proof of PIN knowledge (BR-SEC-04). The Deno edge
+  // cannot evaluate argon2id; this it CAN verify. NULL until the tutor
+  // re-confirms their PIN.
+  pinProof              String? @map("pin_proof")
   backupPassphraseHash String? @map("backup_passphrase_hash")
 
   // Data Privacy

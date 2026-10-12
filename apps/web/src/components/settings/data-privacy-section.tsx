@@ -277,7 +277,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     />
                     {pin.length > 0 && !pinOk && (
                       <p className="text-[var(--danger)] text-xs mt-2">
-                        A PIN is 4 to 8 digits.
+                        A PIN is 6 to 8 digits.
                       </p>
                     )}
                     <button
@@ -434,7 +434,7 @@ export function DataPrivacySection({ settings }: DataPrivacySectionProps) {
                     className={`${inputCls} sm:w-56 text-center tracking-[0.4em] font-mono`}
                   />
                   {accountPin.length > 0 && !accountPinOk && (
-                    <p className="text-[var(--danger)] text-xs mt-2">A PIN is 4 to 8 digits.</p>
+                    <p className="text-[var(--danger)] text-xs mt-2">A PIN is 6 to 8 digits.</p>
                   )}
                 </div>
 

@@ -77,7 +77,7 @@ async function createTestDb(): Promise<{ client: Client; dir: string }> {
     "CREATE TABLE students (id TEXT PRIMARY KEY, tenant_id TEXT, balance_paise INTEGER DEFAULT 0, updated_at TEXT)"
   );
   await client.execute(
-    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, next_receipt_seq INTEGER DEFAULT 1, invoice_prefix TEXT, receipt_prefix TEXT DEFAULT 'RCP-', tenant_secret TEXT, pin_hash TEXT, updated_at TEXT)"
+    "CREATE TABLE settings (tenant_id TEXT PRIMARY KEY, next_invoice_seq INTEGER, next_receipt_seq INTEGER DEFAULT 1, invoice_prefix TEXT, receipt_prefix TEXT DEFAULT 'RCP-', tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, updated_at TEXT)"
   );
   await client.execute(
     // 07 §9.6 step 4 — a receipt exists for every payment. The fixture used to

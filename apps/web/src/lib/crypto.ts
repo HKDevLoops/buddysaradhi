@@ -23,6 +23,96 @@ export async function hashPin(pin: string): Promise<string> {
   });
 }
 
+/**
+ * BR-SEC-04 / 10_Security.md §18.1 step 1 — the PIN PROOF the edge verifies.
+ *
+ * The gateway cannot evaluate argon2id, so before this existed the destructive
+ * erase gate could only check that a PIN was CONFIGURED — which proves nothing
+ * about the caller, and let any stolen session erase a tutor's data. This is the
+ * client half of the fix: an HMAC the edge can verify with WebCrypto alone.
+ *
+ * MUST stay byte-identical to `pinProof` in apps/gateway/lib/crypto.ts:
+ *
+ *     HMAC-SHA256(HMAC(pepper, "buddysaradhi:pin-proof:subkey:v1"),
+ *                 "buddysaradhi:pin-proof:v1" : tenantId : pin)
+ *
+ * The signing key is a use-specific SUBKEY derived from the pepper via one
+ * HMAC-SHA256 step — never the pepper itself. That derivation (not the `info`
+ * prefix) is what STRUCTURALLY separates this proof from any other HMAC the
+ * system produces: when the pepper falls back to the shared secret the two keys
+ * would otherwise coincide and a proof would equal a request signature for
+ * identical material, no matter what prefix sits inside the message. The prefix
+ * remains as material binding, not as the separation mechanism. The tenantId is
+ * inside the signed material, so one tenant's proof never validates for another.
+ *
+ * The subkey derives from the PIN pepper, which is the same secret the argon2id
+ * `pin_hash` is bound to. The proof is therefore not a weaker alternative to the
+ * hash: holding it grants no offline brute-force advantage, and it is verified
+ * in constant time.
+ *
+ * MIGRATION — deliberate and loud (Rule 9: no silent breakage). The subkey
+ * derivation changes every proof value versus the previous direct-HMAC
+ * construction, so previously stored proofs no longer match. Proofs are
+ * re-derived on the next PIN change (`setPinAction` writes `pinProof` in the
+ * same transaction as the hash); a proof-holding tenant whose stored proof
+ * predates this change fails CLOSED on the edge erase gate until they
+ * re-confirm/change their PIN. See the matching note in
+ * apps/gateway/lib/crypto.ts.
+ *
+ * SECURITY NOTE: this is a derived verifier, not a replacement. `pin_hash`
+ * (argon2id) remains the credential of record and is still what the web verifies
+ * for normal sign-in; the proof exists only so a NON-argon2 runtime can check
+ * knowledge of the PIN for the destructive path.
+ */
+export const PIN_PROOF_INFO = "buddysaradhi:pin-proof:v1";
+
+/**
+ * Use-specific info for the PIN-proof subkey derivation. MUST stay identical to
+ * `PIN_PROOF_SUBKEY_INFO` in apps/gateway/lib/crypto.ts and MUST differ from
+ * `PIN_PROOF_INFO` — see the gateway note for why the two strings must never be
+ * the same.
+ */
+export const PIN_PROOF_SUBKEY_INFO = "buddysaradhi:pin-proof:subkey:v1";
+
+/**
+ * Derive the PIN-proof signing subkey — byte-identical twin of
+ * `derivePinProofKey` in apps/gateway/lib/crypto.ts (HMAC-only, WebCrypto on
+ * both runtimes). Any change here must land in both files together, or the
+ * cross-runtime parity test fails.
+ */
+async function derivePinProofKey(pepper: string): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const master = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(pepper),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const subkeyBytes = await crypto.subtle.sign(
+    "HMAC",
+    master,
+    encoder.encode(PIN_PROOF_SUBKEY_INFO),
+  );
+  return crypto.subtle.importKey(
+    "raw",
+    subkeyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+export async function pinProof(tenantId: string, pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await derivePinProofKey(PEPPER);
+  const material = `${PIN_PROOF_INFO}:${tenantId}:${pin}`;
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(material));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export async function verifyPin(pin: string, hash: string): Promise<boolean> {
   try {
     return await argon2Verify(hash, pin, {

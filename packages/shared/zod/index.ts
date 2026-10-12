@@ -47,8 +47,21 @@ const ledgerPostEntry_Body = z
 const ledgerVoidEntry_Body = z
   .object({ tutorId: z.string(), reason: z.string() })
   .passthrough();
+// Mirrors contracts/openapi.yaml `/security/erase` requestBody. `pinProof` is
+// REQUIRED and length/pattern bounded, matching the contract's
+// `minLength/maxLength/pattern`. The bounds are not cosmetic: the route compares
+// this against a stored proof in constant time, and `.passthrough()` on an
+// unbounded string would let a caller post an arbitrarily large payload into that
+// comparison.
+//
+// BR-SEC-04 / 10_Security.md 18.1 step 1.
+const PIN_PROOF_PATTERN = /^[0-9a-f]{64}$/;
 const secureErase_Body = z
-  .object({ tutorId: z.string(), confirm: z.string() })
+  .object({
+    tutorId: z.string(),
+    confirm: z.string(),
+    pinProof: z.string().length(64).regex(PIN_PROOF_PATTERN),
+  })
   .passthrough();
 
 export const schemas = {

@@ -1,0 +1,30 @@
+-- 0003_pin_proof.sql
+--
+-- FORWARD-ONLY. Never edit 0001 or 0002 (AGENTS.md §3.4 / AP-8).
+--
+-- WHY THIS EXISTS — `pin_proof` (nullable TEXT, BR-SEC-04 edge-verifiable HMAC
+-- PIN proof) exists in the gateway live DDL (`apps/gateway/lib/schema.ts`
+-- `CORE_DDL_STATEMENTS` + the `ensureColumn(_db, "settings", "pin_proof",
+-- "TEXT")` heal) and in the canonical reference snapshot (`schema.sql:23`),
+-- but no forward-only migration ever added it to a database provisioned from
+-- `migrations/0001_init.sql`. Such a database carries `settings` without
+-- `pin_proof`, so the edge erase verification (`apps/gateway/routes/security.ts`,
+-- 10_Security.md §18.1 step 1) refuses with a re-confirm instruction even for a
+-- tutor who knows their PIN.
+--
+-- WHAT IT DOES. Adds the nullable column. SQLite `ALTER TABLE ... ADD COLUMN`
+-- is additive: existing rows keep their values, `pin_proof` reads NULL until
+-- the tutor next re-confirms their PIN (which re-derives and writes the proof).
+-- Nullable with no default, so no row is rewritten and no backup is
+-- invalidated. Rerun fails closed (duplicate-column error) per Rule 9 —
+-- migrations run once via the tracker, never twice.
+--
+-- APPLY CHECK before running:
+--   SELECT name FROM pragma_table_info('settings') WHERE name = 'pin_proof';
+-- Empty result = needs this migration. One row = already applied, do not rerun.
+--
+-- Integrity first: the append-only triggers on `ledger_entries` are untouched
+-- (Rule 1), and no ledger row is written, updated or deleted here. This is a
+-- schema repair, not a data edit.
+
+ALTER TABLE settings ADD COLUMN pin_proof TEXT;

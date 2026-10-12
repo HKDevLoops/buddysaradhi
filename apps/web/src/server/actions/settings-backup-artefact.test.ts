@@ -98,7 +98,7 @@ async function createTestDb(withAttendance = true): Promise<{ client: Client; di
   // than inherited from another lane's fixture, because the whole point is that
   // this schema has the tables the old action never read.
   await client.execute(
-    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_address TEXT, institute_phone TEXT, institute_email TEXT, tenant_secret TEXT, pin_hash TEXT, created_at TEXT, updated_at TEXT)",
+    "CREATE TABLE settings (id TEXT, tenant_id TEXT PRIMARY KEY, institute_name TEXT, institute_address TEXT, institute_phone TEXT, institute_email TEXT, tenant_secret TEXT, pin_hash TEXT, pin_proof TEXT, created_at TEXT, updated_at TEXT)",
   );
   await client.execute(
     "CREATE TABLE sync_outbox (id TEXT PRIMARY KEY, tenant_id TEXT, table_name TEXT, row_id TEXT, op TEXT CHECK(op IN ('insert','update','soft_delete')), payload TEXT, created_at TEXT)",

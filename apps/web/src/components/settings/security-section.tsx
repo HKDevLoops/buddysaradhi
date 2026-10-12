@@ -30,6 +30,7 @@ import { NeumoToggle } from "./neumo-toggle";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import {
   pinFormatError,
+  pinVerifyFormatError,
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
   PIN_INPUT_MAX_LENGTH,
@@ -75,7 +76,12 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
   const [biometricError, setBiometricError] = useState<string | null>(null);
 
   const newPinFormatProblem = pinFormatError(newPin);
-  const currentPinProblem = currentPin.length > 0 ? pinFormatError(currentPin) : null;
+  // VERIFY floor (grandfathered 4–5-digit PINs reach argon2 per
+  // docs/rfc/pin-proof-spec-amendment.md §4.4/EC-P8): `currentPin` is re-verified
+  // by `setPinAction` via `verifyPinWithLadder` with no length floor, so gating
+  // it on the 6-digit setup bound would lock a grandfathered tutor out of
+  // changing their own PIN.
+  const currentPinProblem = currentPin.length > 0 ? pinVerifyFormatError(currentPin) : null;
   // 08 §11 EC-02, client half. `pinFormatError` only knows the FORMAT rule, so
   // `123456` armed this form and the server accepted it. The strength rule is
   // the same function the server runs (`obviousPinError`), so the reason on
@@ -85,7 +91,7 @@ export function SecuritySection({ settings }: SecuritySectionProps) {
   const newPinStrengthProblem = newPin.length > 0 ? obviousPinError(newPin) : null;
   const newPinProblem = newPinFormatProblem ?? newPinStrengthProblem;
   const pinsMatch = newPin.length === 0 || newPin === confirmPin;
-  const biometricPinProblem = biometricPin.length > 0 ? pinFormatError(biometricPin) : null;
+  const biometricPinProblem = biometricPin.length > 0 ? pinVerifyFormatError(biometricPin) : null;
 
   const pinMutation = useMutation({
     mutationFn: (args: { next: string; current: string }) =>
