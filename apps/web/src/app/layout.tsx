@@ -3,6 +3,7 @@ import { Sora, Onest, JetBrains_Mono } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
 import { Providers } from './providers';
+import { SkipLink } from '@/components/ui/skip-link';
 
 // Implements: 13_UI_Guidelines.md §2 Typography + UI/02_Typography_System.md
 // Font pairings: Sora (headings) + Onest (body) + JetBrains Mono (numerics)
@@ -122,32 +123,9 @@ export default async function RootLayout({
       </head>
       <body className="min-h-[100dvh] flex flex-col antialiased" style={{ fontFamily: 'var(--font-body)' }}>
         <Providers>
-          {/* AGENTS.md §2 Rule 10 / WCAG 2.4.1 Bypass Blocks. There was no skip
-              link, and the app's own chrome made the cost of that visible: five
-              nav rows, a 44px search field and a `?` help button sit ahead of
-              the main landmark in the tab order on EVERY screen, so a keyboard
-              user spent ~8 keystrokes per screen change re-walking the nav to
-              reach the content they had just navigated to.
-
-              Visible on focus, not on hover and not ever: `sr-only` until
-              `:focus`, then a 44px target at the top-left. Off-screen rather
-              than `display:none`, because a hidden element is not focusable and
-              the link would silently not exist for the only user who needs it.
-              It is the FIRST thing in the body so it is the first tab stop. */}
-          <a
-            href="#main-content"
-            className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:inline-flex focus:min-h-[44px] focus:items-center focus:rounded-lg focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:outline-none focus:ring-2"
-            style={{
-              // Sits on the overlay material, because it may appear over the
-              // shell's canvas gradient rather than on a panel.
-              background: 'var(--surface-overlay)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-default)',
-              boxShadow: '0 0 0 2px var(--accent-primary)',
-            }}
-          >
-            Skip to main content
-          </a>
+          {/* First tab stop on every route; the Bypass-Blocks rationale lives
+              on the component (components/ui/skip-link.tsx). */}
+          <SkipLink />
           {children}
         </Providers>
       </body>

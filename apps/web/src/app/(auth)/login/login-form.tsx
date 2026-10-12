@@ -1,0 +1,189 @@
+"use client";
+
+// Implements: web/03_Auth_and_Provisioning.md §1 (Supabase-owned identity);
+// 10_Security.md §8 (login_failed audited without PII); RFC-003 §1 G-AUTH.
+//
+// Client island for the login route. The route's `<title>` lives in the
+// server `page.tsx` next to this file: a `"use client"` module cannot export
+// `metadata`, so without the split every auth route served the root layout's
+// title (black-box probe B1).
+
+import React, { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { auditAction } from "@/lib/logger";
+import { Loader2 } from "lucide-react";
+import { GoogleIcon } from "@/components/ui/google-icon";
+
+// Client-side attempt friction (Supabase enforces the real account
+// rate limits server-side; this only slows a casual retry loop).
+const MAX_ATTEMPTS = 5;
+
+export default function LoginForm() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [attempts, setAttempts] = useState(0);
+  const router = useRouter();
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setSuccessMsg("");
+
+    try {
+      const target = e.target as HTMLFormElement;
+      const formEmail = email || (target.elements.namedItem("email") as HTMLInputElement)?.value || "";
+      const formPassword = password || (target.elements.namedItem("password") as HTMLInputElement)?.value || "";
+
+      if (!formEmail || !formPassword) {
+        setError("Please enter your email and password.");
+        setLoading(false);
+        return;
+      }
+
+      if (attempts >= MAX_ATTEMPTS) {
+        setError("Too many attempts — wait a few minutes and try again.");
+        setLoading(false);
+        return;
+      }
+
+      const supabase = createSupabaseBrowser();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: formEmail,
+        password: formPassword,
+      });
+
+      if (signInError) {
+        // Audited without PII: no email, no credential, no error payload
+        // (Supabase messages can echo identifiers). Abuse signal only.
+        auditAction("login_failed");
+        setAttempts((n) => n + 1);
+        setError(signInError.message);
+        setLoading(false);
+      } else {
+        await supabase.auth.getSession();
+        window.location.href = "/dashboard";
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred. Is your environment configured?");
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoadingGoogle(true);
+    setError("");
+    setSuccessMsg("");
+    try {
+      const supabase = createSupabaseBrowser();
+      const { error: signInError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/callback`,
+        },
+      });
+
+      if (signInError) {
+        setError(signInError.message);
+        setLoadingGoogle(false);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+      setLoadingGoogle(false);
+    }
+  };
+
+  const isAnyLoading = loading || loadingGoogle;
+
+  return (
+    <div className="flex flex-col space-y-6 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Welcome Back</h1>
+        <p className="text-sm text-text-muted mt-2">Sign in to your tuition OS</p>
+      </div>
+
+      <div className="space-y-4">
+        <Button
+          type="button"
+          onClick={handleGoogleLogin}
+          disabled={isAnyLoading}
+          className="w-full py-6 rounded-xl neumo-raised bg-[var(--surface-inset)] text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] transition-colors flex items-center justify-center gap-3 disabled:opacity-50"
+        >
+          {loadingGoogle ? <Loader2 className="w-5 h-5 animate-spin" /> : <GoogleIcon className="w-5 h-5" />}
+          Continue with Google
+        </Button>
+
+        <div className="flex items-center gap-4 py-2">
+          <div className="flex-1 h-px bg-[var(--surface-overlay)]" />
+          <span className="text-xs text-text-muted uppercase font-medium tracking-wider">OR</span>
+          <div className="flex-1 h-px bg-[var(--surface-overlay)]" />
+        </div>
+
+        <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
+          <div className="space-y-2">
+            <label htmlFor="email" className="text-sm font-medium text-text-secondary ml-1">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="tutor@example.com"
+              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-text-muted rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--success)]"
+              required
+              disabled={isAnyLoading}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between items-center px-1">
+              <label htmlFor="password" className="text-sm font-medium text-text-secondary">Password</label>
+              <Link
+                href="/forgot-password"
+                className="inline-flex min-h-[24px] items-center text-xs text-[var(--info)] underline hover:text-[var(--info)]/80"
+              >
+                Forgot password?
+              </Link>
+            </div>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-4 py-3 bg-transparent text-[var(--text-primary)] placeholder-text-muted rounded-xl neumo-inset focus:outline-none focus:ring-1 focus:ring-[var(--success)]"
+              required
+              disabled={isAnyLoading}
+            />
+          </div>
+
+          {error && <p role="alert" className="text-sm text-[var(--danger)] text-left">{error}</p>}
+          {successMsg && <p className="text-sm text-[var(--success)] text-left">{successMsg}</p>}
+
+          <div className="pt-2">
+            <Button
+              type="submit"
+              disabled={isAnyLoading}
+              className="w-full py-6 rounded-xl neumo-raised bg-[var(--success)]/10 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))] hover:bg-[var(--success)]/20 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Sign In"}
+            </Button>
+          </div>
+        </form>
+      </div>
+
+      <div className="text-sm text-text-muted">
+        Don&apos;t have an account?{" "}
+        <Link href="/signup" className="text-[var(--info)] underline hover:text-[var(--info)]/80">
+          Sign up
+        </Link>
+      </div>
+    </div>
+  );
+}

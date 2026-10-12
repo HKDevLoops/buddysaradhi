@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { updateSession } from './lib/supabase/middleware';
+import { rateLimitApiRequest } from './server/rate-limit';
 
 type Platform = 'macos' | 'windows' | 'android' | 'ios' | 'linux' | 'web';
 
@@ -59,6 +60,84 @@ if (process.env.ALLOWED_ORIGINS) {
  * The method/header/max-age trio is origin-independent and stays for every
  * origin — they grant nothing on their own.
  */
+/**
+ * Fingerprinting discipline — black-box probe B6; 10_Security.md §6.
+ *
+ * `x-detected-platform` names the caller's OS family (`windows`, `ios`, …)
+ * on EVERY response. That is a per-request fingerprint with no production
+ * consumer — nothing server-side branches on it, and no client reads it —
+ * so production responses must not carry it. Dev keeps it (local
+ * platform-specific debugging, e.g. the `/download` detector), which is why
+ * the gate is `NODE_ENV !== "production"` and not a deletion.
+ *
+ * `x-matched-path` is NEVER ours: no emitter exists in this repo and the Next
+ * server never sets it on a response (it only reads the request header of the
+ * same name in minimal mode) — the live value (`X-Matched-Path: /login`,
+ * `/api/v1/[...slug]`) is added by the Vercel edge downstream of this
+ * middleware, where no repo code can remove it (PLATFORM-CONSTRAINED, verified
+ * live 2026-10-12). The `delete` below is still load-bearing as a contract:
+ * it guarantees OUR layer never emits the header, which is what the unit
+ * test pins. If the edge value ever needs to go, that is an owner → Vercel
+ * conversation, not a code change here.
+ */
+function stripFingerprintHeaders(res: NextResponse): void {
+  res.headers.delete('x-matched-path');
+}
+
+function setPlatformHeader(res: NextResponse, platform: Platform): void {
+  if (process.env.NODE_ENV !== 'production') {
+    res.headers.set('x-detected-platform', platform);
+  } else {
+    res.headers.delete('x-detected-platform');
+  }
+}
+
+/**
+ * Best-effort client IP for the edge rate limiter (web/04_API_Routes.md §2).
+ * First entry of `x-forwarded-for`, else `x-real-ip`, else `"unknown"`.
+ * Deliberately NOT Zod-parsed: the value is an opaque rate-bucket key, never
+ * interpolated into SQL, HTML, or a URL, so there is no injection boundary —
+ * only a Map key. (AGENTS.md §6.1: Zod at boundaries that parse.)
+ */
+function clientIpFromRequest(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = req.headers.get('x-real-ip')?.trim();
+  if (realIp) return realIp;
+  return 'unknown';
+}
+
+/**
+ * The CSP for the contentless `/` → `/login` redirect.
+ *
+ * Source: `next.config.ts` static policy, MINUS `'unsafe-inline'` from
+ * `script-src`, everything else byte-identical. The static policy is the
+ * safety net for API/static responses (which carry no scripts either, but
+ * share one header); the middleware HTML branch serves the stricter
+ * nonce/`strict-dynamic` policy to real pages. A redirect renders NO content,
+ * so authorising any inline script on it is pure attack surface — the probe
+ * correctly flagged `script-src 'self' 'unsafe-inline'` here as weaker than
+ * `/login`'s nonce policy. Keep in sync with `next.config.ts` if its
+ * directives change (minus `unsafe-inline` in `script-src`, always).
+ * Ref: 10_Security.md §6 (XSS-1), 23_Security_Harness_Plan.md §7.
+ */
+/** Test seam: the exact CSP the `/` redirect must carry (see above). */
+export const REDIRECT_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https://*.supabase.co",
+  "connect-src 'self' https://*.supabase.co wss://*.turso.io https://*.turso.io https://*.turso.ai https://api.buddysaradhi.app",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "upgrade-insecure-requests",
+].join('; ');
+
 function getCorsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
@@ -128,17 +207,74 @@ export default function proxy(req: NextRequest) {
     // must keep agreeing with getCorsHeaders — the same allow-or-refuse decision,
     // or one of the two is theatre.
     if (req.method === 'OPTIONS') {
-      return new NextResponse(null, {
+      const preflight = new NextResponse(null, {
         status: 204,
         headers: corsHeaders,
       });
+      // Preflights are exempt from the edge rate limiter below: browsers
+      // cache them for 86400s (`Access-Control-Max-Age`), a 429 here would
+      // read as a CORS failure rather than a throttle, and a recon flood of
+      // OPTIONS buys nothing without the GET/POST behind it.
+      stripFingerprintHeaders(preflight);
+      setPlatformHeader(preflight, detectedPlatform);
+      return preflight;
+    }
+
+    // Edge rate limit for the versioned API — web/04_API_Routes.md §2
+    // (token bucket per IP: 60/min reads, 10/min writes) + §9 RATE_LIMITED
+    // (429). This is RECON friction, not capacity control: the BFF's known
+    // callers (provision POST once per signup, releases/latest update checks,
+    // occasional gateway pass-through) sit orders of magnitude below either
+    // cap, so a legitimate client can never trip it — only a storm does.
+    // On Vercel the bucket is per-instance and approximate (spec §2 says so
+    // explicitly); DDoS stays with the edge firewall. `Retry-After` + the
+    // `RateLimit-*` trio are emitted so a throttled caller backs off instead
+    // of retrying blind (lib/retry-invoke.ts already honours Retry-After).
+    if (pathname.startsWith('/api/v1/')) {
+      const kind = req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'write';
+      const decision = rateLimitApiRequest(clientIpFromRequest(req), kind);
+      const rateHeaders: Record<string, string> = {
+        'RateLimit-Limit': String(decision.limit),
+        'RateLimit-Remaining': String(decision.remaining),
+        'RateLimit-Reset': String(decision.resetAfterSeconds),
+      };
+      if (!decision.allowed) {
+        return new NextResponse(
+          JSON.stringify({
+            success: false,
+            error: `RATE_LIMITED: Too many requests — retry in ${decision.retryAfterSeconds}s.`,
+            code: 'RATE_LIMITED',
+            retryAfter: decision.retryAfterSeconds,
+          }),
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': String(decision.retryAfterSeconds),
+              ...corsHeaders,
+              ...rateHeaders,
+            },
+          },
+        );
+      }
+      const res = NextResponse.next();
+      Object.entries(corsHeaders).forEach(([key, value]) => {
+        res.headers.set(key, value);
+      });
+      Object.entries(rateHeaders).forEach(([key, value]) => {
+        res.headers.set(key, value);
+      });
+      stripFingerprintHeaders(res);
+      setPlatformHeader(res, detectedPlatform);
+      return res;
     }
 
     const res = NextResponse.next();
     Object.entries(corsHeaders).forEach(([key, value]) => {
       res.headers.set(key, value);
     });
-    res.headers.set('x-detected-platform', detectedPlatform);
+    stripFingerprintHeaders(res);
+    setPlatformHeader(res, detectedPlatform);
     return res;
   }
 
@@ -171,7 +307,15 @@ export default function proxy(req: NextRequest) {
   // show an unauthenticated tutor a rendered app frame before middleware decided.
   if (pathname === '/') {
     url.pathname = '/login';
-    return NextResponse.redirect(url);
+    const redirect = NextResponse.redirect(url);
+    // Tightened CSP for a response that renders nothing (REDIRECT_CSP above):
+    // without this the static `next.config.ts` safety-net policy applies and
+    // the redirect advertises `script-src 'unsafe-inline'` — weaker than the
+    // nonce policy of the `/login` page it points at.
+    redirect.headers.set('Content-Security-Policy', REDIRECT_CSP);
+    stripFingerprintHeaders(redirect);
+    setPlatformHeader(redirect, detectedPlatform);
+    return redirect;
   }
 
   // Redirect any legacy landing requests to the official product store domain
@@ -200,7 +344,8 @@ export default function proxy(req: NextRequest) {
     res = NextResponse.next();
   }
 
-  res.headers.set('x-detected-platform', detectedPlatform);
+  stripFingerprintHeaders(res);
+  setPlatformHeader(res, detectedPlatform);
 
   if (isHtmlPage && nonce) {
     // CSP: nonce-based in dev; strict-dynamic without unsafe-eval in prod.
@@ -227,6 +372,9 @@ export default function proxy(req: NextRequest) {
     res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     res.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+    // No `Cross-Origin-Embedder-Policy: require-corp` — intentionally off
+    // (see next.config.ts): it would break Supabase/Turso/Fonts embeds until
+    // every embed is verified CORP-clean. Owner follow-up, not a code gap.
     res.headers.set('X-Content-Type-Options', 'nosniff');
     res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');

@@ -72,7 +72,7 @@
     "next": "16.2.12",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "zod": "^3.24.2"
+    "zod": "3.24.2"
   },
   "overrides": {
     "react-router": "^6.30.4",

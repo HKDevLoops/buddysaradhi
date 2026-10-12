@@ -25,11 +25,22 @@ const csp: NextConfig["headers"] = () => [
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=(), interest-cohort=()" },
+      // COEP is intentionally OFF (no `Cross-Origin-Embedder-Policy:
+      // require-corp` here or in the middleware HTML branch). `require-corp`
+      // would break the cross-origin embeds this app depends on —
+      // Supabase storage images (`img-src https://*.supabase.co`), Turso
+      // sync (`connect-src wss://*.turso.io`), and Google Fonts — until
+      // every embed is verified CORP-clean. Revisit only after that
+      // verification (black-box probe follow-up; 10_Security.md §6).
     ],
   },
 ];
 
 const nextConfig: NextConfig = {
+  // Fingerprinting: never advertise the framework. Without this Next sends
+  // `X-Powered-By: Next.js` on every server-rendered response (10_Security.md
+  // §6 — minimise the server banner; black-box probe B6).
+  poweredByHeader: false,
   allowedDevOrigins: ["172.23.224.1", "localhost", "127.0.0.1", "*.trycloudflare.com", "*.loca.lt", "*.lhr.life"],
   serverExternalPackages: ["@prisma/client"],
   experimental: {

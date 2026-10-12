@@ -22,6 +22,7 @@
 import { cache } from "react";
 import { z } from "zod";
 import { paiseAdd, paiseSub, PaymentBreakdownSchema } from "@buddysaradhi/shared";
+import type { PaymentBreakdown } from "@buddysaradhi/shared";
 import { gatewayGet } from "@/server/get-db";
 import {
   QUERY_TIMEOUT_MS,
@@ -45,17 +46,50 @@ const paiseInt = z
   .transform((v) => Math.round(v))
   .refine(Number.isSafeInteger, { message: "amount outside the safe-integer range" });
 
-const DashboardKpisSchema = z.object({
+/**
+ * The parsed shape of BOTH KPI schemas in this codebase — this file's
+ * `DashboardKpisSchema` and `server/actions/dashboard.ts`'s `kpisSchema`.
+ * Declared once because the two schemas are field-identical by contract
+ * (RPT-SHAPE-08): six headcounts/amounts plus the shared C6 breakdown.
+ *
+ * All six amount fields parse to plain `number`: `paiseInt` (here) and
+ * `paiseSchema` (actions) are both `number → finite → transform(Math.round) →
+ * refine(isSafeInteger)`, whose Output is exactly `number`. If either helper
+ * ever changes its Output, the `: z.ZodType<DashboardKpisOutput>` annotations
+ * below fail LOUDLY at the changed field — which is the point: the annotation
+ * is a contract, not a convenience.
+ */
+export interface DashboardKpisOutput {
+  totalStudents: number;
+  studentsWithDues: number;
+  collectedThisMonthMinor: number;
+  dueTillDateMinor: number;
+  dueForMonthMinor: number;
+  overdueMinor: number;
+  paymentBreakdown: PaymentBreakdown;
+}
+
+const DashboardKpisSchema: z.ZodType<DashboardKpisOutput> = z.object({
   totalStudents: z.number().int().nonnegative(),
   studentsWithDues: z.number().int().nonnegative(),
   collectedThisMonthMinor: paiseInt,
   dueTillDateMinor: paiseInt,
   dueForMonthMinor: paiseInt,
 overdueMinor: paiseInt,
-  // RPT-SHAPE-08 — declared once in `@buddysaradhi/shared/paymentBreakdown`.
+  // RPT-SHAPE-08 - declared once in `@buddysaradhi/shared/paymentBreakdown`.
   // This was one of two hand-written copies of the identical three-key literal;
   // see `server/actions/dashboard.ts` for the other. One import now, so a change
   // to the C6 contract is a change to one file.
+  //
+  // The `: z.ZodType<DashboardKpisOutput>` annotation is load-bearing, not
+  // style. Without it, tsc must infer the parent's Output through the imported
+  // generic (a `.strict()` Zod object from another package) and the
+  // instantiation depth explodes (TS2589 - reproduced on Vercel's fresh
+  // `bun install`, which resolves a second zod copy, and locally once the
+  // parent schemas grew past the depth budget). The annotation caps inference:
+  // the literal is checked for assignability instead of inferred deeply. The
+  // runtime schema is untouched, and the C6 shape itself is guarded by the
+  // gateway parity test, not by deep inference here.
   paymentBreakdown: PaymentBreakdownSchema,
 });
 

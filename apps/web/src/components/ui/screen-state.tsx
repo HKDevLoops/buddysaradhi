@@ -317,6 +317,7 @@ const TONE_COLOR: Record<StateTone, string> = {
 function StateFrame({
   icon,
   title,
+  titleLevel = "h2",
   tone,
   children,
   className,
@@ -324,12 +325,20 @@ function StateFrame({
 }: {
   icon: ReactNode;
   title: string;
+  /**
+   * Heading level for the frame title. Defaults to `h2`: error surfaces
+   * render INSIDE a page that already owns the `h1`. The 404 surface is the
+   * exception — it IS the page, so it takes `h1` (axe `page-has-heading-one`,
+   * black-box probe B3). Styling is identical either way.
+   */
+  titleLevel?: "h1" | "h2";
   tone: StateTone;
   children: ReactNode;
   className?: string;
   role: "alert" | "status";
 }) {
   const toneColor = TONE_COLOR[tone];
+  const TitleTag = titleLevel;
   return (
     <div
       role={role}
@@ -357,12 +366,12 @@ function StateFrame({
         {icon}
       </span>
       <div className="flex flex-col gap-1">
-        <h2
+        <TitleTag
           className="text-lg font-semibold text-balance"
           style={{ fontFamily: "var(--font-heading)", letterSpacing: "-0.02em" }}
         >
           {title}
-        </h2>
+        </TitleTag>
         {children}
       </div>
     </div>
@@ -434,18 +443,25 @@ export function ErrorState({
 }
 
 /**
- * Dead link. Separate from `ErrorState` on purpose: `AppErrorState.NOT_FOUND`
+ * Dead link. Separate from `ErrorState` on purpose: `AppErrorState.notFound`
  * describes a *record* ("Student not found or was deleted"), which is a lie
- * about a URL that simply does not exist. Reusing the frame keeps the
+ * about a URL that simply does not exist. Reuses the frame to keep the
  * vocabulary consistent without borrowing the wrong sentence.
+ *
+ * Auth-aware CTA (black-box probe B9): a signed-out tutor sent to
+ * `/dashboard` would bounce `/dashboard` → `/login` (the middleware auth
+ * gate), so they go straight to `/login` ("Back to Login"); a signed-in
+ * tutor goes to `/dashboard` ("Go to Dashboard"). Unknown session state is
+ * signed-OUT (fail-closed) — a login page never bounces, a dashboard might.
  */
-export function NotFoundState({ className }: { className?: string }) {
+export function NotFoundState({ className, signedIn = false }: { className?: string; signedIn?: boolean }) {
   return (
     <StateFrame
       role="alert"
       tone="neutral"
       icon={<LayoutDashboard className="size-5" />}
-      title="That screen doesn't exist"
+      title="That page doesn't exist"
+      titleLevel="h1"
       className={className}
     >
       <p className="max-w-[68ch] text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -453,15 +469,24 @@ export function NotFoundState({ className }: { className?: string }) {
         your account was changed.
       </p>
       <Link
-        href="/dashboard"
+        href={signedIn ? "/dashboard" : "/login"}
         className="neumo-raised mt-2 inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-all active:translate-y-px"
         style={{
           background: "color-mix(in srgb, var(--accent-primary) 14%, transparent)",
           color: "var(--accent-primary)",
         }}
       >
-        <LayoutDashboard className="size-4 shrink-0" />
-        Go to Dashboard
+        {signedIn ? (
+          <>
+            <LayoutDashboard className="size-4 shrink-0" />
+            Go to Dashboard
+          </>
+        ) : (
+          <>
+            <LogIn className="size-4 shrink-0" />
+            Back to Login
+          </>
+        )}
       </Link>
     </StateFrame>
   );

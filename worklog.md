@@ -2805,3 +2805,38 @@ Stage Summary:
 - Files: apps/gateway/lib/crypto.ts, apps/gateway/vitest.config.ts, apps/gateway/.env.example, apps/gateway/__tests__/key-separation.test.ts (new), apps/web/src/lib/crypto.ts, apps/web/src/server/actions/settings.ts, apps/web/src/__tests__/key-separation.test.ts (new), apps/web/src/server/actions/settings-backup-artefact.test.ts, docs/adr/0006-data-signing-key-separation.md (new), docs/adr/README.md
 - Not verified: production boot with STRICT on (needs owner env access); full web suite (~74 files) not run — targeted suites only; root pnpm run lint (all workspaces) not run — concurrent in-flight breakage would fail it regardless.
 - Next agent: owner arming procedure (see report); sync supabase .env.example mirror; flip-to-strict follow-up record once fleet shows dataKeyFallback:false.
+
+---
+Task ID: VERIFY-BATCH-2026-10-12
+Agent: web-engineer
+Task: Black-box VERIFY low-sev batch (live https://buddysaradhi.vercel.app) — fix 1,3,4,6,5CSP,6CORS,7,8; evaluate 9,10; investigate 11; document COEP/report-uri/B7
+
+Work Log:
+- Live-verified headers first (evidence, not assumption): / -> 307 /login with static-policy CSP script-src unsafe-inline (item 5 = OUR next.config, in-repo); /login 200 carries X-Powered-By: Next.js + X-Detected-Platform + X-Matched-Path (item B6); GET /api/v1/releases/latest with NO Origin answers ACAO https://buddysaradhi.vercel.app + Allow-Credentials true (item 6 = live deploy predates the repo HEAD fail-closed fix); body shows hardcoded sequential-pattern sha256s (item 11).
+- B1 titles: five app screens already had per-route metadata (dashboard/attendance/students/fees/settings). Split the five client auth routes into server page (metadata + dynamic) + client island, verbatim (byte-diffed): login/login-form, signup/signup-form, forgot-password/forgot-password-form, reset-password/reset-password-form, signup/provision/provision-client. 404 title via React-19 <title> (verified in Next source: metadata resolver reads layout/page only, not-found export would be theatre).
+- B3: StateFrame gained titleLevel h1|h2 (default h2, styling identical); NotFoundState takes h1.
+- B4: extracted components/ui/skip-link.tsx — same anchor inside <nav aria-label=Skip links>; layout.tsx now renders <SkipLink/>.
+- B6: next.config.ts poweredByHeader:false; proxy x-detected-platform gated to non-prod + x-matched-path defensive delete (live value proven Vercel-edge-added: no repo emitter, no response setHeader in next/dist — PLATFORM-CONSTRAINED for the edge value, our layer pinned absent).
+- Item 5 CSP: / redirect now carries REDIRECT_CSP (static policy minus unsafe-inline in script-src, rest byte-identical).
+- Item 6 CORS: no code change — proxy getCorsHeaders + route OPTIONS already fail-closed with Vary:Origin and parity tests (live deploy is stale). Verified no other unconditional ACAO emitter (route GETs emit none; middleware is the only writer).
+- Item 7: created src/server/rate-limit.ts EXACTLY per web/04_API_Routes.md s2 sketch (60 reads/10 writes per IP/min, 429+Retry-After; +nowMs injectable and RateLimit trio documented as deviations); wired in proxy.ts for /api/v1/* non-OPTIONS with 429 JSON code RATE_LIMITED + Retry-After + RateLimit-Limit/Remaining/Reset on all v1 responses. OPTIONS exempt (preflight). Threshold checked vs legitimate callers (provision once-per-signup, releases update-checks, no screen fan-out through BFF) — recon-rate only.
+- B9: not-found.tsx reads session server-side (fail-closed signed-out, catch without log = deliberate anti-log-flood, commented); NotFoundState signedIn prop switches Back to Login (/login) vs Go to Dashboard (/dashboard).
+- B5: raised isolated links to min-h-[24px] (login Forgot-password, forgot/reset Back-to-Login, provision Contact-support x2; +aria-hidden on decorative ArrowLefts); sentence-inline links (Sign up/Sign in) documented NON-FINDING per WCAG 2.5.8 inline exception. Residual: 24px meets WCAG floor, below app 44px Rule 10 — owner call.
+- Item 9 (B2): BY-DESIGN — GlassShell HAS the sticky footer (mt-auto); auth routes are the minimal pre-auth surface, not Rule-4 screens (13 s13 pattern shows GlassShell content). No code.
+- Item 11: OWNER-DECISION, read-only. Hashes are hardcoded placeholders (sequential hex runs shared across all three platforms; testFlight abc123XY; matches prior audit R2 which rates it P1-while-desktop-locked). Real hash generation EXISTS in-repo (scripts/build-manifest.ts createHash over Blob bytes -> manifests/desktop-*.json; desktop-build.yml computes per-artifact sha256) but feeds the Tauri updater via Blob manifests, NOT the BFF's separate mobile-flavored schema. No in-repo consumer of /api/v1/releases/latest found. Wiring the BFF to real hashes (or retiring it) needs the owner manifest-source-of-truth call.
+- DOCUMENT-ONLY: COEP-intentionally-off comments added in next.config.ts + proxy HTML branch; CSP report-uri = infra follow-up (no collector); B7 sitemap host untouched (owner canonical-host call).
+- Principle-lint L4 allowlist path updated page.tsx -> provision-client.tsx (follow-the-move, same spec reason).
+- No Zod added: no new external-data parsing boundary (IP is an opaque Map key; 429 body static; session read via existing helpers).
+
+Verification:
+- pnpm run lint: exit 0 (all workspace lints + principle-lints 8/8 clean, 114 allowlisted).
+- pnpm run typecheck: exit 0 (design-system build + web + core).
+- pnpm --filter web exec vitest run: 82 files, 1061 passed + 1 expected-fail, 0 failures (incl. 7 new files: rate-limit 6, proxy.ratelimit 11, route-titles 4, not-found-title 6, skip-link 3, auth-links 6, plus cors 10 with reset hardening).
+- Live re-probe NOT done (no deploy in scope) — items 5/6/B6 must be re-probed after the next production deploy; live currently serves pre-fix code.
+
+Stage Summary:
+- State: COMPLETED (uncommitted per instruction; no commit, no push)
+- Files: apps/web/next.config.ts, apps/web/src/proxy.ts, apps/web/src/server/rate-limit.ts (new), apps/web/src/server/rate-limit.test.ts (new), apps/web/src/proxy.ratelimit.test.ts (new), apps/web/src/proxy.cors.test.ts, apps/web/src/app/layout.tsx, apps/web/src/components/ui/skip-link.tsx (new), apps/web/src/components/ui/skip-link.test.tsx (new), apps/web/src/components/ui/screen-state.tsx, apps/web/src/app/not-found.tsx, apps/web/src/app/not-found-title.test.tsx (new), apps/web/src/app/route-titles.test.ts (new), 5x auth page splits (page.tsx server + *-form.tsx/provision-client.tsx), apps/web/src/app/(auth)/auth-links.test.tsx (new), scripts/principle-lints.ts, apps/web/package.json + pnpm-lock.yaml (axe-core devDep only)
+- No s2 rule violated; no s8 trigger fired (no ledger/crypto/6th-screen/network-call changes; item 11 left read-only deliberately)
+- Next recommended task: owner decisions on item 11 (BFF manifest source of truth), B7 canonical host, B5 24-vs-44px residual; then deploy + live re-probe of 5/6/B6/7.
+

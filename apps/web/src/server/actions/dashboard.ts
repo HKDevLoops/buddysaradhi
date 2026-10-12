@@ -31,6 +31,7 @@ import { gatewayGet } from "@/server/get-db";
 import { log } from "@/lib/logger";
 import { z } from "zod";
 import { PaymentBreakdownSchema } from "@buddysaradhi/shared";
+import type { PaymentBreakdown } from "@buddysaradhi/shared";
 import {
   AnalyticsFilterSchema,
 } from "@/lib/dashboard-analytics-calc";
@@ -44,6 +45,7 @@ import {
 import {
   getDashboardAnalytics,
   type DashboardAnalytics,
+  type DashboardKpisOutput,
 } from "@/server/queries/dashboard-analytics";
 
 /* ------------------------------------------------------------------ *
@@ -127,7 +129,7 @@ const labelSchema = z
   .nullish()
   .transform((value) => (value ?? "").trim());
 
-const kpisSchema = z.object({
+const kpisSchema: z.ZodType<DashboardKpisOutput> = z.object({
   totalStudents: z.number().int().nonnegative(),
   studentsWithDues: z.number().int().nonnegative(),
   /**
@@ -153,7 +155,10 @@ const kpisSchema = z.object({
   // hand-written copy of the same three-key literal; the third was in
   // `queries/dashboard-analytics.ts`. Both are now this one import, so the
   // producer (gateway) and the two consumers can no longer drift apart
-  // silently (AGENTS.md §3.5 — one implementation of a rule).
+  // silently (AGENTS.md §3.5 — one implementation of a rule). The parent
+  // annotation (: z.ZodType<DashboardKpisOutput>, interface declared in
+  // queries/dashboard-analytics.ts) caps inference depth — see the comment
+  // on DashboardKpisSchema for the TS2589 rationale.
   paymentBreakdown: PaymentBreakdownSchema,
 });
 

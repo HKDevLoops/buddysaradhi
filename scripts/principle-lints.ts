@@ -264,7 +264,7 @@ const L3_FORBIDDEN_DEPS: string[] = [
 const L4_PREFIX: string = "apps/web/src/";
 const L4_ALLOW: AllowEntry[] = [
   {
-    file: "apps/web/src/app/(auth)/signup/provision/page.tsx",
+    file: "apps/web/src/app/(auth)/signup/provision/provision-client.tsx",
     re: /fetch\s*\(\s*["'`]\/api\/v1\/provision/,
     reason:
       "18_Microservice_Architecture.md — provision-db client bootstrap (first-party /api/v1/provision, bearer session; runs before any Server Action exists)",

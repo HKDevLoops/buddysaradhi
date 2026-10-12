@@ -1,0 +1,252 @@
+"use client";
+
+// Client island for the provision route — see login/login-form.tsx for why
+// the route is split (the `"use client"` module holds the flow; the server
+// `page.tsx` holds the route's `<title>`; black-box probe B1).
+
+// Implements: 18_Microservice_Architecture.md — provision-db client
+// + web/03_Auth_and_Provisioning.md §3.4 (manual retry) & §8.3 (expired
+// token recovery); RFC-003 §1 G-AUTH (one actionable state per failure).
+// This page is shown when a user needs their database provisioned.
+// It calls /api/provision which creates a real Turso DB and stores
+// credentials in Supabase user_metadata, then refreshes the session.
+
+import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Loader2, CheckCircle2, AlertCircle, KeyRound } from "lucide-react";
+import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { getCredentialHealthAction } from "@/server/actions/auth";
+import { assertSafeRedirectPath } from "@/server/auth-errors";
+import { Button } from "@/components/ui/button";
+import { log } from "@/lib/logger";
+
+type ProvisionStatus = "checking" | "creating" | "done" | "error" | "expired";
+
+// Redirect-back intent (?next=) without useSearchParams — this page is
+// force-static, and useSearchParams would require a Suspense boundary at
+// prerender. Guarded for SSR (window undefined at prerender → default).
+function readIntentNext(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  try {
+    return assertSafeRedirectPath(new URLSearchParams(window.location.search).get("next"), "/dashboard");
+  } catch {
+    return "/dashboard";
+  }
+}
+
+export default function ProvisionClient() {
+  const [status, setStatus] = useState<ProvisionStatus>("checking");
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const router = useRouter();
+  const supabase = createSupabaseBrowser();
+
+  // Redirect-back intent: expired/missing credentials route here with
+  // ?next=<safe-path>; validated same-origin, never off-site.
+  const [safeNext] = useState(readIntentNext);
+
+  const provision = async () => {
+    setStatus("checking");
+    setErrorMessage("");
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+
+      // Check if user is already provisioned (has a real, non-dummy db_url)
+      const dbUrl = session.user.user_metadata?.db_url as string | undefined;
+      if (
+        dbUrl &&
+        !dbUrl.includes("dummy-local-dev-url") &&
+        !dbUrl.includes("file:")
+      ) {
+        // Already provisioned — but a PRESENT db_url may hold an EXPIRED
+        // token (RFC-003 §0 incident: this exact fall-through produced the
+        // opaque "Could not load student"). Probe before redirecting.
+        const health = await getCredentialHealthAction(safeNext);
+        if (health.status === "healthy" || health.skipped) {
+          await supabase.auth.refreshSession();
+          setStatus("done");
+          setTimeout(() => { window.location.href = safeNext; }, 800);
+          return;
+        }
+        if (health.status === "expired-invalid") {
+          // Token rejected: refresh cannot mint Turso tokens (web/03 §3.1),
+          // so show the actionable expired state — never loop to /dashboard.
+          setStatus("expired");
+          return;
+        }
+        if (health.status === "unreachable") {
+          throw new Error("UPSTREAM: Database unreachable — check your connection and retry.");
+        }
+        // missing-unprovisioned with a stale db_url marker: fall through to
+        // the provision call below (idempotent — already_provisioned short-circuits).
+      }
+
+      setStatus("creating");
+
+      // Call our provisioning API to create a real Turso DB
+      const res = await fetch("/api/v1/provision", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = (await res.json()) as {
+        success: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `Provisioning failed (HTTP ${res.status})`);
+      }
+
+      // Refresh the Supabase session so the new db_url/db_token land in the cookie
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr) {
+        // Non-fatal: the metadata is stored, cookie refresh may take a moment
+        log.warn("session_refresh_failed", refreshErr.message);
+      }
+
+      setStatus("done");
+      // Hard navigation so the browser sends a fresh request with the
+      // updated Supabase session cookie (which now contains db_url/db_token).
+      // Redirect-back intent preserved (?next=).
+      setTimeout(() => { window.location.href = safeNext; }, 1200);
+
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown provisioning error";
+      log.error("provision_page_failed", msg, { phase: "auto" });
+      setErrorMessage(msg);
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => {
+    provision();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const statusConfig = {
+    checking: {
+      icon: <Loader2 className="w-12 h-12 animate-spin" />,
+      color: "bg-[var(--info)]/20 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))]",
+      title: "Checking your workspace...",
+      desc: "Just a moment while we verify your account.",
+    },
+    creating: {
+      icon: <Loader2 className="w-12 h-12 animate-spin" />,
+      color: "bg-[var(--info)]/20 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))]",
+      title: "Provisioning your database...",
+      desc: "We are spinning up an isolated edge database for your tuition center. This usually takes a few seconds.",
+    },
+    done: {
+      icon: <CheckCircle2 className="w-12 h-12" />,
+      color: "bg-[var(--success)]/20 text-[color-mix(in_srgb,var(--success)_60%,var(--text-primary))]",
+      title: "Ready to go!",
+      desc: "Redirecting you to your dashboard...",
+    },
+    expired: {
+      icon: <KeyRound className="w-12 h-12" />,
+      color: "bg-[var(--warning)]/20 text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))]",
+      title: "Credentials expired",
+      desc: "Your database credentials have expired and could not be refreshed automatically. Re-provision below — you will return to where you were.",
+    },
+    error: {
+      icon: <AlertCircle className="w-12 h-12" />,
+      color: "bg-[var(--danger)]/20 text-[color-mix(in_srgb,var(--danger)_60%,var(--text-primary))]",
+      title: "Provisioning failed",
+      desc:
+        errorMessage ||
+        "Something went wrong while setting up your workspace. Please try again.",
+    },
+  };
+
+  const cfg = statusConfig[status];
+
+  return (
+    <div className="flex flex-col items-center justify-center space-y-8 py-12 animate-in fade-in zoom-in-95 duration-500">
+      <div className="relative">
+        <div
+          className={`w-24 h-24 rounded-full flex items-center justify-center transition-colors duration-500 ${cfg.color}`}
+        >
+          {cfg.icon}
+        </div>
+        {status === "creating" && (
+          <div className="absolute inset-0 rounded-full border-2 border-[var(--info)]/30 animate-ping" />
+        )}
+      </div>
+
+      <div className="text-center space-y-2 max-w-sm mx-auto">
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
+          {cfg.title}
+        </h1>
+        <p className="text-sm text-text-muted">{cfg.desc}</p>
+      </div>
+
+      {status === "creating" && (
+        <div className="flex flex-col items-center gap-2 text-xs text-text-muted">
+          <div className="flex gap-1">
+            {[...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="w-2 h-2 rounded-full bg-[var(--info)]/60 animate-pulse"
+                style={{ animationDelay: `${i * 150}ms` }}
+              />
+            ))}
+          </div>
+          <span>Setting up your isolated workspace</span>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            onClick={provision}
+            className="rounded-xl neumo-raised bg-[var(--info)]/10 text-[color-mix(in_srgb,var(--info)_60%,var(--text-primary))] hover:bg-[var(--info)]/20 px-6"
+          >
+            Try Again
+          </Button>
+          <a
+            href="mailto:support@buddysaradhi.app"
+            className="inline-flex min-h-[24px] items-center text-xs text-text-muted hover:text-text-secondary underline underline-offset-2"
+          >
+            Contact support
+          </a>
+        </div>
+      )}
+
+      {status === "expired" && (
+        <div className="flex flex-col items-center gap-3">
+          <Button
+            onClick={provision}
+            className="rounded-xl neumo-raised bg-[var(--warning)]/10 text-[color-mix(in_srgb,var(--warning)_60%,var(--text-primary))] hover:bg-[var(--warning)]/20 px-6"
+          >
+            Re-provision workspace
+          </Button>
+          <a
+            href="mailto:support@buddysaradhi.app"
+            className="inline-flex min-h-[24px] items-center text-xs text-text-muted hover:text-text-secondary underline underline-offset-2"
+          >
+            Contact support
+          </a>
+        </div>
+      )}
+
+      {status === "done" && (
+        <div className="flex items-center gap-2 text-sm text-[var(--success)]">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>Database ready</span>
+        </div>
+      )}
+    </div>
+  );
+}

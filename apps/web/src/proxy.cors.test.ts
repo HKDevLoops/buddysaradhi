@@ -20,6 +20,7 @@ vi.mock("./lib/supabase/middleware", () => ({ updateSession }));
 
 import { NextRequest } from "next/server";
 import proxy from "./proxy";
+import { resetApiRateLimits } from "./server/rate-limit";
 
 function apiReq(origin: string | null, path = "/api/v1/students", method = "GET"): NextRequest {
   return new NextRequest(`http://localhost:3000${path}`, {
@@ -30,6 +31,10 @@ function apiReq(origin: string | null, path = "/api/v1/students", method = "GET"
 
 beforeEach(() => {
   updateSession.mockClear();
+  // The edge rate limiter (web/04_API_Routes.md §2) shares one bucket per
+  // test file: these CORS assertions must never depend on how many requests
+  // earlier tests in this file consumed.
+  resetApiRateLimits();
 });
 
 describe("proxy CORS — fail closed for an unlisted origin", () => {

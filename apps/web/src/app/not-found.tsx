@@ -13,13 +13,43 @@
 // (`experimental.globalNotFound`), it bypasses the layout entirely and therefore
 // cannot read the app theme, and it is unnecessary here because this app has a
 // single root layout.
+//
+// Per-route `<title>` (black-box probe B1): `not-found.tsx` cannot export
+// `metadata` — Next's metadata resolver only reads `layout` and `page`
+// modules — so the title is a React 19 `<title>` element, which Next hoists
+// into `<head>`. Without it the 404 served the root layout's title like every
+// other title-less route.
+//
+// Auth-aware CTA (black-box probe B9 + web/03_Auth_and_Provisioning.md §1):
+// the session is read server-side and the CTA follows it — signed-out tutors
+// get "Back to Login" (a `/dashboard` link would just bounce them through the
+// middleware auth gate), signed-in tutors get "Go to Dashboard". Any failure
+// reading the session resolves to signed-OUT (fail-closed): a login page never
+// bounces, a dashboard might. The `catch` deliberately does NOT log — a 404
+// for a signed-out visitor is routine (dead link, scan probe), and logging it
+// would hand every bot a log-flood vector.
 
 import { NotFoundState } from "@/components/ui/screen-state";
+import { createSupabaseServer } from "@/lib/supabase/server";
 
-export default function NotFound() {
+async function isSignedIn(): Promise<boolean> {
+  try {
+    const supabase = await createSupabaseServer();
+    const { data } = await supabase.auth.getUser();
+    return data.user !== null;
+  } catch {
+    return false;
+  }
+}
+
+export default async function NotFound() {
+  const signedIn = await isSignedIn();
   return (
-    <main className="mx-auto flex min-h-[100dvh] w-full max-w-2xl items-center justify-center p-6">
-      <NotFoundState className="w-full" />
-    </main>
+    <>
+      <title>Page not found · BuddySaradhi</title>
+      <main className="mx-auto flex min-h-[100dvh] w-full max-w-2xl items-center justify-center p-6">
+        <NotFoundState className="w-full" signedIn={signedIn} />
+      </main>
+    </>
   );
 }
