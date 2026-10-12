@@ -1,8 +1,8 @@
 # Buddysaradhi TutorOS — Reference Implementations
 
 This directory holds **planning artefact code**: TypeScript files that demonstrate the
-three systems described in `buddysaradhi_Planning/21_Redis_Caching_Layer.md`,
-`22_Vector_Search_System.md`, and `23_Complexity_Guarantees.md`. They are runnable
+three systems described in `buddysaradhi_Planning/24_Redis_Caching_Layer.md`,
+`25_Vector_Search_System.md`, and `26_Complexity_Guarantees.md`. They are runnable
 with `bun run <file>` but are **not wired into the Next.js app** — they exist so the
 web agent can port them into `mini-services/redis-cache/`, `mini-services/search-svc/`,
 and the gateway cache middleware once the Web phase reaches the cache-build-out step

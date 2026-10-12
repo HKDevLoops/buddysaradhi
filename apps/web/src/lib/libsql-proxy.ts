@@ -176,6 +176,234 @@ function isAtomicNumberOp(value: unknown): value is AtomicNumberOp {
 }
 
 /**
+ * Implements: docs/rfc/rfc-009-010-ratification.md §3A Option 1 (PHASE 4 —
+ * tenant auto-scope at the proxy boundary) + prisma/schema.prisma (the
+ * tenant-table inventory below is derived from which models declare a
+ * `tenantId` field; tables without the column must never receive the
+ * injection or the emitted SQL references a missing column).
+ *
+ * A proxy is either BOUND (`createLibsqlProxy(client, tenantId)`) or UNBOUND
+ * (legacy single-arg form). A bound proxy enforces three rules on every
+ * tenant-table statement:
+ *
+ *   1. INJECT — a non-empty `where` without a tenant claim gets
+ *      `tenantId: <bound>` merged in, so the ~142 existing call sites keep
+ *      working unchanged and a forgotten filter becomes impossible.
+ *   2. STRICT — an ABSENT or EMPTY `where` on a tenant table throws
+ *      `TENANT_SCOPE_UNSCOPED` instead of running a full-table operation
+ *      that would touch every tenant. Every legitimate full-scope write in
+ *      the tree (e.g. the erase cascade) already passes `{ tenantId }`.
+ *   3. FAIL-CLOSED — a caller-supplied tenant claim that differs from the
+ *      bound tenant throws `TENANT_SCOPE_MISMATCH`; the proxy never
+ *      overwrites it. `create`/`upsert` payloads inject when absent and
+ *      throw when conflicting; `update` payloads are validated but never
+ *      injected (rewriting a `tenant_id` column — the PK of `settings` and
+ *      `app_state` — would move or corrupt the row).
+ *
+ * An unbound proxy behaves exactly as before (legacy passthrough). That path
+ * exists for the test suite and for `lib/db.ts`, which has no production
+ * callers and no tenant in scope; making the parameter required is the
+ * recorded follow-up (docs/adr/0007) once test constructions are swept.
+ */
+export type TenantScopeViolationCode =
+  | "TENANT_SCOPE_UNSCOPED"
+  | "TENANT_SCOPE_MISMATCH"
+  | "TENANT_SCOPE_ON_GLOBAL"
+  | "TENANT_SCOPE_EMPTY_BINDING";
+
+export class TenantScopeError extends Error {
+  readonly code: TenantScopeViolationCode;
+  constructor(code: TenantScopeViolationCode, detail: string) {
+    super(`${code}: ${detail}`);
+    this.name = "TenantScopeError";
+    this.code = code;
+  }
+}
+
+/**
+ * The ONE explicit escape hatch for a deliberately unscoped read.
+ * Passed as a sibling of `where` (e.g.
+ * `db.batch.findFirst({ where: { id }, allowUnscopedTenantAccess: true })`)
+ * and consumed before SQL is built, so it never reaches the statement.
+ * Its only production use is the cross-tenant existence probe in
+ * `ensureBatch` (apps/web/src/server/actions/attendance.ts) — a probe whose
+ * whole purpose is to see another tenant's row. Grep for this name to audit
+ * every bypass; a second use needs its own review.
+ */
+export const ALLOW_UNSCOPED_TENANT_ACCESS = "allowUnscopedTenantAccess" as const;
+
+/**
+ * FROZEN global-table allowlist (RFC 009 §3.3). These tables have NO
+ * `tenant_id` column, so the tenant predicate must NEVER be injected into
+ * their statements — it would emit SQL against a missing column. A new table
+ * without `tenant_id` is added here deliberately, with its reason, or the
+ * proxy treats it as tenant-scoped by default (strict). Every other model in
+ * `tableMap` (and any unknown model name) is tenant-scoped.
+ */
+const GLOBAL_TABLES: Readonly<Record<string, string>> = {
+  // Pure join table (student_id, tag_id) — prisma/schema.prisma `StudentTag`
+  // declares no `tenantId`. Scoped by the tenant's own student ids at the
+  // call site (erase cascade in server/actions/settings.ts), never by a
+  // tenant predicate.
+  student_tags:
+    "pure join table (student_id, tag_id) with no tenant_id column; scoped by the tenant's own student ids at the call site",
+  // Operator authentication table, not tenant data — prisma/schema.prisma
+  // `AdminUser` declares no `tenantId`. A username lookup must work before
+  // any tenant is known.
+  admin_users:
+    "operator authentication table, not tenant data; lookups precede any tenant context",
+  // Process-level migration bookkeeping with no tenant_id column — written
+  // by the migration runner, never per tenant.
+  schema_migrations:
+    "process-level migration bookkeeping; never per-tenant data",
+};
+
+/** Model names (Prisma and table spellings) that resolve to GLOBAL_TABLES. */
+const GLOBAL_MODELS: ReadonlySet<string> = new Set([
+  "studentTag",
+  "adminUser",
+  "schemaMigrations",
+  "student_tags",
+  "admin_users",
+  "schema_migrations",
+]);
+
+function isGlobalTable(modelName: string, tableName: string): boolean {
+  return GLOBAL_MODELS.has(modelName) || GLOBAL_MODELS.has(tableName) || tableName in GLOBAL_TABLES;
+}
+
+/** Reads the caller's tenant claim in either spelling (`tenantId` / `tenant_id`). */
+function tenantClaimOf(
+  candidate: { tenantId?: unknown; tenant_id?: unknown } | null | undefined,
+): string | undefined {
+  const raw = candidate?.tenantId ?? candidate?.tenant_id;
+  if (raw === undefined || raw === null) return undefined;
+  return String(raw);
+}
+
+/** Empty means "no predicate at all" — `undefined`, `{}`, or only-`undefined` values. */
+function whereIsEmpty(where: Record<string, unknown> | null | undefined): boolean {
+  if (where === null || where === undefined) return true;
+  for (const key of Object.keys(where)) {
+    if (where[key] !== undefined) return false;
+  }
+  return true;
+}
+
+interface ScopeWhereInput {
+  modelName: string;
+  tableName: string;
+  boundTenantId: string | undefined;
+  where: Record<string, unknown> | undefined;
+  allowUnscoped: boolean;
+}
+
+/**
+ * Returns the `where` a tenant-table statement must run with: the caller's
+ * predicate plus the bound tenant (injected when absent, verified when
+ * present), or throws `TenantScopeError` fail-closed. Global tables pass
+ * through untouched — except a tenant claim on one, which throws instead of
+ * emitting SQL against a column that does not exist.
+ */
+function scopeWhere(input: ScopeWhereInput): Record<string, unknown> | undefined {
+  const { modelName, tableName, boundTenantId, where, allowUnscoped } = input;
+  if (isGlobalTable(modelName, tableName)) {
+    const stray = tenantClaimOf(where);
+    if (stray !== undefined) {
+      throw new TenantScopeError(
+        "TENANT_SCOPE_ON_GLOBAL",
+        `model "${modelName}" maps to global table "${tableName}", which has no tenant_id column — refusing a tenant-scoped predicate instead of emitting SQL against a missing column (docs/adr/0007).`,
+      );
+    }
+    return where;
+  }
+  if (boundTenantId === undefined) return where;
+  const claim = tenantClaimOf(where);
+  if (claim !== undefined) {
+    if (claim !== boundTenantId) {
+      throw new TenantScopeError(
+        "TENANT_SCOPE_MISMATCH",
+        `model "${modelName}" proxy is bound to one tenant and the caller's predicate names another — refusing instead of reading or writing another tenant's rows (docs/adr/0007).`,
+      );
+    }
+    return where;
+  }
+  if (allowUnscoped) return where;
+  if (whereIsEmpty(where)) {
+    throw new TenantScopeError(
+      "TENANT_SCOPE_UNSCOPED",
+      `model "${modelName}" (table "${tableName}") was queried with no predicate on a tenant-bound proxy — refusing a full-table operation that would touch every tenant (docs/adr/0007). Pass where: { tenantId } or the explicit ${ALLOW_UNSCOPED_TENANT_ACCESS} escape hatch.`,
+    );
+  }
+  return { ...where, tenantId: boundTenantId };
+}
+
+interface ScopeDataInput {
+  modelName: string;
+  tableName: string;
+  boundTenantId: string | undefined;
+  data: Record<string, unknown>;
+  verb: "create" | "upsert-create";
+}
+
+/**
+ * `create`/`upsert`-create payload rule: inject the bound tenant when the
+ * caller supplied none, throw `TENANT_SCOPE_MISMATCH` when they supplied
+ * another tenant's. The caller's object is never mutated — injection returns
+ * a copy.
+ */
+function scopeCreateData(input: ScopeDataInput): Record<string, unknown> {
+  const { modelName, tableName, boundTenantId, data, verb } = input;
+  if (isGlobalTable(modelName, tableName)) {
+    const stray = tenantClaimOf(data);
+    if (stray !== undefined) {
+      throw new TenantScopeError(
+        "TENANT_SCOPE_ON_GLOBAL",
+        `model "${modelName}" maps to global table "${tableName}", which has no tenant_id column — refusing a ${verb} payload that carries a tenant id (docs/adr/0007).`,
+      );
+    }
+    return data;
+  }
+  if (boundTenantId === undefined) return data;
+  const claim = tenantClaimOf(data);
+  if (claim !== undefined) {
+    if (claim !== boundTenantId) {
+      throw new TenantScopeError(
+        "TENANT_SCOPE_MISMATCH",
+        `model "${modelName}" ${verb} payload carries another tenant's id — refusing instead of writing a row the caller could never read back (docs/adr/0007).`,
+      );
+    }
+    return data;
+  }
+  return { ...data, tenantId: boundTenantId };
+}
+
+/**
+ * `update`/`upsert`-update payload rule: validate only, never inject.
+ * Rewriting a `tenant_id` column would move the row across tenants (and
+ * `tenant_id` is the PRIMARY KEY of `settings`/`app_state`, so an injected
+ * SET would corrupt the key). A conflicting claim throws; an equal or
+ * absent one passes through untouched.
+ */
+function rejectTenantReassignment(
+  modelName: string,
+  tableName: string,
+  boundTenantId: string | undefined,
+  data: Record<string, unknown> | undefined,
+): void {
+  if (isGlobalTable(modelName, tableName)) return;
+  if (boundTenantId === undefined) return;
+  if (data === undefined) return;
+  const claim = tenantClaimOf(data);
+  if (claim !== undefined && claim !== boundTenantId) {
+    throw new TenantScopeError(
+      "TENANT_SCOPE_MISMATCH",
+      `model "${modelName}" update payload would move a row to another tenant — refusing (docs/adr/0007).`,
+    );
+  }
+}
+
+/**
  * `ORDER BY` for the first key of an `orderBy` argument (Prisma parity: the
  * shim supports the single-key form every caller in this repo uses).
  */
@@ -218,11 +446,16 @@ function projectRow(
  * (audit: reviews/overhaul-audit-report-2026-09-26.md, "libsql-proxy").
  */
 export interface ProxyModel {
-  findUnique(args: { where: ProxyWhere; select?: ProxyWhere }): Promise<Record<string, any> | null>;
+  findUnique(args: {
+    where: ProxyWhere;
+    select?: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
+  }): Promise<Record<string, any> | null>;
   findFirst(args?: {
     where?: ProxyWhere;
     orderBy?: ProxyWhere;
     select?: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
   }): Promise<Record<string, any> | null>;
   findMany(args?: {
     where?: ProxyWhere;
@@ -230,15 +463,29 @@ export interface ProxyModel {
     skip?: number;
     take?: number;
     select?: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
   }): Promise<Record<string, any>[]>;
-  count(args?: { where?: ProxyWhere }): Promise<number>;
+  count(args?: { where?: ProxyWhere; allowUnscopedTenantAccess?: boolean }): Promise<number>;
   aggregate(args?: Record<string, unknown>): Promise<Record<string, any>>;
   groupBy(args?: Record<string, unknown>): Promise<Record<string, any>[]>;
   create(args: { data: ProxyWhere }): Promise<Record<string, any>>;
-  update(args: { where: ProxyWhere; data: ProxyWhere }): Promise<Record<string, any>>;
-  updateMany(args: { where?: ProxyWhere; data: ProxyWhere }): Promise<{ count: number }>;
-  upsert(args: { where: ProxyWhere; create: ProxyWhere; update: ProxyWhere }): Promise<Record<string, any>>;
-  deleteMany(args?: { where?: ProxyWhere }): Promise<{ count: number }>;
+  update(args: {
+    where: ProxyWhere;
+    data: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
+  }): Promise<Record<string, any>>;
+  updateMany(args: {
+    where?: ProxyWhere;
+    data: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
+  }): Promise<{ count: number }>;
+  upsert(args: {
+    where: ProxyWhere;
+    create: ProxyWhere;
+    update: ProxyWhere;
+    allowUnscopedTenantAccess?: boolean;
+  }): Promise<Record<string, any>>;
+  deleteMany(args?: { where?: ProxyWhere; allowUnscopedTenantAccess?: boolean }): Promise<{ count: number }>;
 }
 
 /**
@@ -286,7 +533,22 @@ export type LibsqlProxy = ProxyModels &
     $transaction: ProxyTransaction;
   };
 
-export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
+/**
+ * Binds a tenant into the proxy when `tenantId` is supplied (production
+ * path — `getAuthenticatedPrisma` passes the session-derived tenant, never a
+ * request value). Every tenant-table statement is then auto-scoped
+ * (`scopeWhere` / `scopeCreateData`); an empty-string binding throws
+ * `TENANT_SCOPE_EMPTY_BINDING` rather than scoping every statement to
+ * nothing. Omit it only for the legacy unbound form (tests, `lib/db.ts`).
+ */
+export function createLibsqlProxy(client: SqlHandle, tenantId?: string): LibsqlProxy {
+  if (tenantId !== undefined && tenantId.length === 0) {
+    throw new TenantScopeError(
+      "TENANT_SCOPE_EMPTY_BINDING",
+      "createLibsqlProxy was bound to an empty tenant id — refusing, because every tenant-table statement would scope to nothing (docs/adr/0007).",
+    );
+  }
+  const boundTenantId = tenantId;
   const modelProxy = (modelName: string) => {
     const tableMap: Record<string, string> = {
       setting: "settings",
@@ -313,12 +575,23 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
       backupManifest: "backup_manifest",
       appState: "app_state",
       adminUser: "admin_users",
+      // No Prisma model (migration-runner bookkeeping) — present so the
+      // GLOBAL_TABLES allowlist entry is reachable by model name instead of
+      // falling back to a wrong table name.
+      schemaMigrations: "schema_migrations",
     };
     const tableName = tableMap[modelName] || modelName;
 
     return {
-      findUnique: async ({ where, select }: any) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      findUnique: async ({ where, select, allowUnscopedTenantAccess }: any) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const res = await execSafe(client, `SELECT * FROM "${tableName}" ${whereClause} LIMIT 1`, vals);
         return res.rows[0] ? projectRow(toJsRow(res.rows[0]), select) : null;
       },
@@ -328,8 +601,15 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
       // arbitrary row — which produced a wrong chain tip and a wrong running
       // balance on the ORM payment path (caught by
       // packages/core/src/feesDialectParity.test.ts).
-      findFirst: async ({ where, orderBy, select }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      findFirst: async ({ where, orderBy, select, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const orderClause = buildOrderClause(orderBy);
         const res = await execSafe(
           client,
@@ -338,8 +618,15 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
         );
         return res.rows[0] ? projectRow(toJsRow(res.rows[0]), select) : null;
       },
-      findMany: async ({ where, orderBy, skip, take, select }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      findMany: async ({ where, orderBy, skip, take, select, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const orderClause = buildOrderClause(orderBy);
         let limitClause = "";
         if (take !== undefined) {
@@ -349,14 +636,28 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
         const res = await execSafe(client, sql, vals);
         return res.rows.map((row) => projectRow(toJsRow(row), select));
       },
-      count: async ({ where }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      count: async ({ where, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const sql = `SELECT COUNT(*) as c FROM "${tableName}" ${whereClause}`.trim();
         const res = await execSafe(client, sql, vals);
         return Number(res.rows[0]?.c || 0);
       },
-      aggregate: async ({ where, _sum, _avg, _min, _max, _count }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      aggregate: async ({ where, _sum, _avg, _min, _max, _count, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const selects: string[] = [];
         if (_sum) {
           for (const k of Object.keys(_sum)) {
@@ -442,8 +743,15 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
         }
         return out;
       },
-      groupBy: async ({ by, where, _sum, _avg, _min, _max, _count }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      groupBy: async ({ by, where, _sum, _avg, _min, _max, _count, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const groupCols = Array.isArray(by) ? by : [by];
         const selects: string[] = groupCols.map(k => `"${toDbCol(k)}" as "${k}"`);
         
@@ -548,8 +856,9 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
         });
       },
       create: async ({ data }: any) => {
-        const rawCols = Object.keys(data).filter((k) => {
-          const v = data[k];
+        const scopedData = scopeCreateData({ modelName, tableName, boundTenantId, data, verb: "create" });
+        const rawCols = Object.keys(scopedData).filter((k) => {
+          const v = scopedData[k];
           if (v === undefined) return false;
           if (isAtomicNumberOp(v)) {
             throw new Error(
@@ -559,13 +868,21 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
           return true;
         });
         const dbCols = rawCols.map(toDbCol);
-        const vals = rawCols.map((k) => toSqlValue(data[k]));
+        const vals = rawCols.map((k) => toSqlValue(scopedData[k]));
         const sql = `INSERT INTO "${tableName}" (${dbCols.map((c) => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`;
         await execSafe(client, sql, vals);
-        return data;
+        return scopedData;
       },
-      update: async ({ where, data }: any) => {
-        const { whereClause, vals: whereVals } = buildWhereClause(where);
+      update: async ({ where, data, allowUnscopedTenantAccess }: any) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        rejectTenantReassignment(modelName, tableName, boundTenantId, data);
+        const { whereClause, vals: whereVals } = buildWhereClause(scoped);
         const { setStr, setVals } = buildSetClause(data);
         const sql = `UPDATE "${tableName}" SET ${setStr} ${whereClause}`;
         await execSafe(client, sql, [...setVals, ...whereVals]);
@@ -575,8 +892,16 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
       // payload). `updateMany` can — callers that must prove the row existed
       // (`STUDENT_NOT_FOUND`, F5) use it to read `{ count }` instead of
       // silently writing nothing.
-      updateMany: async ({ where, data }: any) => {
-        const { whereClause, vals: whereVals } = buildWhereClause(where);
+      updateMany: async ({ where, data, allowUnscopedTenantAccess }: any) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        rejectTenantReassignment(modelName, tableName, boundTenantId, data);
+        const { whereClause, vals: whereVals } = buildWhereClause(scoped);
         const { setStr, setVals } = buildSetClause(data);
         const res = await execSafe(
           client,
@@ -585,8 +910,12 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
         );
         return { count: Number(res.rowsAffected || 0) };
       },
-      upsert: async ({ where, create, update }: any) => {
-        const { whereClause, vals: whereVals } = buildWhereClause(where);
+      upsert: async ({ where, create, update, allowUnscopedTenantAccess }: any) => {
+        const allowUnscoped = allowUnscopedTenantAccess === true;
+        const scopedWhere = scopeWhere({ modelName, tableName, boundTenantId, where, allowUnscoped });
+        const scopedCreate = scopeCreateData({ modelName, tableName, boundTenantId, data: create, verb: "upsert-create" });
+        rejectTenantReassignment(modelName, tableName, boundTenantId, update);
+        const { whereClause, vals: whereVals } = buildWhereClause(scopedWhere);
         const existing = await execSafe(client, `SELECT * FROM "${tableName}" ${whereClause} LIMIT 1`, whereVals);
         if (existing.rows && existing.rows.length > 0) {
           const rawCols = Object.keys(update).filter(k => update[k] !== undefined);
@@ -596,15 +925,25 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
           await execSafe(client, `UPDATE "${tableName}" SET ${setStr} ${whereClause}`, [...setVals, ...whereVals]);
           return { ...toJsRow(existing.rows[0]), ...update };
         } else {
-          const rawCols = Object.keys(create).filter(k => create[k] !== undefined);
+          const rawCols = Object.keys(scopedCreate).filter(k => scopedCreate[k] !== undefined);
           const dbCols = rawCols.map(toDbCol);
-          const vals = rawCols.map(k => create[k] instanceof Date ? create[k].toISOString() : create[k]);
+          // `toSqlValue` (not the legacy Date-only inline): the scoped copy is
+          // typed `Record<string, unknown>`, and this also serialises objects
+          // instead of binding "[object Object]" — same rule as `create`.
+          const vals = rawCols.map((k) => toSqlValue(scopedCreate[k]));
           await execSafe(client, `INSERT INTO "${tableName}" (${dbCols.map(c => `"${c}"`).join(",")}) VALUES (${dbCols.map(() => "?").join(",")})`, vals);
-          return create;
+          return scopedCreate;
         }
       },
-      deleteMany: async ({ where }: any = {}) => {
-        const { whereClause, vals } = buildWhereClause(where);
+      deleteMany: async ({ where, allowUnscopedTenantAccess }: any = {}) => {
+        const scoped = scopeWhere({
+          modelName,
+          tableName,
+          boundTenantId,
+          where,
+          allowUnscoped: allowUnscopedTenantAccess === true,
+        });
+        const { whereClause, vals } = buildWhereClause(scoped);
         const res = await execSafe(client, `DELETE FROM "${tableName}" ${whereClause}`.trim(), vals);
         return { count: Number(res.rowsAffected || 0) };
       }
@@ -628,7 +967,10 @@ export function createLibsqlProxy(client: SqlHandle): LibsqlProxy {
             );
           }
           const txHandle = await client.transaction("write");
-          const txProxy = createLibsqlProxy(txHandle);
+          // Rule 7 / tenant binding: the transaction proxy inherits the bound
+          // tenant, so a transaction cannot straddle two tenants — a
+          // cross-tenant create inside it throws and rolls everything back.
+          const txProxy = createLibsqlProxy(txHandle, boundTenantId);
           try {
             const value = await (arg as (tx: LibsqlProxy) => Promise<unknown>)(txProxy);
             await txHandle.commit();

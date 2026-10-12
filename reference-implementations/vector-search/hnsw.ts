@@ -1,4 +1,4 @@
-// Implements: 22_Vector_Search_System.md §3 — HNSW (Hierarchical Navigable Small
+// Implements: 25_Vector_Search_System.md §3 — HNSW (Hierarchical Navigable Small
 // World) index, providing O(log N) approximate nearest-neighbour search.
 //
 // HNSW is a multi-layer skip-graph. Each node lives in layers 0..l, where l is

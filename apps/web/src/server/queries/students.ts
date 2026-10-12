@@ -142,7 +142,9 @@ export const getStudent = cache(async (
 
     log.warn('get_student_gateway_failed_using_direct_db', res.error, { studentId });
     const { client, tenantId } = await getAuthenticatedDb();
-    const proxy = createLibsqlProxy(client);
+    // PHASE 4: bind the session-derived tenant (docs/adr/0007) — the
+    // single-row fallback read below is auto-scoped by the proxy.
+    const proxy = createLibsqlProxy(client, tenantId);
     const raw = await withQueryTimeout(
       proxy.student.findFirst({ where: { tenantId, id: studentId } }),
       QUERY_TIMEOUT_MS,

@@ -58,7 +58,7 @@ Every Active item is a real, observed finding — not a hypothetical.
 
 - [ ] **DOC-SPEC-07**: Resolve the **three duplicate spec phase numbers**.
       ## Spec: `AGENTS.md` §0 (spec is the contract), §0.3 (reading order), §17 (cross-reference index) · `22_Redundancy_Audit.md` (the dedup map)
-      ## Observed: `21_Automation_Testing.md` (29 refs) vs `21_Redis_Caching_Layer.md` (8); `22_Redundancy_Audit.md` vs `22_Vector_Search_System.md`; `23_Security_Harness_Plan.md` vs `23_Complexity_Guarantees.md`. `AGENTS.md` §17 and §0.3 reference one of each, so the Redis/Vector/Complexity files look like unratified later additions. Any citation "see §23" is ambiguous.
+      ## Observed: `21_Automation_Testing.md` (29 refs) vs `24_Redis_Caching_Layer.md` (8); `22_Redundancy_Audit.md` vs `25_Vector_Search_System.md`; `23_Security_Harness_Plan.md` vs `26_Complexity_Guarantees.md`. `AGENTS.md` §17 and §0.3 reference one of each, so the Redis/Vector/Complexity files look like unratified later additions. Any citation "see §23" is ambiguous.
       ## Notable: `22_Redundancy_Audit.md` does **not** list this collision in its own dedup map — the map meant to catch exactly this missed it.
       ## Gated: renumbering touches `AGENTS.md` and the whole corpus (>500 lines) — `AGENTS.md` §8 trigger #5/#6.
 
@@ -99,9 +99,9 @@ Every Active item is a real, observed finding — not a hypothetical.
 
 ## Deferred (v2)
 
-- **Vector search** — specified in `22_Vector_Search_System.md`; unratified, number-colliding, no phase.
-- **Redis caching layer** — specified in `21_Redis_Caching_Layer.md`; unratified, number-colliding, no phase.
-- **Complexity guarantees** — specified in `23_Complexity_Guarantees.md`; unratified, number-colliding, no phase.
+- **Vector search** — specified in `25_Vector_Search_System.md`; unratified, number-colliding, no phase.
+- **Redis caching layer** — specified in `24_Redis_Caching_Layer.md`; unratified, number-colliding, no phase.
+- **Complexity guarantees** — specified in `26_Complexity_Guarantees.md`; unratified, number-colliding, no phase.
 
 All three are blocked behind **DOC-SPEC-07**: their phase numbers must be settled before they can be planned, which is exactly why that requirement is first.
 

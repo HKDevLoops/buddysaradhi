@@ -284,14 +284,21 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
       // parameter PER SESSION — past SQLite's SQLITE_MAX_VARIABLE_NUMBER (and the
       // edge's own limit) that query fails outright. `take` is therefore not
       // optional: it is what keeps the `IN (...)` list a fixed size.
-      const sessions = await orm.attendanceSession.findMany({
+      //
+      // Rule 9 (limit+1 honesty, mirroring `rosterTruncated` below): the cap uses
+      // the existing `take` mechanism (no new SQL text per AGENTS §3.4) — fetch
+      // one past MAX_RANGE_SESSIONS so the response can SAY it truncated instead
+      // of silently clipping the window's tail.
+      const sessionsPlusOne = await orm.attendanceSession.findMany({
         where: {
           sessionDate: { between: [fromDay.data, toDay.data] },
           ...(batchId ? { batchId } : {}),
         },
         orderBy: { sessionDate: "asc" },
-        take: MAX_RANGE_SESSIONS,
+        take: MAX_RANGE_SESSIONS + 1,
       });
+      const sessionsTruncated = sessionsPlusOne.length > MAX_RANGE_SESSIONS;
+      const sessions = sessionsPlusOne.slice(0, MAX_RANGE_SESSIONS);
       const sessionIds = sessions.map((s) => String(s.id));
       // An empty window legitimately has no sessions. Skip the read rather than
       // issue an empty `IN ()`, which is invalid SQL (the builder renders a
@@ -339,6 +346,7 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
         rosterTotal: roster.total,
         rosterTruncated: roster.truncated,
         rosterScope: roster.scope,
+        sessionsTruncated,
       });
     }
 

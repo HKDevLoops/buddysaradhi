@@ -22,7 +22,54 @@ function readSecret(name: string): string {
 }
 
 const HMAC_SECRET = readSecret("GATEWAY_SHARED_SECRET");
-const DATA_KEY = readSecret("DATA_ENCRYPTION_KEY") || HMAC_SECRET;
+const DATA_KEY_RAW = readSecret("DATA_ENCRYPTION_KEY");
+
+/**
+ * Phase 3 key separation (docs/adr/0006 + docs/rfc/gated-review-packet-phases-1-3-4.md
+ * Phase 3) — REAL separation that is SAFE to deploy.
+ *
+ * The fallback below is NOT removed: deleting it is a breaking change — every
+ * running deployment that never set `DATA_ENCRYPTION_KEY` (the common case)
+ * would refuse to boot on upgrade. Instead the fallback stays byte-identical
+ * by default, is LOUD (a boot-time warn names the missing variable, never its
+ * value), and can be FORBIDDEN via `STRICT_KEY_SEPARATION=true`, which fails
+ * closed in EVERY environment, not just when deployed: the flag is an explicit
+ * operator declaration that the coupled mode is unacceptable, so booting into
+ * it — even locally — would silently violate that declaration.
+ *
+ * Flag semantics follow `ALLOW_DEV_AUTH` (lib/env.ts): exactly `"true"` arms
+ * it; unset, empty, or any other value leaves the historical behaviour in
+ * place. No new algorithms: separation here is by distinct secret, decided in
+ * ADR-0006 (HKDF-from-one-secret recorded as a rejected-for-now alternative).
+ */
+function isStrictKeySeparationEnabled(): boolean {
+  return readSecret("STRICT_KEY_SEPARATION") === "true";
+}
+
+const STRICT_KEY_SEPARATION = isStrictKeySeparationEnabled();
+
+/** True while the DATA fallback below is engaged (`DATA_ENCRYPTION_KEY` unset). */
+const DATA_KEY_FALLBACK_ENGAGED = DATA_KEY_RAW.length === 0;
+
+if (DATA_KEY_FALLBACK_ENGAGED) {
+  if (STRICT_KEY_SEPARATION) {
+    throw new Error(
+      "CRITICAL: STRICT_KEY_SEPARATION is on but DATA_ENCRYPTION_KEY is not set. " +
+        "The signing/data fallback is forbidden in this mode: set DATA_ENCRYPTION_KEY " +
+        "to a value distinct from GATEWAY_SHARED_SECRET and redeploy " +
+        "(docs/adr/0006-data-signing-key-separation.md).",
+    );
+  }
+  // LOUD fallback (Rule 9 — no silent failures). The silent `|| HMAC_SECRET`
+  // is what made this coupling invisible; it must never be silent again. Names
+  // the missing variable only — never either secret's value (10_Security.md §8).
+  logWarn("crypto.data_key_fallback", {
+    missing: "DATA_ENCRYPTION_KEY",
+    fallback: "GATEWAY_SHARED_SECRET",
+  });
+}
+
+const DATA_KEY = DATA_KEY_RAW || HMAC_SECRET;
 
 /**
  * BR-SEC-07 — the PIN pepper, resolved with EXACTLY the precedence the web app
@@ -75,6 +122,8 @@ assertSecretStrength("GATEWAY_SHARED_SECRET", HMAC_SECRET);
 // `DATA_KEY` falls back to `HMAC_SECRET`, so it inherits the HMAC secret's
 // strength when unset — but it is checked independently so that an explicitly
 // configured but short data key cannot slip through on the HMAC's coattails.
+// (The fallback itself is gated LOUD + STRICT just above — this check is only
+// about key STRENGTH, not about coupling.)
 assertSecretStrength("DATA_ENCRYPTION_KEY", DATA_KEY);
 // Checked independently rather than inherited: `PIN_PEPPER` defaults to
 // `HMAC_SECRET`, but an explicitly-configured short pepper must fail loudly rather
@@ -83,6 +132,19 @@ assertSecretStrength("PIN_PEPPER", PIN_PEPPER);
 
 export function getHmacSecret(): string {
   return HMAC_SECRET;
+}
+
+/**
+ * Phase 3 observability (docs/adr/0006). Booleans only — never secret bytes
+ * (10_Security.md §8) — so tests and boot probes can assert which key mode is
+ * live without anything that could echo a secret into logs or responses.
+ */
+export function isDataKeyFallback(): boolean {
+  return DATA_KEY_FALLBACK_ENGAGED;
+}
+
+export function isStrictKeySeparation(): boolean {
+  return STRICT_KEY_SEPARATION;
 }
 
 /**

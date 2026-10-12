@@ -1,4 +1,4 @@
-// Implements: 22_Vector_Search_System.md §1 — composite document blob builders.
+// Implements: 25_Vector_Search_System.md §1 — composite document blob builders.
 //
 // Every searchable entity in Buddysaradhi is a *composite text blob* — one
 // string that folds all of the entity's fields into a single embedding. The

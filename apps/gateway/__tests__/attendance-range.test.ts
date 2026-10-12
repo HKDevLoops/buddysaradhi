@@ -45,6 +45,7 @@ interface RangeData {
   rosterTotal: number;
   rosterTruncated: boolean;
   rosterScope: string;
+  sessionsTruncated: boolean;
 }
 interface DayData {
   session: unknown;
@@ -347,6 +348,40 @@ describe("GET /api/v1/attendance range read (PERF-ATT-10)", () => {
       const data = body.data as DayData;
       expect(data.records).toHaveLength(BATCH_ROSTER);
       expect(data.records.find((r) => r.student_id === "s-asha")?.status).toBe("present");
+    });
+  });
+
+  describe("sessions cap — limit+1 honesty (P2-9)", () => {
+    it("reports sessionsTruncated and returns only the first 400 days past the cap", async () => {
+      // 401 sessions in one window: the same date and batch for all of them.
+      // Sharing a date is deliberate — attendance_sessions carries no UNIQUE
+      // constraint beyond its id (lib/schema.ts), so 401 rows on D1 is a legal
+      // tenant shape and keeps the window inside MAX_RANGE_DAYS.
+      const fx = createLedgerFixture();
+      invalidateTenant(fx.tenantId);
+      seedBatch(fx, BATCH);
+      for (let i = 0; i < 401; i += 1) {
+        seedSession(fx, `sess-cap-${i}`, D1);
+      }
+
+      const { status, body } = await call(fx, `from=${D1}&to=${D3}`);
+      expect(status).toBe(200);
+      const data = body.data as RangeData;
+      expect(data.sessionsTruncated).toBe(true);
+      expect(data.days).toHaveLength(400);
+    });
+
+    it("leaves sessionsTruncated false for a small window", async () => {
+      const fx = createLedgerFixture();
+      invalidateTenant(fx.tenantId);
+      seedCohort(fx);
+      seedSession(fx, "sess-3", D3);
+
+      const { status, body } = await call(fx, `from=${D1}&to=${D3}`);
+      expect(status).toBe(200);
+      const data = body.data as RangeData;
+      expect(data.sessionsTruncated).toBe(false);
+      expect(data.days).toHaveLength(3);
     });
   });
 });

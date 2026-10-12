@@ -36,7 +36,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLibsqlProxy } from "@/lib/libsql-proxy";
-import { decryptBackup } from "@/lib/crypto";
+import { decryptBackup, type BackupKeyManifest } from "@/lib/crypto";
 
 const mocks = vi.hoisted(() => ({
   getAuthenticatedPrisma: vi.fn(),
@@ -244,6 +244,7 @@ afterEach(async () => {
 async function createAndDecrypt(withAttendance = true): Promise<{
   payload: BackupPayload;
   counts: Record<string, number | null>;
+  manifest: BackupKeyManifest;
   bytes: number;
 }> {
   const made = await createTestDb(withAttendance);
@@ -265,6 +266,7 @@ async function createAndDecrypt(withAttendance = true): Promise<{
   return {
     payload: JSON.parse(plaintext) as BackupPayload,
     counts: res.data.counts as unknown as Record<string, number | null>,
+    manifest: res.data.manifest as BackupKeyManifest,
     bytes: Buffer.byteLength(encoded, "base64"),
   };
 }
@@ -334,6 +336,16 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
     expect(Array.isArray(payload.receipts) ? payload.receipts.length : -1).toBe(12);
   });
 
+  it("carries the Phase 3 key manifest as plaintext JSON ALONGSIDE the blob, never inside it", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
+    // docs/adr/0006: the version/KDF/key-domain travel in the response, so a
+    // rotation tool can read them without the passphrase. The envelope bytes
+    // themselves are asserted by backup-crypto.test.ts (byte-exact).
+    const { manifest } = await createAndDecrypt();
+    expect(manifest.envelopeVersion).toBe(1);
+    expect(manifest.kdf).toBe("argon2id-m65536-t3-p2-v0x13");
+    expect(manifest.keyDomain).toBe("passphrase");
+  });
+
   it("the audit row records the same counts the card printed", { timeout: CRYPTO_TEST_TIMEOUT }, async () => {
     const made = await createTestDb();
     client = made.client;
@@ -355,11 +367,16 @@ describe("createBackupAction — the ARTEFACT, not the card", () => {
     expect(audit.rows).toHaveLength(1);
     const metadata = JSON.parse(String(audit.rows[0]?.metadata)) as {
       counts: Record<string, number | null>;
+      manifest: BackupKeyManifest;
     };
     for (const [key, expected] of CONTRACT) {
       expect(metadata.counts[key], `backup_create audit count for ${key}`).toBe(expected);
     }
     expect(metadata.counts.receipts).toBe(SEED.receipts);
+    // The audit row carries the same manifest the response did — one statement
+    // of the key posture, not three that can drift (docs/adr/0006).
+    expect(metadata.manifest.envelopeVersion).toBe(1);
+    expect(metadata.manifest.keyDomain).toBe("passphrase");
   });
 });
 

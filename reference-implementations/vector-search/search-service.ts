@@ -1,4 +1,4 @@
-// Implements: 22_Vector_Search_System.md §4-§5 — per-tutor search service.
+// Implements: 25_Vector_Search_System.md §4-§5 — per-tutor search service.
 //
 // The `SearchService` ties together the HNSW index, the embedder, the
 // post-filter, and the Redis query-result cache. It is the surface the

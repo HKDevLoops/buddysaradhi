@@ -15,8 +15,8 @@ touches `apps/mobile`, `apps/desktop` or `apps/product-page`.
 ## Ordering rationale
 
 Phase 1 is first not because it is the most severe finding, but because it is
-**load-bearing for the other five**. Three specs — `21_Redis_Caching_Layer.md`,
-`22_Vector_Search_System.md`, `23_Complexity_Guarantees.md` — cannot be planned
+**load-bearing for the other five**. Three specs — `24_Redis_Caching_Layer.md`,
+`25_Vector_Search_System.md`, `26_Complexity_Guarantees.md` — cannot be planned
 until their phase numbers stop colliding with ratified ones. Notably,
 `22_Redundancy_Audit.md` — the document whose entire job is catching exactly this
 class of duplication — does not list the collision in its own map.
@@ -56,8 +56,8 @@ same number, and put changed behaviour where a developer will actually find it.
 
 **Depends on:** nothing — this is the root.
 
-**Why first:** `21_Redis_Caching_Layer.md`, `22_Vector_Search_System.md` and
-`23_Complexity_Guarantees.md` are all unratified later additions that collide with
+**Why first:** `24_Redis_Caching_Layer.md`, `25_Vector_Search_System.md` and
+`26_Complexity_Guarantees.md` are all unratified later additions that collide with
 ratified ones (`21_Automation_Testing.md` 29 refs, `22_Redundancy_Audit.md`,
 `23_Security_Harness_Plan.md`). Until the numbers are settled, no citation "see §23"
 resolves, and the three deferred specs cannot enter a roadmap without deepening the

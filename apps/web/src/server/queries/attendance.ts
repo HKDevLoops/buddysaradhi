@@ -63,7 +63,9 @@ export const getAttendanceForDate = cache(
     log.warn("attendance_gateway_failed_fallback", res.error, { dateIso, batchId });
     try {
       const { client, tenantId } = await getAuthenticatedDb();
-      const proxy = createLibsqlProxy(client);
+      // PHASE 4: bind the session-derived tenant (docs/adr/0007) — the
+      // fallback reads below are auto-scoped by the proxy.
+      const proxy = createLibsqlProxy(client, tenantId);
 
       // BEFORE: 3 sequential round trips (session → roster → records).
       // AFTER: 2 waves — session + roster concurrently (independent), then records

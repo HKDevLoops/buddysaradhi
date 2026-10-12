@@ -100,7 +100,11 @@ export async function getAuthenticatedPrisma(): Promise<{
   tenantId: string;
 }> {
   const { client, userId, tenantId } = await getAuthenticatedDb();
-  return { db: createLibsqlProxy(client), userId, tenantId };
+  // PHASE 4 (docs/rfc/rfc-009-010-ratification.md §3A Option 1): the
+  // session-derived tenant is bound into the proxy — never a request value —
+  // so every statement through this handle is auto-scoped. The transaction
+  // proxy inherits it inside libsql-proxy.ts ($transaction path).
+  return { db: createLibsqlProxy(client, tenantId), userId, tenantId };
 }
 
 // Keep this alias for files that use getAuthenticatedRawClient

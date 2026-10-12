@@ -1,4 +1,4 @@
-// Implements: 22_Vector_Search_System.md §2 — embedding worker pool.
+// Implements: 25_Vector_Search_System.md §2 — embedding worker pool.
 //
 // Production: a `worker_threads` pool (size `min(4, cores-1)`) runs the
 // `bge-small-en-v1.5` ONNX model via `@xenova/transformers`. Each worker

@@ -1,4 +1,4 @@
-// Implements: 23_Complexity_Guarantees.md §3 + 21_Redis_Caching_Layer.md §9
+// Implements: 26_Complexity_Guarantees.md §3 + 24_Redis_Caching_Layer.md §9
 // (SORTED SET) — a skip list, the data structure Redis uses for its sorted
 // sets (ZADD/ZREVRANGE/etc.).
 //

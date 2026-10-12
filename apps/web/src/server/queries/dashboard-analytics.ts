@@ -308,6 +308,8 @@ async function readBatches() {
  *
  * The response carries `rosterTotal`/`rosterTruncated` so a capped roster is
  * visible rather than silent (Rule 9) — this mirrors `defaultersTruncated`.
+ * It carries `sessionsTruncated` for the same reason on the sessions axis
+ * (P2-9): a 400-session cap that never says so is a quiet fortnight.
  */
 const AttendanceRangeSchema = z.object({
   from: z.string(),
@@ -325,6 +327,7 @@ const AttendanceRangeSchema = z.object({
   ),
   rosterTotal: z.number().int().nonnegative(),
   rosterTruncated: z.boolean(),
+  sessionsTruncated: z.boolean(),
 });
 
 async function readAttendanceRange(fromIso: string, toIso: string, batchId?: string) {
@@ -567,6 +570,16 @@ export const getDashboardAnalytics = cache(
           dataPartial = true;
           sourceNotes.push(
             `Attendance roster truncated at the server: showing ${range.rosterTotal} students.`,
+          );
+        }
+        // P2-9: the server caps the sessions axis too (MAX_RANGE_SESSIONS). Same
+        // honesty contract as the roster cap above — a clipped window must read
+        // as partial, never as a quiet fortnight (Rule 9).
+        if (range.sessionsTruncated) {
+          heatmapPartial = true;
+          dataPartial = true;
+          sourceNotes.push(
+            `Attendance sessions truncated at the server: showing the first ${range.days.length} days.`,
           );
         }
       }

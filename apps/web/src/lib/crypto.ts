@@ -2,6 +2,13 @@
 // 09_Backup_and_Import_Export.md §10.1 (byte-exact envelope) + §15.2 (KDF),
 // AGENTS.md Rule 8 (AES-256-GCM + Argon2id, no escrow, no plaintext fallback).
 import { hash as argon2Hash, verify as argon2Verify } from 'argon2';
+// Relative, not `@/lib/logger`, on purpose. This module is imported by the
+// gateway parity test (`apps/gateway/__tests__/pin-proof-vector.test.ts`), which
+// runs under the ROOT vitest config where the `@/` alias does not exist — the
+// alias form failed full-suite runs with ERR_MODULE_NOT_FOUND while passing
+// locally. `./logger` resolves identically under Next.js and every test runner.
+// (`logger.ts` itself is alias-free, so this introduces no transitive alias.)
+import { log } from './logger';
 
 function resolvePepper(): string {
   const p = process.env.PIN_PEPPER || process.env.GATEWAY_SHARED_SECRET || '';
@@ -127,15 +134,56 @@ export async function verifyPin(pin: string, hash: string): Promise<boolean> {
  * Server env key used ONLY to decrypt legacy (pre-Argon2id) backup envelopes.
  * Fail-closed since commit 67aab56 — no dev fallback (Rule 8 / Rule 9).
  * New backups are bound to the user's passphrase, never to this key.
+ *
+ * Phase 3 key separation (docs/adr/0006 +
+ * docs/rfc/gated-review-packet-phases-1-3-4.md Phase 3) — same shape as the
+ * gateway (`apps/gateway/lib/crypto.ts`): the `DATA_ENCRYPTION_KEY ||
+ * GATEWAY_SHARED_SECRET` fallback stays byte-identical by default (removing it
+ * is a breaking change — legacy files in the wild decrypt only through this
+ * resolution), is LOUD (a boot-time warn names the missing variable, never its
+ * value), and is FORBIDDEN under `STRICT_KEY_SEPARATION=true`, which throws in
+ * EVERY environment. Flag semantics match the gateway exactly: only the literal
+ * `"true"` arms it.
  */
+function isStrictKeySeparationEnabled(): boolean {
+  return process.env.STRICT_KEY_SEPARATION === 'true';
+}
+const STRICT_KEY_SEPARATION = isStrictKeySeparationEnabled();
+/** True while the legacy-key fallback below is engaged (DATA_ENCRYPTION_KEY unset). */
+const DATA_KEY_FALLBACK_ENGAGED = !process.env.DATA_ENCRYPTION_KEY;
+
 function resolveAesKey(): string {
-  const k = process.env.DATA_ENCRYPTION_KEY || process.env.GATEWAY_SHARED_SECRET || '';
-  if (!k) {
-    throw new Error('CRITICAL: DATA_ENCRYPTION_KEY or GATEWAY_SHARED_SECRET must be set — fail-closed, no dev fallback');
+  const raw = process.env.DATA_ENCRYPTION_KEY || '';
+  if (!raw) {
+    if (STRICT_KEY_SEPARATION) {
+      throw new Error('CRITICAL: STRICT_KEY_SEPARATION is on but DATA_ENCRYPTION_KEY is not set — refusing to boot rather than falling back to GATEWAY_SHARED_SECRET (fail-closed, Phase 3 key separation; docs/adr/0006-data-signing-key-separation.md)');
+    }
+    const fallback = process.env.GATEWAY_SHARED_SECRET || '';
+    // LOUD fallback (Rule 9): the silent `||` is what made the signing/data
+    // coupling invisible; it must never be silent again. Names the missing
+    // variable only — never either secret's value (10_Security.md §8).
+    log.warn('crypto.data_key_fallback', 'DATA_ENCRYPTION_KEY is not set; legacy-backup decryption falls back to GATEWAY_SHARED_SECRET', { missing: 'DATA_ENCRYPTION_KEY' });
+    if (!fallback) {
+      throw new Error('CRITICAL: DATA_ENCRYPTION_KEY or GATEWAY_SHARED_SECRET must be set — fail-closed, no dev fallback');
+    }
+    return fallback;
   }
-  return k;
+  return raw;
 }
 const AES_KEY = resolveAesKey();
+
+/**
+ * Phase 3 observability (docs/adr/0006). Booleans only — never secret bytes
+ * (10_Security.md §8) — so boot probes and tests can assert which key mode is
+ * live without anything that could echo a secret into logs or responses.
+ */
+export function isLegacyBackupKeyFallback(): boolean {
+  return DATA_KEY_FALLBACK_ENGAGED;
+}
+
+export function isStrictKeySeparation(): boolean {
+  return STRICT_KEY_SEPARATION;
+}
 
 // ---------------------------------------------------------------------------
 // Backup envelope — implements Rule 8 exactly.
@@ -307,6 +355,51 @@ export async function decryptBackup(ciphertextB64: string, passphrase: string): 
   const data = new Uint8Array(combined.subarray(28));
   const key = await deriveLegacyBackupKey(salt);
   return aesGcmDecrypt(key, nonce, data);
+}
+
+// ---------------------------------------------------------------------------
+// Backup key MANIFEST — Phase 3 key separation (docs/adr/0006).
+//
+// WHY THE VERSION LIVES OUTSIDE THE ENVELOPE. Rule 8's bytes
+// (`BSR1 | 0x01 | salt | nonce | tag | ciphertext`) are UNTOUCHABLE: the
+// byte-exact tests pin them, every existing restore path parses them by
+// offset, and the envelope is opaque ciphertext BY DESIGN — a rotation tool
+// must learn the KDF/key-domain WITHOUT the passphrase, which it cannot do by
+// decrypting first. So the version travels as PLAINTEXT JSON ALONGSIDE the
+// blob (the `createBackupAction` response `data.manifest` + the
+// `backup_create` audit metadata), never inside it. A future rotation reads
+// the manifest, picks the KDF, and migrates; old files without a manifest are
+// the v1/passphrase form by construction.
+// ---------------------------------------------------------------------------
+/** KDF identifier for the v1 envelope: Argon2id m=64MiB t=3 p=2, 32B key, v0x13. */
+export const BACKUP_KDF_ID = 'argon2id-m65536-t3-p2-v0x13';
+
+export interface BackupKeyManifest {
+  /** The envelope `format_version` byte above — 1 today; 2+ must be refused by old restores (E_VERSION_AHEAD). */
+  readonly envelopeVersion: number;
+  /** The KDF that produced the envelope key — the rotation handle. */
+  readonly kdf: string;
+  /**
+   * Which key domain encrypts NEW backups: always `passphrase` today (Rule 8,
+   * BACKUP-1 — no server escrow). The `legacy-env` member exists so a future
+   * env-keyed form is expressible without changing this shape.
+   */
+  readonly keyDomain: 'passphrase' | 'legacy-env';
+  /** Whether the legacy-backup env key is currently the coupled fallback (Phase 3 signal). */
+  readonly dataKeyFallback: boolean;
+  /** Whether STRICT_KEY_SEPARATION armed this boot. */
+  readonly strictSeparation: boolean;
+}
+
+/** The manifest for a file just produced by `encryptBackup` (v1, passphrase-bound). */
+export function backupKeyManifest(): BackupKeyManifest {
+  return {
+    envelopeVersion: BACKUP_FORMAT_VERSION,
+    kdf: BACKUP_KDF_ID,
+    keyDomain: 'passphrase',
+    dataKeyFallback: DATA_KEY_FALLBACK_ENGAGED,
+    strictSeparation: STRICT_KEY_SEPARATION,
+  };
 }
 
 export async function hmacSign(secret: string, data: string): Promise<string> {

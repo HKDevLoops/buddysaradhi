@@ -1,4 +1,4 @@
-// Implements: 21_Redis_Caching_Layer.md §8.1 — Redis circuit breaker.
+// Implements: 24_Redis_Caching_Layer.md §8.1 — Redis circuit breaker.
 //
 // Redis is a dependency, and dependencies fail. The cache stage (3.5) **never
 // blocks a request on Redis** — when Redis is down, the gateway degrades to

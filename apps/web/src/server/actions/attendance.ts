@@ -109,7 +109,12 @@ async function ensureBatch(db: Db, tenantId: string, batchId: string, now: strin
   if (batchCheck) return;
   // The id is taken by someone else's row. Scoping the lookup above is what makes
   // this branch reachable, so it must not fall through to a bare create().
-  const foreign = await db.batch.findFirst({ where: { id: batchId } });
+  // PHASE 4 (docs/adr/0007): this is the single deliberate cross-tenant
+  // existence probe in production — its whole purpose is to see ANOTHER
+  // tenant's row — so it carries the explicit allowUnscopedTenantAccess
+  // escape hatch. A bound proxy would otherwise inject the tenant and this
+  // check could never fire. No other call site may use the hatch.
+  const foreign = await db.batch.findFirst({ where: { id: batchId }, allowUnscopedTenantAccess: true });
   if (foreign) throw new BatchOwnershipError();
   await db.batch.create({
     data: { id: batchId, tenantId, name: "General Batch", createdAt: now, updatedAt: now },

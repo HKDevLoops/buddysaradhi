@@ -2777,3 +2777,31 @@ Stage Summary:
 - Open, separate: the missing Rule 3 telemetry-dep guard (finding 1) — not fixed
   here because it is a different change to principle-lints.ts.
 Next agent: Phase 2 supply-chain review; or fix the missing Rule 3 guard.
+
+---
+Task ID: PHASE-3-KEY-SEPARATION Agent: web-engineer Task: Phase 3 cryptographic key separation (owner-authorized, gated-review-packet Phase 3 + ADR-0006)
+
+Work Log:
+- Read docs/rfc/gated-review-packet-phases-1-3-4.md Phase 3, apps/gateway/lib/crypto.ts (full, incl. boot gate + assertSecretStrength), apps/web/src/lib/crypto.ts (full, incl. resolveAesKey + Rule 8 envelope), byte-exact suites (gateway crypto.test.ts, web backup-crypto.test.ts + crypto.test.ts), web createBackupAction return shape, ADR format (0002 + README).
+- Gateway lib/crypto.ts: DATA fallback kept byte-identical by default, now LOUD (boot logWarn crypto.data_key_fallback naming DATA_ENCRYPTION_KEY, values never logged); STRICT_KEY_SEPARATION env (exact "true" arms, default OFF) throws fail-closed in EVERY env when DATA unset; added isDataKeyFallback()/isStrictKeySeparation() boolean probes (no secret bytes). No algo change, hmacSign/pinProof/ledger untouched.
+- Gateway vitest.config.ts: added "@" alias to apps/web/src — required, not cosmetic: web crypto now imports @/lib/logger and the pin-proof parity test loads web crypto by relative path (caught by suite: 1 failed suite before the alias, 43/43 after).
+- Web lib/crypto.ts: same strict/loud shape on resolveAesKey (exact legacy error string preserved when both vars unset, strict off); isLegacyBackupKeyFallback()/isStrictKeySeparation(); BACKUP_KDF_ID + BackupKeyManifest + backupKeyManifest() with why-outside-the-envelope comment (Rule 8 bytes untouched). pinProof derivation, hmacSign wire values untouched.
+- settings.ts createBackupAction: response data.manifest + backup_create audit metadata carry backupKeyManifest() (stated once, no drift). No sync_outbox/audit shape change otherwise.
+- ADR-0006 (PROPOSED) + README index row: fallback-not-removal rationale, 5-step arming procedure, consequences, HKDF rejected-for-now with reasons (changes fallback wire bytes; rotation stays coupled), inside-envelope version rejected (Rule 8).
+- apps/gateway/.env.example: documented DATA_ENCRYPTION_KEY + STRICT_KEY_SEPARATION + arming order. supabase/functions/gateway/.env.example mirror intentionally NOT touched (out of scope) — follow-up.
+- New tests: gateway key-separation.test.ts (6), web key-separation.test.ts (8), +2 manifest assertions in settings-backup-artefact.test.ts.
+- CONCURRENT WORK NOTED: tree was clean at session start; mid-session a second agent landed Phase 4a tenant-autoscope changes (libsql-proxy.ts +409, attendance.ts, get-db.ts, queries/*, tenant-scope test, ADR-0007). Untouched by me; their libsql-proxy.ts:931 type error is theirs (verified inside their added hunks). All suites I ran pass WITH their diff on disk.
+
+Verification:
+- principle-lints: 7/7 PASS. eslint on .ts: N/A by design (FM-17, JS-only config; tsc is the TS gate).
+- web typecheck: my slice clean; 1 remaining error = concurrent agent libsql-proxy.ts:931 (not mine).
+- gateway full suite: 43 files / 690 tests PASS (incl. 6 new + pin-proof parity).
+- web: crypto trio 23/23 PASS (incl. 8 new); settings-audit + artefact 82/82 PASS; artefact re-run with manifest asserts 15/15 PASS (7 artefact + 8 key-sep).
+- Rule 8 byte-exact suites (backup-crypto, crypto) unmodified and green — envelope bytes untouched, proven.
+- prettier --check: not a repo gate (untouched files fail it too); left as-is, no --write to avoid diff noise.
+
+Stage Summary:
+- State: COMPLETED (uncommitted per instruction; no commit, no push)
+- Files: apps/gateway/lib/crypto.ts, apps/gateway/vitest.config.ts, apps/gateway/.env.example, apps/gateway/__tests__/key-separation.test.ts (new), apps/web/src/lib/crypto.ts, apps/web/src/server/actions/settings.ts, apps/web/src/__tests__/key-separation.test.ts (new), apps/web/src/server/actions/settings-backup-artefact.test.ts, docs/adr/0006-data-signing-key-separation.md (new), docs/adr/README.md
+- Not verified: production boot with STRICT on (needs owner env access); full web suite (~74 files) not run — targeted suites only; root pnpm run lint (all workspaces) not run — concurrent in-flight breakage would fail it regardless.
+- Next agent: owner arming procedure (see report); sync supabase .env.example mirror; flip-to-strict follow-up record once fleet shows dataKeyFallback:false.

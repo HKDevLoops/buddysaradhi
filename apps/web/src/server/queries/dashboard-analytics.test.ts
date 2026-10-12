@@ -35,6 +35,7 @@ const EMPTY_RANGE = {
   days: [],
   rosterTotal: 0,
   rosterTruncated: false,
+  sessionsTruncated: false,
 };
 
 function dashboardPayload() {
@@ -304,6 +305,7 @@ describe("getDashboardAnalytics", () => {
         ],
         rosterTotal: 1,
         rosterTruncated: false,
+        sessionsTruncated: false,
       },
     });
 
@@ -375,5 +377,34 @@ describe("getDashboardAnalytics", () => {
     expect(result.data.dataPartial).toBe(true);
     expect(result.data.aging.every((b) => b.invoices === 0)).toBe(true);
     expect(result.data.defaulters).toHaveLength(0);
+  });
+
+  it("marks the heatmap partial when the server truncates sessions (P2-9)", async () => {
+    gatewayFor({
+      batches: [{ id: "b-1", name: "Batch A", subject: null }],
+      attendance: {
+        from: "2026-09-02",
+        to: "2026-09-15",
+        days: [
+          {
+            session_date: "2026-09-14",
+            session_id: "sess-1",
+            records: [{ student_id: "s-1", name: "Asha", batch: null, status: "present" }],
+          },
+        ],
+        rosterTotal: 1,
+        rosterTruncated: false,
+        sessionsTruncated: true,
+      },
+    });
+
+    const result = await getDashboardAnalytics({ periodMonths: 3, batch: "all", status: "all" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    // Rule 9: a capped sessions axis reads as partial, never as a quiet
+    // fortnight — the caption names the truncation.
+    expect(result.data.heatmapPartial).toBe(true);
+    expect(result.data.dataPartial).toBe(true);
+    expect(result.data.sourceNotes.some((n) => n.includes("sessions truncated"))).toBe(true);
   });
 });

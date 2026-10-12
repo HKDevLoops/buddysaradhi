@@ -16,3 +16,4 @@ approves it. A record that the owner rejects stays in the index marked
 | [0003](0003-single-day-and-range-share-roster-read.md) | Single-day and range attendance reads share `readAttendanceRoster` | PROPOSED |
 | [0004](0004-gitleaks-hard-gate-with-history-scan.md) | Gitleaks hard gate over full history, red until rotation | PROPOSED |
 | [0005](0005-coderabbit-action-disabled-not-pinned.md) | Dead `coderabbitai/ai-pr-reviewer` reference disabled, not pinned | PROPOSED |
+| [0006](0006-data-signing-key-separation.md) | Data/signing key separation via loud fallback + opt-in strict mode | PROPOSED |

@@ -11,7 +11,7 @@ import {
   obviousPinError,
 } from "@/lib/settings-gates";
 import { z } from "zod";
-import { verifyPin, encryptBackup } from "@/lib/crypto";
+import { verifyPin, encryptBackup, backupKeyManifest } from "@/lib/crypto";
 import {
   IMPORT_CHUNK_SIZE,
   MAX_IMPORT_ROWS,
@@ -339,6 +339,11 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
     // Rule 8: the passphrase is the KDF input (Argon2id), not just a check —
     // the backup must be restorable on any device with only the passphrase.
     const encryptedB64 = await encryptBackup(backupPayload, passphrase);
+    // Phase 3 (docs/adr/0006): the key manifest travels as plaintext JSON
+    // ALONGSIDE the blob — in this response and in the audit row below — never
+    // inside the Rule 8 envelope bytes. Stated once so the file, the audit row
+    // and the response cannot drift into three different claims.
+    const manifest = backupKeyManifest();
     const sizeBytes = Buffer.byteLength(encryptedB64, "base64");
     const sizeKB = (sizeBytes / 1024).toFixed(1);
     const filename = backupFilename();
@@ -374,6 +379,7 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
               bytes: sizeBytes,
               filename,
               counts,
+              manifest,
             }),
             createdAt: now,
           },
@@ -396,6 +402,7 @@ export async function createBackupAction(passphrase: string, pin: string, typedC
         size: `${sizeKB} KB`,
         counts,
         encrypted: true,
+        manifest,
         blobUrl: `data:application/octet-stream;base64,${encryptedB64}`,
       },
     };

@@ -2,7 +2,7 @@
 
 > This file is the **formal proof** that every operation in the Buddysaradhi gateway, cache, and search layers is **O(log N) or better** — meeting the user's requirement that *"the whole logic is less than O(log n)."* Each stage of the request lifecycle is analysed, its data structure named, and its Big-O bound derived. Where the bound is amortised or probabilistic, the analysis says so and gives the worst case.
 
-> **Reading order.** This file is the reference cited by `21_Redis_Caching_Layer.md` §11 and `22_Vector_Search_System.md` §9. Read those for the *what*; read this for the *why it is fast*.
+> **Reading order.** This file is the reference cited by `24_Redis_Caching_Layer.md` §11 and `25_Vector_Search_System.md` §9. Read those for the *what*; read this for the *why it is fast*.
 
 ---
 
@@ -23,7 +23,7 @@ There is **no operation in the gateway that is O(N) or worse** in the request pa
 
 ## 1. The Request Lifecycle, Stage by Stage
 
-The gateway pipeline (`17_API_Gateway_System.md` §3, extended by `21_Redis_Caching_Layer.md` §2):
+The gateway pipeline (`17_API_Gateway_System.md` §3, extended by `24_Redis_Caching_Layer.md` §2):
 
 ```
 [1 TLS] → [2 AUTH] → [3 RATE-LIMIT] → [3.5 CACHE] → [4 ROUTE] → [5 SERVICE] → [6 AUTHZ] → [7 STORE] → [8 RESP-SHAPE] → [9 AUDIT]
@@ -66,7 +66,7 @@ The JWKS is refreshed every 5 min (Supabase rotates keys rarely). A key miss (ca
 | Complexity | **O(1)** |
 | Data structure | Redis counter (hash table, O(1) INCR) |
 
-Per `21_Redis_Caching_Layer.md` §7:
+Per `24_Redis_Caching_Layer.md` §7:
 ```
 INCR   t:{tid}:rl:bucket:{minute}    ← O(1) Redis hash table operation
 EXPIRE t:{tid}:rl:bucket:{minute} 120 ← O(1)
@@ -208,11 +208,11 @@ The async event-bus publication (outbox drain → invalidator → cache DEL) is 
 = O(log N)
 ```
 
-**The vector search path is O(log N) on cache miss, O(1) on cache hit.** The embedding is O(1) because the model dimension D is fixed (384) and the token length L is bounded (we truncate to 128 tokens). The HNSW search is O(log N) per §3 of `22_Vector_Search_System.md`.
+**The vector search path is O(log N) on cache miss, O(1) on cache hit.** The embedding is O(1) because the model dimension D is fixed (384) and the token length L is bounded (we truncate to 128 tokens). The HNSW search is O(log N) per §3 of `25_Vector_Search_System.md`.
 
 ---
 
-## 3. The Cache Layer Bounds (per `21_Redis_Caching_Layer.md`)
+## 3. The Cache Layer Bounds (per `24_Redis_Caching_Layer.md`)
 
 | Operation | Bound | Derivation |
 |---|---|---|
@@ -238,11 +238,11 @@ The async event-bus publication (outbox drain → invalidator → cache DEL) is 
 
 `SCAN` in Redis is O(N) over the keyspace (it iterates the hash table in chunks). For a tutor with 200 cached keys, a `SCAN` + `DEL` loop is O(200) per invalidation event — acceptable but not O(1). For a tutor with 10,000 cached keys (a heavy ledger user), it becomes O(10,000) per event — a problem.
 
-The key-tag SET pattern (§5.3 of `21_Redis_Caching_Layer.md`) replaces `SCAN` with `SMEMBERS` (O(K) where K = set cardinality, bounded to ~10-50) + bulk `DEL` (O(K)). This keeps invalidation O(K) = O(1) in practice.
+The key-tag SET pattern (§5.3 of `24_Redis_Caching_Layer.md`) replaces `SCAN` with `SMEMBERS` (O(K) where K = set cardinality, bounded to ~10-50) + bulk `DEL` (O(K)). This keeps invalidation O(K) = O(1) in practice.
 
 ---
 
-## 4. The Vector Search Bounds (per `22_Vector_Search_System.md`)
+## 4. The Vector Search Bounds (per `25_Vector_Search_System.md`)
 
 ### 4.1 HNSW search complexity
 
@@ -354,8 +354,8 @@ Interpreting "less than O(log n)" as "O(log N) as the hard ceiling, O(1) as the 
 
 ## 9. Cross-References
 
-- `21_Redis_Caching_Layer.md` §11 — the cache complexity summary (this file is the proof).
-- `22_Vector_Search_System.md` §9 — the search complexity summary (this file is the proof).
+- `24_Redis_Caching_Layer.md` §11 — the cache complexity summary (this file is the proof).
+- `25_Vector_Search_System.md` §9 — the search complexity summary (this file is the proof).
 - `17_API_Gateway_System.md` §3 — the request lifecycle this file analyses stage by stage.
 - `19_Concurrency_and_Testing.md` §3 — the benchmark harness that enforces the targets in §7.
 - `11_Data_Model.md` §10 — the ORM discipline that keeps stage 7 at O(log N) (indexed queries only).

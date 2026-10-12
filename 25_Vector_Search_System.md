@@ -2,7 +2,7 @@
 
 > Buddysaradhi gains a **semantic vector search** layer for finding students, lessons, ledger entries, and tutor notes by *meaning*, not just by substring. A tutor types "the kid who struggles with fractions" or "Aarav from the morning batch" or even a Devanagari phonetic approximation — and the right students surface. This file defines the embedding pipeline, the **HNSW (Hierarchical Navigable Small World) index** that gives O(log N) approximate-nearest-neighbour search, the per-tutor index isolation, the index build/update lifecycle, and the complexity contract.
 
-> **Why this file exists.** The user named two demands: *"implement vector searching so to make it faster"* and *"ensure the whole logic is less than O(log n)."* Vector search with a brute-force scan is O(N × D) (N vectors × D dimensions) — for 10,000 students at 384 dimensions that is 3.8M cosine computations per query, ~200 ms. HNSW reduces this to **O(log N)** — ~0.3 ms for the same 10,000 vectors. This meets the requirement: the search path is O(log N), and with the Redis cache in front (§8), the hot path is O(1) on cache hit. See `23_Complexity_Guarantees.md` §4 for the proof.
+> **Why this file exists.** The user named two demands: *"implement vector searching so to make it faster"* and *"ensure the whole logic is less than O(log n)."* Vector search with a brute-force scan is O(N × D) (N vectors × D dimensions) — for 10,000 students at 384 dimensions that is 3.8M cosine computations per query, ~200 ms. HNSW reduces this to **O(log N)** — ~0.3 ms for the same 10,000 vectors. This meets the requirement: the search path is O(log N), and with the Redis cache in front (§8), the hot path is O(1) on cache hit. See `26_Complexity_Guarantees.md` §4 for the proof.
 
 ---
 
@@ -341,7 +341,7 @@ HNSW delete is non-trivial (you must reconnect the deleted node's neighbours). T
 
 ### 6.2 The cache invalidation tie-in
 
-When a student's vector changes, every cached search query for that tutor is potentially stale (the student's ranking may have shifted). The indexer invalidates `v1:t:{tid}:search:q:*` — all search query caches for the tutor. This is a `SCAN`-based DEL, but the number of cached queries per tutor is small (~20-50 distinct queries in a 5-min window), so it is O(50) = O(1) in practice. The `__keys__` SET pattern from `21_Redis_Caching_Layer.md` §5.3 applies here too.
+When a student's vector changes, every cached search query for that tutor is potentially stale (the student's ranking may have shifted). The indexer invalidates `v1:t:{tid}:search:q:*` — all search query caches for the tutor. This is a `SCAN`-based DEL, but the number of cached queries per tutor is small (~20-50 distinct queries in a 5-min window), so it is O(50) = O(1) in practice. The `__keys__` SET pattern from `24_Redis_Caching_Layer.md` §5.3 applies here too.
 
 ---
 
@@ -373,11 +373,11 @@ TTL:  300 sec (5 min)
 VAL:  JSON array of [{ id, type, score }]
 ```
 
-A tutor typing "aarav" sees instant results (cache hit, 0.5 ms). The cache is invalidated on any entity mutation for that tutor (§6.2). This makes the **common case O(1)** and the **cold case O(log N)** — meeting the "less than O(log n)" requirement with the composite bound proven in `23_Complexity_Guarantees.md` §4.
+A tutor typing "aarav" sees instant results (cache hit, 0.5 ms). The cache is invalidated on any entity mutation for that tutor (§6.2). This makes the **common case O(1)** and the **cold case O(log N)** — meeting the "less than O(log n)" requirement with the composite bound proven in `26_Complexity_Guarantees.md` §4.
 
 ---
 
-## 9. Complexity Analysis (summary; full proof in `23_Complexity_Guarantees.md`)
+## 9. Complexity Analysis (summary; full proof in `26_Complexity_Guarantees.md`)
 
 | Operation | Complexity | Data structure |
 |---|---|---|
@@ -454,13 +454,13 @@ The gateway routes to `/ready`-green only. A cold search-svc (model still loadin
 ## 13. Cross-References
 
 - `17_API_Gateway_System.md` §3 — search routes through the gateway; stage 3.5 cache applies.
-- `21_Redis_Caching_Layer.md` §8 — search results cached in Redis, O(1) on hit.
+- `24_Redis_Caching_Layer.md` §8 — search results cached in Redis, O(1) on hit.
 - `18_Microservice_Architecture.md` §1.1 — this file supersedes the "Search Engine stays in-process" note; search is now a service.
 - `18_Microservice_Architecture.md` §4.2 — index updates ride the outbox + event bus (at-least-once).
 - `19_Concurrency_and_Testing.md` §1.1 — the ONNX embedding worker pool follows the `worker_threads` pattern.
 - `10_Security.md` §17 (no telemetry) — search queries are not audited (behavioural analytics prohibition).
 - `11_Data_Model.md` — the document builder (§1) reads the entity fields defined here.
-- `23_Complexity_Guarantees.md` §4 — the formal O(log N) proof for HNSW search.
+- `26_Complexity_Guarantees.md` §4 — the formal O(log N) proof for HNSW search.
 
 ---
 

@@ -1,4 +1,4 @@
-// Implements: 21_Redis_Caching_Layer.md §7 — Redis-backed token-bucket rate limiter.
+// Implements: 24_Redis_Caching_Layer.md §7 — Redis-backed token-bucket rate limiter.
 //
 // Per spec 21 §7, the rate-limit stage (stage 3 in the gateway pipeline) is
 // Redis-backed so that the bucket is shared across all gateway workers. The

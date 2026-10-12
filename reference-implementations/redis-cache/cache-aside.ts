@@ -1,4 +1,4 @@
-// Implements: 21_Redis_Caching_Layer.md §2 (cache-aside) + §5.3 (key-tag invalidation).
+// Implements: 24_Redis_Caching_Layer.md §2 (cache-aside) + §5.3 (key-tag invalidation).
 //
 // The cache-aside pattern:
 //   1. GET <key> from Redis.

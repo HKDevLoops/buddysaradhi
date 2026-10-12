@@ -1,4 +1,4 @@
-// Implements: 21_Redis_Caching_Layer.md §5 — event-bus-driven cache invalidation.
+// Implements: 24_Redis_Caching_Layer.md §5 — event-bus-driven cache invalidation.
 //
 // Every service mutation publishes a domain event (`student.updated:s_a3b1`,
 // `ledger.entry.posted:s_a3b1`, `attendance.marked:b_math10a:20260711`). The

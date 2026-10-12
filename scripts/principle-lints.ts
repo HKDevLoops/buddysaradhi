@@ -2,7 +2,7 @@
 // scripts/principle-lints.ts
 // Implements: reviews/verification-production-readiness-report-2026-09-29.md §4 F-7
 //   AGENTS.md §2 Rules 1/2/3/5/6 + §7.4 promise static "principle lints" that
-//   did not exist. This file is L1–L7 of that gate (L6 coverage floors live in
+//   did not exist. This file is L1–L8 of that gate (L6 coverage floors live in
 //   vitest.config.ts, L7 wiring lives in package.json "lint"/"test:unit").
 //
 // Zero new dependencies: plain Node (>=22) + `git ls-files` for the file set.
@@ -443,6 +443,36 @@ const L7_ALLOW: AllowEntry[] = [
   },
 ];
 
+// L8 — tenant-bound proxy construction (Phase-4 residual: docs/adr/0007,
+// apps/web/src/lib/libsql-proxy.ts — a proxy is BOUND (tenant auto-scope) or
+// UNBOUND (legacy passthrough)). `createLibsqlProxy(client)` without a tenant
+// silently gets the legacy passthrough, so every NON-TEST construction under
+// apps/web/src must bind the session-derived tenant, and the unbound legacy
+// `getPrismaClient` getters in lib/db.ts must gain no new callers. Test files
+// are out of scope (the suite constructs unbound proxies deliberately — same
+// .test/.spec exclusion as L6, enforced inline like L4).
+const L8_PREFIXES: string[] = ["apps/web/src/"];
+const L8_ALLOW: AllowEntry[] = [
+  {
+    file: "apps/web/src/lib/libsql-proxy.ts",
+    re: /export function createLibsqlProxy\(client: SqlHandle, tenantId/,
+    reason:
+      "the declaration itself (two-param bound form), not a construction — pinned so a signature change re-triggers this rule; docs/adr/0007 Phase 4 (owner: web)",
+  },
+  {
+    file: "apps/web/src/lib/db.ts",
+    re: /createLibsqlProxy\(libsql\)/,
+    reason:
+      "legacy unbound construction — lib/db.ts has no production callers and no tenant in scope (verified by repo-wide grep for getPrismaClient: only lib/db.ts + lib/db.test.ts); making the parameter required is the recorded follow-up in docs/adr/0007 (owner: web)",
+  },
+  {
+    file: "apps/web/src/lib/db.ts",
+    re: /getPrismaClient(Async)?\(dbUrl/,
+    reason:
+      "the legacy getters themselves — no production importers (same grep); new callers must use getAuthenticatedPrisma in server/get-db.ts (owner: web)",
+  },
+];
+
 const RULES: Rule[] = [
   {
     id: "L1",
@@ -506,6 +536,16 @@ const RULES: Rule[] = [
     patterns: [], // file-level scan handled by lintNoJs
     allow: L7_ALLOW,
     extra: lintNoJs,
+  },
+  {
+    id: "L8",
+    name: "no-unbound-tenant-proxy",
+    spec: "docs/adr/0007 Phase 4 · apps/web/src/lib/libsql-proxy.ts (tenant auto-scope)",
+    exts: CODE_EXTS,
+    prefixes: L8_PREFIXES,
+    patterns: [], // arg-count scan handled by lintTenantBinding
+    allow: L8_ALLOW,
+    extra: lintTenantBinding,
   },
 ];
 
@@ -677,6 +717,60 @@ function lintNoJs(findings: Finding[]): void {
   }
 }
 
+function lintTenantBinding(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!L8_PREFIXES.some((p: string) => file.startsWith(p))) continue;
+    if (!hasExt(file, CODE_EXTS)) continue;
+    // Test files construct unbound proxies deliberately (L6-style exclusion,
+    // L4-style inline enforcement — the driver line loop is skipped for L8).
+    if (/\.test\.tsx?$/.test(file) || /\.spec\.tsx?$/.test(file)) continue;
+    let text: string;
+    try {
+      text = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    const st: BlockState = { inBlock: false };
+    const ext: string = path.extname(file);
+    text.split("\n").forEach((line: string, i: number) => {
+      const code: string = stripComments(line, ext, st);
+      if (!code) return;
+      // (a) Unbound construction: createLibsqlProxy( with fewer than 2 args.
+      // Single-line call sites only — every call site in the tree is
+      // single-line, and a construction whose closing paren is not on this
+      // line is skipped rather than guessed at (see the scanner limitation
+      // note on stripComments). The declaration carries a comma like any
+      // bound construction, so no special case is needed for it.
+      const marker = "createLibsqlProxy(";
+      const at: number = code.indexOf(marker);
+      if (at !== -1) {
+        const after: string = code.slice(at + marker.length);
+        const close: number = after.indexOf(")");
+        if (close !== -1 && !after.slice(0, close).includes(",")) {
+          findings.push({
+            rule: "L8",
+            file,
+            line: i + 1,
+            msg: "unbound createLibsqlProxy(client) — docs/adr/0007 Phase 4: bind the session-derived tenant; tests construct unbound deliberately",
+            text: line.trim(),
+          });
+          return;
+        }
+      }
+      // (b) Legacy unbound getters — any mention outside lib/db.ts is a new caller.
+      if (/getPrismaClient/.test(code)) {
+        findings.push({
+          rule: "L8",
+          file,
+          line: i + 1,
+          msg: "legacy unbound getPrismaClient — docs/adr/0007 Phase 4: use getAuthenticatedPrisma (server/get-db.ts); lib/db.ts has no production callers",
+          text: line.trim(),
+        });
+      }
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Driver
 // ---------------------------------------------------------------------------
@@ -702,8 +796,8 @@ function main(): void {
       if (rule.id === "L5" && /(^|\/)eslint\.config\.[cm]?[jt]s$/.test(file))
         continue; // rule definitions cite the banned tokens by design
       if (rule.id === "L3" && !file.endsWith("package.json")) continue;
-      // L4/L7 are file-level scans (lintClientFetch / lintNoJs) — skip the line loop.
-      if (rule.id === "L4" || rule.id === "L7") continue;
+      // L4/L7/L8 are file-level scans (lintClientFetch / lintNoJs / lintTenantBinding) — skip the line loop.
+      if (rule.id === "L4" || rule.id === "L7" || rule.id === "L8") continue;
       if (rule.patterns.length === 0 && !rule.extra) continue;
 
       let text: string;

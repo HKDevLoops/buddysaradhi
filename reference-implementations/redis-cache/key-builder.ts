@@ -1,4 +1,4 @@
-// Implements: 21_Redis_Caching_Layer.md §3 — cache key taxonomy and grammar.
+// Implements: 24_Redis_Caching_Layer.md §3 — cache key taxonomy and grammar.
 //
 // Every cache key in Buddysaradhi follows the grammar:
 //   v1:t:{tutorId}:{domain}:{entity}[:{entityId}][:{subview}][:{param}:{value}]*

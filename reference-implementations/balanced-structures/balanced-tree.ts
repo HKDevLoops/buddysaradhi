@@ -1,4 +1,4 @@
-// Implements: 23_Complexity_Guarantees.md §1 + §5 — a Red-Black Tree, the
+// Implements: 26_Complexity_Guarantees.md §1 + §5 — a Red-Black Tree, the
 // data structure that proves the O(log N) bound SQLite's B-tree also achieves.
 //
 // A Red-Black tree is a self-balancing binary search tree. Its invariants

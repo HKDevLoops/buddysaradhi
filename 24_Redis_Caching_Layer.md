@@ -2,7 +2,7 @@
 
 > The Buddysaradhi API gateway (`17_API_Gateway_System.md`) gains a **Redis-backed L2 cache** sitting between the rate-limiter (stage 3) and the router (stage 4). Every read-bearing operation consults the cache before dispatching to a service; every mutation invalidates the affected keys via the event bus. This file defines the cache topology, key taxonomy, TTL strategy, invalidation contract, failure semantics, and the **O(1) complexity guarantee** that makes the gateway's hot path constant-time.
 
-> **Why this file exists.** The user named two performance demands: *"implement redis caching in the api gateway"* and *"make the whole logic less than O(log n)."* Redis is a hash table — `GET`/`SET`/`HGET`/`ZSCORE` are all O(1) amortised. By inserting a Redis layer in front of the Prisma ORM (which is O(log n) on a B-tree index), the gateway's hot path becomes **O(1) on cache hit**, and only falls through to the O(log n) DB on miss. The composite worst-case is therefore O(log n) — the requirement is met, and the common case is strictly better. See `23_Complexity_Guarantees.md` for the formal proof.
+> **Why this file exists.** The user named two performance demands: *"implement redis caching in the api gateway"* and *"make the whole logic less than O(log n)."* Redis is a hash table — `GET`/`SET`/`HGET`/`ZSCORE` are all O(1) amortised. By inserting a Redis layer in front of the Prisma ORM (which is O(log n) on a B-tree index), the gateway's hot path becomes **O(1) on cache hit**, and only falls through to the O(log n) DB on miss. The composite worst-case is therefore O(log n) — the requirement is met, and the common case is strictly better. See `26_Complexity_Guarantees.md` for the formal proof.
 
 ---
 
@@ -340,7 +340,7 @@ If Redis is down *and* the gateway has a stale value in a local in-process L1 ca
 | Invalidation event stream | `STREAM` | append-only log; consumer groups for the invalidator | O(1) XADD, O(N) XREAD |
 | Distributed locks | `STRING` (with NX EX) | atomic acquire | O(1) |
 
-> **The O(log N) entries.** `ZADD`/`ZREVRANGE` on a sorted set is O(log N). This is the *only* sub-O(1) operation in the cache layer, and it is used only for leaderboard-style aggregations (top-N earners, top-N attendance), not for the hot path. The hot path (record, list, balance) is all O(1). The composite complexity is proven in `23_Complexity_Guarantees.md` §3.
+> **The O(log N) entries.** `ZADD`/`ZREVRANGE` on a sorted set is O(log N). This is the *only* sub-O(1) operation in the cache layer, and it is used only for leaderboard-style aggregations (top-N earners, top-N attendance), not for the hot path. The hot path (record, list, balance) is all O(1). The composite complexity is proven in `26_Complexity_Guarantees.md` §3.
 
 ---
 
@@ -368,7 +368,7 @@ The 256 MB memory cap with LRU eviction means: if a tutor's cache grows large (u
 
 ---
 
-## 11. Complexity Analysis (summary; full proof in `23_Complexity_Guarantees.md`)
+## 11. Complexity Analysis (summary; full proof in `26_Complexity_Guarantees.md`)
 
 | Operation | Complexity | Data structure |
 |---|---|---|
@@ -382,7 +382,7 @@ The 256 MB memory cap with LRU eviction means: if a tutor's cache grows large (u
 | **Hot-path composite (cache hit)** | **O(1)** | — |
 | **Cold-path composite (cache miss → DB)** | **O(log N)** | B-tree index on Turso |
 
-**The guarantee:** every gateway read is O(1) on cache hit and O(log N) on cache miss. The user's requirement — "the whole logic is less than O(log n)" — is met: the worst case is O(log N), the common case is O(1). See `23_Complexity_Guarantees.md` for the formal proof by stage.
+**The guarantee:** every gateway read is O(1) on cache hit and O(log N) on cache miss. The user's requirement — "the whole logic is less than O(log n)" — is met: the worst case is O(log N), the common case is O(1). See `26_Complexity_Guarantees.md` for the formal proof by stage.
 
 ---
 
@@ -443,7 +443,7 @@ The 256 MB memory cap with LRU eviction means: if a tutor's cache grows large (u
 - `18_Microservice_Architecture.md` §4.1 (event bus) — Redis Streams replaces NATS as the boring-tech event bus; the invalidator subscribes here.
 - `18_Microservice_Architecture.md` §4.2 (outbox) — invalidation events ride the same outbox as sync, so they are at-least-once.
 - `19_Concurrency_and_Testing.md` §2 (circuit breakers) — the Redis circuit breaker follows this spec.
-- `23_Complexity_Guarantees.md` §3 — the formal O(1)/O(log N) proof per stage.
+- `26_Complexity_Guarantees.md` §3 — the formal O(1)/O(log N) proof per stage.
 - `10_Security.md` §6 (auth) — auth is never cached; the cache is post-auth (tutorId-prefixed keys).
 - `11_Data_Model.md` §10 (ORM) — the cache sits in front of the ORM; it does not bypass it.
 
