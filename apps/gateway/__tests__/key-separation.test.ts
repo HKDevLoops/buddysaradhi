@@ -43,7 +43,7 @@ afterEach(() => {
   vi.mocked(logWarn).mockClear();
 });
 
-async function freshCrypto(): Promise<typeof import("../lib/crypto.ts")> {
+function freshCrypto(): Promise<typeof import("../lib/crypto.ts")> {
   vi.resetModules();
   return import("../lib/crypto.ts");
 }

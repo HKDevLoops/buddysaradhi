@@ -10,10 +10,12 @@
 //
 // These tests pin the DIRECTION: forgetting the flag must fail safe.
 
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { isDevAuthEnabled } from "../lib/env.ts";
 
-const KEYS = [
+// Underscored: retained as the documented list of env vars under test;
+// individual values are set via literals below. Deno requires the prefix.
+const _KEYS = [
   "ALLOW_DEV_AUTH",
   "DENO_DEPLOYMENT_ID",
   "DENO_ENV",

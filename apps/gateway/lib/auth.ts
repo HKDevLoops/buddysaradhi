@@ -6,7 +6,7 @@
 import { createClient as createSb } from "@supabase/supabase-js";
 import { hmacVerify, checkRateLimit } from "./crypto.ts";
 import { logWarn, logError } from "./log.ts";
-import { isDeployed, isDevAuthEnabled } from "./env.ts";
+import { isDevAuthEnabled } from "./env.ts";
 
 const JWT_MIN_LENGTH = 100;
 const JWT_MAX_LENGTH = 2048;

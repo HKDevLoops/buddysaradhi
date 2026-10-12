@@ -20,7 +20,9 @@ import { isDeployed, isLocalDev } from "../lib/env.ts";
 // `__tests__/setup.ts` injects a `Deno.env.get` that delegates to `process.env`
 // and has no `set`/`delete`, so the deployment signals are stubbed through
 // process.env — which is exactly what the shim reads in CI too.
-const KEYS = ["DENO_DEPLOYMENT_ID", "DENO_ENV"] as const;
+// Underscored: retained as the documented list of deployment signals this file
+// stubs via process.env literals; deno no-unused-vars requires the prefix.
+const _KEYS = ["DENO_DEPLOYMENT_ID", "DENO_ENV"] as const;
 const saved = new Map<string, string | undefined>();
 
 function setEnv(name: string, value: string | undefined): void {
