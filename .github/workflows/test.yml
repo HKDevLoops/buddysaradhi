@@ -19,6 +19,10 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      # Credential-gate flag for the axe step below. `secrets` context is not
+      # available in step-level `if:` (rejected at parse time), so the
+      # presence check is evaluated once here where secrets ARE readable.
+      HAS_E2E_CREDENTIALS: ${{ secrets.E2E_EMAIL != '' && secrets.E2E_PASSWORD != '' }}
       # Report F-6: production must never receive write-e2e — the stress/palette
       # specs WRITE settings to whatever DB serves the base URL. Local-server
       # recipe per scratch/fullpass.sh: build -> start :3300 -> readiness wait
@@ -130,12 +134,12 @@ jobs:
       # what re-arms it. Owner action: provision a dedicated CI QA account and
       # add both secrets — the gate goes blocking again with zero code change.
       - name: Accessibility tests (axe-core, blocking when credentialed)
-        if: ${{ secrets.E2E_EMAIL != '' && secrets.E2E_PASSWORD != '' }}
+        if: env.HAS_E2E_CREDENTIALS == 'true'
         run: pnpm run test:a11y
         timeout-minutes: 5
 
       - name: Notice skipped axe gate (no E2E credentials configured)
-        if: ${{ secrets.E2E_EMAIL == '' || secrets.E2E_PASSWORD == '' }}
+        if: env.HAS_E2E_CREDENTIALS != 'true'
         run: |
           echo '::notice::axe a11y gate SKIPPED — E2E_EMAIL/E2E_PASSWORD secrets are not configured. Add a dedicated CI QA account to re-arm this blocking gate. Unit + integration coverage still enforced.'
 
