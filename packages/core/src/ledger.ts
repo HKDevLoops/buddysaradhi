@@ -402,6 +402,36 @@ export async function voidEntry(
         throw new Error("Cannot void a void entry.");
       }
 
+      // ── F-07: DOUBLE-VOID GUARD (BR-LED-04) ──────────────────────────────
+      // The check above only refuses voiding something that is ALREADY a VOID.
+      // It does NOT refuse voiding a payment that has already been voided:
+      // `original.type` is still PAYMENT_RECEIVED on the second attempt, so the
+      // guard passes and a SECOND mirroring row is posted. The books then read
+      // as though the money were owed to the tutor — original credit plus two
+      // debits of the same amount.
+      //
+      // Already known in-repo, as a test NAME with no assertion behind it:
+      // apps/web/src/components/fees/void-sequence.test.ts:431 —
+      //   "KNOWN P0: voiding an already-voided payment is NOT refused by
+      //    voidEntry — it double-corrects"
+      // Latent while nothing called it; apps/services/ledger-svc/src/index.ts
+      // calls voidEntry, so it is now reachable.
+      //
+      // The gateway's own void route already implements both guards correctly
+      // and inside the same transaction (apps/gateway/routes/ledger.ts:748
+      // VOID-of-VOID, :752-758 double-void). This is that second guard, ported
+      // — not re-invented. Read INSIDE the transaction opened above, so it
+      // cannot race a concurrent void of the same entry: two simultaneous
+      // voids would both read "not voided yet" and the guard would be useless.
+      const existingVoid = await tx.ledgerEntry.findFirst({
+        where: { tenantId: tenantId, voidOfId: entryToVoidId },
+      });
+      if (existingVoid) {
+        throw new Error(
+          `Entry ${entryToVoidId} has already been voided (by ${existingVoid.id}).`,
+        );
+      }
+
       // 2. Post reversing entry
       const postResult = await postLedgerEntry(tx, {
         tenantId,
@@ -411,6 +441,16 @@ export async function voidEntry(
         creditPaise: original.debitPaise,
         description: `VOID: ${reason}`,
         voidOfId: entryToVoidId,
+        // ── F-07, second half: CARRY `invoiceId` ONTO THE REVERSING ROW ────
+        // Every `creditedForInvoice` implementation filters over rows MATCHED
+        // ON `invoice_id` (`feesFlow.ts:412`, `fees.ts:323-331`,
+        // `feesPrisma.ts:346-367`), and a core-written payment DOES carry an
+        // invoiceId. Voiding it without copying the link left the invoice's
+        // credited total unchanged — so the invoice still read `paid` and the
+        // Dashboard still counted the voided credit, while the student's
+        // balance had already moved. Two panels disagreeing about the same
+        // payment is worse than either being wrong alone.
+        invoiceId: original.invoiceId ?? null,
         occurredOn: occurredOn,
         source: "manual",
       });
