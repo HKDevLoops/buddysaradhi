@@ -327,8 +327,6 @@ async function dispatch(req: NextRequest, slug: string[]): Promise<NextResponse>
   if (path === "/provision" && method === "POST") {
     const TURSO_API_TOKEN = process.env.TURSO_API_TOKEN;
     const TURSO_ORGANISATION_SLUG = process.env.TURSO_ORGANISATION_SLUG || process.env.TURSO_ORGANISATION_NAME;
-    const TURSO_SHARED_URL = process.env.TURSO_DATABASE_URL;
-    const TURSO_SHARED_TOKEN = process.env.TURSO_AUTH_TOKEN;
     const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -362,7 +360,13 @@ async function dispatch(req: NextRequest, slug: string[]): Promise<NextResponse>
 
     let dbUrl: string | null = null;
     let dbToken: string | null = null;
-    let provisionMethod = "turso";
+    // RFC-009 §3.1: the shared-database fallback is deleted. `provisionMethod`
+    // is a constant because per-tenant Turso is the ONLY method: when
+    // provisioning is unavailable the route fails closed with 503 below and
+    // never assigns the tutor to any other database. A tutor who cannot
+    // provision retries; they are never silently merged (11_Data_Model.md §1:
+    // `tenant_id` is defence-in-depth only while the physical boundary holds).
+    const provisionMethod = "turso";
 
     if (TURSO_API_TOKEN && TURSO_ORGANISATION_SLUG) {
       const dbName = `buddysaradhi-${user.id.slice(0, 16)}`;
@@ -411,14 +415,11 @@ async function dispatch(req: NextRequest, slug: string[]): Promise<NextResponse>
       }
     }
 
-    if (!dbUrl || !dbToken) {
-      if (TURSO_SHARED_URL && TURSO_SHARED_TOKEN) {
-        dbUrl = TURSO_SHARED_URL;
-        dbToken = TURSO_SHARED_TOKEN;
-        provisionMethod = "shared";
-      }
-    }
-
+    // RFC-009 §3.1: NO shared-database fallback here, ever. The deleted branch
+    // handed every tutor the SAME database (TURSO_DATABASE_URL/AUTH_TOKEN)
+    // whenever Turso provisioning errored — converting a Turso outage into a
+    // full cross-tenant roster, ledger and settings read, with `tenant_id` as
+    // the only (unenforced, Finding A) boundary left. Fail closed instead.
     if (!dbUrl || !dbToken) {
       return NextResponse.json({ success: false, error: "Unable to provision database." }, { status: 503 });
     }

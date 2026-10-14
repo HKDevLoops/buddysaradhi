@@ -23,6 +23,16 @@ The tutor is the **sole** authenticated user of their tenant DB. Students/parent
 
 Mental model: **Buddysaradhi-the-product has no servers that touch plaintext user data.** Turso is encrypted at the storage layer; Supabase auth holds email + password hash only; the `.buddysaradhi` envelope is opaque without the passphrase. No data lake, no analytics pipeline, no central log of tutor activity. If a court ordered us to produce a tutor's data, we could hand over… nothing of value.
 
+Named threat (RFC-009 §3.1, closed): **shared-database fallback on provisioning
+failure.** The provision route used to assign every tutor the SAME database
+(`TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`) whenever per-tenant Turso
+provisioning errored — converting an infrastructure outage into a full
+cross-tenant read, with `tenant_id` as the only remaining boundary on a path
+that did not enforce it. The branch is deleted: unprovisionable sign-up returns
+503 and writes no credentials, and a tutor who cannot provision retries rather
+than being silently merged. The physical per-tutor database is the primary
+boundary again (`11_Data_Model.md` §1); `tenant_id` returns to defence-in-depth.
+
 ---
 
 ## 2. Authentication & Provisioning

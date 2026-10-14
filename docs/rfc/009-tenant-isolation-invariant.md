@@ -1,6 +1,7 @@
 # RFC 009 — Tenant Isolation Becomes an Invariant, Not a Convention
 
-**Status:** Draft — Awaiting Security Review (2 reviewers incl. the security owner, AGENTS.md §8)
+**Status:** PARTIALLY IMPLEMENTED 2026-10-14 (owner-authorized): Change A DONE (this session);
+Change B IN PROGRESS by a concurrent session (shim binding present, optional-tenant phase).
 **Author:** build (space-bunny)
 **Created:** 2026-10-09
 **Spec Owners:** Orchestrator, Security Owner, Ledger-Crypto Reviewer
