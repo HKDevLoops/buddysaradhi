@@ -1,5 +1,6 @@
 import type { RouteHandler } from "./students.ts";
 import { ok, fail, failZod, failValidation } from "../lib/errors.ts";
+import { logWarn } from "../lib/log.ts";
 import { recordAudit, recordOutbox } from "./students.ts";
 import { getCached, setCache, invalidateTenant, REFERENCE_TTL_MS } from "../lib/cache.ts";
 import { createPrismaOrm } from "../lib/orm.ts";
@@ -12,6 +13,7 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { CasConflictError, casConflictResponse, readCasBase } from "../lib/cas.ts";
+import { constantTimeCompare, pinProof } from "../lib/crypto.ts";
 import { z } from "zod";
 
 // P0 SECURITY FIX, kept Zod-first (AGENTS.md §6.1): the original spread
@@ -63,10 +65,19 @@ const SETTINGS_PATCH_SCHEMA = z.object({
 const pinProofHex = z.string().regex(/^[0-9a-f]{64}$/, "pin_proof must be 64 lowercase hex chars");
 const pinHashOpaque = z.string().min(1).max(500);
 const pinUpdatedAtMarker = z.string().min(1).max(100);
+
+// F-03 — the PIN itself, carried so the EDGE can DERIVE the proof instead of
+// trusting the caller's claim to have derived one. Bound exactly as the PIN is
+// everywhere else (BR-SEC-05: setup is 6+, grandfathered 4 is honoured at
+// verification). This is not the PIN at rest: it is a write-only input to one
+// HMAC, never stored, never logged, never echoed, and the response is a bare
+// `{ applied: true }`.
+const syncApplyPin = z.string().regex(/^\d{4,8}$/, "pin must be 4-8 digits");
 const SETTINGS_SYNC_APPLY_SCHEMA = z.object({
   pinProof: pinProofHex, pin_proof: pinProofHex,
   pinHash: pinHashOpaque, pin_hash: pinHashOpaque,
   pinUpdatedAt: pinUpdatedAtMarker, pin_updated_at: pinUpdatedAtMarker,
+  pin: syncApplyPin,
 }).partial();
 
 export const handleSettings: RouteHandler = async (req, db, tenantId, path, method) => {
@@ -290,6 +301,49 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
       );
     }
 
+    // ── F-03: THE PROOF IS NOW DERIVED HERE, NOT BELIEVED ──────────────────
+    //
+    // This route used to store the caller's `pin_proof` verbatim. That made the
+    // whole erase gate self-issued: POST a constant 64-hex value, then offer the
+    // same constant at erase, and `constantTimeCompare` in routes/security.ts
+    // passes — because the caller chose BOTH sides of the comparison. Two HTTP
+    // requests destroyed an entire tenant, and `pin_hash` was worse: the design
+    // comment above records that the edge stores it and never verifies it, so
+    // the same request also satisfied the "No PIN configured" gate at
+    // security.ts:108. The repo's own test
+    // settings-security-gates.test.ts ("erase succeeds against a gateway DB
+    // written ONLY via public routes") proved the chain end to end.
+    //
+    // The edge holds PIN_PEPPER, the same secret `pinProof` is keyed by, so it
+    // can do the derivation itself. `pinProof(tenantId, pin)` is exactly what
+    // the web computes; requiring the caller's value to EQUAL it turns "I
+    // promise this proof is genuine" into "here is the proof", which requires
+    // knowing the PIN. That is the property the gate was supposed to have all
+    // along (10_Security.md §18.1 step 1: "lets the edge verify the PIN
+    // without ever seeing it" — the HMAC still never stores the PIN).
+    //
+    // The STORED value is the edge's own `expected`, never the caller's `proof`,
+    // so even a caller who somehow guessed a valid pair cannot decouple what is
+    // stored from what is verified.
+    const offeredPin = parsed.data.pin;
+    if (!offeredPin) {
+      return failValidation(
+        "sync-apply requires `pin` so the edge can verify the proof it is asked " +
+          "to store (BR-SEC-04).",
+      );
+    }
+    const expectedProof = await pinProof(tenantId, offeredPin);
+    if (proof.length !== expectedProof.length || !constantTimeCompare(proof, expectedProof)) {
+      // Deliberately the same shape as the erase gate's refusal: name the field
+      // that is wrong, never echo the supplied value (it is attacker-controlled
+      // and crosses the wire through sanitizeError).
+      logWarn("security.sync_apply_proof_mismatch", { path: "/api/v1/settings/sync-apply" });
+      return failValidation(
+        "pin_proof does not match the supplied pin. The proof is derived by the " +
+          "edge from `pin` and must be the value setPinAction computed.",
+      );
+    }
+
     let stored = false;
     try {
       await withWriteTransaction(db, async (tx) => {
@@ -306,7 +360,7 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
         });
         await txOrm.setting.update({
           where: { tenantId },
-          data: { pinProof: proof, pinHash: hash },
+          data: { pinProof: expectedProof, pinHash: hash },
         });
 
         // Rule 7 — the replica write lands with its own outbox + audit rows in

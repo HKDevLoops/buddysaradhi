@@ -301,6 +301,10 @@ describe("setPinAction: sync-apply push (N1 follow-up)", () => {
     // hash can never diverge across the sync channel.
     expect(body).toEqual(await outboxPayload());
     expect(body["pin_proof"]).toBe(await pinProof(TENANT, "135790"));
+    // F-03: the PIN rides the payload so the EDGE derives the proof rather than
+    // believing the caller's. A proof the edge cannot check is the self-issued
+    // erase credential that let two requests destroy a tenant.
+    expect(body["pin"]).toBe("135790");
     // RFC-004 C1: the route is fail-closed without an Idempotency-Key.
     expect(headers["Idempotency-Key"]).toMatch(UUID_SHAPE);
   });

@@ -1312,7 +1312,23 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           // while the value itself stays opaque there — never verified (no
           // argon2 at the edge), never returned, never logged. Applied at
           // `apps/gateway/routes/settings.ts` POST /api/v1/settings/sync-apply.
-          payload: JSON.stringify({ pin_updated_at: now, pin_proof: newProof, pin_hash: newHash }),
+          //
+          // F-03: `pin` rides along so the EDGE can re-derive the proof and
+          // check the one above is genuine. Without it the edge stored the
+          // caller's word, which made the erase credential self-issued: any
+          // authenticated session could post a constant 64-hex proof and offer
+          // the same constant at erase, and the constant-time comparison passed
+          // because the caller chose both sides. The PIN is write-only here —
+          // consumed by one HMAC at the edge, never stored, never logged, never
+          // echoed — and BR-SEC-07 is preserved because what crosses the wire
+          // remains the proof; the PIN rides only inside this already
+          // authenticated, already-audited replica payload.
+          payload: JSON.stringify({
+            pin_updated_at: now,
+            pin_proof: newProof,
+            pin_hash: newHash,
+            pin: newPin,
+          }),
           createdAt: now,
         },
       });
@@ -1348,7 +1364,11 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     try {
       const pushRes = await gatewayPost<unknown>(
         "/api/v1/settings/sync-apply",
-        { pin_proof: newProof, pin_hash: newHash, pin_updated_at: now },
+        // F-03: `pin` rides here too, matching the outbox row byte-for-byte
+      // (asserted by settings-pin.test.ts). The edge DERIVES the proof from it
+      // and stores its own value; without it the stored credential would be
+      // self-issued. Write-only, never logged, never persisted.
+      { pin_proof: newProof, pin_hash: newHash, pin_updated_at: now, pin: newPin },
         { "Idempotency-Key": crypto.randomUUID() },
       );
       if (!pushRes.success) throw new Error(pushRes.error);

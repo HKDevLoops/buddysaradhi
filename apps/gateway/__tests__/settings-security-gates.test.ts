@@ -550,8 +550,11 @@ describe("pin_proof sync-apply — the replica path (N1)", () => {
    */
   const SYNC_HASH = "$argon2id$v=19$m=65536,t=3,p=2$c3luYy1zYWx0$fixture-opaque-hash-value";
 
-  function syncBody(proof: string) {
-    return { pin_proof: proof, pin_hash: SYNC_HASH, pin_updated_at: NOW };
+  function syncBody(proof: string, pin: string = SYNC_PIN) {
+    // F-03: `pin` rides in the replica payload so the EDGE derives the proof
+    // instead of believing the caller's. Omitting it is a typed 400 — a proof
+    // the edge cannot check is the self-issued erase credential this removed.
+    return { pin_proof: proof, pin_hash: SYNC_HASH, pin_updated_at: NOW, pin };
   }
 
   async function syncApply(body: unknown, tenantId = TENANT) {
