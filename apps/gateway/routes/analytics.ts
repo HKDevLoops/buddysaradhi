@@ -35,6 +35,26 @@
 //    field names. The period is now a first-class input: it is validated, it
 //    bounds both measures, and an unreadable value is a typed 400 rather than a
 //    quietly empty or unbounded figure.
+// 6. …and validating the period's SHAPE is not the same as bounding its SPAN.
+//    `1900-01-01` is a perfectly well-shaped day, and asking for it makes one
+//    dashboard load read the tenant's whole payment history off an append-only
+//    table. A span ceiling was added here — and then REMOVED, because it broke
+//    ratified behaviour. `04_Dashboard.md` §6.4 specifies the Dashboard's third
+//    period option as "**All** — all-time view", and
+//    `apps/web/src/lib/dashboard-period.ts` sends `ALL_TIME_START_ISO =
+//    "1970-01-01"` for it. A 366-day ceiling 400'd the shipped "All time" pill
+//    on every click. That ceiling had no security value worth trading for: the
+//    rows being read are the CALLING TENANT'S OWN history, which they are
+//    entitled to read and which the product explicitly offers. It was a
+//    performance concern paid for with a broken feature.
+//    What survives is the part that is a genuine correctness fix: both bounds
+//    must be REAL calendar days, so `2026-02-30` is a typed 400 instead of a
+//    silently shifted window.
+//    The performance concern is real and stays open, but its correct fix is to
+//    aggregate in SQL (SUM with a filter) rather than to clamp a window the
+//    spec calls unbounded — a clamp would under-report `collectedInPeriod` with
+//    nothing in the response to disclose it. Tracked in
+//    `docs/audit/REMEDIATION_PLAN.md` (F-19a), not silently resolved here.
 // 5. Activity rows named a payment as if it were a student
 //    (`student_name: e.description || e.type`, so the column read "Payment
 //    received"). A ledger row is now joined to the roster and carries the real
@@ -135,6 +155,21 @@ function isWithinPeriod(day: string | null, start: string, end: string): boolean
   return day !== null && day >= start && day <= end;
 }
 
+/**
+ * Midnight UTC of a REAL calendar day, in ms — or `null` when `day` is not one.
+ *
+ * `Date.parse` alone is not a validity test: V8 rolls an out-of-range day over
+ * rather than failing, so `2026-02-31` parses as 2026-03-03 and a window built
+ * from it compares against a day the caller never named. The round trip is what
+ * catches it — parse, re-format, and insist the string comes back unchanged.
+ * Same test as `routes/attendance.ts:78-81`, for the same reason.
+ */
+function realDayStartMs(day: string): number | null {
+  const t = Date.parse(`${day}T00:00:00.000Z`);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toISOString().slice(0, 10) === day ? t : null;
+}
+
 type PaymentState = "paid" | "partial" | "unpaid";
 
 /**
@@ -200,6 +235,46 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
         `periodStartIso ${periodStart} is after periodEndIso ${periodEnd}: the window is empty.`,
       );
     }
+
+    // ── Bound the SPAN, not just the shape ─────────────────────────────────────
+    // `PERIOD_DAY_PATTERN` proves a value is shaped like a day; it says nothing
+    // about the distance between two shaped days. `1900-01-01` is a well-shaped
+    // day and an unbounded read. Refused here, before any statement is built.
+    //
+    // Both bounds are also checked to be REAL calendar days, with the same
+    // round-trip test `routes/attendance.ts:78-81` applies. `Date.parse` ROLLS an
+    // out-of-range day over instead of failing — `2026-02-31` parses as
+    // 2026-03-03 — so an imaginary day would otherwise be silently compared as a
+    // different real day and quietly produce a figure. Pre-fix, that is exactly
+    // what happened; now it is a typed 400.
+    //
+    // `periodStart === periodEnd` is a legitimate one-day window (span 0), and it
+    // is what the dashboard reduces to on the first of a month.
+    const startMs = realDayStartMs(periodStart);
+    const endMs = realDayStartMs(periodEnd);
+    if (startMs === null || endMs === null) {
+      return failValidation(
+        `periodStartIso/periodEndIso must be real calendar days as YYYY-MM-DD ` +
+          `(received ${periodStart} .. ${periodEnd}).`,
+      );
+    }
+    // SHAPE is validated above and both bounds must now be REAL calendar days,
+    // so `2026-02-30` is a typed 400 rather than a silently shifted window.
+    //
+    // There is deliberately NO span ceiling here. One was added (366 days,
+    // mirroring `MAX_RANGE_DAYS` in `routes/attendance.ts`) and removed again
+    // because it 400'd the shipped Dashboard "All time" pill on every click:
+    // 04_Dashboard.md §6.4 spec's the third period option as an all-time view,
+    // and `apps/web/src/lib/dashboard-period.ts` sends `ALL_TIME_START_ISO =
+    // "1970-01-01"` for it. The rows behind a wide window are the CALLING
+    // TENANT'S OWN history, which the product deliberately offers them, so the
+    // ceiling bought no security and cost a working feature.
+    // The performance concern is real and still open: `collectedInPeriod` on an
+    // all-time window is O(all-time rows) on an append-only table. Its correct
+    // fix is to aggregate in SQL (SUM with a filter), not to clamp a window the
+    // spec calls unbounded — clamping would under-report a money figure with
+    // nothing in the response to disclose it (AGENTS.md §2 Rule 9).
+    // Tracked as F-19a in docs/audit/REMEDIATION_PLAN.md.
 
     // No edge cache here by design (workstream E §3 + lib/cache.ts budget
     // rule): KPIs aggregate balances and ledger money views, so every call
