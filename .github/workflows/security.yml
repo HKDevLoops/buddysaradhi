@@ -91,7 +91,10 @@ jobs:
             -o /usr/local/bin/osv-scanner
           chmod +x /usr/local/bin/osv-scanner
       - name: Run OSV-Scanner
-        run: osv-scanner --lockfile=pnpm-lock.yaml .
+        # The package manager migrated pnpm -> bun, so the scanned lockfile is
+        # bun.lock. If this OSV-Scanner release cannot parse it, the step stays
+        # advisory (continue-on-error) rather than silently scanning nothing.
+        run: osv-scanner --lockfile=bun.lock .
         continue-on-error: true
 
   license-checker:
@@ -100,21 +103,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1  # v4
-        with:
-          version: 11.15.0
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
-        with:
-          node-version: 22
-          cache: pnpm
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
-          bun-version: 1.3.4
+          bun-version: 1.4.3
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
       - name: Run License Audit Script
         run: bun run scripts/license-checker.ts
         continue-on-error: true
@@ -125,17 +119,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
-          node-version: 22
+          bun-version: 1.4.3
       # --package-only was removed in cyclonedx-npm v6. Omit to use defaults.
       - name: Generate SBOM
         run: |
           mkdir -p sbom
-          npm install -g @cyclonedx/cyclonedx-npm 2>/dev/null || true
+          bun install -g @cyclonedx/cyclonedx-npm 2>/dev/null || true
           cyclonedx-npm --output-format JSON --output-file sbom/bom.web.json || \
-            npx --yes @cyclonedx/cyclonedx-npm@latest --output-format JSON --output-file sbom/bom.web.json || \
+            bunx @cyclonedx/cyclonedx-npm@latest --output-format JSON --output-file sbom/bom.web.json || \
             echo "SBOM generation skipped — tool unavailable"
         continue-on-error: true
       - name: Upload SBOM Artifact
