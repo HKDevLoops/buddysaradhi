@@ -1,7 +1,22 @@
 # RFC-005: Unified Payment Dialect (Gateway Route vs Shared Flow)
 
-**Status:** Draft — owner picks. No code changed.
+**Status:** ACCEPTED Path A — implementation BLOCKED on in-flight ledger work, 2026-10-14 owner-authorized close-out.
 **Date:** 2026-10-04
+
+## Decision record
+
+Path A (migrate the gateway route onto `recordPaymentFlow` + add receipt ops
+to `FeeTx`) is accepted: it is the only path satisfying AGENTS.md §3.5's
+"logic lives exactly once", and the failure it fixes is live (gateway payments
+reduce balances while leaving every invoice `unpaid` — F-08).
+
+Implementation is deliberately NOT started here: the tree carries uncommitted,
+unlogged work converging on exactly this — untracked
+`apps/gateway/lib/vendor/feesFlow.ts` + `scripts/sync-vendor-feesflow.ts`
+alongside uncommitted edits to `routes/ledger.ts` and `lib/sql.ts`. A second
+implementation stream on the same files would collide head-on (§9.2 single
+in-flight rule). Implement after that WIP lands, following §3.5 (port-based,
+both dialects together, `feesDialectParity.test.ts` extended per §4).
 
 ## 1. Problem
 

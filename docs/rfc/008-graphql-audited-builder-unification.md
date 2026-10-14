@@ -1,7 +1,16 @@
 # RFC-008: GraphQL Reads Through Audited Builders
 
-**Status:** Draft — owner picks. No code changed.
+**Status:** ACCEPTED and IMPLEMENTED (Path A, by deletion) — 2026-10-14, owner-authorized close-out.
 **Date:** 2026-10-04
+
+**Implementation record:** the duplicate raw-SELECT path (`apps/gateway/graphql/index.ts:219,256`)
+was deleted outright in `782c67b` (standalone unauthenticated entrypoint removal —
+SSRF + unauthenticated DB access), not merely routed around. What remains is exactly
+one read path: `graphql/resolvers.ts` calls all five audited builders
+(`stmtGraphqlSettings/Students/StudentsCount/LedgerEntries/LedgerCount`,
+`lib/sql.ts:1232-1278`) with `ctx.tenantId`, and no raw `SELECT` remains in
+`resolvers.ts` (verified 2026-10-14). No dead builders, no second guarantee set.
+Path A achieved with zero new code — the strongest form of unification.
 
 ## 1. Problem (with evidence)
 

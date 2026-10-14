@@ -1,7 +1,36 @@
 # RFC-006: Enum / DDL Unification (generate_zod, batch_id, Contract Enums)
 
-**Status:** Draft — owner picks. No code changed.
+**Status:** ACCEPTED with per-claim dispositions below — 2026-10-14, owner-authorized close-out.
 **Date:** 2026-10-04
+
+## Dispositions (all four claims re-verified 2026-10-14, not trusted from 2026-10-04)
+
+1. **Session-status 5th value — PRE-RESOLVED, no action.** `AttendanceStatusSchema`
+   (`routes/attendance.ts:26`) already validates all five values including
+   `holiday`, with a comment citing the spec section. A `holiday` row no longer
+   fails app validation.
+2. **Orphan `generate_zod.py` — DELETED (verified absent 2026-10-14; removed
+   in `461bc84`).** Proven unused before removal, not merely unreferenced:
+   zero references in manifests, CI, scripts or code; its documented output
+   (`packages/shared/src/schemas/models.ts`) is tracked, hand-maintained (no
+   generated marker), and covered by `models.test.ts`; and the LIVE generation
+   pipeline is openapi-based (`@buddysaradhi/shared` `generate:zod` via
+   `openapi-zod-client`, wired in `package.json`). Two generators for one
+   vocabulary is worse than one — the superseded one goes per AGENTS.md §0.2.
+3. **`batch_id` nullability — RESOLVED BY CONVENTION, no migration.** Both DDL
+   sides agree `NOT NULL` (migration `0001_init.sql:119,238` +
+   `lib/schema.ts:116`), and BOTH writers make the same explicit choice for
+   the batch-less case: the byte-identical `"batch-default"` sentinel
+   (`routes/attendance.ts:34` + `apps/web/src/server/actions/attendance.ts:91`
+   `ensureBatch`), with a comment stating why (a single-tenant DB has no "no
+   batch"; divergent defaults would split one day into two sessions). No
+   empty-string writes remain; no forward migration needed.
+4. **Contract-enum drift — FALSE PREMISE, no action.** The `kind` enums in
+   `contracts/openapi.yaml` (`ledgerPostEntry` request: 4 values, response: 5
+   with `void`) describe the LEDGER API vocabulary; no `fee_due`/`fee_paid`
+   enum exists anywhere in TypeScript source (verified repo-wide), so there is
+   no second source of truth to drift from. The request/response difference is
+   semantically correct (a create-request cannot carry a void kind).
 
 ## 1. Problem (with evidence)
 

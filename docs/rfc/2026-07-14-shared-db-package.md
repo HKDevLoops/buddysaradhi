@@ -1,7 +1,26 @@
 # RFC: Single Package Manager + Shared `@buddysaradhi/db` Package
 
-**Status:** Proposed (user-approved to proceed as tech-debt cleanup)
+**Status:** SPLIT — Part A SUPERSEDED, Part B DEFERRED. 2026-10-14 owner-authorized close-out.
 **Date:** 2026-07-14
+
+## Disposition
+
+- **Part A (pnpm canonical) — SUPERSEDED, not implemented.** The owner
+  instructed the opposite direction since: the repo migrated pnpm → bun
+  (`769e670` — `packageManager: bun@1.4.3`, `pnpm-workspace.yaml` deleted,
+  `bun.lock` regenerated, all CI on `oven-sh/setup-bun`). Re-adding
+  `pnpm-workspace.yaml` would un-migrate the toolchain. The underlying goal
+  (one authoritative graph, one `@prisma/client`) holds under bun: the tree
+  carries a single Prisma 6.2.1.
+- **Part B (shared `@buddysaradhi/db`) — DEFERRED with rationale.** The
+  dual-client TS2345 was already "not reproducible" when written, and the
+  tree still carries one Prisma version. Meanwhile the data layer is mid-work
+  elsewhere (uncommitted `routes/ledger.ts` + `lib/sql.ts` edits converging
+  on RFC-005 Path A, plus the schema-shape drift noted as F-03). Creating
+  `packages/db` now means a three-way collision on the data layer for a
+  defect that is not live. Revisit when the ledger WIP lands: the trigger
+  should be a real consumer (the feeCalc engine wiring or a second Prisma
+  version), not tidiness.
 **Author:** agent (core refactor)
 **Spec refs:** AGENTS.md §0.1 (spec-before-code), §8 (stop-and-ask structural change)
 

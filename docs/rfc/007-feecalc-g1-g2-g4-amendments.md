@@ -1,7 +1,30 @@
 # RFC-007: feeCalc G1 / G2 / G4 Spec-vs-Code Amendments
 
-**Status:** Draft — owner picks. No code changed.
+**Status:** ACCEPTED with per-gap dispositions below — 2026-10-14, owner-authorized close-out. No code changed, deliberately (see evidence).
 **Date:** 2026-10-04
+
+## Dispositions (all premises re-verified 2026-10-14, not trusted from 2026-10-04)
+
+- **G1 → DEFER-TO-WIRING (B1 shape already).** The premise holds:
+  `student_enrollments` DDL carries no status column while BR-FEE-23 names
+  `status='paused'`. But a repo-wide importer check finds ZERO production
+  importers of any feeCalc function — only `feeCalc.test.ts` imports it (one
+  comment in `fees-client.tsx` names it). A DDL migration + backfill for
+  functions nothing calls is orphan schema: real migration risk on tenant DBs
+  for zero live benefit. `EnrolmentRowSchema.status` already travels as
+  CALL-TIME input (B1's shape), so no code change is needed for the helpers
+  to be correct when wired. Migrate if and when an engine persists status.
+- **G2 → KEEP the documented projection contract.** `voided_at` projection is
+  prescribed in-code (`feeCalc.ts:77-82`, with the DDL-truth citation) and
+  pinned by test (`feeCalc.test.ts:207` "voided entries excluded"). B2 (drop
+  it for `reverses_entry_id`-only linkage) would churn a tested contract with
+  no production callers to benefit. Revisit at wiring.
+- **G4 → KEEP returning 0, rationale recorded.** B3 (throw on null rate) would
+  break the pinned `expectedForMonth([], …) === 0` case AND conflate two
+  different states: "no schedule" (legitimately 0 — nothing to charge) vs
+  "uncomputed". The inline comment (`feeCalc.ts:203-205`) already adjudicates
+  this per BR-CALC-09 ("contributes 0"); BR-FEE-20's null belongs to the
+  dashboard display layer at wiring time, not to this function's contract.
 
 ## 1. Problem (with evidence)
 
