@@ -201,6 +201,34 @@ export function validateHeaders(req: Request): SecurityCheckResult {
     "forwarded-for",
     "forwarded",
   ];
+  // `x-forwarded-for` is handled separately and conditionally below. It was
+  // missing from `dangerousHeaders` entirely, which made this file inconsistent
+  // with itself: eight spoofable IP headers were stripped before `getClientIp`
+  // could read them, and the ninth — the one `getClientIp` reads SECOND — was
+  // passed through untouched. On Cloudflare/Supabase Edge `cf-connecting-ip` is
+  // written by the edge and cannot be spoofed, so the request never reached the
+  // XFF branch; the hole only opened on a self-hosted deployment (`env.ts`
+  // treats `DENO_ENV=production` without `DENO_DEPLOYMENT_ID` as deployed, and
+  // self-hosting is a supported mode). There `getClientIp` takes
+  // `x-forwarded-for.split(",")[0]`, and an attacker sending
+  // `X-Forwarded-For: <random>` per request gets a fresh limiter bucket every
+  // time — the per-IP 100/min ceiling became unreachable.
+  //
+  // Stripped ONLY when `cf-connecting-ip` is present, i.e. only when the edge
+  // already supplied a trustworthy address that takes precedence and the header
+  // is pure client-supplied noise. When it is absent we deliberately do NOT
+  // strip: removing it would collapse every client of a proxy-only deployment
+  // into a single `"unknown"` bucket, converting a fail-open control into a
+  // fail-closed outage. That residual case has a real trade-off and is recorded
+  // for owner decision in `docs/audit/REMEDIATION_PLAN.md` (F-05b) rather than
+  // silently resolved here.
+  if (req.headers.has("x-forwarded-for") && req.headers.has("cf-connecting-ip")) {
+    logWarn("security.header_injection", {
+      header: "x-forwarded-for",
+      clientIp: getClientIp(req),
+    });
+    req.headers.delete("x-forwarded-for");
+  }
   for (const header of dangerousHeaders) {
     if (req.headers.has(header)) {
       const clientIp = getClientIp(req);

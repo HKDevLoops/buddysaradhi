@@ -168,27 +168,7 @@ function cacheKey(req: Request, path: string, tenantId: string): string | null {
   return `gw:${tenantId}:${path}:${qs}`;
 }
 
-function addSecurityHeaders(req: Request, resp: Response, requestId: string): Response {
-  const headers = new Headers(resp.headers);
-  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
-    if (!headers.has(key)) {
-      headers.set(key, value);
-    }
-  }
-  for (const [key, value] of Object.entries(getCorsHeaders(req))) {
-    headers.set(key, value);
-  }
-  headers.set("X-Request-Id", requestId);
-  headers.delete("Server");
-  headers.delete("X-Powered-By");
-  headers.delete("X-AspNet-Version");
-  headers.delete("X-AspNetMvc-Version");
-  return new Response(resp.body, {
-    status: resp.status,
-    statusText: resp.statusText,
-    headers,
-  });
-}
+import { addSecurityHeaders } from "./lib/http-headers.ts";
 
 Deno.serve(async (req: Request) => {
   const requestId = generateRequestId();
