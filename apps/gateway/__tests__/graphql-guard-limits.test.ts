@@ -370,33 +370,3 @@ describe("F-17 / `$var` in an argument position resolves (M-13)", () => {
     expect(res.data).toHaveProperty("settings");
   });
 });
-
-describe("F-17 / the vendored copy in graphql/index.ts carries the SAME limits", () => {
-  // `graphql/index.ts` is a separate deployed entrypoint that runs `Deno.serve`
-  // at module scope, so it cannot be imported here. These assert that the two
-  // copies agree BY SOURCE — which is the drift that already bit once, on the
-  // `search` bound. Honest limitation: this proves the constants and the
-  // constructs match; only the canonical executor is EXECUTED by the tests
-  // above, because the vendored copy cannot be loaded outside Deno.
-  const readVendored = async (): Promise<string> => {
-    const { readFileSync } = await import("node:fs");
-    return readFileSync(new URL("../graphql/index.ts", import.meta.url), "utf8");
-  };
-
-  it("declares the same depth and field-count numbers", async () => {
-    const source = await readVendored();
-    expect(/const MAX_SELECTION_DEPTH = (\d+);/.exec(source)?.[1]).toBe(String(MAX_SELECTION_DEPTH));
-    expect(/const MAX_TOP_LEVEL_FIELDS = (\d+);/.exec(source)?.[1]).toBe(String(MAX_TOP_LEVEL_FIELDS));
-  });
-
-  it("enforces both caps and de-duplicates in its own execLocal", async () => {
-    const source = await readVendored();
-    // The three holes, each named by the construct that closes it.
-    expect(source).toContain("QUERY_TOO_DEEP:");
-    expect(source).toContain("QUERY_TOO_COMPLEX:");
-    expect(source).toContain("const inFlight = new Map<string, Promise<unknown>>();");
-    // …and the `search` bound `lib/sql.ts:1287` already applies, which this
-    // copy was missing.
-    expect(source).toMatch(/slice\(0, MAX_SEARCH_CHARS\)/);
-  });
-});

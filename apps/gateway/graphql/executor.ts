@@ -5,8 +5,8 @@
 // never silently truncated, never left to run to completion).
 //
 // ── Why this hand-rolled executor carries its own limits ───────────────────────
-// `graphql` and graphql-yoga both crash the Supabase Edge function at boot (see
-// `graphql/index.ts:7-10`), so the executor is hand-written. That means the two
+// `graphql` and graphql-yoga both crash the Supabase Edge function at boot, so
+// the executor is hand-written. That means the two
 // defences a real GraphQL server gets for free — a depth limit and a
 // cost/complexity budget — have to be written by hand as well, and were not.
 // Three holes, all reachable from ONE authenticated `POST /graphql`:
@@ -82,8 +82,7 @@ export const MAX_TOP_LEVEL_FIELDS = 16;
  *     into a 200 is precisely the silent failure AGENTS.md §2 Rule 9 exists to
  *     prevent.
  *
- * Known limitation, reported rather than worked around: both entrypoints that
- * call this (`apps/gateway/index.ts:334` and `graphql/index.ts:425`) hardcode
+ * Known limitation, reported rather than worked around: the entrypoint that calls this (`apps/gateway/index.ts:334`) hardcodes
  * HTTP 200 for the envelope, so a refusal arrives as `200 {errors:[…]}` — the
  * GraphQL-over-HTTP "request error" shape — rather than a `400`. Changing the
  * status means editing `apps/gateway/index.ts`, which is not this file and is
@@ -285,7 +284,7 @@ export async function execLocal(
   //
   // Isolation is unchanged and still does not depend on that guard: every
   // statement is built from `ctx.tenantId`, which comes from the verified JWT
-  // (`apps/gateway/index.ts:391`, `graphql/index.ts:391`). A caller can only
+  // (`apps/gateway/index.ts:391`). A caller can only
   // ever satisfy `args.tenantId` with its OWN id.
   //
   // De-duplication is keyed on the EFFECTIVE arguments — what the resolver is

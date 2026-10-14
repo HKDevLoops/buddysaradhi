@@ -90,17 +90,16 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: Deploy Gateway GraphQL
-        if: steps.check-secrets.outputs.has_token == 'true'
-        run: |
-          mkdir -p .temp-deploy/supabase/functions/gateway-graphql
-          cp -r apps/gateway/graphql/* .temp-deploy/supabase/functions/gateway-graphql/
-          # graphql/*.ts imports ../lib/* (db/errors/log): ../lib from
-          # supabase/functions/gateway-graphql/ is supabase/functions/lib —
-          # stage it or the edge bundler 400s (17 §5).
-          mkdir -p .temp-deploy/supabase/functions/lib
-          cp -r apps/gateway/lib/* .temp-deploy/supabase/functions/lib/
-          cd .temp-deploy
-          supabase functions deploy gateway-graphql --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # The standalone `gateway-graphql` function was REMOVED (F-12a), not
+      # redeployed: it served the same queries as the main gateway's
+      # authenticated `/graphql` route but with no HMAC request binding, no
+      # rate limiting and no body cap — any valid Supabase token could make
+      # the edge POST to an attacker-chosen database host (SSRF + DDL). No
+      # first-party caller ever used it (verified by repo-wide grep), so it
+      # was deleted at `apps/gateway/graphql/index.ts` instead of hardened.
+      #
+      # OPERATOR ACTION STILL REQUIRED: removing this step stops future
+      # deploys, but the last vulnerable build keeps serving until the remote
+      # function is deleted:
+      #   supabase functions delete gateway-graphql --project-ref <ref>
+      # That needs SUPABASE_ACCESS_TOKEN and was not run from here.

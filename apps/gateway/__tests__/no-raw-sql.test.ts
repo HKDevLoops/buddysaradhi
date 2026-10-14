@@ -5,10 +5,9 @@
 // Allowed to hold SQL: `lib/schema.ts` (authorized DDL authority +
 // one-time heals) and `lib/sql.ts` (audited builders). `migrations/` is
 // one-time DDL (excluded). `__tests__/` uses SQL to assert rows (excluded).
-// `graphql/index.ts` is a standalone Supabase Edge Function with its own
-// `deno.json` (esm.sh, no shared import map) — it duplicates `resolvers.ts`
-// shapes with parameterized `?` args and cannot import `lib/sql.ts` builders
-// without cross-function bundling; documented exception, excluded here.
+// (A third exclusion for the standalone `graphql/index.ts` edge function was
+// removed with the file itself — F-12a deleted that unauthenticated
+// entrypoint rather than carrying its exception.)
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -20,7 +19,6 @@ const SCAN_DIRS = ["routes", "lib", "graphql", "provision"];
 const EXCLUDED_FILES = new Set([
   "lib/schema.ts",
   "lib/sql.ts",
-  "graphql/index.ts",
 ]);
 
 const STATEMENT_RE =
