@@ -223,6 +223,25 @@ const STUDENT_FEE_MODEL_SCHEMA = z.enum(STUDENT_FEE_MODEL);
  *  same vocabulary `routes/analytics.ts` filters the overdue population by. */
 const OPEN_INVOICE_STATUSES = ["unpaid", "partial", "overdue"] as const;
 
+/** How many roster rows a `search=` read may materialise before the route stops
+ *  (see the search block below for why the bound has to exist and why it is
+ *  disclosed in the response rather than applied silently). 500 is the same
+ *  ceiling `routes/sync.ts` uses for its flush read, and it is the figure the
+ *  product already sizes its heaviest roster surfaces for (07_Fees_and_Payments
+ *  .md §9.2 budgets the Overview at 500 students; 05_Students.md:601 changes
+ *  strategy only "for tenants > 500 students"). Above that line the response
+ *  carries `search_truncated`, and the exact count is a follow-up rather than a
+ *  guess. */
+const ROSTER_SEARCH_SCAN_CAP = 500;
+
+/** The roster envelope. `search_truncated` is present ONLY when the scan cap
+ *  was exhausted; its absence means the count is exact. */
+type RosterResult = {
+  students: unknown[];
+  total: number;
+  search_truncated?: boolean;
+};
+
 function splitCsv(raw: string | null): string[] {
   return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
@@ -406,7 +425,7 @@ export const handleStudents: RouteHandler = async (
       `sort=${sortCol.data}:${sortDir.data}`,
     ].join("::");
 
-    const cached = getCached<{ students: unknown[]; total: number }>(cacheKey);
+    const cached = getCached<RosterResult>(cacheKey);
     if (cached) return ok(cached);
 
     // ── Cache MISS: now, and only now, pay for the two id-set resolutions ────
@@ -460,13 +479,37 @@ export const handleStudents: RouteHandler = async (
       where.id = { in: idFilters.reduce((acc, list) => acc.filter((id) => list.includes(id))) };
     }
 
-    // Search is a substring match across three columns and is applied in the
-    // route (the builder has no LIKE). When searching we must read the whole
-    // filtered set to slice the page; otherwise SQLite does the paging.
+    // ── Search: bounded, and the bound is DISCLOSED ─────────────────────────
+    //
+    // The substring match is applied HERE, in the route, because the audited
+    // builder has no LIKE: `buildTenantWhere` (lib/sql.ts:416) admits exactly
+    // `= / != / IN / IS NULL / gt|gte|lt|lte / between` and THROWS on any other
+    // operator shape, so no `contains` reaches SQL (10_Security.md §11). Adding
+    // one would mean editing `lib/sql.ts`, which is a reviewed change outside
+    // this fix; until then the database cannot narrow the population BEFORE the
+    // read.
+    //
+    // The cost of that is that the READ must be bounded. `findMany` with no
+    // `take` materialised the entire filtered roster — every student row, with
+    // every column — on every keystroke of the roster search box, and `total`
+    // was then counted from that same unbounded array. At 200 students that is
+    // an invisible inefficiency; it is a memory spike proportional to the whole
+    // institution, and it is unbounded by construction.
+    //
+    // So the searched read is capped at ROSTER_SEARCH_SCAN_CAP rows in the
+    // requested sort order (deterministic — `stmtSelectWhere` appends the
+    // primary key as a tie-break, lib/sql.ts:546). When the cap is reached,
+    // `filtered.length` is a LOWER BOUND on the true match count, so the
+    // response says so with `search_truncated: true` rather than presenting a
+    // partial count as exact (Rule 9 — a plausible wrong answer is worse than
+    // an absent one). Clients that ignore the flag get a bounded page; clients
+    // that read it get to render "N or more".
     const rawStudents = await orm.student.findMany({
       where,
       orderBy,
-      ...(search ? {} : { take: pageSize, skip: from }),
+      ...(search
+        ? { take: ROSTER_SEARCH_SCAN_CAP }
+        : { take: pageSize, skip: from }),
     });
 
     const filtered = search
@@ -480,6 +523,9 @@ export const handleStudents: RouteHandler = async (
 
     const paginated = search ? filtered.slice(from, from + pageSize) : filtered;
 
+    // `>=`, not `===`: a filter that narrows the population below the cap is
+    // not truncated even when the cap-sized page is full.
+    const searchTruncated = search && rawStudents.length >= ROSTER_SEARCH_SCAN_CAP;
     const total = search ? filtered.length : await orm.student.count({ where });
 
     const students = paginated.map((s) => ({
@@ -493,7 +539,9 @@ export const handleStudents: RouteHandler = async (
       status: s.status || "active",
     }));
 
-    const result = { students, total };
+    const result = searchTruncated
+      ? { students, total, search_truncated: true }
+      : { students, total };
     setCache(cacheKey, result, REFERENCE_TTL_MS);
     return ok(result);
   }
@@ -535,7 +583,32 @@ const STUDENT_CREATE_SCHEMA = STUDENT_PATCH_SCHEMA.refine(
     });
     if (!parsed.success) return failZod(parsed.error);
     const b = parsed.data;
-    const id = body.id ?? crypto.randomUUID();
+
+    // The id is MINTED HERE, never read from the request.
+    //
+    // This line used to be `body.id ?? crypto.randomUUID()` — reading `body`,
+    // the RAW pre-Zod object, in a route whose own allowlist (`STUDENT_CREATE_
+    // SCHEMA` above) has no `id` key and therefore strips one. So the allowlist
+    // correctly refused to write a client id, and the very next line deliberately
+    // wrote it anyway.
+    //
+    // `stmtInsertStudent` validates the value with `IdSchema` = `z.string()
+    // .min(1).max(128)` (lib/sql.ts:283) — a bound on a `?`-parameter, not an
+    // identity assertion. Every OTHER read/write path for a student validates
+    // the id as a UUID first (`parsePathId` above, plus routes/ledger.ts:57 and
+    // routes/attendance.ts:201). So `POST { id: "not-a-uuid" }` used to create a
+    // roster row that no read, no payment, no invoice and no delete could ever
+    // reach — the tutor could neither use nor remove it (11_Data_Model.md §1:
+    // every id is a UUID; `prisma/schema.prisma` `@default(uuid())`). Posting an
+    // existing id additionally raised an opaque PRIMARY KEY constraint error
+    // that collapsed to a generic 500 instead of a typed answer.
+    //
+    // Server-minting removes both at the source. The caller cannot name a row,
+    // so it cannot create an unreachable one and cannot collide with an existing
+    // one; `11_Data_Model.md` §1 is enforced by construction rather than by a
+    // later validation that could be bypassed. A duplicate retry is already the
+    // idempotency-key's job (RFC-004 C1, enforced above).
+    const id = crypto.randomUUID();
 
     // Rule 7 / BR-SYN-01 — student + enrollment + outbox + audit commit as
     // ONE write transaction (fail-closed: a thrown outbox/audit write aborts
@@ -588,7 +661,13 @@ const STUDENT_CREATE_SCHEMA = STUDENT_PATCH_SCHEMA.refine(
       // (`packages/shared/src/outboxPayload.ts` — P3-11): the raw client body
       // may use either key spelling; the stored payload is always snake_case
       // with sorted keys.
-      await recordOutbox(tx, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", body).payload);
+      //
+      // `{ ...body, id }` — the client's own `id` (if it sent one) is REPLACED
+      // by the minted id before it is encoded. Without the override the payload
+      // would describe a row with a different primary key than the row this
+      // transaction just inserted, and a replay would recreate the caller-named
+      // id instead of this one (BR-SYN-02: the payload is the row).
+      await recordOutbox(tx, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", { ...body, id }).payload);
       await recordAudit(tx, tenantId, tenantId, "student.create", "student", id, body);
       // RFC-004 C1 — response bytes commit atomically with the create (see
       // routes/ledger.ts payment path). A concurrent duplicate rolls back
