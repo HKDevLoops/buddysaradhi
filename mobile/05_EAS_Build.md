@@ -22,7 +22,7 @@ EAS Build is Expo Application Services' cloud build pipeline. We send it our Typ
 │  EAS Cloud (Linux build host)                                   │
 │    │                                                            │
 │    │ 1. Read native dependencies from package.json              │
-│    │ 2. Generate ios/ and android/ folders (npx expo prebuild)  │
+│    │ 2. Generate ios/ and android/ folders (bunx expo prebuild)  │
 │    │ 3. Install pods (iOS) / Gradle build (Android)             │
 │    │ 4. Compile native code (Xcode / Android Studio)            │
 │    │ 5. Bundle JS (Hermes bytecode)                             │
@@ -422,7 +422,7 @@ Upgrading a native dependency (a package that requires native compilation — an
 bun install
 
 # Re-run prebuild to regenerate native projects
-npx expo prebuild --clean
+bunx expo prebuild --clean
 
 # Test on a development build
 eas build --platform ios --profile development
@@ -551,7 +551,7 @@ The build manifest is stored in EAS for 30 days. For long-term reproducibility, 
 
 | Failure | Cause | Fix |
 |---|---|---|
-| `xcodebuild` exited with code 65 | Pod version mismatch; missing import | `npx expo prebuild --clean`; rebuild |
+| `xcodebuild` exited with code 65 | Pod version mismatch; missing import | `bunx expo prebuild --clean`; rebuild |
 | `Could not find method googleServices()` | Missing `expo-google-services` plugin in `app.config.ts` | Add plugin, rebuild |
 | `No profiles for 'app.buddysaradhi.mobile' were found` | EAS credentials not set up | `eas credentials --platform ios --profile production` |
 | `Keystore file not set for reading` | Android upload key not generated | `eas credentials --platform android --profile production` |

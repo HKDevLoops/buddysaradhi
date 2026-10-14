@@ -81,7 +81,7 @@ is how the previous generation shipped a control border at 1.41:1.
 | Data | `--chart-1` … `--chart-6` |
 | Material | `--mat-blur`, `--mat-saturate`, `--mat-brightness`, `--mat-filter`, `--mat-specular`, `--mat-fresnel`, `--shadow-overlay`, `--shadow-sheet` |
 
-Contrast floors, enforced by `pnpm --filter @buddysaradhi/design-system verify`
+Contrast floors, enforced by `bun --filter @buddysaradhi/design-system verify`
 (exit 1, writes nothing):
 
 | Role | Target | Why |
@@ -2338,16 +2338,16 @@ The `/` route (`src/app/page.tsx` + the 6 prototypes in `src/components/tutoros/
 
 ```bash
 # 1. install runtime deps
-npx expo install nativewind@preview react-native-css@latest \
+bunx expo install nativewind@preview react-native-css@latest \
   react-native-reanimated react-native-safe-area-context
 # 2. install dev deps
-npx expo install --dev tailwindcss @tailwindcss/postcss postcss
+bunx expo install --dev tailwindcss @tailwindcss/postcss postcss
 # 3. postcss.config.mjs → { plugins: { "@tailwindcss/postcss": {} } }
 # 4. wrap metro with withNativewind
 #    metro.config.js: withNativewind(getDefaultConfig(__dirname), { input: "./global.css" })
 # 5. remove nativewind/preset from babel.config.js (v5 doesn't need it)
 # 6. override the lightningcss version (migration step 6 — known Expo transitive conflict)
-# 7. npx expo start --clear
+# 7. bunx expo start --clear
 ```
 
 The Expo SDK 52 / RN 0.76 combination is confirmed working — see the "Migrating a production Web app to Expo SDK 52 + NativeWind v4" Reddit case study ([reddit.com/r/reactnative/comments/1r4x44n](https://www.reddit.com/r/reactnative/comments/1r4x44n)) and the dev.to v52+ setup guide ([dev.to/aramoh3ni/taming-the-beast-a-foolproof-nativewind-react-native-setup-v52-2025-4dd8](https://dev.to/aramoh3ni/taming-the-beast-a-foolproof-nativewind-react-native-setup-v52-2025-4dd8)).

@@ -695,7 +695,7 @@ jobs:
       - run: bun run build
       - run: bun run dev &   # start dev server in background
       - name: Wait for dev server
-        run: npx wait-on http://localhost:3000 --timeout 60000
+        run: bunx wait-on http://localhost:3000 --timeout 60000
       - name: Install Playwright browsers
         run: bunx playwright install --with-deps chromium
       - name: Run Playwright (web + product, 22 flows)
@@ -765,7 +765,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run dev &
-      - run: npx wait-on http://localhost:3000 --timeout 60000
+      - run: bunx wait-on http://localhost:3000 --timeout 60000
       - name: Pa11y full crawl (product page tree)
         run: bunx pa11y-ci --sitemap http://localhost:3000/sitemap.xml --standard WCAG2AA
 ```

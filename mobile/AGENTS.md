@@ -59,7 +59,7 @@ The mobile app is **not yet scaffolded** in the monorepo. The first mobile agent
 ```bash
 # From repo root
 cd apps
-npx create-expo-app@latest mobile --template default
+bunx create-expo-app@latest mobile --template default
 cd mobile
 ```
 
@@ -67,13 +67,13 @@ cd mobile
 
 ```bash
 # Core Expo
-npx expo install expo-router expo-sqlite expo-secure-store expo-local-authentication \
+bunx expo install expo-router expo-sqlite expo-secure-store expo-local-authentication \
   expo-notifications expo-haptics expo-file-system expo-sharing expo-blur \
   expo-constants expo-application expo-updates expo-linking expo-keep-awake \
   expo-background-fetch expo-task-manager expo-document-picker
 
 # Navigation + state
-npx expo install @react-navigation/native react-native-screens react-native-safe-area-context
+bunx expo install @react-navigation/native react-native-screens react-native-safe-area-context
 bun add @tanstack/react-query zustand react-hook-form @hookform/resolvers zod
 
 # Styling + animation
@@ -358,7 +358,7 @@ The following situations require a pause and human review **before** the PR is o
 | 8 | Editing a merged SQL migration | Forward-only migrations; editing history corrupts every existing DB | Orchestrator sign-off |
 | 9 | Bumping Expo SDK or React Native version | Native upgrade; requires full store resubmit; potential breaking changes | 2 reviewers incl. release engineer |
 | 10 | Adding any telemetry/analytics SDK (Sentry, Mixpanel, PostHog, Amplitude, GA) | Violates Rule 3; `TELE-1` | Security reviewer + orchestrator |
-| 11 | Ejecting from managed workflow (`npx expo prebuild` and editing native code) | One-way door; we own the native projects thereafter | 2 reviewers incl. release engineer |
+| 11 | Ejecting from managed workflow (`bunx expo prebuild` and editing native code) | One-way door; we own the native projects thereafter | 2 reviewers incl. release engineer |
 | 12 | Modifying the ledger schema or `packages/core` posting logic | Ledger is the financial spine | 2 reviewers incl. ledger-crypto owner |
 
 ### 5.1 What "Stop and Ask" Looks Like

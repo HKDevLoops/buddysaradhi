@@ -737,7 +737,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun run dev &
-      - run: npx wait-on http://localhost:3000 --timeout 60000
+      - run: bunx wait-on http://localhost:3000 --timeout 60000
       # 1. OWASP ZAP baseline scan (DAST; opens GH issues for alerts)
       - uses: zaproxy/action-baseline@v0.13.0
         with:

@@ -253,7 +253,7 @@ agent. Each rule carries: **the rule**, **why**, **how it's enforced**, and
   AP-6), and the fact that a hand-authored palette is where contrast failures
   live: all ten light palettes in the first generation shipped a control border at
   1.41:1 because the border was mixed by a constant ratio instead of solved.
-- **Enforced.** `pnpm --filter @buddysaradhi/design-system verify` fails the
+- **Enforced.** `bun --filter @buddysaradhi/design-system verify` fails the
   build on any text role below 4.5:1, any meaning-carrying border below 3:1, any
   two palettes generating the same canvas, or any material mode that changes text
   or accent. The ESLint rule `no-indigo-accent` remains as the guard against a
@@ -441,7 +441,7 @@ DB file.
   `prisma/migrations/<timestamp>_<name>/migration.sql`).
 - **Runtime schema authority is TWO, and only two** (§3.4 amendment — audit
   STOP-AND-ASK #7, `reviews/overhaul-audit-report-2026-09-26.md` §9):
-  (a) **`pnpm exec prisma db push` / Prisma migrations** — web local/dev and every
+  (a) **`bunx prisma db push` / Prisma migrations** — web local/dev and every
   deploy. Provisioning-time `bootstrapSchema` runs the same idempotent
   migrations at sign-up (`17_API_Gateway_System.md` §5.1,
   `web/03_Auth_and_Provisioning.md` Step 7) — a sign-up path, not a
@@ -810,14 +810,14 @@ await postLedgerEntry(db, entry); // what did this test?
 
 Merge is blocked unless **all** pass:
 
-1. `pnpm run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
+1. `bun run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
    `no-float-money`, `no-empty-catch`, `no-color-only-status`).
-2. `pnpm run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
-3. `pnpm run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
+2. `bun run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
+3. `bun run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
    `packages/shared`.
-4. `pnpm run test:integration` — Vitest with in-memory SQLite, every flow in
+4. `bun run test:integration` — Vitest with in-memory SQLite, every flow in
    §7.2.
-5. `pnpm run test:a11y` — `axe-core` on every screen.
+5. `bun run test:a11y` — `axe-core` on every screen.
 6. (If web) Agent Browser smoke: every screen renders, sticky footer behaves,
    primary interaction works.
 
@@ -853,7 +853,7 @@ Merge is blocked unless **all** pass:
 
 1. **Keep commits small.** <300 lines per commit. A 600-line commit is two
    commits.
-2. **Run `pnpm run lint` before every commit.** Fix all errors before staging.
+2. **Run `bun run lint` before every commit.** Fix all errors before staging.
 3. **Never commit secrets.** The `.env.example` pattern: `.env.example`
    documents the keys; `.env.local` holds the values and is git-ignored. If you
    accidentally commit a secret, rotate it — do not just delete the line.
@@ -882,7 +882,7 @@ When an autonomous agent is working a task:
 2. Read `worklog.md` to learn prior context.
 3. Read the relevant spec section per §4.
 4. Make the smallest correct change.
-5. Run `pnpm run lint`. Fix all errors.
+5. Run `bun run lint`. Fix all errors.
 6. (If web) verify in Agent Browser: render + primary interaction + sticky
    footer.
 7. **Update memory after coding work.** After any meaningful code change, update
@@ -918,7 +918,7 @@ Before an agent abandons, pauses, or finishes the current task to start a new
 one, it MUST run this 6-step close-out. No exceptions, no "I'll come back to
 it."
 
-1. **Run `pnpm run lint`** on the current diff. If lint fails, either fix it
+1. **Run `bun run lint`** on the current diff. If lint fails, either fix it
    (preferred) or `git stash` with a message `WIP: <task-id> <reason>` and note
    the stash ref in the worklog. Never leave a red-lint diff on disk for the
    next agent.
@@ -971,7 +971,7 @@ Resume <prior-task-id> — <one-line summary>
 Work Log:
 
 - Read prior worklog entry <prior-task-id>; resume point was: <quote>.
-- Verified WIP commit <sha> is on disk; ran `pnpm run lint` → clean.
+- Verified WIP commit <sha> is on disk; ran `bun run lint` → clean.
 - <next micro-step>
 ```
 
@@ -982,7 +982,7 @@ When an agent is assigned (or self-selects) a task that a prior agent paused:
 1. **Read the most recent worklog entry for that Task ID.** Extract the Resume
    point, the WIP commit SHA, and the blocker (if any).
 2. **Verify the WIP state.** `git log --oneline -5` to confirm the WIP commit is
-   present; `git status` to confirm no uncommitted drift; `pnpm run lint` to
+   present; `git status` to confirm no uncommitted drift; `bun run lint` to
    confirm the tree is clean. If any of these fail, the WIP is corrupt — do not
    blindly continue. File a `BLOCKED` worklog entry and escalate.
 3. **Re-read the spec section** the task touches. Do not trust memory; the spec
@@ -1139,8 +1139,8 @@ you are about to create `apps/mobile/` while `In-Flight: WEB`, **STOP** — read
 
 A task is done when **all** are true:
 
-- Lint passes (`pnpm run lint`).
-- Typecheck passes (`pnpm run typecheck`).
+- Lint passes (`bun run lint`).
+- Typecheck passes (`bun run typecheck`).
 - Unit + integration tests pass (when tests are requested — see §7.1).
 - The relevant screen renders without runtime/hydration errors in Agent Browser
   (web).
@@ -1197,7 +1197,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 
 | #   | Check                                                                                                      | Rule / Ref                 |
 | --- | ---------------------------------------------------------------------------------------------------------- | -------------------------- |
-| 1   | `pnpm run lint` + `pnpm run typecheck` pass (0 errors, 0 warnings)                                           | §9, §6.1                   |
+| 1   | `bun run lint` + `bun run typecheck` pass (0 errors, 0 warnings)                                           | §9, §6.1                   |
 | 2   | No `any`; no `as` casts without `// SAFETY:` comment                                                       | §6.1, AP-7                 |
 | 3   | Money in integer paise; never `float`; no `+`/`-`/`*` on money — use `paiseAdd`/`paiseMul`                 | Rule 6, BR-M-01, EC-F-01   |
 | 4   | Glass tier classes used (`glass`/`glass-strong`/`glass-faint`); no raw `rgba()`                            | `13_UI_Guidelines.md` §5.2 |
@@ -1231,7 +1231,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 | **FM-15** | ScrollTriggers/RAF pile up across navigations        | Missing cleanup in effects                                                      | `gsap.context` + `ctx.revert()`; `io.disconnect()`; clear timers                          | Review gate: every `useLayoutEffect`/`useEffect` with subscriptions returns cleanup |
 | **FM-16** | Render loop drains battery off-screen                | `frameloop="always"` unconditionally                                            | `IntersectionObserver` → `frameloop` `always`/`never`                                     | Perf smoke: loop suspends when stage leaves viewport                                |
 | **FM-17** | "Lint clean" claimed for TS files                    | Flat ESLint 10 + JS-only config ignores `.tsx` entirely                         | `tsc --noEmit` is the real TS gate                                                        | Never report TS lint from `eslint .` alone (§16 lists both gates)                   |
-| **FM-18** | Tool commands hang or "cannot find info"             | `pnpm exec` resolution overhead; `Start-Process` on `.ps1` shims fails          | Call `node_modules/.bin/*` directly; run servers via `node <pkg>/dist/bin`                | MEMORY env notes; prefer direct binaries with explicit timeouts                     |
+| **FM-18** | Tool commands hang or "cannot find info"             | `bunx` cold-resolving a binary not in the lockfile; `Start-Process` on `.ps1` shims fails          | Call workspace binaries from the package dir (`cd apps/web && bunx vitest run`); `bun --filter` runs scripts only, never binaries                | MEMORY env notes; prefer direct binaries with explicit timeouts                     |
 | **FM-19** | New surface 404s inside `apps/web`                   | Proxy rewrites `/`→`/login`; Rule 11 one dir → one target                       | Standalone app dir + own deployment target                                                | Read `proxy.ts` + Rule 11 before placing any surface                                |
 | **FM-20** | Global CLI binary missing after install (`hf.exe`)   | npm `allowScripts` blocks postinstall                                           | Reinstall with `--allow-scripts=<pkg>`                                                    | Always run `--version` after a global install                                       |
 | **FM-21** | Scroll positions wrong after late assets             | Trigger positions computed before fonts/images settle                           | `ScrollTrigger.refresh()` after load (~600ms) + on font-ready                             | Resize/scroll smoke after full settle                                               |
@@ -1244,13 +1244,13 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 > Bar to clear before "done" (§12). Run in order; fix failures before
 > proceeding.
 
-1. **Lint + typecheck.** `pnpm run lint` (0 errors, 0 warnings) +
-   `pnpm run typecheck` (`tsc --noEmit` across `apps/web`, `packages/*`).
-2. **Unit + integration tests** (if requested, §7.1). `pnpm run test:unit` (≥70%
+1. **Lint + typecheck.** `bun run lint` (0 errors, 0 warnings) +
+   `bun run typecheck` (`tsc --noEmit` across `apps/web`, `packages/*`).
+2. **Unit + integration tests** (if requested, §7.1). `bun run test:unit` (≥70%
    line coverage on `packages/core` and `packages/shared`);
-   `pnpm run test:integration` against in-memory SQLite (`:memory:`). Never mock
+   `bun run test:integration` against in-memory SQLite (`:memory:`). Never mock
    the DB in a ledger test (§7.3).
-3. **Accessibility.** `pnpm run test:a11y` — `axe-core` on every screen rendered
+3. **Accessibility.** `bun run test:a11y` — `axe-core` on every screen rendered
    in Agent Browser. Zero critical or serious violations.
 4. **Agent Browser smoke (web).** Using the `agent-browser` skill: navigate to
    `/`, switch to the affected screen via Zustand, perform the primary

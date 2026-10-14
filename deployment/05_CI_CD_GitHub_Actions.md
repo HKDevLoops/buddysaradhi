@@ -211,7 +211,7 @@ runs:
   steps:
     - name: Install agent-browser
       shell: bash
-      run: npm install -g agent-browser
+      run: bun install -g agent-browser
     - name: Run smoke
       shell: bash
       run: |
@@ -1470,16 +1470,22 @@ live `.github/workflows/` has diverged. Minimal diff, no example rewrites.
    Edge deploy), `reviewer.yml` (AI PR review). The §14.2 "6-workflow" graph
    and the §6-trigger-#7 "7th workflow" language are stale — a 12th workflow
    is the stop-and-ask, not a 7th.
-2. **Bun pinned to 1.3.4 everywhere.** Every `oven-sh/setup-bun` step uses
-   `bun-version: 1.3.4` (was `latest` in most files; `release.yml` already
-   pinned). Left floating by choice: `expo-version`/`eas-version: latest`
-   (Expo action tracks the current SDK), `supabase/setup-cli: latest`,
-   `dtolnay/rust-toolchain: stable`, `deno-version: v2.x` — pinning any of
-   these is a follow-up with its own on-branch test (§12), not this change.
-3. **Node 22 + pnpm 11.15.0.** All Node jobs use `actions/setup-node@v4`
-   with `node-version: 22` (matches root `engines`) and
-   `pnpm/action-setup@v4` with `version: 11.15.0` (matches root
-   `packageManager`). Installs are `pnpm install --frozen-lockfile`.
+2. **Bun pinned to 1.4.3 everywhere.** Every `oven-sh/setup-bun` step uses
+   `bun-version: 1.4.3` (was `latest` in most files, then `1.3.4`;
+   `release.yml` already pinned). Left floating by choice:
+   `expo-version`/`eas-version: latest` (Expo action tracks the current
+   SDK), `supabase/setup-cli: latest`, `dtolnay/rust-toolchain: stable`,
+   `deno-version: v2.x` — pinning any of these is a follow-up with its own
+   on-branch test (§12), not this change.
+3. **Bun 1.4.3 is the only JS runtime in CI.** The pnpm era ran
+   `actions/setup-node@v4` (`node-version: 22`) plus
+   `pnpm/action-setup@v4` (`version: 11.15.0`) in every job; both are gone.
+   `bun-version: 1.4.3` matches root `packageManager` (`bun@1.4.3`).
+   Installs are `bun install --frozen-lockfile` against the committed
+   `bun.lock`. Package scripts run via `bun run` / `bun --filter`, workspace
+   binaries via `bunx` (from the package directory, e.g.
+   `cd apps/web && bunx vitest run`) — `bun --filter` does not compose with
+   binary invocation, so `exec`-style steps were rewritten, not renamed.
 4. **Scripts are `.ts`, and L7 enforces it.** `scripts/*.mjs` were migrated
    to `scripts/*.ts` (run via `node`/`bun run`). `scripts/principle-lints.ts`
    grew rule **L7 `no-js-source`**: tracked `*.js/*.mjs/*.cjs` under `apps/`,
