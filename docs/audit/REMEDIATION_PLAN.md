@@ -292,3 +292,41 @@ routes.
 verified (F-01, F-02, F-05); four P0s are documented with recommended fixes and
 explicitly **not** executed because they cross `AGENTS.md` §8. Next: owner
 decisions on §1, then Phase 4.
+
+---
+
+## 8. Deferred-work close-out (2026-10-14 session, owner-authorized)
+
+The owner authorized completing all remaining in-scope work
+(gateway + product-page + web; desktop/mobile excluded). Work was scoped to
+files with NO uncommitted in-flight changes: `routes/ledger.ts`, `lib/sql.ts`,
+`lib/vendor/tamper.ts`, `fee-strictness.test.ts` and `idempotency-cas.test.ts`
+carry unknown uncommitted work (no worklog entry) and were left entirely alone
+— including 6 ledger-suite failures that reproduce from those files and belong
+to that work, not to this session (void/auto-invoice/outbox-op domain
+mismatches; verified unrelated to the header/IP changes below).
+
+### Fixed and verified this session
+
+| ID | Fix | Verification |
+|---|---|---|
+| **F-05b** | `x-forwarded-for` is now anchored on the transport peer + operator-declared `TRUSTED_PROXY_CIDRS` (exact IPs / IPv4 CIDRs). Precedence: `cf-connecting-ip` → strict-mode proxy-appended (LAST) entry → strict-mode direct peer → legacy chain. Default (flag unset): byte-for-byte today's behavior. `Deno.serve` passes `info.remoteAddr.hostname` through `runSecurityChecks`. | 8 new tests in `security.test.ts`; negative control (strict branch forced off → 5 red); deno lint + check clean |
+| **F-23** | `decorateCacheHit` extracted to `lib/http-headers.ts`; `index.ts` hit branch calls it. Exact-set test pins the ONLY two added headers. | 4 new tests; negative control (leak re-added → the exact-set test red); 10/10 file green |
+| **F-34** | `securityFail` budget 0.2ms → 0.5ms (matches sibling `fail()`; measured 0.353ms contention; 10x regressions still trip). | Full gateway suite green (52 files; only the 6 foreign ledger failures remain) |
+
+### Re-examined and closed WITHOUT code changes (with reasoning)
+
+| ID | Verdict |
+|---|---|
+| **F-09** | Original recommendation (delete `pushSyncOutbox`) was WRONG. `02_Core_Logic.md:518` explicitly specifies the v1 stub ("v1 ships as a local-first single-device app"), it is tested (`sync.test.ts`), and has zero production callers. Spec wins (§0.1). Kept as specified. |
+| **P3-1 (F-31)** | NOT a defect. `worker_threads` is used only in Node-only paths (`packages/core` tests + a lazy `require` inside the report engine), never loaded by the Deno gateway (verified: no gateway import). The "wrong runtime" premise was false. |
+| **F-19a** | Closed by a concurrent session: the period leg is now a DB-side `occurred_on >= periodStart` range filter (exact superset, no `take`), per-invoice netting bounded by the open-invoice set. Better than the proposed SUM. |
+| **F-19.2s / F-20** | Closed by a concurrent session (`validated-write-paths.test.ts`): sync-limit 400, no raw bodies in outbox/audit. Verified green (15/15 with the F-23 file). |
+| **audit-log route** | Closed by design (concurrent session removed the fan-out; local sinks only, documented). No route needed. |
+| **F-19 `contains`** | BLOCKED: needs a `buildTenantWhere` change in `lib/sql.ts`, which carries unknown in-flight edits. Not touched. |
+
+### Still open (out of scope or blocked)
+
+- F-08, F-10, F-11, F-12 (P1, queued), F-13–F-16, F-24–F-33 (P2/P3, triaged) — unchanged.
+- `report-svc` 4-key divergence (RPT-SHAPE-08): needs an RFC, not an edit (§9.3).
+- The 6 ledger-suite failures above: owned by the unknown in-flight work.

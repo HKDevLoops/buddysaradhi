@@ -168,10 +168,22 @@ function cacheKey(req: Request, path: string, tenantId: string): string | null {
   return `gw:${tenantId}:${path}:${qs}`;
 }
 
-import { addSecurityHeaders } from "./lib/http-headers.ts";
+import { addSecurityHeaders, decorateCacheHit } from "./lib/http-headers.ts";
 
-Deno.serve(async (req: Request) => {
+Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
   const requestId = generateRequestId();
+  // F-05b: the transport peer is a fact; headers are claims. `remoteAddr` is
+  // what the edge actually accepted the socket from — `getClientIp` trusts
+  // `x-forwarded-for` only when this peer is an operator-declared proxy
+  // (`TRUSTED_PROXY_CIDRS`), and ignores it on a direct connection. The
+  // structural read keeps this dependency-free: no Deno type import, and an
+  // absent/unshaped `info` (tests, non-serve runtimes) degrades to the legacy
+  // header chain rather than throwing.
+  const remoteAddr = info?.remoteAddr as { hostname?: unknown } | undefined;
+  const peer =
+    remoteAddr && typeof remoteAddr.hostname === "string" && remoteAddr.hostname.length > 0
+      ? remoteAddr.hostname
+      : undefined;
 
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -184,7 +196,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const secCheck = runSecurityChecks(req);
+  const secCheck = runSecurityChecks(req, peer);
   if (!secCheck.allowed) {
     logWarn("security.blocked", {
       requestId,
@@ -284,13 +296,12 @@ Deno.serve(async (req: Request) => {
       if (cKey) {
         const cached = getCachedResponse(cKey);
         if (cached) {
-          const dt = performance.now() - t0;
-          cached.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
-          // F-23: NO `X-Cache-Key` header. It used to echo the full cache key
-          // (`gw:<tenantId>:<path>:<query>`) — disclosing the tenant id and the
-          // tutor's search terms (potentially a student's name) in a response
-          // header to anyone who can read responses. Nothing consumed it.
-          cached.headers.set("X-Request-Id", requestId);
+          // Hit decoration lives in lib/http-headers.ts (`decorateCacheHit`)
+          // so its exact header set is pinned by test. Do NOT add headers
+          // here: anything set on this path bypasses that pin. In particular,
+          // never echo the cache key (F-23): `gw:<tenantId>:<path>:<query>`
+          // discloses the tenant id and the tutor's search terms.
+          decorateCacheHit(cached, requestId, performance.now() - t0);
           return addSecurityHeaders(req, cached, requestId);
         }
       }

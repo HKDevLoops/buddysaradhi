@@ -1,5 +1,83 @@
 import { logWarn, logError } from "./log.ts";
 
+/** Env read with the same shape as `readSecret` in lib/crypto.ts: Deno first,
+ *  empty string when unavailable (the vitest shim delegates `Deno.env.get` to
+ *  `process.env`, so tests override per-test). Read PER CALL, never at module
+ *  scope: an operator change (or a test) must take effect without a reboot,
+ *  and module-level reads cannot be overridden per test. */
+function readEnv(name: string): string {
+  if (typeof Deno === "undefined") return "";
+  try {
+    return Deno.env.get(name) || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * F-05b — operator-declared trusted proxies (`TRUSTED_PROXY_CIDRS`).
+ *
+ * The gateway cannot know its own deployment topology: on Cloudflare/Supabase
+ * Edge `cf-connecting-ip` is authoritative and `x-forwarded-for` is stripped
+ * unconditionally, but a self-hosted gateway behind nginx sees only the
+ * proxy's address as its peer and the client's address (if at all) inside
+ * `x-forwarded-for` — a header the client also writes. Trusting it blindly
+ * lets any caller rotate identities past the per-IP limiter; ignoring it
+ * always collapses every client behind the proxy into one `"unknown"` bucket.
+ * Neither default is right for every deployment, so the operator declares
+ * theirs: a comma-separated list of exact IPs and/or IPv4 CIDRs
+ * (e.g. `TRUSTED_PROXY_CIDRS=127.0.0.1/32,10.0.0.0/8`). Empty (the default)
+ * preserves exactly today's behavior — zero regression for anyone who does
+ * not opt in. Non-empty arms strict mode (see `getClientIp`).
+ */
+function trustedProxies(): string[] {
+  const raw = readEnv("TRUSTED_PROXY_CIDRS");
+  if (!raw.trim()) return [];
+  const out: string[] = [];
+  for (const part of raw.split(",")) {
+    const entry = part.trim();
+    if (!entry) continue;
+    if (entry.includes("/")) {
+      const [base, bits] = entry.split("/");
+      if (ipv4ToInt(base) === null || !/^\d{1,2}$/.test(bits) || Number(bits) > 32) {
+        logWarn("security.trusted_proxy_invalid", { entry });
+        continue;
+      }
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return null;
+    const v = Number(p);
+    if (v > 255) return null;
+    n = n * 256 + v;
+  }
+  return n >>> 0;
+}
+
+/** Exact match (covers IPv6 literals, which have no CIDR support here) or
+ *  IPv4 CIDR containment. Invalid entries never match — fail closed. */
+function cidrContains(cidr: string, ip: string): boolean {
+  const slash = cidr.indexOf("/");
+  if (slash < 0) return cidr === ip;
+  const base = ipv4ToInt(cidr.slice(0, slash));
+  const bits = Number(cidr.slice(slash + 1));
+  const addr = ipv4ToInt(ip);
+  if (base === null || addr === null || !Number.isInteger(bits) || bits < 0 || bits > 32) {
+    return false;
+  }
+  if (bits === 0) return true;
+  const mask = (0xffffffff << (32 - bits)) >>> 0;
+  return (base & mask) === (addr & mask);
+}
+
 const MAX_BODY_SIZE_BYTES = 1_048_576;
 const MAX_URL_LENGTH = 2048;
 const MAX_HEADER_VALUE_LENGTH = 4096;
@@ -114,9 +192,45 @@ function periodicSecurityCleanup(): void {
   }
 }
 
-function getClientIp(req: Request): string {
+/**
+ * Resolve the client IP for rate limiting and audit.
+ *
+ * Precedence is deliberate and ordered by trust:
+ * 1. `cf-connecting-ip` — written by the edge, unspoofable there. Unchanged.
+ * 2. Strict mode (`TRUSTED_PROXY_CIDRS` non-empty) with a `peer` transport
+ *    address: if the peer is a declared proxy, the client is the LAST
+ *    `x-forwarded-for` entry — the one OUR proxy appended (anything left of
+ *    it is caller-supplied noise). If the peer is NOT declared, the
+ *    connection is direct and any `x-forwarded-for` is attacker noise, so
+ *    the peer itself is the client.
+ * 3. Legacy default (no peer, or strict mode off): exactly today's chain —
+ *    first XFF entry, then `x-real-ip`, then `"unknown"`. Byte-for-byte the
+ *    old behavior for every deployment that does not opt in.
+ *
+ * `peer` is the transport peer (`info.remoteAddr.hostname` from
+ * `Deno.serve`), NOT a header — that is the whole point: headers are claims,
+ * the peer is a fact. Callers that cannot observe the peer (unit tests, the
+ * legacy path) omit it and get the legacy chain.
+ */
+export function getClientIp(req: Request, peer?: string, trusted?: string[]): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf && cf.trim()) return cf.trim();
+  const list = trusted ?? trustedProxies();
+  if (peer !== undefined && list.length > 0) {
+    if (list.some((c) => cidrContains(c, peer))) {
+      const xff = req.headers.get("x-forwarded-for");
+      if (xff) {
+        const parts = xff
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (parts.length > 0) return parts[parts.length - 1];
+      }
+      return peer;
+    }
+    return peer;
+  }
   return (
-    req.headers.get("cf-connecting-ip") ||
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     "unknown"
@@ -190,7 +304,7 @@ export function validateUrl(req: Request): SecurityCheckResult {
   return { allowed: true };
 }
 
-export function validateHeaders(req: Request): SecurityCheckResult {
+export function validateHeaders(req: Request, peer?: string): SecurityCheckResult {
   const dangerousHeaders = [
     "x-forwarded-host",
     "x-host",
@@ -214,24 +328,34 @@ export function validateHeaders(req: Request): SecurityCheckResult {
   // `X-Forwarded-For: <random>` per request gets a fresh limiter bucket every
   // time — the per-IP 100/min ceiling became unreachable.
   //
-  // Stripped ONLY when `cf-connecting-ip` is present, i.e. only when the edge
-  // already supplied a trustworthy address that takes precedence and the header
-  // is pure client-supplied noise. When it is absent we deliberately do NOT
-  // strip: removing it would collapse every client of a proxy-only deployment
-  // into a single `"unknown"` bucket, converting a fail-open control into a
-  // fail-closed outage. That residual case has a real trade-off and is recorded
-  // for owner decision in `docs/audit/REMEDIATION_PLAN.md` (F-05b) rather than
-  // silently resolved here.
-  if (req.headers.has("x-forwarded-for") && req.headers.has("cf-connecting-ip")) {
+  // Stripped when `cf-connecting-ip` is present, i.e. when the edge already
+  // supplied a trustworthy address that takes precedence and the header is
+  // pure client-supplied noise. F-05b closes the remaining case with an
+  // operator knob instead of a guess: in strict mode (`TRUSTED_PROXY_CIDRS`
+  // non-empty) with a known peer, an `x-forwarded-for` on a DIRECT connection
+  // (peer not declared) is known attacker noise — strip it so nothing
+  // downstream can misread it. On a declared-proxy connection the header is
+  // KEPT, because `getClientIp` reads the proxy-appended (last) entry from
+  // it. Default (strict mode off, or no peer observed): deliberately NOT
+  // stripped — removing it would collapse every client of a proxy-only
+  // deployment into a single `"unknown"` bucket, converting a fail-open
+  // control into a fail-closed outage.
+  const strictList = peer !== undefined ? trustedProxies() : [];
+  const strictUntrusted =
+    peer !== undefined && strictList.length > 0 && !strictList.some((c) => cidrContains(c, peer));
+  if (
+    req.headers.has("x-forwarded-for") &&
+    (req.headers.has("cf-connecting-ip") || strictUntrusted)
+  ) {
     logWarn("security.header_injection", {
       header: "x-forwarded-for",
-      clientIp: getClientIp(req),
+      clientIp: getClientIp(req, peer),
     });
     req.headers.delete("x-forwarded-for");
   }
   for (const header of dangerousHeaders) {
     if (req.headers.has(header)) {
-      const clientIp = getClientIp(req);
+      const clientIp = getClientIp(req, peer);
       logWarn("security.header_injection", { header, clientIp });
       req.headers.delete(header);
     }
@@ -411,19 +535,19 @@ export function getSecurityHeaders(): Record<string, string> {
   };
 }
 
-export function runSecurityChecks(req: Request): SecurityCheckResult {
+export function runSecurityChecks(req: Request, peer?: string): SecurityCheckResult {
   periodicSecurityCleanup();
 
   const sizeCheck = validateRequestSize(req);
   if (!sizeCheck.allowed) return sizeCheck;
 
-  const headerCheck = validateHeaders(req);
+  const headerCheck = validateHeaders(req, peer);
   if (!headerCheck.allowed) return headerCheck;
 
   const urlCheck = validateUrl(req);
   if (!urlCheck.allowed) return urlCheck;
 
-  const clientIp = getClientIp(req);
+  const clientIp = getClientIp(req, peer);
   const ipCheck = checkIpRateLimit(clientIp);
   if (!ipCheck.allowed) return ipCheck;
 

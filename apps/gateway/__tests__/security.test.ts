@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   validateRequestSize,
   validateUrl,
@@ -11,6 +11,7 @@ import {
   trackFailedAuth,
   clearFailedAuth,
   getSecurityHeaders,
+  getClientIp,
   runSecurityChecks,
   generateRequestId,
 } from "../lib/security.ts";
@@ -394,5 +395,95 @@ describe("generateRequestId", () => {
     const id1 = generateRequestId();
     const id2 = generateRequestId();
     expect(id1).not.toBe(id2);
+  });
+});
+
+describe("F-05b / client IP resolution with transport peer + trusted proxies", () => {
+  // The defect: `getClientIp` trusted `x-forwarded-for` unconditionally, so any
+  // caller rotated rate-limit identities per request by sending
+  // `X-Forwarded-For: <random>`. The fix anchors on the transport peer (a fact,
+  // not a claim) plus an operator-declared proxy set. Default (no env, no peer)
+  // is byte-for-byte the old chain — every test below that omits both asserts
+  // the legacy behavior did not move.
+  const saved = process.env.TRUSTED_PROXY_CIDRS;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TRUSTED_PROXY_CIDRS;
+    else process.env.TRUSTED_PROXY_CIDRS = saved;
+  });
+
+  function ipReq(headers: Record<string, string>): Request {
+    return makeRequest("https://example.com/api/v1/students", { headers });
+  }
+
+  it("cf-connecting-ip wins over everything, even in strict mode", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const req = ipReq({
+      "cf-connecting-ip": "203.0.113.9",
+      "x-forwarded-for": "198.51.100.7",
+    });
+    expect(getClientIp(req, "10.1.2.3")).toBe("203.0.113.9");
+  });
+
+  it("legacy default: first XFF entry, peer ignored when strict mode is off", () => {
+    delete process.env.TRUSTED_PROXY_CIDRS;
+    const req = ipReq({ "x-forwarded-for": "198.51.100.7, 10.0.0.1" });
+    // No peer, no env: exactly the old chain.
+    expect(getClientIp(req)).toBe("198.51.100.7");
+    // Even WITH a peer, strict mode off means the legacy chain (zero behavior
+    // change for deployments that do not opt in).
+    expect(getClientIp(req, "192.0.2.44")).toBe("198.51.100.7");
+  });
+
+  it("strict + trusted peer: client is the LAST XFF entry (the one our proxy appended)", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const req = ipReq({ "x-forwarded-for": "spoofed, 203.0.113.7" });
+    // Left entries are caller-supplied noise; the rightmost is what OUR proxy
+    // saw. Taking the first here would hand the attacker their chosen identity.
+    expect(getClientIp(req, "10.1.2.3")).toBe("203.0.113.7");
+  });
+
+  it("strict + trusted peer without XFF: the peer itself", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "127.0.0.1/32";
+    expect(getClientIp(ipReq({}), "127.0.0.1")).toBe("127.0.0.1");
+  });
+
+  it("strict + UNTRUSTED peer: spoofed XFF is ignored, peer is the client", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const req = ipReq({ "x-forwarded-for": "attacker-chosen" });
+    // The connection is direct (peer not declared) so the header is noise.
+    expect(getClientIp(req, "192.0.2.44")).toBe("192.0.2.44");
+  });
+
+  it("CIDR matching: /8, /24, /32, exact IPv6, and invalid entries dropped", () => {
+    process.env.TRUSTED_PROXY_CIDRS =
+      "10.0.0.0/8, 192.168.1.0/24, 127.0.0.1/32, ::1, not-a-cidr, 999.1.1.1/99";
+    const req = ipReq({ "x-forwarded-for": "a, b" });
+    expect(getClientIp(req, "10.9.9.9")).toBe("b");
+    expect(getClientIp(req, "192.168.1.200")).toBe("b");
+    expect(getClientIp(req, "127.0.0.1")).toBe("b");
+    expect(getClientIp(req, "::1")).toBe("b");
+    // 11.0.0.0 is outside 10/8: direct connection, XFF ignored.
+    expect(getClientIp(req, "11.0.0.1")).toBe("11.0.0.1");
+    // The garbage entries match nothing but do not break parsing.
+    expect(getClientIp(req, "not-an-ip")).toBe("not-an-ip");
+  });
+
+  it("validateHeaders strips XFF on a strict direct connection, keeps it via a declared proxy", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const direct = ipReq({ "x-forwarded-for": "attacker-chosen" });
+    validateHeaders(direct, "192.0.2.44");
+    expect(direct.headers.has("x-forwarded-for")).toBe(false);
+    const viaProxy = ipReq({ "x-forwarded-for": "spoofed, 203.0.113.7" });
+    validateHeaders(viaProxy, "10.1.2.3");
+    // Kept: getClientIp reads the proxy-appended last entry from it.
+    expect(viaProxy.headers.get("x-forwarded-for")).toBe("spoofed, 203.0.113.7");
+  });
+
+  it("runSecurityChecks reports the peer-derived clientIp", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const req = ipReq({ "x-forwarded-for": "attacker-chosen" });
+    const res = runSecurityChecks(req, "192.0.2.44");
+    expect(res.allowed).toBe(true);
+    expect(res.clientIp).toBe("192.0.2.44");
   });
 });

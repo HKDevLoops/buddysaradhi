@@ -76,3 +76,24 @@ export function addSecurityHeaders(req: Request, resp: Response, requestId: stri
     headers,
   });
 }
+
+/**
+ * Stamp a cache HIT before it goes through `addSecurityHeaders`.
+ *
+ * Extracted from `index.ts` for the same reason `addSecurityHeaders` was: the
+ * hit branch is untestable in place (module-scope `Deno.serve`), and the last
+ * defect here — F-23, the `X-Cache-Key` header echoing
+ * `gw:<tenantId>:<path>:<query>` — survived precisely because no test could
+ * reach the code that set it.
+ *
+ * Contract, pinned by `cache-security-headers.test.ts`: this adds EXACTLY two
+ * headers (`X-Response-Time`, `X-Request-Id`) and nothing else. In particular
+ * it MUST NOT echo the cache key, the tenant id, or the query string. A debug
+ * header that names the cache entry is a cross-tenant disclosure the moment a
+ * shared intermediary stores the response: nothing here varies on
+ * `Authorization`, and nothing consumed the old header.
+ */
+export function decorateCacheHit(cached: Response, requestId: string, dtMs: number): void {
+  cached.headers.set("X-Response-Time", `${dtMs.toFixed(2)}ms`);
+  cached.headers.set("X-Request-Id", requestId);
+}
