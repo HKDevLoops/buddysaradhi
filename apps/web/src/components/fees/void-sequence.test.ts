@@ -427,8 +427,14 @@ describe("BR-RC-01 — voiding a receipt consumes no number and returns no numbe
    * `Entry already voided (BR-LED-04) — no second reversing row posted`, matching
    * the error string `mapVoidGatewayError` in the web action already expects.
    */
-  test.fails(
-    "KNOWN P0: voiding an already-voided payment is NOT refused by voidEntry — it double-corrects",
+  // FIXED (F-07, packages/core/src/ledger.ts): `voidEntry` now checks whether
+  // any row already carries `void_of_id === entryToVoidId` and refuses the
+  // second void inside the same transaction. This test was `test.fails` while
+  // the guard was missing, per the comment block above; the guard landed, the
+  // marker flipped to failing, and the marker is now removed. The assertions
+  // below are unchanged — they always described the CORRECT contract.
+  test(
+    "BR-LED-04: voiding an already-voided payment is refused - no second reversing row",
     async () => {
       ({ client, dir } = await createTenantDb());
       const studentId = await addStudent(client, 500_000);
