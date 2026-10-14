@@ -241,11 +241,36 @@ async function dispatchGateway(
 
 type RouteCtx = { params: Promise<{ slug: string[] }> };
 
-async function getSlug(_req: NextRequest, ctx: RouteCtx): Promise<string[]> {
+/**
+ * The dynamic segment, or `[]` — which means "the root path".
+ *
+ * Two very different things land here and only one of them is an error:
+ *
+ *   - `ctx` / `ctx.params` being ABSENT is a defensive no-op. `?.` already covers
+ *     it and it is not worth a line in the audit trail.
+ *   - `await ctx.params` REJECTING is not. Next hands this handler a promise for
+ *     the matched segment; a rejection means the router could not resolve the
+ *     path at all. The old `catch {}` returned `[]` regardless, and `dispatch`
+ *     turns `[]` into the path `"/"` — so the request was silently forwarded to
+ *     the gateway as `/api/v1/`, a wrong endpoint that answers with whatever
+ *     status the gateway gives a path it does not know. A misrouted request with
+ *     no trace anywhere is precisely what Rule 9 / AP-9 forbid, so the
+ *     rejection is now reported on the `error` channel with the method that
+ *     triggered it, and the caller still gets the `[]` fallback rather than a
+ *     thrown route.
+ *
+ * `route.slug-params.test.ts` pins both halves: a rejecting `params` is logged,
+ * and an absent `ctx` is not.
+ */
+async function getSlug(req: NextRequest, ctx: RouteCtx): Promise<string[]> {
   try {
     const p = await ctx?.params;
     if (p?.slug && Array.isArray(p.slug)) return p.slug;
-  } catch {}
+  } catch (err) {
+    log.error("api_slug_params_unresolved", err instanceof Error ? err.message : String(err), {
+      method: req?.method ?? "UNKNOWN",
+    });
+  }
   return [];
 }
 
