@@ -130,7 +130,7 @@ beforeAll(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "f07-"));
   TEST_DB = join(tmpDir, "f07.db").replace(/\\/g, "/");
   DATABASE_URL = `file:${TEST_DB}`;
-  const runner = process.platform === "win32" ? "npx.cmd" : "npx";
+  const runner = "bunx"; // Package manager migrated pnpm -> bun: `npx(.cmd)` resolves binaries through `.bin/*.cmd` shims, which bun's native launcher layout does not create. `bunx` resolves from the workspace lockfile instead.
   execSync(`${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss`, {
     cwd: REPO,
     stdio: "ignore",

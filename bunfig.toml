@@ -1,0 +1,23 @@
+# Bun workspace configuration.
+#
+# WHY `linker = "hoisted"`.
+# The pnpm era ran with `.npmrc` containing `node-linker=hoisted`, so every
+# package in this repo was developed against a FLAT node_modules: `tsc`,
+# `eslint`, `vitest` and friends resolved from the root no matter which
+# workspace invoked them. (`packages/shared`'s `build` script is a bare `tsc`
+# with no path for exactly this reason.)
+#
+# Bun's default isolated linker materialises per-workspace copies behind
+# symlinks into a `.pnpm` store — and on this tree it wrote the symlinks
+# without the store (`packages/shared/node_modules/typescript` pointed at
+# `node_modules/.pnpm/typescript@7.0.2/...`, which was never created), so
+# every workspace `build`/`typecheck` died with MODULE_NOT_FOUND while the
+# root copy sat complete beside it.
+#
+# Hoisted matches the layout the code was written against, and it is also
+# what React Native/Metro wants (mobile resolves its many duplicate React
+# copies through hoisting, not isolation). Do not switch back to isolated
+# without auditing every bare-binary script (`tsc`, `eslint`, `oxlint`) in
+# every workspace package.json first.
+[install]
+linker = "hoisted"

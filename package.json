@@ -8,28 +8,39 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "bun": ">=1.4.0"
   },
-  "packageManager": "pnpm@11.15.0",
+  "packageManager": "bun@1.4.3",
+  "trustedDependencies": [
+    "@prisma/engines",
+    "@prisma/client",
+    "argon2",
+    "esbuild",
+    "prisma",
+    "sharp",
+    "unrs-resolver",
+    "puppeteer"
+  ],
   "prisma": {
     "seed": "bun run prisma/seed.ts"
   },
   "scripts": {
-    "postinstall": "prisma generate && pnpm --filter @buddysaradhi/shared build && pnpm --filter @buddysaradhi/core build",
-    "build": "pnpm --filter @buddysaradhi/design-system build && prisma generate && pnpm --filter web build",
-    "lint": "pnpm -r --if-present lint && node scripts/principle-lints.ts",
-    "lint:fix": "pnpm -r --if-present lint --fix",
-    "lint:principles": "node scripts/principle-lints.ts",
+    "postinstall": "prisma generate && bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build",
+    "build": "bun --filter @buddysaradhi/design-system build && prisma generate && bun --filter web build",
+    "lint": "bun --filter web lint && bun --filter product-page lint && bun --filter @buddysaradhi/gateway lint && bun --filter @buddysaradhi/core lint && bun --filter @buddysaradhi/shared lint && bun --filter @buddysaradhi/security lint && bun --filter desktop lint && bun --filter mobile lint && bun scripts/principle-lints.ts",
+    "lint:fix": "bun --filter web lint --fix && bun --filter product-page lint --fix && bun --filter @buddysaradhi/gateway lint --fix && bun --filter @buddysaradhi/core lint --fix && bun --filter @buddysaradhi/shared lint --fix && bun --filter @buddysaradhi/security lint --fix && bun --filter desktop lint --fix && bun --filter mobile lint --fix",
+    "lint:principles": "bun scripts/principle-lints.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm --filter @buddysaradhi/design-system build && pnpm --filter web typecheck && pnpm --filter @buddysaradhi/core typecheck",
+    "typecheck": "bun --filter @buddysaradhi/design-system build && bun --filter web typecheck && bun --filter @buddysaradhi/core typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
-    "test:a11y": "pnpm --filter web test:a11y",
-    "version:check": "node scripts/version-check.ts",
-    "cache:clean": "node scripts/cache-clean.mjs",
-    "cache:clean:apply": "node scripts/cache-clean.mjs --apply",
-    "cache:clean:watch": "node scripts/cache-clean.mjs --apply --interval 30",
+    "test:a11y": "bun --filter web test:a11y",
+    "version:check": "bun scripts/version-check.ts",
+    "cache:clean": "bun scripts/cache-clean.mjs",
+    "cache:clean:apply": "bun scripts/cache-clean.mjs --apply",
+    "cache:clean:watch": "bun scripts/cache-clean.mjs --apply --interval 30",
     "cache:clean:schedule": "powershell -ExecutionPolicy Bypass -File scripts/cache-clean-schedule.ps1 -Install",
     "cache:clean:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/cache-clean-schedule.ps1 -Uninstall",
     "prepare": "husky"
