@@ -84,6 +84,43 @@ function clampPage(page: unknown, pageSize: unknown) {
 }
 
 // ---- dependency-free GraphQL executor ----------------------------------------
+//
+// VENDORED DUPLICATE of `graphql/executor.ts`. This function is bundled on its
+// own, so it keeps its own copy of the executor and the resolvers; the two have
+// already drifted once (the `search` bound below, which `lib/sql.ts:1287` applies
+// and this copy did not), which is exactly why the LIMITS are asserted equal to
+// the canonical executor's by `__tests__/graphql-guard-limits.test.ts`.
+//
+// The limits themselves: 10_Security.md §7 + 17_API_Gateway_System.md §4 + AGENTS
+// §2 Rule 9. This copy previously had none of them — no depth ceiling, no
+// top-level field cap, no de-duplication, and a sequential `for … await` loop —
+// so `{students{…}}` repeated ~30 000 times drove ~60 000 serialised SQLite round
+// trips through one authenticated request, behind a rate limiter consulted once
+// before any of it started. See `graphql/executor.ts` for the full rationale.
+
+/** Must equal `MAX_SELECTION_DEPTH` in `graphql/executor.ts`. The declared
+ *  schema is 3 deep from `Query`; 8 refuses nothing it can express. */
+const MAX_SELECTION_DEPTH = 8;
+
+/** Must equal `MAX_TOP_LEVEL_FIELDS` in `graphql/executor.ts`. `type Query`
+ *  declares 4 fields, so 16 is four times the widest thing the schema can say. */
+const MAX_TOP_LEVEL_FIELDS = 16;
+
+/** A query refused before it reaches the database, reported in the GraphQL
+ *  `errors` envelope with no `data` key. See `graphql/executor.ts` for why a
+ *  limit is returned and a resolver failure is thrown. */
+class GraphQLLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GraphQLLimitError";
+  }
+}
+
+/** The search term bound `lib/sql.ts:1287` applies inside `stmtGraphqlStudents`.
+ *  This copy built its LIKE terms by hand and omitted it, so the two entrypoints
+ *  answered the same query differently for a term over 200 characters. */
+const MAX_SEARCH_CHARS = 200;
+
 interface Field {
   name: string;
   args: Record<string, unknown>;
@@ -118,7 +155,14 @@ function parseArgs(argStr: string, variables: Record<string, unknown>): Record<s
   return out;
 }
 
-function tokenizeSelection(s: string): Field[] {
+/** `depth` is the depth of the fields produced here, so the first call is 1 and
+ *  both caps are enforced on the way IN, not on the finished tree. `variables`
+ *  is the caller's real variables — see `graphql/executor.ts` for why. */
+function tokenizeSelection(
+  s: string,
+  variables: Record<string, unknown>,
+  depth: number,
+): Field[] {
   const fields: Field[] = [];
   let i = 0;
   while (i < s.length) {
@@ -131,31 +175,48 @@ function tokenizeSelection(s: string): Field[] {
     }
     let args: Record<string, unknown> = {};
     if (s[i] === "(") {
-      let depth = 0;
+      let parenDepth = 0;
       let j = i;
       for (; j < s.length; j++) {
-        if (s[j] === "(") depth++;
+        if (s[j] === "(") parenDepth++;
         else if (s[j] === ")") {
-          depth--;
-          if (depth === 0) break;
+          parenDepth--;
+          if (parenDepth === 0) break;
         }
       }
-      args = parseArgs(s.slice(i + 1, j), {});
+      args = parseArgs(s.slice(i + 1, j), variables);
       i = j + 1;
     }
     let selection: Field[] = [];
     if (s[i] === "{") {
-      let depth = 0;
+      let braceDepth = 0;
       let j = i;
       for (; j < s.length; j++) {
-        if (s[j] === "{") depth++;
+        if (s[j] === "{") braceDepth++;
         else if (s[j] === "}") {
-          depth--;
-          if (depth === 0) break;
+          braceDepth--;
+          if (braceDepth === 0) break;
         }
       }
-      selection = tokenizeSelection(s.slice(i + 1, j));
+      // Refuse BEFORE recursing: each level re-slices the rest of the string, so
+      // an unbounded body is quadratic to tokenise even before a row is read.
+      if (depth + 1 > MAX_SELECTION_DEPTH) {
+        throw new GraphQLLimitError(
+          `QUERY_TOO_DEEP: selection nesting exceeds the depth limit of ` +
+            `${MAX_SELECTION_DEPTH}. The declared schema is 3 deep from Query.`,
+        );
+      }
+      selection = tokenizeSelection(s.slice(i + 1, j), variables, depth + 1);
       i = j + 1;
+    }
+    // Top level only; a nested set is bounded by the schema's own field names.
+    // Enforced on the 17th field so a 30 000-field body never gets to build
+    // 30 000 objects before it is refused.
+    if (depth === 1 && fields.length >= MAX_TOP_LEVEL_FIELDS) {
+      throw new GraphQLLimitError(
+        `QUERY_TOO_COMPLEX: more than ${MAX_TOP_LEVEL_FIELDS} top-level fields. ` +
+          `The declared schema has 4.`,
+      );
     }
     fields.push({ name, args, selection });
   }
@@ -190,6 +251,22 @@ function project(field: Field, value: unknown): unknown {
     out[sub.name] = project(sub, (value as Record<string, unknown>)[sub.name]);
   }
   return out;
+}
+
+/** Canonical form of one field's EFFECTIVE arguments, so two occurrences with
+ *  the same arguments share one resolver call. Keys are sorted because
+ *  `JSON.stringify` preserves insertion order. The value came from parsed JSON,
+ *  so it is acyclic by construction. */
+function canonicalArgs(value: Record<string, unknown>): string {
+  return JSON.stringify(value, (_key: string, val: unknown): unknown =>
+    val !== null && typeof val === "object" && !Array.isArray(val)
+      ? Object.fromEntries(
+        Object.entries(val as Record<string, unknown>).sort(([a], [b]) =>
+          a < b ? -1 : a > b ? 1 : 0
+        ),
+      )
+      : val,
+  );
 }
 
 // ---- resolvers ----------------------------------------------------------------
@@ -238,13 +315,16 @@ const resolvers: Record<string, (args: any, ctx: any) => Promise<unknown>> = {
     const { p, ps, from } = clampPage(args.page, args.pageSize);
     const where = ["tenant_id = ?", "archived_at IS NULL"];
     const a: unknown[] = [ctx.tenantId];
-    if (args.search) {
+    // The same 200-character bound `lib/sql.ts:1287` applies inside
+    // `stmtGraphqlStudents`. This copy built its LIKE terms by hand and omitted
+    // it, so a long term was answered differently here than on the REST
+    // entrypoint — one field name, two different results.
+    const search = typeof args.search === "string"
+      ? args.search.toLowerCase().slice(0, MAX_SEARCH_CHARS)
+      : "";
+    if (search.length > 0) {
       where.push("(LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ? OR code LIKE ?)");
-      a.push(
-        `%${args.search.toLowerCase()}%`,
-        `%${args.search.toLowerCase()}%`,
-        `%${args.search.toLowerCase()}%`,
-      );
+      a.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
     const rows = await allRows(
       ctx.db,
@@ -320,16 +400,62 @@ async function execLocal(
   variables: Record<string, unknown>,
   ctx: { db: DB; tenantId: string | null },
 ): Promise<{ data?: Record<string, unknown>; errors?: { message: string }[] }> {
-  const top = tokenizeSelection(queryBody(query));
-  const data: Record<string, unknown> = {};
+  // Both caps are enforced inside the tokenizer, so an over-budget query is
+  // refused before a single statement is built.
+  let top: Field[];
+  try {
+    top = tokenizeSelection(queryBody(query), variables, 1);
+  } catch (err) {
+    if (err instanceof GraphQLLimitError) return { errors: [{ message: err.message }] };
+    throw err;
+  }
+
+  // De-duplication keyed on the EFFECTIVE arguments, and concurrency. Every
+  // resolver below is a read, so the distinct calls are independent and the
+  // libSQL client takes concurrent `execute` calls on one handle. `$var` in an
+  // argument position now resolves from the caller's variables, which it did
+  // not before — see `graphql/executor.ts` for the full note.
+  const slots: Array<{ field: Field; promise: Promise<unknown> | null }> = [];
+  const inFlight = new Map<string, Promise<unknown>>();
   for (const f of top) {
     const resolver = resolvers[f.name];
     if (!resolver) {
-      data[f.name] = null;
+      slots.push({ field: f, promise: null });
       continue;
     }
-    const value = await resolver({ ...f.args, ...variables }, ctx);
-    data[f.name] = project(f, value);
+    const effective: Record<string, unknown> = { ...f.args, ...variables };
+    const key = `${f.name}|${canonicalArgs(effective)}`;
+    let promise = inFlight.get(key);
+    if (!promise) {
+      promise = resolver(effective, ctx);
+      inFlight.set(key, promise);
+    }
+    slots.push({ field: f, promise });
+  }
+
+  // Settle each individually so one rejection cannot go unhandled while its
+  // siblings are still in flight.
+  const settled = await Promise.all(
+    slots.map(async (slot): Promise<{ ok: true; value: unknown } | { ok: false; err: unknown }> => {
+      if (slot.promise === null) return { ok: true, value: null };
+      try {
+        return { ok: true, value: await slot.promise };
+      } catch (err) {
+        return { ok: false, err };
+      }
+    }),
+  );
+
+  // Re-throw the FIRST failure IN FIELD ORDER — what the old sequential loop
+  // did — so concurrency does not change which error a failing query reports.
+  const data: Record<string, unknown> = {};
+  for (let i = 0; i < slots.length; i += 1) {
+    const outcome = settled[i];
+    const slot = slots[i];
+    // SAFETY: `Promise.all` resolves to exactly one entry per input, in order.
+    if (!outcome || !slot) break;
+    if (!outcome.ok) throw outcome.err;
+    data[slot.field.name] = project(slot.field, outcome.value);
   }
   return { data };
 }
