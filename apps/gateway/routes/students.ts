@@ -662,13 +662,22 @@ const STUDENT_CREATE_SCHEMA = STUDENT_PATCH_SCHEMA.refine(
       // may use either key spelling; the stored payload is always snake_case
       // with sorted keys.
       //
-      // `{ ...body, id }` — the client's own `id` (if it sent one) is REPLACED
-      // by the minted id before it is encoded. Without the override the payload
-      // would describe a row with a different primary key than the row this
-      // transaction just inserted, and a replay would recreate the caller-named
-      // id instead of this one (BR-SYN-02: the payload is the row).
-      await recordOutbox(tx, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", { ...body, id }).payload);
-      await recordAudit(tx, tenantId, tenantId, "student.create", "student", id, body);
+      // `{ ...b, id }` - the VALIDATED data (`b`, not the raw `body`), with the
+      // minted id overriding. Two properties in one line:
+      // (a) unknown client keys never reach the outbox: `encodeOutboxPayload`
+      // case-folds and sorts but does not allowlist, so spreading the raw body
+      // persisted every unknown key a client sent into a row the client can
+      // read back (F-20); `b` carries only schema keys.
+      // (b) the client's own `id` (if it sent one) is REPLACED by the minted
+      // id before encoding. Without the override the payload would describe a
+      // row with a different primary key than the row this transaction just
+      // inserted, and a replay would recreate the caller-named id instead of
+      // this one (BR-SYN-02: the payload is the row).
+      await recordOutbox(tx, tenantId, "students", id, "create", encodeOutboxPayload("students", "create", { ...b, id }).payload);
+      // F-20: the audit metadata is the VALIDATED data, never the raw body.
+      // `body` is pre-Zod JSON: every unknown key the client sent was stored
+      // verbatim in a table the client can read back.
+      await recordAudit(tx, tenantId, tenantId, "student.create", "student", id, b);
       // RFC-004 C1 — response bytes commit atomically with the create (see
       // routes/ledger.ts payment path). A concurrent duplicate rolls back
       // here and replays the winner (K2/K3) via the catch below.

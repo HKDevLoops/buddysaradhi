@@ -286,7 +286,10 @@ Deno.serve(async (req: Request) => {
         if (cached) {
           const dt = performance.now() - t0;
           cached.headers.set("X-Response-Time", `${dt.toFixed(2)}ms`);
-          cached.headers.set("X-Cache-Key", cKey);
+          // F-23: NO `X-Cache-Key` header. It used to echo the full cache key
+          // (`gw:<tenantId>:<path>:<query>`) — disclosing the tenant id and the
+          // tutor's search terms (potentially a student's name) in a response
+          // header to anyone who can read responses. Nothing consumed it.
           cached.headers.set("X-Request-Id", requestId);
           return addSecurityHeaders(req, cached, requestId);
         }

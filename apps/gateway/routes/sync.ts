@@ -17,13 +17,34 @@ const SyncFlushSchema = z.object({
   ids: z.array(z.string().uuid()).max(500, "ids exceeds the 500-id flush limit").default([]),
 });
 
+// F-19.2 sibling: `?limit=` is Zod-parsed from the RAW string (digits-only,
+// `0` rejected) before any arithmetic — the same shape as
+// NOTIFICATION_LIMIT_SCHEMA in routes/notifications.ts. The old
+// `Math.min(500, parseInt(...))` turned `?limit=abc` into NaN, NaN reached the
+// audited builder's `LimitSchema.parse`, the ZodError escaped the route, and
+// the caller got a generic 500 — indistinguishable from a broken database.
+const SYNC_LIMIT_SCHEMA = z.object({
+  limit: z
+    .string()
+    .regex(/^[0-9]{1,6}$/, "limit must be a whole number of rows")
+    .refine((v) => !/^0+$/.test(v), "limit must be at least 1")
+    .optional(),
+});
+const SYNC_LIMIT_DEFAULT = 100;
+const SYNC_LIMIT_MAX = 500;
+
 export const handleSync: RouteHandler = async (req, db, tenantId, path, method, url) => {
   const sp = url.searchParams;
   const orm = createPrismaOrm(db, tenantId);
 
   // GET /api/v1/sync/outbox
   if (path === "/api/v1/sync/outbox" && method === "GET") {
-    const limit = Math.min(500, parseInt(sp.get("limit") ?? "100", 10));
+    const parsedLimit = SYNC_LIMIT_SCHEMA.safeParse({ limit: sp.get("limit") ?? undefined });
+    if (!parsedLimit.success) return failZod(parsedLimit.error);
+    const limit = Math.min(
+      SYNC_LIMIT_MAX,
+      parsedLimit.data.limit === undefined ? SYNC_LIMIT_DEFAULT : parseInt(parsedLimit.data.limit, 10),
+    );
     const rows = await orm.syncOutbox.findMany({
       where: { status: "pending" },
       take: limit,

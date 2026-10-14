@@ -630,7 +630,16 @@ export const handleAttendance: RouteHandler = async (req, db, tenantId, path, me
           }
         }
 
-        await recordOutbox(tx, tenantId, "attendance_sessions", String(sid), "update", body);
+        // F-20: the outbox payload is the VALIDATED fragment, never the raw
+        // body. `body` is pre-Zod JSON; `parsed.data` is what was actually
+        // written (session + records), so it is also what a replay must see
+        // (BR-SYN-02). Unknown client keys are dropped at the schema, not
+        // stored.
+        await recordOutbox(tx, tenantId, "attendance_sessions", String(sid), "update", {
+          session_id: String(sid),
+          session_date: parsed.data.session_date,
+          updates: parsed.data.updates,
+        });
         await recordAudit(tx, tenantId, tenantId, "attendance.mark", "session", String(sid), { count: updates.length });
         // RFC-004 C1 — response bytes commit atomically with the mark (see
         // routes/ledger.ts payment path). The lock-conflict above aborts
