@@ -3,6 +3,7 @@ import { ok, fail, failValidation } from "../lib/errors.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import { logWarn } from "../lib/log.ts";
 import { checkRateLimit, constantTimeCompare } from "../lib/crypto.ts";
+import { withWriteTransaction } from "../lib/tx.ts";
 import {
   eraseTables,
   oneRow,
@@ -68,10 +69,10 @@ import {
 // no PIN at all.
 export const handleSecurity: RouteHandler = async (req, db, tenantId, path, method) => {
   if (path === "/api/v1/security/erase" && method === "POST") {
-    // RFC-004 C1 — fail-closed like every mutating route. The erase flow is
-    // not a single `withWriteTransaction` (it cascades via `db.batch`), so the
-    // key+response persist in a standalone INSERT after the cascade: a missed
-    // store only risks REPEATING an erase that is naturally idempotent
+    // RFC-004 C1 — fail-closed like every mutating route. The erase flow commits
+    // initiated + cascade + complete in a single `withWriteTransaction` (F-27),
+    // so the key+response persist in a standalone INSERT after the commit: a
+    // missed store only risks REPEATING an erase that is naturally idempotent
     // (re-deleting nothing), never a duplicate effect.
     const idemKey = requireIdempotencyKey(req);
     if (idemKey instanceof Response) return idemKey;
@@ -155,50 +156,59 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
     }
 
     // 10_Security.md 18.1 step 2 / BR-SEC-03: erase intent is recorded BEFORE
-    // any deletion, fail-closed — this insert is deliberately uncaught, so a
-    // failed audit write aborts the erase while nothing has been destroyed.
-    // Committed on its own rather than folded into the cascade batch: a
-    // rollback that took the intent row with it would leave no forensic record
-    // of an erase that was attempted and failed partway.
+    // any deletion, fail-closed — a failed audit write aborts the erase while
+    // nothing has been destroyed.
+    //
+    // F-27: initiated + cascade + complete commit in ONE write transaction
+    // (`withWriteTransaction` — the same mechanism the ledger/fee/attendance
+    // routes use; sibling routes confirmed it first). The tx handle exposes
+    // only `execute`, not `batch`, so the cascade runs as sequential audited
+    // deletes (`stmtEraseTable`, the same builders the batch used) inside the
+    // tx instead of a standalone `db.batch`. The previous shape committed
+    // `erase_initiated` standalone BEFORE the cascade and `erase_complete`
+    // after, so a crash between the commits left a row asserting an erase
+    // that never happened. Now a crash anywhere before COMMIT leaves nothing:
+    // initiated-without-complete is unobservable. The post-commit state is
+    // unchanged (the cascade wipes `audit_log`, so only `erase_complete`
+    // survives either way).
     // `run()` (lib/sql.ts transport) takes `unknown[]` args, so the audited
     // builder output needs no cast — unlike `db.execute`'s narrow `InArgs`.
     // Metadata records only that a PIN EXISTS, never anything derived from it.
-    const initiatedAt = new Date().toISOString();
-    const initiatedStmt = stmtSecurityAuditInsert(
-      tenantId,
-      "security.erase_initiated",
-      JSON.stringify({ confirm, pinConfigured: true }),
-      initiatedAt
-    );
-    await run(db, initiatedStmt.sql, initiatedStmt.args);
-
-    // 10_Security.md 18.1 step 4 — ONE atomic cascade (libsql batch = single
-    // transaction) over every tenant-scoped runtime table (lib/schema.ts).
-    // LEDGER-4's single audited exception: physical ledger deletion exists only
-    // in the secure-erase flow; every other path posts a void.
     const tables = [...eraseTables()];
-    await db.batch(
-      tables.map((table) => {
+    const initiatedAt = new Date().toISOString();
+    await withWriteTransaction(db, async (tx) => {
+      const initiatedStmt = stmtSecurityAuditInsert(
+        tenantId,
+        "security.erase_initiated",
+        JSON.stringify({ confirm, pinConfigured: true }),
+        initiatedAt,
+      );
+      await run(tx, initiatedStmt.sql, initiatedStmt.args);
+
+      // 10_Security.md 18.1 step 4 — the cascade (lib/schema.ts table order is
+      // child-before-parent with foreign keys enabled).
+      // LEDGER-4's single audited exception: physical ledger deletion exists
+      // only in the secure-erase flow; every other path posts a void.
+      for (const table of tables) {
         // SAFETY: `tables` comes from `eraseTables()` (audited allowlist in
         // lib/sql.ts) — every element is a valid erase-table union member; and
         // every builder arg is a Zod-validated string/number/null, which is
         // exactly libsql's `InValue` (the `unknown[]` is only wider for the
         // dependency-free `SqlHandle` transport).
         const stmt = stmtEraseTable(table as never, tenantId);
-        return { sql: stmt.sql, args: stmt.args as never[] };
-      }),
-      "write",
-    );
+        await run(tx, stmt.sql, stmt.args);
+      }
 
-    // 18.1 step 7: erase_complete recorded AFTER the cascade — it and
-    // erase_initiated's pre-wipe attempt are what remain of the audit chain.
-    const completeStmt = stmtSecurityAuditInsert(
-      tenantId,
-      "security.erase_complete",
-      JSON.stringify({ tables }),
-      new Date().toISOString()
-    );
-    await run(db, completeStmt.sql, completeStmt.args);
+      // 18.1 step 7: erase_complete recorded in the SAME commit — it and
+      // erase_initiated's pre-wipe attempt are what remain of the audit chain.
+      const completeStmt = stmtSecurityAuditInsert(
+        tenantId,
+        "security.erase_complete",
+        JSON.stringify({ tables }),
+        new Date().toISOString(),
+      );
+      await run(tx, completeStmt.sql, completeStmt.args);
+    });
 
     invalidateTenant(tenantId);
     const env = okEnvelope(200, { success: true });

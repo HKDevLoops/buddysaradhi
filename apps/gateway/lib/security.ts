@@ -94,21 +94,34 @@ const SQL_INJECTION_PATTERNS = [
   /(--|\/\*|\*\/|;\s*(DROP|DELETE|UPDATE|ALTER|TRUNCATE))/i,
   /(\b(OR|AND)\b\s+['"]?\d+['"]?\s*=\s*['"]?\d+['"]?)/i,
   /('|")\s*(OR|AND)\s*('|")/i,
-  /CHAR\s*\(/i,
-  /0x[0-9a-f]+/i,
+  // F-33: `/CHAR\s*\(/i` removed — it rejected legitimate tutor notes containing
+  // the substring "char (" (e.g. an activity note "Main char (Aarav) needs a
+  // costume"). A bare function-name substring with no quote/terminator context
+  // is not a reliable injection signal; the surviving UNION/OR/quote patterns
+  // still catch genuine injection.
+  // F-33: `/0x[0-9a-f]+/i` removed — it rejected legitimate hexadecimal text
+  // such as a computing tutor's note "Revise 0xFF hex conversions" or a fee
+  // reference code like "0x1A3F". Hex-looking tokens appear in ordinary notes;
+  // the surviving patterns still catch genuine injection.
   /\bxp_cmdshell\b/i,
 ];
 
 const XSS_PATTERNS = [
   /<script[\s>]/i,
   /javascript\s*:/i,
-  /on\w+\s*=/i,
+  // F-33: `/on\w+\s*=/i` removed — it rejected ordinary prose that names a day
+  // or item before "=" (e.g. "Monday = holiday, class moved" matches via
+  // "onday =", "Stationery = issued" via "onery ="). Event-handler XSS without
+  // a "<" tag context is still caught by the surviving tag-specific patterns.
   /<iframe[\s>]/i,
   /<object[\s>]/i,
   /<embed[\s>]/i,
   /<link[\s>]/i,
   /expression\s*\(/i,
-  /url\s*\(/i,
+  // F-33: `/url\s*\(/i` removed — it rejected legitimate notes containing
+  // "url (" (e.g. "share the receipt url (drive link) with the parent") and a
+  // computing tutor's CSS "background: url(...)". The surviving `javascript:`
+  // and tag patterns still catch genuine XSS vectors.
   /<svg[\s>]/i,
   /<img[\s>]+[^>]+onerror/i,
   /<body[\s>]+[^>]+onload/i,
@@ -491,6 +504,30 @@ export function validateTimestamp(timestamp: string | null): SecurityCheckResult
   return { allowed: true };
 }
 
+/**
+ * F-13: whether an auth-stage failure feeds the consecutive-failure lockout.
+ *
+ * Only CREDENTIAL failures count (`UNAUTHENTICATED`, `AUTH_REQUIRED` — the
+ * codes `authenticateRequest` throws when the caller's credential is missing
+ * or wrong). A server-side misconfiguration (`INTERNAL`) or an already
+ * throttled client (`RATE_LIMITED`) is not a guess, so neither may push a key
+ * toward lockout — otherwise one bad deploy (or one throttled NAT) would
+ * convert every subsequent request into a 429 masking the real cause.
+ */
+export function isCredentialFailure(code: string): boolean {
+  return code === "UNAUTHENTICATED" || code === "AUTH_REQUIRED";
+}
+
+/**
+ * F-13: the key is a PRE-IDENTITY stable identity — the caller passes the
+ * per-IP client key `runSecurityChecks` resolved (the same identity
+ * `checkIpRateLimit` uses), NOT a verified tenant. On the failure path no
+ * tenant has been established yet (authentication threw), so keying by
+ * anything derived from the credential would hand the attacker their own
+ * bucket rotation. Consecutive failures accumulate per key; a success clears
+ * the key (10_Security.md §3.5 cumulative-count-resets-on-success,
+ * server-side analogue). Threshold: 15 consecutive failures.
+ */
 export function trackFailedAuth(tenantId: string): { locked: boolean; attempts: number } {
   const now = Date.now();
   const entry = failedAuthMap.get(tenantId);

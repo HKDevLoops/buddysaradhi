@@ -25,6 +25,7 @@ import {
   generateRequestId,
   trackFailedAuth,
   clearFailedAuth,
+  isCredentialFailure,
 } from "./lib/security.ts";
 
 import { handleStudents } from "./routes/students.ts";
@@ -263,14 +264,42 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
       "";
     if (!dbUrl || !dbToken) return addSecurityHeaders(req, fail("DB_NOT_PROVISIONED: tenant database not provisioned", 401), requestId);
 
-    const { tenantId } = await authenticateRequest(req);
-    logCtx.tenantId = tenantId;
-
-    const authCheck = trackFailedAuth(tenantId);
-    if (authCheck.locked) {
-      return addSecurityHeaders(req, securityFail(429, requestId), requestId);
+    // F-13: the 15-attempt lockout tracks AUTH FAILURES keyed by the
+    // pre-identity stable key (the same per-IP identity `checkIpRateLimit`
+    // uses — `secCheck.clientIp`, resolved from the transport peer before any
+    // credential is read). The previous shape tracked AFTER a successful
+    // `authenticateRequest` and cleared in the same request, so the counter
+    // never exceeded 1 and the lockout was unreachable dead code. Keying must
+    // be pre-identity: on the failure path there IS no verified tenant yet,
+    // and keying by a caller-supplied header would hand the attacker their
+    // own bucket rotation.
+    const authLockKey = secCheck.clientIp ?? "unknown";
+    let tenantId: string;
+    try {
+      tenantId = (await authenticateRequest(req)).tenantId;
+    } catch (err) {
+      // Rule 9: only credential failures feed the lockout (`isCredentialFailure`
+      // in lib/security.ts names the policy). Anything else rethrows to the
+      // outer handler, which renders the original typed error unchanged.
+      if (err instanceof AuthError && isCredentialFailure(err.code)) {
+        const failCheck = trackFailedAuth(authLockKey);
+        if (failCheck.locked) {
+          logWarn("security.auth_lockout", {
+            ...logCtx,
+            clientIp: authLockKey,
+            attempts: failCheck.attempts,
+          });
+          return addSecurityHeaders(req, securityFail(429, requestId), requestId);
+        }
+      }
+      throw err;
     }
-    clearFailedAuth(tenantId);
+    logCtx.tenantId = tenantId;
+    // Success resets this key's consecutive-failure count (10_Security.md §3.5
+    // cumulative-count-resets-on-success, server-side analogue), so a tutor
+    // who mistypes and then signs in correctly is never locked out by their
+    // own earlier attempts.
+    clearFailedAuth(authLockKey);
 
     if (MUTATION_METHODS.has(method)) {
       const nonce = req.headers.get("x-nonce") || req.headers.get("X-Nonce");
