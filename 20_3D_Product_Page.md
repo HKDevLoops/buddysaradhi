@@ -516,6 +516,21 @@ FM-21; `gsap.context` + `ctx.revert()` + `io.disconnect()` per FM-15;
 4. **Climax `0.70-0.85`** — Staffroom cluster, every tutor on BuddySaradhi.
 5. **Reveal `0.85-1.00`** — zoom into 5 screens: Dashboard->Students->Attendance->Fees->Settings + optional `WASD/E` walk (Graffico).
 
+**The /story expansion (amended 2026-10-14, owner-authorized):** the five
+beats above remain the HERO's map (the / front door keeps them verbatim).
+They are joined by a second, longer telling at /story: FIFTY beats across
+five acts (The Hunt 1-9, The Chaos 10-20, The Turn 21-30, The Relief 31-40,
+The Five Screens 41-50), each beat owning its camera framing (mandatory look
+target, damped look-ahead, per-beat FOV/roll) and a seeker built from
+primitives with per-act pose keyframes. Contract: `docs/plans/
+ANIMATION_MODEL_BRIEF.md` (narrative + camera + character + budgets);
+implementation: `HKDevLoops/buddysaradhi-product` `src/components/story/`
+(beats/camera-rig/camera-math/character/act-directives/story-canvas/
+story-experience/scene-geometry) + `src/app/story/` + `tests/beats,
+camera-rig, performance` (25 tests, each with a verified negative control).
+This section does NOT replace the 5-beat map — it scopes it: 5 beats is the
+hero, 50 beats is the story.
+
 **Assets:** code-first ONLY (amended 2026-10-04). `LedgerCard,
 AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls`-style
 pinning is DOM buttons → `scrollTo` plus the GSAP scrub proxy (no
