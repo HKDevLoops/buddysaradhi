@@ -275,27 +275,50 @@ describe("the p95 aggregator's outlier policy (the flake, made visible)", () => 
     };
   }
 
+  // TIMING ARITHMETIC — read this before changing any number below.
+  //
+  // These two tests spin on the wall clock, so their cost is not a budget you
+  // can assume; it is the sum of their own busy-waits. At the durations this
+  // file originally used — clean = 1ms, outlier = 50ms — the first test cost
+  // 21 × 200 × 1ms = 4,200ms, plus 21 × (199 × 1ms + 50ms) = 5,229ms, i.e.
+  // ~9.4 seconds against a 5,000ms default timeout. It could not pass anywhere.
+  // The durations are therefore scaled down while every RATIO the assertions
+  // depend on is preserved exactly: the outlier stays 50x a clean batch, and
+  // the regression case stays 20x. Because both assertions are relative (they
+  // compare two measurements taken in the same run), scaling the absolute
+  // spin down changes how long the suite takes and nothing about what it
+  // asserts — total cost falls from ~13.8s to ~3.7s with the thresholds
+  // untouched. Shrinking further would start measuring clock granularity
+  // rather than the aggregator, which is the mistake this file exists to undo.
+  const CLEAN_MS = 0.2;
+  const OUTLIER_MS = CLEAN_MS * 50;
+  const CHEAP_MS = 0.02;
+  const SLOW_MS = CHEAP_MS * 20;
+
   it("excludes a single pathological batch — the shape of an OS preemption", () => {
-    const uniform = p95PerOp(busy(1), 20);
+    const uniform = p95PerOp(busy(CLEAN_MS), 20);
 
     let call = 0;
-    // Every batch ~1ms except one ~50ms — one preemption among a clean run.
+    // Every batch is clean except one, which is 50x the others — the shape of
+    // a single preemption in an otherwise clean run.
     const withOutlier = p95PerOp(() => {
       call += 1;
-      busy(call === BATCH ? 50 : 1)();
+      busy(call === BATCH ? OUTLIER_MS : CLEAN_MS)();
     }, 20);
 
-    // The outlier is 50x a clean batch. Included, it would show as ~2.5ms/op and
-    // fail the <0.5ms budgets that guard this codebase. Excluded, the figure
-    // stays at the uniform cost.
+    // The outlier batch costs ~1.25x a clean batch once amortised over its 200
+    // ops. Had the percentile resolved to the maximum — which it did, when
+    // BATCHES was 7 and the floor index landed on 6 — `withOutlier` would carry
+    // that cost and fail the <0.5ms budgets that guard this codebase. Excluded,
+    // the figure stays at the uniform cost.
     expect(withOutlier).toBeLessThan(uniform * 3);
   });
 
   it("still reports uniform cost — the shape of a real regression", () => {
     // The counterpart that matters: a slowdown affecting EVERY batch is what a
     // genuine regression looks like, and it must NOT be smoothed away.
-    const cheap = p95PerOp(busy(0.05), 20);
-    const slow = p95PerOp(busy(1), 20);
+    const cheap = p95PerOp(busy(CHEAP_MS), 20);
+    const slow = p95PerOp(busy(SLOW_MS), 20);
     // 20x more work per op must show up as a clearly larger measurement even when
     // the machine is busy, because both numbers were taken under the same load.
     expect(slow).toBeGreaterThan(cheap * 4);
