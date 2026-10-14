@@ -99,9 +99,16 @@ function emit(entry: LogPayload): void {
 }
 
 /** Resolved per call (never hoisted) so a test spy on `console` is honoured. */
+// eslint-disable-next-line no-console -- THE sanctioned sink: this module IS
+// the typed logger Rule 9 mandates (`log.info/warn/error`), and platform logs
+// are its only transport since the audit-log fan-out was removed by design.
+// Every other `console` in shipped code is an error; this one is the rule.
 function streamFor(level: LogLevel): (...args: unknown[]) => void {
+  // eslint-disable-next-line no-console -- see above: the sanctioned sink.
   if (level === 'error') return console.error;
+  // eslint-disable-next-line no-console -- see above: the sanctioned sink.
   if (level === 'warn') return console.warn;
+  // eslint-disable-next-line no-console -- see above: the sanctioned sink.
   return console.info;
 }
 export const log = {

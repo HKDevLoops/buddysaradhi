@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "**/.next/**",
+    "out/**",
+    "dist/**",
+    "build/**",
+    ".turbo/**",
+    "coverage/**",
+    "playwright-report/**",
+    "test-results/**",
+    "blob-report/**",
+    ".vercel/**",
+    "scratch/**",
+    "reference-implementations/**",
+    "testsprite_tests/**",
+    ".claude/**",
+    ".agents/**",
+    ".agent/**",
+    ".kilo/**",
+    ".opencode/**",
+    ".github/skills/**",
+    ".testsprite/**",
+    ".ruff_cache/**",
+    ".playwright-mcp/**",
+    ".freebuff/**"
+  ],
+  "rules": {
+    "no-console": "error",
+    "no-empty": "error"
+  },
+  "overrides": [
+    {
+      // CLI / dev scripts TALK through stdout: console is their interface,
+      // not a telemetry leak. Rule 9 governs shipped product code; a seed
+      // script that cannot log is a broken script.
+      "files": [
+        "scripts/**/*",
+        "apps/web/scripts/**/*",
+        "packages/design-system/scripts/**/*",
+        "diagnose.ts",
+        "refactor.ts",
+        "scaffold.ts",
+        "apps/web/debug-errors.ts",
+        "prisma/**/*"
+      ],
+      "rules": { "no-console": "off" }
+    },
+    {
+      // Tests log for debugging; isolated dev tooling is not the product.
+      "files": ["**/*.test.ts", "**/*.spec.ts", "apps/web/tests/**/*", "tools/**/*"],
+      "rules": { "no-console": "off" }
+    },
+    {
+      // Quarantined legacy service stubs (AGENTS.md §9.3: outside the WEB
+      // boundary, pending an owner spec decision — not edited, not shipped).
+      // Linting their console usage as product violations would be false
+      // signal; the day they ship, this override goes with the quarantine.
+      "files": ["apps/services/**/*"],
+      "rules": { "no-console": "off" }
+    }
+  ]
+}

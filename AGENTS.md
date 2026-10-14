@@ -315,7 +315,11 @@ agent. Each rule carries: **the rule**, **why**, **how it's enforced**, and
 
 - **Why.** Silent failures produce "why did my payment not save?" tickets
   (`14_Edge_Cases.md` EC-AU-02, BR-SEC-03 fail-closed).
-- **Enforced.** ESLint `no-empty-catch`, `no-console`. `Result<T, E>` pattern in
+- **Enforced.** oxlint `no-empty` (empty `catch {}` — no `no-empty-catch`
+  rule exists in ESLint or oxlint; `no-empty` with default
+  `allowEmptyCatch: false` covers it) + `no-console`, both `error` in
+  `oxlint.json`, gated by `bun run lint:oxlint` (fails the build) and the
+  `lint.yml` OxLint step. `Result<T, E>` pattern in
   `packages/shared`. Review gate.
 - **If asked to violate.** Refuse. Cite P11 (no silent failure). Propose: throw
   a typed error and surface it via toast + `audit_log`.
@@ -811,7 +815,7 @@ await postLedgerEntry(db, entry); // what did this test?
 Merge is blocked unless **all** pass:
 
 1. `bun run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
-   `no-float-money`, `no-empty-catch`, `no-color-only-status`).
+   `no-float-money`, `no-color-only-status`) + oxlint `no-empty`/`no-console`.
 2. `bun run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
 3. `bun run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
    `packages/shared`.
@@ -1206,7 +1210,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 | 7   | `prefers-reduced-motion` honoured; color never the only status signal                                      | Rule 10, AP-20             |
 | 8   | Server actions/API routes parse input with Zod before DB; return typed `Result<T, E>`                      | §6.1, §6.4                 |
 | 9   | Every mutation appends `sync_outbox` + `audit_log` rows in the same transaction                            | Rule 7, BR-SYN-01, AP-13   |
-| 10  | No `console.log` in prod; no empty `catch {}`; no new telemetry dep; PR `## Spec ref` cites a real section | Rule 9, AP-9, AP-10, §5.3  |
+| 10  | No `console.log` in prod (`no-console`) and no empty `catch {}` (`no-empty`) — enforced by `bun run lint:oxlint`; no new telemetry dep; PR `## Spec ref` cites a real section | Rule 9, AP-9, AP-10, §5.3  |
 
 ---
 
@@ -1474,7 +1478,7 @@ THE 10-NON-NEGOTIABLE-RULES DECISION TREE (§2) — does my PR touch any load-be
    ┌─ RULE 9 — No silent failures ────────────────────────────────────────────┐  │
    │  · every error throws or returns a typed Result<T, E>                      │  │
    │  · no empty catch {}; no console.log in prod                               │  │
-   │  · lint: no-empty-catch, no-console                                        │  │
+   │  · lint: oxlint no-empty, no-console                                        │  │
    │  · if asked to violate: REFUSE → cite P11 (no silent failure)              │  │
    │  · propose: throw typed error + toast + audit_log                          │  │
    └────────────────────────────────────────────────────────────────────────────┘  │

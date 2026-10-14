@@ -53,6 +53,10 @@ jobs:
         run: bun run lint
         timeout-minutes: 5
 
+      - name: OxLint (Rule 9 — no silent failures)
+        run: bun run lint:oxlint
+        timeout-minutes: 5
+
       - name: Typecheck
         run: bun run typecheck
         timeout-minutes: 5
