@@ -6,6 +6,7 @@
 import { batchExecute, oneRow, run, type SqlHandle } from "./sql.ts";
 import type { DB } from "./db.ts";
 import { logError } from "./log.ts";
+import { withWriteTransaction, type TransactionalDb } from "./tx.ts";
 
 const HEALED_TENANTS_MAX = 10_000;
 const healedTenants = new Set<string>();
@@ -347,14 +348,58 @@ export const CORE_DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_idempotency_ttl ON idempotency_keys(tenant_id, created_at)`,
 ];
 
-export async function ensureSelfRepairingSchema(
+export function ensureSelfRepairingSchema(
   _db: DB,
   tenantId: string,
   dbUrl?: string,
   dbToken?: string,
 ): Promise<void> {
-  if (healedTenants.has(tenantId)) return;
+  if (healedTenants.has(tenantId)) return Promise.resolve();
 
+  // F-06, part 2: COALESCE CONCURRENT HEALS PER TENANT.
+  //
+  // `healedTenants.add()` runs at the END of the heal, so two concurrent
+  // first-requests for the same tenant both passed the guard above and both ran
+  // the full repair. Wrapping the destructive tables in a transaction (below)
+  // stops them corrupting each other, but it does not stop the wasted work or
+  // the second caller blocking on a write lock it does not need.
+  //
+  // This mirrors the ONE pattern already proven correct in this repo —
+  // `apps/web/src/server/cache.ts` `inflightLoads` — which sets the loader
+  // SYNCHRONOUSLY with no intervening `await` so two callers cannot both become
+  // the loader, and deletes in `finally` so a REJECTED promise is never cached
+  // (caching a rejection would fail that tenant permanently).
+  //
+  // Keyed by tenant, so different tenants still heal in parallel — this is not a
+  // global lock and must not become one.
+  const inFlight = healingInFlight.get(tenantId);
+  if (inFlight) return inFlight;
+
+  // Assigned through a local first: `healingInFlight.set` must happen with NO
+  // intervening `await`, or a second caller arriving in that gap becomes a
+  // second loader. This is the `inflightLoads` pattern from
+  // `apps/web/src/server/cache.ts`, which is the one already proven here.
+  const heal = runHeal(_db, tenantId, dbUrl, dbToken);
+  healingInFlight.set(tenantId, heal);
+  // `finally` so a REJECTED heal is never cached — a cached rejection would
+  // leave that tenant permanently unhealed for the life of the isolate.
+  void heal.finally(() => {
+    healingInFlight.delete(tenantId);
+  });
+  return heal;
+}
+
+/** In-flight heals by tenant. Bounded by HEALED_TENANTS_MAX via runHeal's
+ *  eviction; entries are removed on settle, so this only ever holds tenants
+ *  currently healing. */
+const healingInFlight = new Map<string, Promise<void>>();
+
+async function runHeal(
+  _db: DB,
+  tenantId: string,
+  dbUrl?: string,
+  dbToken?: string,
+): Promise<void> {
   // Enforce max size — evict oldest entries if over limit
   if (healedTenants.size >= HEALED_TENANTS_MAX) {
     const iter = healedTenants.values();
@@ -572,10 +617,51 @@ async function repairLegacyInvoicesAndReceipts(db: DB): Promise<void> {
   const handle = db as unknown as SqlHandle;
   // Each table is probed independently: a tenant could be legacy on one and
   // canonical on the other, and repairing only the legacy one is exactly right.
+  //
+  // F-06: BOTH ARRAYS NOW RUN INSIDE ONE TRANSACTION.
+  //
+  // These repair scripts are destructive by construction — they DROP the legacy
+  // table and RENAME a rebuilt copy over it. Run unbatched, two concurrent
+  // heals of the SAME tenant (two cold-isolate first-requests, which is the
+  // normal case on an edge) interleave into total data loss:
+  //
+  //   A: DROP invoices_canonical -> CREATE -> INSERT (rows copied)
+  //   B:                       -> DROP invoices_canonical  <- A's only copy
+  //      B: CREATE (EMPTY)     -> DROP invoices            <- legacy gone
+  //   A: ALTER ... RENAME      -> fails, table absent
+  //
+  // Both throw, the catch above logs `schema.heal_failed`, `healedTenants` never
+  // records the tenant, and the NEXT request's `CORE_DDL_STATEMENTS` recreates an
+  // EMPTY `invoices` table. Every invoice for that tutor is gone with no
+  // `reconcileLedger` or `tamper_hash` evidence left to detect it.
+  //
+  // One transaction per table closes it: B's DROP/CREATE now blocks behind A's
+  // open write transaction, so B cannot interleave into A's rebuild. The rename
+  // is atomic with the drop, so a failure anywhere rolls the whole repair back
+  // and leaves the legacy table intact for the next attempt — which is the
+  // property an unbatched sequence could never offer.
+  //
+  // Invoices and receipts stay in SEPARATE transactions on purpose. They are
+  // independent tables, and a shared transaction would hold a write lock across
+  // both rebuilds for no correctness gain.
+  // SAFETY: `ensureSelfRepairingSchema` receives the gateway's libsql `Client`,
+  // which satisfies `TransactionalDb` structurally — `Client.transaction("write")`
+  // is exactly what the gateways' ledger routes already use via
+  // `withWriteTransaction` (routes/ledger.ts, routes/students.ts). `handle` is
+  // widened only to satisfy the declared parameter type; the value is the same
+  // client object. If a caller ever passed a handle without `.transaction`, the
+  // heal would throw here and be caught by `schema.heal_failed` — fail-closed,
+  // never a silent skip.
+  const txDb = handle as unknown as TransactionalDb;
+
   if (await hasColumn(db, "invoices", "invoice_number")) {
-    for (const stmt of LEGACY_INVOICES_REPAIR) await run(handle, stmt, []);
+    await withWriteTransaction(txDb, async (tx) => {
+      for (const stmt of LEGACY_INVOICES_REPAIR) await run(tx, stmt, []);
+    });
   }
   if (await hasColumn(db, "receipts", "receipt_no")) {
-    for (const stmt of LEGACY_RECEIPTS_REPAIR) await run(handle, stmt, []);
+    await withWriteTransaction(txDb, async (tx) => {
+      for (const stmt of LEGACY_RECEIPTS_REPAIR) await run(tx, stmt, []);
+    });
   }
 }
