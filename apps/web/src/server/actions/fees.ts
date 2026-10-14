@@ -12,10 +12,18 @@ import { pinVerifyFormatError, formatINR, paiseSub } from "@buddysaradhi/shared"
 import {
   createInvoicePrisma,
   recordPaymentPrisma,
+  type OrmTx,
+  type OrmWriteClient,
 } from "@buddysaradhi/core/feesPrisma";
+import {
+  FEE_AUDIT_ACTOR,
+  type RecordPaymentInput,
+} from "@buddysaradhi/core/feesFlow";
+import { hash64Hex } from "@/lib/intent-key";
 import {
   buildLedgerDescription,
   CreateInvoicePayloadSchema,
+  PaymentMethodSchema,
   RecordPaymentPayloadSchema,
   VoidPayloadSchema,
   type PaymentMethod,
@@ -60,6 +68,16 @@ import {
 // core write transaction per payment; one 12s-timeout gateway POST per void;
 // smallest sufficient payloads (`{entryId, reason}`); no polling, no
 // per-keystroke remote calls.
+//
+// RFC-004 C1 — `recordPaymentAction` also carries the caller's intent key
+// (`RecordPaymentOptions.intentKey`) and CONSUMES it, so a replay of one
+// payment returns the original receipt instead of posting a second one. The
+// claim lives in `audit_log`, written inside the money flow's own
+// transaction; the full rationale — and why it is NOT the gateway's
+// `idempotency_keys` table — is in the guard block at the bottom of this file.
+// Replay is the only path that does NOT re-read `students.balance_paise`: a
+// replay answers with what was recorded, it does not re-judge it against a
+// balance the first call already moved.
 
 export interface RecordPaymentOptions {
   method?: PaymentMethod;
@@ -72,6 +90,29 @@ export interface RecordPaymentOptions {
    * verified below, but ONLY when the payment is actually backdated.
    */
   pin?: string;
+  /**
+   * RFC-004 C1 — the caller-minted intent key for ONE payment attempt
+   * (`mintIntentKey()`, a UUIDv7 shape), forwarded by
+   * `useConfirmedMutation` and reused unchanged on every retry, replay and
+   * offline drain.
+   *
+   * THIS IS THE SERVER HALF OF THE GAP `hooks/use-confirmed-mutation.ts:36-37`
+   * NAMES. It was absent, so a payment that COMMITTED whose response never
+   * reached the browser (Vercel timeout, network drop, closed tab) was reported
+   * to the tutor as "Payment not saved … Nothing was written" — a false claim,
+   * because the catch below could not tell pre-commit failure from post-commit
+   * failure — and the natural response to that message (tap Record payment
+   * again) minted a FRESH `receiptId` and consumed a FRESH `next_receipt_seq`,
+   * landing a SECOND credit with a second receipt number. The books were then
+   * double-counted, and on an append-only ledger (Rule 1) the only correction
+   * path is two compensating voids.
+   *
+   * WITH the key, a replayed call returns the ORIGINAL receipt instead of
+   * posting a second payment — the same contract `voidReceiptAction` already
+   * has via the gateway's `idempotency_keys` store, implemented here for the
+   * web's own direct-to-tenant write path (see the guard block below).
+   */
+  intentKey?: string;
 }
 
 /** BR-SEC-04: today in the tenant's local terms, as a YYYY-MM-DD string. */
@@ -110,6 +151,34 @@ export async function recordPaymentAction(
     };
   }
   const payload = parsed.data;
+
+  // RFC-004 C1: the key is shape-checked at the boundary so a malformed value
+  // can never become a claim id. Absent ⇒ the payment still posts (every
+  // pre-keyless caller keeps working, and the void path's key is equally
+  // optional); PRESENT-BUT-WRONG ⇒ refused, exactly as the gateway's
+  // `requireIdempotencyKey` refuses a malformed header rather than posting an
+  // unguarded mutation and pretending it was protected.
+  const intentKey = normaliseIntentKey(options?.intentKey);
+  if (options?.intentKey !== undefined && intentKey === null) {
+    log.error("fee_record_payment_invalid_intent_key", "Rejected a malformed Idempotency-Key", {
+      studentId,
+    });
+    return {
+      success: false as const,
+      error:
+        "This payment could not be started because its safety key was invalid. Nothing was written — reopen the sheet and record it again.",
+    };
+  }
+  // The claim records WHAT the key was spent on, so a replay that arrives with
+  // a DIFFERENT payload is refused instead of being answered with another
+  // payment's receipt (or, worse, being re-run as a second charge).
+  const fingerprint = paymentFingerprint({
+    studentId: payload.studentId,
+    amountPaise: payload.amountPaise,
+    receivedOn: payload.receivedOn,
+    method: payload.method,
+    reference: payload.reference ?? "",
+  });
 
   // BR-SEC-04, enforced server-side and never trusting the client's own
   // `isBackdated` flag: the date decides, not the form. A payment dated before
@@ -152,6 +221,31 @@ export async function recordPaymentAction(
 
   try {
     const { db, tenantId } = await getAuthenticatedPrisma();
+
+    // RFC-004 C1 fast path — a replayed intent is answered from the stored
+    // claim and NEVER re-runs the money flow (07 §9.6 runs once per intent,
+    // exactly as the gateway's `idempotencyRoute` pre-check behaves).
+    //
+    // It sits BEFORE the BR-M-04 balance guard on purpose. The first payment
+    // already moved `students.balance_paise`, so re-reading it here would make
+    // the replay of a legitimate full-balance payment fail the very
+    // "amount exceeds balance due" guard the first call passed — turning the
+    // fix into a second defect.
+    if (intentKey) {
+      const seen = await readIntentClaim(db, { tenantId, intentKey, fingerprint });
+      if (seen.kind === "replay") {
+        log.audit("fee_record_payment_replayed", "Replay of a recorded payment intent", {
+          studentId: payload.studentId,
+          receiptNo: seen.data.receiptNo,
+        });
+        revalidatePath("/fees");
+        return { success: true as const, data: seen.data };
+      }
+      if (seen.kind === "conflict") {
+        return { success: false as const, error: seen.error };
+      }
+    }
+
     // BR-M-04 soft guard, server-enforced (G-HARDEN: never trust client
     // state): when the known balance is covered, an excess requires the
     // tutor's explicit advance acknowledgement from the preview. One indexed
@@ -191,7 +285,7 @@ export async function recordPaymentAction(
     // under a monotonic number (F3). The posted values are EXACTLY the
     // previewed ones; only the description gains the deterministic
     // method/reference tag (contract-tested, preserved into audit metadata).
-    const result = await recordPaymentPrisma(db, {
+    const paymentInput = {
       tenantId,
       studentId: payload.studentId,
       amountPaise: payload.amountPaise,
@@ -208,17 +302,52 @@ export async function recordPaymentAction(
       // fields the printed receipt shows.
       method: payload.method,
       reference: payload.reference ?? "",
-    });
-    if (!result.ok) throw result.error;
-    revalidatePath("/fees");
-    return {
-      success: true as const,
-      data: {
-        ...result.value,
+    };
+
+    // Rule 1 + Rule 7: ONE money flow (`feesFlow.recordPaymentFlow` via the ORM
+    // dialect) for BOTH paths, and — when the caller sent an intent key — the
+    // claim row that makes the effect replayable lands in THE SAME transaction
+    // as the payment, its receipt, its ledger rows and its `sync_outbox` rows.
+    // A key written outside this transaction would be worthless: a crash
+    // between the two would re-double the charge on the retry, which is the
+    // defect this guard exists to close.
+    const outcome = await recordPaymentIdempotent(
+      db,
+      {
+        tenantId,
+        intentKey,
+        fingerprint,
+        studentId: payload.studentId,
+        amountPaise: payload.amountPaise,
         method: payload.method,
         reference: payload.reference ?? "",
       },
-    };
+      paymentInput,
+    );
+
+    if (outcome.kind === "recorded" || outcome.kind === "replayed") {
+      if (outcome.kind === "replayed") {
+        log.audit("fee_record_payment_replayed", "Duplicate payment intent replayed", {
+          studentId: payload.studentId,
+          receiptNo: outcome.data.receiptNo,
+        });
+      }
+      revalidatePath("/fees");
+      // `data` already carries the tutor's own `method`/`reference` echo, so a
+      // replay hands back EXACTLY what the first call returned.
+      return { success: true as const, data: outcome.data };
+    }
+    // A key already spent on a DIFFERENT payment: refused in words (Rule 9),
+    // because replaying it would hand the tutor a stranger's receipt number and
+    // re-running it would charge twice.
+    if (outcome.kind === "conflict") {
+      log.audit("fee_record_payment_intent_reused", "Intent key reused for a different payment", {
+        studentId: payload.studentId,
+        amountPaise: payload.amountPaise,
+      });
+      return { success: false as const, error: outcome.error };
+    }
+    throw outcome.error;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to record payment";
@@ -228,6 +357,327 @@ export async function recordPaymentAction(
     });
     return { success: false as const, error: message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// RFC-004 C1 — the payment path's idempotency guard.
+//
+// WHY IT LIVES HERE AND NOT IN THE GATEWAY. `voidReceiptAction` dedupes
+// through `apps/gateway/lib/idempotency.ts` + the `idempotency_keys` DDL
+// (gateway `PRIMARY KEY (tenant_id, route, "key")`, RFC-004 C1). A PAYMENT
+// cannot: `recordPaymentPrisma` writes straight to the tenant's own libSQL DB
+// through the ORM dialect, because the money flow must run in the same
+// transaction as the receipt, the ledger rows and their `sync_outbox` rows
+// (Rule 7 / 07 §9.6). The web has no route to that store — and AGENTS.md §3.4
+// forbids it writing raw SQL to reach one.
+//
+// WHERE THE CLAIM LIVES. `audit_log.id` is the only per-row uniqueness the
+// tenant schema already enforces, and `audit_log` is already the table every
+// audited mutation must write to (Rule 7 / BR-SEC-03), so the claim row is
+// ALSO a legitimate audit record: "this intent key was spent, on this payment,
+// here is its receipt". `AppState` was considered and rejected — it is a
+// fixed-column singleton per tenant (`tenant_id` is its `@id`), not a k/v
+// store, so there is nowhere in it to put a key without clobbering real state
+// such as `last_backup_at`.
+//
+// THE CLAIM ID IS TENANT-QUALIFIED (`<tenantId>:<intentKey>`). `audit_log`'s
+// primary key is the row id alone, so a bare client UUID would let two tenants
+// collide on one id — tenant B's legitimate payment refused as a replay of
+// tenant A's key, the exact shadowing RFC-004 C1 forbids ("the same UUID from
+// two tenants never collides"). Qualifying it makes the DB-level guarantee
+// match the documented scope, and the tenant-bound proxy scopes every read and
+// write on top of that.
+//
+// NO TTL, DELIBERATELY. The gateway expires a key after 24h, so a day-old
+// replay re-posts there. A payment must not: "retry" is a button a tutor taps
+// on the next morning too, and re-posting a settled payment a day later is the
+// double-credit this guard exists to prevent. The rows are one small
+// append-only audit row per payment — the same order of magnitude as the
+// audit trail the payment already writes.
+// ---------------------------------------------------------------------------
+
+/** RFC-004 C1 — the same shape the gateway accepts: any well-formed UUID. */
+const INTENT_KEY_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `audit_log.action` for a spent intent key. */
+const PAYMENT_INTENT_ACTION = "payment_intent_spent";
+
+/** `audit_log.ref_type` for a spent intent key. */
+const PAYMENT_INTENT_REF_TYPE = "payment_intent";
+
+/** Bumped only if the stored envelope's SHAPE changes (never its money). */
+const PAYMENT_INTENT_VERSION = 1;
+
+/** Separator between the tenant and the key in the claim's primary key. */
+const INTENT_CLAIM_SEPARATOR = ":";
+
+/**
+ * Tutor-facing refusal for a key already spent on a different payment. Product
+ * copy, not an internal code (Rule 9: this string reaches the toast).
+ */
+const INTENT_KEY_REUSED_MESSAGE =
+  "That payment was already recorded with a different amount. Nothing was written — close the sheet and record the payment again.";
+
+/** The tenant handle this action writes through (`createLibsqlProxy`). */
+type TenantDb = Awaited<ReturnType<typeof getAuthenticatedPrisma>>["db"];
+
+/**
+ * The exact response body the action returned, as the replay must reproduce it
+ * (the gateway stores `{code, body}` and replays the STORED bytes — this is the
+ * same contract on this side of the boundary).
+ */
+const StoredPaymentDataSchema = z.object({
+  entryIds: z.array(z.string().min(1)),
+  applied: z.array(
+    z.object({
+      invoiceId: z.string().min(1),
+      number: z.string().min(1),
+      paise: z.number().int(),
+      status: z.enum(["unpaid", "partial", "paid"]),
+    }),
+  ),
+  autoInvoiceId: z.string().nullable(),
+  autoInvoiceNumber: z.string().nullable(),
+  receiptId: z.string().min(1),
+  receiptNo: z.string().min(1),
+  creditedPaise: z.number().int(),
+  method: PaymentMethodSchema,
+  reference: z.string(),
+});
+
+type StoredPaymentData = z.infer<typeof StoredPaymentDataSchema>;
+
+/** The stored claim envelope. Parsed on every replay — never trusted raw. */
+const StoredIntentClaimSchema = z.object({
+  v: z.literal(PAYMENT_INTENT_VERSION),
+  intentKey: z.string().min(1),
+  fingerprint: z.string().min(1),
+  studentId: z.string().min(1),
+  amountPaise: z.number().int(),
+  data: StoredPaymentDataSchema,
+});
+
+type StoredIntentClaim = z.infer<typeof StoredIntentClaimSchema>;
+
+/** What the caller asked for, and the key that identifies the attempt. */
+interface PaymentIntentClaim {
+  tenantId: string;
+  /** null = a caller that sent no key (a pre-C1 caller). No claim is written. */
+  intentKey: string | null;
+  fingerprint: string;
+  studentId: string;
+  amountPaise: number;
+  method: PaymentMethod;
+  reference: string;
+}
+
+type PaymentOutcome =
+  /** Committed here. */
+  | { kind: "recorded"; data: StoredPaymentData }
+  /** Already committed by an earlier or concurrent call with this key. */
+  | { kind: "replayed"; data: StoredPaymentData }
+  /** The key was spent on a DIFFERENT payment — refused in words. */
+  | { kind: "conflict"; error: string }
+  /** The money flow itself failed; nothing was written. */
+  | { kind: "failed"; error: Error };
+
+type IntentLookup =
+  | { kind: "fresh" }
+  | { kind: "replay"; data: StoredPaymentData }
+  | { kind: "conflict"; error: string };
+
+/** A present, well-formed UUID, or null (absent ⇒ the caller gets no guard). */
+function normaliseIntentKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return INTENT_KEY_SHAPE_RE.test(trimmed) ? trimmed : null;
+}
+
+/** The claim's tenant-scoped primary key. */
+function intentClaimId(tenantId: string, intentKey: string): string {
+  return `${tenantId}${INTENT_CLAIM_SEPARATOR}${intentKey}`;
+}
+
+/**
+ * What the key was spent ON, as a short stable digest. Reuse of one key for a
+ * different payment is a client bug or a hostile reuse, and both must be
+ * refused rather than answered with someone else's receipt.
+ *
+ * Covers the money-bearing fields only (student, paise, date, method,
+ * reference) — `description` and the advance acknowledgement are tutor-facing
+ * labels, not the identity of the charge, and a replay that differs only in
+ * wording is still the same payment. `hash64Hex` is the same 64-bit dual-lane
+ * FNV-1a `intentKeyFrom` uses, so there is no third hash in the repo.
+ */
+function paymentFingerprint(fields: {
+  studentId: string;
+  amountPaise: number;
+  receivedOn: string;
+  method: PaymentMethod;
+  reference: string;
+}): string {
+  return hash64Hex(
+    JSON.stringify([
+      fields.studentId,
+      fields.amountPaise,
+      fields.receivedOn,
+      fields.method,
+      fields.reference,
+    ]),
+  );
+}
+
+/**
+ * True when `error` is the primary-key violation on the claim row — i.e. a
+ * concurrent call committed this same key first. Two deliberate tightenings
+ * over the gateway's looser `isIdempotencyKeyConflict`:
+ *
+ *  - the TABLE name must appear, so the money flow's own constraint failures
+ *    (`receipts UNIQUE(tenant_id, number)`) are never mistaken for a replay;
+ *  - only a UNIQUENESS violation counts. A `CHECK`, `NOT NULL` or `FOREIGN KEY`
+ *    failure on the claim row is a genuine failure of THIS call, not evidence
+ *    that somebody else won the race — treating it as a replay would invent a
+ *    receipt that no transaction ever wrote (Rule 9).
+ */
+function isIntentClaimConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /audit_log/i.test(message) &&
+    /unique constraint failed|primary key|unique violation/i.test(message) &&
+    !/check constraint failed|not null constraint failed|foreign key/i.test(message)
+  );
+}
+
+/**
+ * Read + validate the stored claim. Rule 9: a claim that cannot be parsed is a
+ * LOUD throw, never a silent "fresh" — treating an unreadable claim as absent
+ * would re-run the payment and double the charge, which is the defect.
+ */
+async function readIntentClaim(
+  db: TenantDb,
+  claim: Pick<PaymentIntentClaim, "tenantId" | "intentKey" | "fingerprint">,
+): Promise<IntentLookup> {
+  const intentKey = claim.intentKey;
+  // SAFETY: the caller only reaches here with a normalised non-null key (both
+  // entry points below are guarded by `intentKey !== null`).
+  const key = intentKey as string;
+  const row = await db.auditLog.findFirst({
+    where: { id: intentClaimId(claim.tenantId, key), action: PAYMENT_INTENT_ACTION },
+  });
+  if (!row) return { kind: "fresh" };
+  const stored = parseStoredIntentClaim(row.metadata);
+  if (stored.fingerprint !== claim.fingerprint) {
+    return { kind: "conflict", error: INTENT_KEY_REUSED_MESSAGE };
+  }
+  return { kind: "replay", data: stored.data };
+}
+
+/** Parse the claim envelope, or throw a typed, loggable error. */
+function parseStoredIntentClaim(raw: unknown): StoredIntentClaim {
+  if (typeof raw !== "string" || raw.length === 0) {
+    throw new Error(
+      "INTENT_CLAIM_CORRUPT: the stored payment intent record has no metadata (Rule 9: refusing to re-run the payment).",
+    );
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "INTENT_CLAIM_CORRUPT: the stored payment intent record is not JSON (Rule 9: refusing to re-run the payment).",
+    );
+  }
+  const parsed = StoredIntentClaimSchema.safeParse(decoded);
+  if (!parsed.success) {
+    throw new Error(
+      `INTENT_CLAIM_CORRUPT: ${parsed.error.message.slice(0, 200)} (Rule 9: refusing to re-run the payment).`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
+ * Record the payment exactly once for this intent.
+ *
+ * The claim row is written by wrapping the flow's OWN transaction rather than
+ * by opening a second one: the ORM shim refuses a nested `$transaction`
+ * (`ORM_TX_UNSUPPORTED_HANDLE`, libsql-proxy.ts:966) and `recordPaymentPrisma`
+ * opens exactly one, so this adapter opens that one and inserts the claim
+ * inside it. Same transaction ⇒ Rule 7 holds by construction, and a rollback
+ * (including the duplicate-key rollback) leaves neither the payment nor the key.
+ */
+async function recordPaymentIdempotent(
+  db: TenantDb,
+  claim: PaymentIntentClaim,
+  input: RecordPaymentInput,
+): Promise<PaymentOutcome> {
+  if (claim.intentKey === null) {
+    const posted = await recordPaymentPrisma(db, input);
+    if (!posted.ok) return { kind: "failed", error: posted.error };
+    return {
+      kind: "recorded",
+      data: { ...posted.value, method: claim.method, reference: claim.reference },
+    };
+  }
+
+  const intentKey = claim.intentKey;
+  const guarded: OrmWriteClient = {
+    $transaction: async <T>(fn: (tx: OrmTx) => Promise<T>): Promise<T> =>
+      db.$transaction(async (tx) => {
+        const value = await fn(tx);
+        await tx.auditLog.create({
+          data: {
+            id: intentClaimId(claim.tenantId, intentKey),
+            tenantId: claim.tenantId,
+            actor: FEE_AUDIT_ACTOR,
+            action: PAYMENT_INTENT_ACTION,
+            refType: PAYMENT_INTENT_REF_TYPE,
+            refId: intentKey,
+            metadata: JSON.stringify({
+              v: PAYMENT_INTENT_VERSION,
+              intentKey,
+              fingerprint: claim.fingerprint,
+              studentId: claim.studentId,
+              amountPaise: claim.amountPaise,
+              data: {
+                ...value,
+                method: claim.method,
+                reference: claim.reference,
+              },
+            }),
+            createdAt: new Date().toISOString(),
+          },
+        });
+        return value;
+      }),
+  };
+
+  const posted = await recordPaymentPrisma(guarded, input);
+  if (posted.ok) {
+    return {
+      kind: "recorded",
+      data: { ...posted.value, method: claim.method, reference: claim.reference },
+    };
+  }
+  if (!isIntentClaimConflict(posted.error)) {
+    return { kind: "failed", error: posted.error };
+  }
+  // The duplicate claim INSERT aborted THIS transaction, so the payment, its
+  // receipt, its ledger rows and its outbox rows are all rolled back with it
+  // (nothing was charged), and a concurrent identical intent committed first.
+  // Replay the winner — the gateway's `replayIfDuplicate`. A conflict with NO
+  // winner row is a loud throw, never an invented receipt (Rule 9).
+  const winner = await readIntentClaim(db, claim);
+  if (winner.kind === "fresh") {
+    throw new Error(
+      "INTENT_CLAIM_CONFLICT_WITHOUT_WINNER: this intent key reported as already recorded but no stored claim exists (Rule 9: refusing to invent a receipt).",
+    );
+  }
+  if (winner.kind === "conflict") {
+    return { kind: "conflict", error: winner.error };
+  }
+  return { kind: "replayed", data: winner.data };
 }
 
 const VoidGatewayResponseSchema = z.object({

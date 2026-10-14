@@ -23,10 +23,12 @@
 // receipt number, toasts the failure and keeps the sheet open with the values
 // intact, and refuses to discard a filled-in form on Escape or a scrim click.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFeesStore } from "@/stores/fees-store";
 import { recordPaymentAction } from "@/server/actions/fees";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useConfirmedMutation, ConfirmedMutationError } from "@/hooks/use-confirmed-mutation";
+import type { Confirmation } from "@/hooks/use-confirmed-mutation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Wallet, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { formatINR } from "@buddysaradhi/shared";
@@ -56,6 +58,57 @@ interface RecordPaymentSheetProps {
 type LedgerQueryData = Awaited<ReturnType<typeof getLedgerForStudent>>;
 type LedgerRow = LedgerQueryData["data"][number];
 type FeesStudentsQueryData = Awaited<ReturnType<typeof getStudentsForFees>>;
+
+/**
+ * The action's own success payload, read off its return type rather than
+ * restated here: a second hand-written copy of the receipt shape is a shape
+ * that can drift from the server without anything noticing (AGENTS.md §6.1 —
+ * types are inferred, never mirrored).
+ */
+type PaymentActionData = Extract<
+  Awaited<ReturnType<typeof recordPaymentAction>>,
+  { success: true }
+>["data"];
+
+/**
+ * RFC-004 C3 — the offline queue is keyed by tenant, and this sheet has no
+ * server-resolved tenant id to key it with (the product is single-tenant per
+ * deployment; nothing client-side carries the auth uid).
+ *
+ * It is also NOT USED: `isOnline` below always returns true, so the hook never
+ * takes the queue branch. That is deliberate. `drainQueue`/`useOnlineFlush`
+ * exist in `lib/offline-queue.ts` but have NO production call site, so a queued
+ * payment would sit there for ever and the tutor would believe it was recorded
+ * — a silent failure (Rule 9) about MONEY. When the drain is wired (GlassShell
+ * + `useOnlineFlush`, draining with `recordPaymentAction(..., { intentKey:
+ * item.key })` per `lib/offline-queue.ts:368`), pass the real tenant id here
+ * AND delete the `isOnline` override in one change, so the two can never
+ * disagree.
+ */
+const PAYMENT_QUEUE_SCOPE = "single-tenant";
+
+/**
+ * One submit attempt. A `type`, not an `interface`, because
+ * `useConfirmedMutation<TArgs extends Record<string, unknown>, …>` requires
+ * TArgs to have an implicit index signature — which an interface does not have.
+ */
+type PaymentSubmit = {
+  studentIdSafe: string;
+  amountPaise: number;
+  description: string;
+  receivedOn: string;
+  method: PaymentMethod;
+  reference: string;
+  advanceAcknowledged: boolean;
+  /** BR-SEC-04 — present only when `receivedOn` is before today. */
+  backdatePin?: string;
+};
+
+/** What the optimistic blocks read before they overwrite (rollback source). */
+type PaymentSnapshot = {
+  prevLedger: LedgerQueryData | undefined;
+  prevStudents: FeesStudentsQueryData | undefined;
+};
 
 function todayIso(): string {
   return format(new Date(), "yyyy-MM-dd");
@@ -119,31 +172,54 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
     label: "payment form",
   });
 
-  const mutation = useMutation({
-    mutationFn: (args: {
-      studentIdSafe: string;
-      amountPaise: number;
-      description: string;
-      receivedOn: string;
-      method: PaymentMethod;
-      reference: string;
-      advanceAcknowledged: boolean;
-      /** BR-SEC-04 — present only when `receivedOn` is before today. */
-      backdatePin?: string;
-    }) =>
-      recordPaymentAction(args.studentIdSafe, args.amountPaise, args.description, args.receivedOn, {
-        method: args.method,
-        reference: args.reference,
-        advanceAcknowledged: args.advanceAcknowledged,
-        pin: args.backdatePin,
-      }),
-    onMutate: async (args) => {
+  /**
+   * RFC-004 C1/K1 — the intent key is minted ONCE PER SUBMIT by
+   * `useConfirmedMutation` and reused unchanged on every retry and every
+   * replay, so the server guard in `recordPaymentAction` collapses a double
+   * tap, a mid-flight retry, and a "the response never reached me" re-tap into
+   * ONE payment and ONE receipt number.
+   *
+   * TanStack Query does NOT dedupe mutations and a returned `{success:false}`
+   * is a RESOLVED value, so the plain `useMutation` this replaces offered
+   * nothing at all: a second tap minted a fresh `receiptId` and consumed a
+   * fresh `next_receipt_seq`, which is the P0 (F-04) this closes.
+   */
+  const lastSubmittedRef = useRef<PaymentSubmit | null>(null);
+  const handledConfirmationRef = useRef<Confirmation<PaymentActionData> | null>(null);
+  const handledErrorRef = useRef<Error | null>(null);
+
+  const confirmed = useConfirmedMutation<PaymentSubmit, PaymentActionData, PaymentSnapshot>({
+    tenantId: PAYMENT_QUEUE_SCOPE,
+    action: "fees.recordPayment",
+    // Always attempt the network: see PAYMENT_QUEUE_SCOPE — nothing drains the
+    // offline queue yet, so a queued payment would never post. A dead network
+    // now costs three bounded retries with the SAME key and then an honest
+    // "nothing was written", which is true: the guard means the retry cannot
+    // have committed either.
+    isOnline: () => true,
+    invoke: (args) =>
+      recordPaymentAction(
+        args.studentIdSafe,
+        args.amountPaise,
+        args.description,
+        args.receivedOn,
+        {
+          method: args.method,
+          reference: args.reference,
+          advanceAcknowledged: args.advanceAcknowledged,
+          pin: args.backdatePin,
+          intentKey: args.intentKey,
+        },
+      ),
+    snapshot: async () => {
       await queryClient.cancelQueries({ queryKey: ["ledger"] });
       await queryClient.cancelQueries({ queryKey: ["fees-students"] });
-
-      const prevLedger = queryClient.getQueryData<LedgerQueryData>(["ledger", studentId]);
-      const prevStudents = queryClient.getQueryData<FeesStudentsQueryData>(["fees-students"]);
-
+      return {
+        prevLedger: queryClient.getQueryData<LedgerQueryData>(["ledger", studentId]),
+        prevStudents: queryClient.getQueryData<FeesStudentsQueryData>(["fees-students"]),
+      };
+    },
+    applyOptimistic: (args) => {
       // Optimistic row in PAISE (the query rows are paise — formatINR takes
       // paise; the old `/ 100` here mixed rupees into a paise feed).
       queryClient.setQueryData<LedgerQueryData>(["ledger", studentId], (old) => {
@@ -184,57 +260,89 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
           ),
         };
       });
-
-      return { prevLedger, prevStudents };
     },
-    // Rule 9: the outcome is stated, every time, either way. A rejected payment
-    // keeps the sheet open with every value intact; only a real commit closes it.
-    onSuccess: (result, args) => {
-      if (result.success !== true) {
-        toast.error("Payment not saved", `${result.error} Nothing was written.`);
-        return;
-      }
-      const { applied, autoInvoiceNumber, receiptNo } = result.data;
-      const detail =
-        applied.length > 0
-          ? `Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`
-          : autoInvoiceNumber
-            ? `Held as advance against new invoice ${autoInvoiceNumber}`
-            : "Held as advance — no unpaid invoice to apply it to";
-      // 07 §9.6 step 3/7 + BR-RC-01: the number exists, is monotonic, and is
-      // never reused — so it is the ONE fact the tutor must be handed, because
-      // it is the handle they quote when they later void this payment. The
-      // preview already promises it ("Your receipt number is issued the moment
-      // this saves"); naming it here is the promise being kept. A blank number
-      // is never printed — the sentence is simply omitted rather than showing
-      // an empty handle (Rule 9).
-      const receiptHandle =
-        typeof receiptNo === "string" && receiptNo.trim().length > 0
-          ? `${receiptNo.trim()} · `
-          : "";
-      toast.success(
-        `Payment recorded — ${receiptHandle}${formatINR(args.amountPaise)}`,
-        `${PAYMENT_METHOD_LABELS[args.method]} · ${detail}`,
-      );
-      closeSheet();
+    rollback: (snapshot) => {
+      // Rule 9: the optimistic rows are the ones that would lie. Both are
+      // restored from the snapshot the hook took in `onMutate`, which is the
+      // only place a caller can be sure the pre-mutation state is the state to
+      // return to.
+      if (snapshot?.prevLedger) queryClient.setQueryData(["ledger", studentId], snapshot.prevLedger);
+      if (snapshot?.prevStudents) queryClient.setQueryData(["fees-students"], snapshot.prevStudents);
     },
-    onError: (error, _args, context) => {
-      const ctx = context as
-        | { prevLedger?: LedgerQueryData; prevStudents?: FeesStudentsQueryData }
-        | undefined;
-      if (ctx?.prevLedger) queryClient.setQueryData(["ledger", studentId], ctx.prevLedger);
-      if (ctx?.prevStudents) queryClient.setQueryData(["fees-students"], ctx.prevStudents);
-      // The sheet stays open with every value intact so the tutor can retry.
-      toast.error(
-        "Payment not saved",
-        `${error.message} Nothing was written — check your connection and try again.`,
-      );
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["ledger"] });
-      queryClient.invalidateQueries({ queryKey: ["fees-students"] });
-    },
+    invalidateKeys: [["ledger"], ["fees-students"]],
   });
+
+  /**
+   * Rule 9: the outcome is stated, every time, either way. `useConfirmedMutation`
+   * owns `onSuccess`/`onError` (it cannot be handed callbacks), so the sheet
+   * reacts to the settled result here instead of inside the mutation. The
+   * identity guards make each outcome fire ONCE per result object, so a
+   * re-render never re-toasts and a second attempt toasts for itself.
+   */
+  useEffect(() => {
+    const confirmation = confirmed.data;
+    if (!confirmation || handledConfirmationRef.current === confirmation) return;
+    handledConfirmationRef.current = confirmation;
+    const posted = lastSubmittedRef.current;
+
+    if (confirmation.state === "queued") {
+      // Unreachable while `isOnline` returns true — see PAYMENT_QUEUE_SCOPE. It
+      // must NOT reuse the success wording below, which names a receipt number
+      // that does not exist for a queued intent.
+      toast.error(
+        "Payment not recorded",
+        "This device could not reach your books, so nothing has been written. Reconnect and record the payment again.",
+      );
+      return;
+    }
+
+    const { applied, autoInvoiceNumber, receiptNo } = confirmation.data;
+    const detail =
+      applied.length > 0
+        ? `Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`
+        : autoInvoiceNumber
+          ? `Held as advance against new invoice ${autoInvoiceNumber}`
+          : "Held as advance — no unpaid invoice to apply it to";
+    // 07 §9.6 step 3/7 + BR-RC-01: the number exists, is monotonic, and is
+    // never reused — so it is the ONE fact the tutor must be handed, because
+    // it is the handle they quote when they later void this payment. The
+    // preview already promises it ("Your receipt number is issued the moment
+    // this saves"); naming it here is the promise being kept. A blank number
+    // is never printed — the sentence is simply omitted rather than showing
+    // an empty handle (Rule 9).
+    const receiptHandle =
+      typeof receiptNo === "string" && receiptNo.trim().length > 0
+        ? `${receiptNo.trim()} · `
+        : "";
+    toast.success(
+      `Payment recorded — ${receiptHandle}${formatINR(posted?.amountPaise ?? confirmation.data.creditedPaise)}`,
+      `${PAYMENT_METHOD_LABELS[posted?.method ?? confirmation.data.method]} · ${detail}`,
+    );
+    closeSheet();
+  }, [confirmed.data]);
+
+  useEffect(() => {
+    const error = confirmed.error;
+    if (!error || handledErrorRef.current === error) return;
+    handledErrorRef.current = error;
+    // The sheet stays open with every value intact so the tutor can retry — and
+    // that retry now carries the SAME intent key only if the hook retries it;
+    // a fresh tap mints a new one, which is correct: it is a new attempt at a
+    // payment whose outcome is unknown, and the server's claim is what decides.
+    //
+    // "Check your connection" is only true for a failure that SURVIVED a retry.
+    // A refusal on the first attempt ("amount exceeds balance", "that PIN isn't
+    // right") was never a network problem, and blaming the connection there
+    // sends the tutor to debug something that is not broken (Rule 9: the
+    // message must state what actually happened).
+    const retried = error instanceof ConfirmedMutationError && error.attempts > 1;
+    toast.error(
+      "Payment not saved",
+      retried
+        ? `${error.message} Nothing was written — check your connection and try again.`
+        : `${error.message} Nothing was written.`,
+    );
+  }, [confirmed.error]);
 
   // Live receipt preview — pure, client-side, zero network (free-tier: no
   // per-keystroke remote calls). The submit below posts these exact values.
@@ -268,15 +376,11 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
    */
   const blockingErrors = preview.errors.filter((message) => message !== preview.refError);
 
-  // A server rejection arrives as a resolved `{success:false}` payload, not a
-  // thrown error, so it is surfaced inline here as well as in the toast — the
-  // tutor is looking at the sheet, not the corner of the screen.
-  const serverError =
-    mutation.isSuccess && mutation.data && mutation.data.success !== true
-      ? mutation.data.error
-      : mutation.isError && mutation.error instanceof Error
-        ? mutation.error.message
-        : null;
+  // A server rejection is a resolved `{success:false}` payload that
+  // `invokeWithRetry` turns into a thrown `ConfirmedMutationError`, so it
+  // surfaces here as well as in the toast — the tutor is looking at the sheet,
+  // not the corner of the screen.
+  const serverError = confirmed.error instanceof Error ? confirmed.error.message : null;
 
   /**
    * A payment must NAME its subject. `studentId` arriving without a resolvable
@@ -292,13 +396,18 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
     subjectResolved &&
     preview.amountPaise !== null &&
     preview.errors.length === 0 &&
-    !mutation.isPending;
+    !confirmed.isPending;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentId || !subjectResolved || preview.amountPaise === null || preview.errors.length > 0) return;
-    // Posts EXACTLY what was previewed — no silent recompute.
-    mutation.mutate({
+    // RFC-004 K1 — the in-flight guard. `canSubmit` disables the button, but a
+    // form submits on Enter from any field, so the button's state is not a
+    // gate. Without this line a tutor could fire two attempts from the keyboard
+    // while the first was still open; with it, the second tap waits for a
+    // settled result and then re-reads what actually happened.
+    if (confirmed.isPending) return;
+    const args: PaymentSubmit = {
       studentIdSafe: studentId,
       amountPaise: preview.amountPaise,
       description: description.trim(),
@@ -311,7 +420,11 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       // here — so the server never saw it and the gate was decoration. The
       // server re-derives `isBackdated` from the date rather than trusting this.
       backdatePin: preview.backdated ? backdatePin : undefined,
-    });
+    };
+    // Posts EXACTLY what was previewed — no silent recompute. The ref is read by
+    // the outcome effect to report the figures that were ACTUALLY posted.
+    lastSubmittedRef.current = args;
+    confirmed.mutate(args);
   };
 
   if (!isPaymentSheetOpen) return null;
@@ -603,14 +716,14 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
             type="submit"
             form="payment-form"
             disabled={!canSubmit}
-            aria-busy={mutation.isPending}
+            aria-busy={confirmed.isPending}
             aria-disabled={!canSubmit}
             title={!canSubmit ? "Fill the highlighted fields to enable saving" : undefined}
             className="w-full min-h-[44px] neumo-raised py-3 rounded-xl text-sm font-bold text-[var(--accent-on-primary)] bg-[var(--accent-primary)] hover:brightness-110 transition-all disabled:opacity-70 disabled:shadow-none disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:bg-[var(--surface-inset)]"
           >
-            {mutation.isPending ? "Saving payment…" : "Save payment"}
+            {confirmed.isPending ? "Saving payment…" : "Save payment"}
           </button>
-          {mutation.isPending ? (
+          {confirmed.isPending ? (
             <p className="mt-2 text-center text-xs" style={{ color: "var(--text-muted)" }}>
               Writing to your ledger. Keep this window open.
             </p>

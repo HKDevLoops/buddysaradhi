@@ -10,31 +10,27 @@
 // this hook never polls; drains run on online/visibilitychange via
 // useOnlineFlush in lib/offline-queue.ts).
 //
-// ── WIRING (documented, NOT wired — adopt per call site, one sketch each) ──
-// CONVENTION for action authors: add trailing `intentKey` to the action's
-// options/payload bag and forward it to the gateway `idempotency_keys` store
-// when C1 lands server-side. Until then the client half (K2) holds.
+// ── WIRING (per call site; #1 is wired, the rest are sketches) ──
+// CONVENTION for action authors: add a trailing `intentKey` to the action's
+// options/payload bag, then make the action CONSUME it — the client half (K2)
+// alone protects nothing, because a key the server ignores cannot stop a second
+// write. §3.4 (ORM-only) decides where an action may store its claim: the
+// gateway's `idempotency_keys` table for gateway-routed mutations, and an
+// in-transaction row in the tenant DB for mutations the web writes directly.
 //
-// 1. record-payment — src/components/fees/record-payment-sheet.tsx:67-81
-//    Replace the useMutation block with:
-//      const confirmed = useConfirmedMutation({
-//        tenantId, action: "fees.recordPayment",
-//        invoke: (args) => recordPaymentAction(
-//          args.studentIdSafe, args.amountPaise, args.description,
-//          args.receivedOn,
-//          { method: args.method, reference: args.reference,
-//            advanceAcknowledged: args.advanceAcknowledged,
-//            intentKey: args.intentKey }),
-//        snapshot: () => ({ ledger: queryClient.getQueryData(["ledger", studentId]),
-//                           students: queryClient.getQueryData(["fees-students"]) }),
-//        applyOptimistic: (args) => { /* existing setQueryData blocks, unchanged */ },
-//        rollback: (snap) => { /* restore both query datas from snap */ },
-//        invalidateKeys: [["ledger"], ["fees-students"]],
-//      });
-//    and call `confirmed.mutate({...})` from handleSubmit (:192-200). The
-//    existing optimistic blocks move verbatim into applyOptimistic/rollback.
-//    NOTE: recordPaymentAction must first accept `intentKey` in
-//    RecordPaymentOptions (src/server/actions/fees.ts:53-57) — server gap.
+// 1. record-payment — DONE (P0 F-04 fix). `RecordPaymentOptions.intentKey`
+//    exists (src/server/actions/fees.ts) and `recordPaymentAction` consumes it:
+//    a replayed key returns the ORIGINAL receipt instead of posting a second
+//    payment. The claim row is written INSIDE the money flow's own transaction
+//    (Rule 7), in `audit_log` under `action = 'payment_intent_spent'` with a
+//    tenant-qualified primary key `<tenantId>:<intentKey>` — NOT the gateway's
+//    `idempotency_keys` table, which this path cannot reach (it writes straight
+//    to the tenant DB through the ORM dialect, and AGENTS.md §3.4 forbids raw
+//    SQL). The claim is permanent (no 24h TTL): a payment tapped "retry" next
+//    morning must still resolve to the first receipt. The sheet calls this hook,
+//    forwards `intentKey`, and passes `isOnline: () => true` — the offline queue
+//    has no drain call site yet, so a queued payment would never post. Real-DB
+//    proof: `components/fees/fees-payment-idempotency.test.ts`.
 //
 // 2. attendance-mark — src/components/attendance/attendance-grid.tsx:36-37
 //    Replace `mutationFn: (payload) => updateAttendanceAction(payload)` with:
