@@ -90,78 +90,6 @@ function isInteractiveTransaction(db: SqlHandle): boolean {
   );
 }
 
-async function directPipelineExecute(
-  sql: string,
-  args: unknown[] = [],
-  dbUrl?: string,
-  dbToken?: string
-): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
-  const formattedArgs = args.map((a) => {
-    if (a === null || a === undefined) return { type: "null" };
-    if (typeof a === "number")
-      return Number.isInteger(a)
-        ? { type: "integer", value: String(a) }
-        : { type: "float", value: a };
-    return { type: "text", value: String(a) };
-  });
-
-  let host = resolveTursoUrl(dbUrl);
-  const token = resolveToken(dbToken);
-  if (host.startsWith("libsql://")) host = host.replace("libsql://", "https://");
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-  let res;
-  try {
-    res = await fetch(`${host}/v2/pipeline`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        requests: [
-          {
-            type: "execute",
-            stmt: {
-              sql,
-              args: formattedArgs,
-            },
-          },
-          { type: "close" },
-        ],
-      }),
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Turso pipeline HTTP ${res.status}: ${errText}`);
-  }
-
-  const json = await res.json();
-  const execResult = json.results?.[0]?.response?.result;
-  if (!execResult) return { rows: [] };
-
-  const cols: string[] = execResult.cols.map((c: { name: string }) => c.name);
-  const rows: Record<string, unknown>[] = (execResult.rows || []).map(
-    (row: Array<{ value?: unknown }>) => {
-      const obj: Record<string, unknown> = {};
-      cols.forEach((col, idx) => {
-        const cell = row[idx];
-        obj[col] = cell?.value !== undefined ? cell.value : null;
-      });
-      return obj;
-    }
-  );
-
-  return { rows, rowsAffected: execResult?.affected_row_count ?? 0 };
-}
-
 export async function run(
   db: SqlHandle,
   sql: string,
@@ -179,21 +107,38 @@ export async function run(
       // "5 separate awaits, no transaction" defect audit 2026-09-26 G2.
       throw err;
     }
-    try {
-      return await directPipelineExecute(sql, args);
-    } catch (pipelineErr) {
-      // P3-10, Rule 9: the fallback must never be able to hide WHY the primary
-      // handle failed. A real statement error (a column renamed under a stale
-      // INSERT, a constraint violation) would otherwise be reported as a Turso
-      // HTTP failure and point the operator at the network instead of at the
-      // SQL. Chain both — message for logs, `cause` for the primary root cause.
-      const primary = err instanceof Error ? err.message : String(err);
-      const fallback =
-        pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
-      throw new Error(`statement failed: ${primary} (pipeline fallback: ${fallback})`, {
-        cause: err,
-      });
-    }
+    // THE HTTP PIPELINE FALLBACK WAS REMOVED HERE, DELIBERATELY.
+    //
+    // It used to be: on any `db.execute` failure, re-issue the statement through
+    // `directPipelineExecute(sql, args)` — which, called without `dbUrl`/
+    // `dbToken`, resolves its target from the environment via
+    // `resolveTursoUrl(undefined)` / `resolveToken(undefined)`, i.e.
+    // `TURSO_DATABASE_URL` / `TURSO_TOKEN`.
+    //
+    // This gateway is multi-tenant: the database for a request comes from the
+    // caller's `x-db-url`/`x-db-token`, bound by the HMAC in `lib/auth.ts`.
+    // `TURSO_DATABASE_URL` is a DIFFERENT database — a single shared one. So the
+    // fallback did not "retry", it RE-TARGETED: whenever the primary handle
+    // failed for a transport reason (a dropped socket, a cold isolate, an 8s
+    // abort) the statement was silently re-issued against the shared database.
+    // On a multi-tenant deployment that is a cross-tenant write with no error,
+    // no audit row and no `tenant_id` guarantee — the worst possible failure
+    // direction for a fee-collection product, because it corrupts a tutor's
+    // books rather than refusing the request.
+    //
+    // It could not be made safe in place: `SqlHandle` does not carry the URL it
+    // was created with, so there is no way to prove the pipeline is pointed at
+    // the same database. A control that cannot be verified must not be trusted
+    // (10_Security.md fail-closed; BR-SEC-03).
+    //
+    // Failing closed is also the CLEARER outcome. The old path reported success
+    // only when the retarget happened to work; when it did not, the operator
+    // was shown `statement failed: <primary> (pipeline fallback: <fallback>)` —
+    // a network error pointing away from the real cause. The primary error
+    // alone is the honest one. `directPipelineExecute` had no other caller in
+    // this module, and `db.execute` is the path every caller here is verified
+    // against.
+    throw err;
   }
 }
 
