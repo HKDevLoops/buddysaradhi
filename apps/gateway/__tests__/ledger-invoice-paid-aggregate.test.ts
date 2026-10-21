@@ -249,9 +249,17 @@ describe("AUD-015 — the invoice's credited total is aggregated in SQL", () => 
 
   it("the envelope discloses the population size and the truncation", async () => {
     const f = createLedgerFixture();
+    const invoiceId = "018f0000-0000-7000-8000-8000-0000000000f1";
+    insertInvoice(f, { id: invoiceId, number: "INV-000001", total: 100000 });
+    insertInvoice(f, { id: "018f0000-0000-7000-8000-8000-0000000000f2", number: "INV-000002", total: 50000 });
+
     const res = await get(f, "/api/v1/ledger/invoices");
     expect(res.body.success).toBe(true);
-    expect(typeof res.body.total).toBe("number");
-    expect(typeof res.body.truncated).toBe("boolean");
+    // The population size is the count of the invoices IN SCOPE — the same
+    // scope the list is read with (here: this tenant, this student).
+    expect(res.body.total).toBe(2);
+    expect((res.body.data as unknown[]).length).toBe(2);
+    // Nothing was dropped, so nothing is reported as dropped.
+    expect(res.body.truncated).toBe(false);
   });
 });
