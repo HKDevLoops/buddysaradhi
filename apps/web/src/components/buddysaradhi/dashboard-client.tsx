@@ -494,7 +494,16 @@ export function DashboardClient() {
       {/* KPI strip — §6.2 C1..C6, three across on lg and six on 2xl (§6.3). C1,
           C3 and the two heatmap windows follow the period; C2, C4, C5 and C6
           are definitionally not period-scoped and say so INSIDE the card, per
-          §6.4, so a tutor never wonders why a number refused to move. */}
+          §6.4, so a tutor never wonders why a number refused to move.
+
+          PERF-4.6 — SEVEN CARDS, AND NO BREAKPOINT LEFT AN ORPHAN. The strip
+          holds seven cards (C1..C6 plus Overdue), and seven divides by none of
+          1, 2, 3 or 6 — so the old grid stranded a card on its own row at every
+          width (3 + 3 + 1 on lg, 6 + 1 on 2xl, 2 + 2 + 2 + 1 on sm). The last
+          card now spans the full row (`col-span-full`, which is `1 / -1` at
+          EVERY breakpoint), so the six above it tile evenly and the seventh is
+          a full-width band instead of a stranded tile. The column counts are
+          unchanged, so §6.3's "three across on lg and six on 2xl" still holds. */}
       <div
         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4"
         aria-busy={isFetching}
@@ -567,7 +576,9 @@ export function DashboardClient() {
         />
         {/* Overdue is a fifth money measure and has no C-number of its own: it
             is the subset of C3 whose due date has already passed, so it is
-            deliberately NOT period-scoped. */}
+            deliberately NOT period-scoped. PERF-4.6: it is the strip's last
+            card and it spans the full row, so no breakpoint leaves a card
+            stranded on its own. */}
         <KPICard
           card="overdue"
           onDrill={drill}
@@ -577,6 +588,7 @@ export function DashboardClient() {
           icon={<CalendarDays className="w-5 h-5" />}
           accent="var(--danger)"
           caption="Unpaid invoices already past their due date, all time"
+          wide
         />
       </div>
 
@@ -711,6 +723,50 @@ export function DashboardClient() {
 }
 
 /**
+ * PERF/A11Y-4.7 — THE KPI CARD'S BOUNDARY.
+ *
+ * The card's only boundary used to be a 1 px accent tint at 25 % opacity,
+ * composited over `--surface-raised` (#1C1D20). Measured against that surface:
+ * success **1.40 : 1**, warning **1.39 : 1**, info **1.39 : 1**, danger
+ * **1.38 : 1** — a boundary that is invisible to a tutor with low vision and
+ * below WCAG 1.4.11's 3 : 1 floor for a meaningful boundary (AGENTS.md §2
+ * Rule 10).
+ *
+ * TWO SEMANTIC ROLES, BOTH TOKENS (Rule 5 — never a literal colour):
+ *
+ *   - the PERIMETER is `var(--border-strong)`, the design system's own
+ *     emphasised boundary: **3.006 : 1** on `--surface-raised`. This is the
+ *     boundary that has to pass 3 : 1, and it now does.
+ *   - the LEFT BAR is the semantic signal, in the FULL accent rather than a
+ *     tint of it: success **4.50 : 1**, warning **4.52 : 1**, danger
+ *     **4.52 : 1**, info **4.51 : 1**. It is 2 px because
+ *     `13_UI_Guidelines.md` §5.4 prescribes "a 2px left border + inner glow,
+ *     not a full accent stroke" for a status surface — a 2 px emerald
+ *     left-bar plus an inset glow, which is exactly this card's recipe.
+ *
+ * The inset glow is the spec's third element and it rides the same accent
+ * token through `--kpi-accent`, so it can never drift from the bar beside it.
+ */
+function kpiCardBoundary(accent: string): React.CSSProperties & Record<"--kpi-accent", string> {
+  // The perimeter colour is set as FOUR longhands rather than the
+  // `border-color` shorthand: a shorthand with a `var()` in it is dropped by
+  // jsdom's CSS parser, and a boundary a test cannot see is a boundary nobody
+  // can assert on.
+  const perimeter = "var(--border-strong)";
+  return {
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderTopColor: perimeter,
+    borderRightColor: perimeter,
+    borderBottomColor: perimeter,
+    // The 2 px left bar of §5.4, in the FULL accent rather than a tint of it.
+    borderLeftWidth: "2px",
+    borderLeftColor: accent,
+    "--kpi-accent": accent,
+  };
+}
+
+/**
  * §10.1 gives every KPI card a drill-down target and §18 requires `Tab` to
  * reach the cards and `Enter` to fire them. These were `<div>`s carrying a
  * `hover:border` treatment, which is the visual grammar of a control with none
@@ -736,6 +792,7 @@ function KPICard({
   accent,
   caption,
   onDrill,
+  wide = false,
 }: {
   card: CardId;
   title: string;
@@ -745,34 +802,71 @@ function KPICard({
   accent: string;
   caption?: string;
   onDrill: (card: CardId) => void;
+  /**
+   * PERF-4.6 — the strip's LAST card, which sits on a row of its own at every
+   * breakpoint. Its content runs ACROSS the card instead of stacking in it, so
+   * a full-width band reads as a deliberate summary row rather than a tile
+   * stretched to the width of the screen.
+   */
+  wide?: boolean;
 }) {
   const valueText = formatFn ? formatFn(value) : value.toLocaleString("en-IN");
+  const iconBadge = (
+    <span
+      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+      style={{ backgroundColor: "color-mix(in srgb, " + accent + " 15%, transparent)", color: accent }}
+      aria-hidden="true"
+    >
+      {icon}
+    </span>
+  );
+  const figure = (
+    <span className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">
+      <CountUp value={value} formatFn={formatFn} />
+    </span>
+  );
   return (
     <button
       type="button"
       onClick={() => onDrill(card)}
-      className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
-      style={{
-        border: "1px solid color-mix(in srgb, " + accent + " 25%, transparent)",
-      }}
+      className={cn(
+        "glass-panel p-5 rounded-xl justify-between text-left transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer",
+        // The inset glow of §5.4. It is a Tailwind `shadow-` utility (not an
+        // inline `box-shadow`) so the focus ring — which is also a box-shadow —
+        // survives alongside it.
+        "shadow-[inset_2px_0_12px_color-mix(in_srgb,var(--kpi-accent)_15%,transparent)]",
+        wide
+          ? "col-span-full flex flex-col sm:flex-row sm:items-center sm:gap-6"
+          : "flex flex-col",
+      )}
+      style={kpiCardBoundary(accent)}
     >
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide truncate">
-          {title}
-        </span>
-        <span
-          className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-          style={{ backgroundColor: "color-mix(in srgb, " + accent + " 15%, transparent)", color: accent }}
-          aria-hidden="true"
-        >
-          {icon}
-        </span>
-      </div>
-      <span className="text-2xl font-bold text-[var(--text-primary)] tracking-tight num">
-        <CountUp value={value} formatFn={formatFn} />
-      </span>
-      {caption !== undefined && (
-        <span className="text-xs mt-1 text-[var(--text-muted)] block">{caption}</span>
+      {wide ? (
+        <>
+          <span className="flex items-center gap-3 shrink-0 flex-row-reverse justify-between sm:flex-row sm:justify-start">
+            {iconBadge}
+            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+              {title}
+            </span>
+          </span>
+          {figure}
+          {caption !== undefined && (
+            <span className="text-xs text-[var(--text-muted)] sm:text-right">{caption}</span>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide truncate">
+              {title}
+            </span>
+            {iconBadge}
+          </div>
+          {figure}
+          {caption !== undefined && (
+            <span className="text-xs mt-1 text-[var(--text-muted)] block">{caption}</span>
+          )}
+        </>
       )}
       {/* The visible text is the figure and its scope; this adds only the one
           thing a figure cannot say, which is where tapping it goes and what the
@@ -850,8 +944,8 @@ function BreakdownCard({
     <button
       type="button"
       onClick={() => onDrill(card)}
-      className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:border-[var(--info)]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer"
-      style={{ border: "1px solid color-mix(in srgb, var(--info) 25%, transparent)" }}
+      className="glass-panel p-5 rounded-xl flex flex-col justify-between text-left transition-all hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--canvas)] min-h-[44px] cursor-pointer shadow-[inset_2px_0_12px_color-mix(in_srgb,var(--kpi-accent)_15%,transparent)]"
+      style={kpiCardBoundary("var(--info)")}
     >
       <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
         Payment Breakdown
