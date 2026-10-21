@@ -27,11 +27,9 @@
 // dates and pre-resolved activity copy, and never parses JSON, formats a date,
 // or invents a number of its own.
 
-import { gatewayGet } from "@/server/get-db";
 import { log } from "@/lib/logger";
 import { z } from "zod";
 import { PaymentBreakdownSchema } from "@buddysaradhi/shared";
-import type { PaymentBreakdown } from "@buddysaradhi/shared";
 import {
   AnalyticsFilterSchema,
 } from "@/lib/dashboard-analytics-calc";
@@ -44,6 +42,7 @@ import {
 } from "@/lib/dashboard-period";
 import {
   getDashboardAnalytics,
+  getDashboardSummary,
   type DashboardAnalytics,
   type DashboardKpisOutput,
 } from "@/server/queries/dashboard-analytics";
@@ -290,12 +289,27 @@ export async function fetchDashboardSummaryAction(
   const window = resolvePeriodWindow(parsedPeriod.data as DashboardPeriod, Date.now());
 
   try {
-    const res = await gatewayGet<unknown>("/api/v1/analytics/dashboard", {
-      periodStartIso: window.periodStartIso,
-      periodEndIso: window.periodEndIso,
-    });
+    /**
+     * PERF-3.3 — ONE gateway call per request.
+     *
+     * This action used to call `/api/v1/analytics/dashboard` directly while
+     * `server/queries/dashboard-analytics.ts` calls the SAME endpoint inside
+     * React's `cache()`. Because this action was not memoised, every dashboard
+     * render issued the most expensive route in the product TWICE — measured at
+     * 2 × 214–1184 ms (audit M15/M46). Both legs now read the one memoised
+     * source, so React's per-request dedup covers them.
+     *
+     * The memo is keyed by the window, and the analytics anchor asks for the
+     * same default dashboard window this action resolves for the default
+     * period — so the two really are one read, not two reads that happen to
+     * share a function.
+     */
+    const res = await getDashboardSummary(
+      window.periodStartIso,
+      window.periodEndIso,
+    );
 
-    if (!res.success) {
+    if (!res.ok) {
       // No fallback. `getStudents` in `server/queries/students.ts` removed its
       // roster fallback for the same reason: the direct-DB path cannot honour
       // the gateway's contract, and a plausible wrong answer is the worst thing
@@ -331,10 +345,17 @@ export async function fetchDashboardSummaryAction(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.error("dashboard_summary_failed", message);
+    // A TIMEOUT is the same class of failure as a gateway error: transient,
+    // retryable, "your books are untouched". It must not fall through to
+    // `DASHBOARD_FETCH_FAILED`, which is not in `APP_ERROR_CODES` and would
+    // classify as UNKNOWN — telling a tutor to contact support for a blip.
+    const code = message.startsWith("UPSTREAM:")
+      ? "DASHBOARD_GATEWAY_FAILED"
+      : "DASHBOARD_FETCH_FAILED";
     return {
       ok: false,
-      code: "DASHBOARD_FETCH_FAILED",
-      error: `DASHBOARD_FETCH_FAILED: ${message}`,
+      code,
+      error: `${code}: ${message}`,
     };
   }
 }

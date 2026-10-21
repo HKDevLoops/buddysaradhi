@@ -2,7 +2,7 @@
 //   students, attendance_records) + §9 (Prisma ORM only via gateway seam, no raw
 //   SQL) + §10 (BR-CALC-09/10/11 scope, BR-RPT-01/03/08); 12_Business_Rules.md
 //   BR-RPT-03 (aging buckets), BR-RPT-08 (collected), BR-CALC-10/11; AGENTS.md §2
-//   Rule 6 (integer paise via paiseAdd/paiseSub, formatINR at the edge), Rule 9
+//   Rule 6 (integer paise via paiseAdd, formatINR at the edge), Rule 9
 //   (Zod-parsed gateway payloads, typed errors, partial-data honesty).
 //
 // READ-ONLY. This module performs zero mutations: no ledger writes, no
@@ -21,7 +21,7 @@
 
 import { cache } from "react";
 import { z } from "zod";
-import { paiseAdd, paiseSub, PaymentBreakdownSchema } from "@buddysaradhi/shared";
+import { paiseAdd, PaymentBreakdownSchema } from "@buddysaradhi/shared";
 import type { PaymentBreakdown } from "@buddysaradhi/shared";
 import { gatewayGet } from "@/server/get-db";
 import {
@@ -30,7 +30,7 @@ import {
   withQueryTimeout,
 } from "@/server/cache";
 import { log } from "@/lib/logger";
-import type { StudentInvoiceRow, StudentLedgerRow } from "./ledger";
+import { defaultDashboardPeriod, resolvePeriodWindow } from "@/lib/dashboard-period";
 // Value + type imports only (no re-exports): a "use server" module may export
 // async functions and types, nothing else.
 import { AnalyticsFilterSchema } from "@/lib/dashboard-analytics-calc";
@@ -274,12 +274,56 @@ const LEG_LABELS: Record<string, string> = {
   batches: "the batch list and the attendance heatmap",
 };
 
+/**
+ * The RAW gateway result of the dashboard route: the payload as the gateway sent
+ * it, or the failure it reported. Deliberately unparsed — each caller keeps its
+ * OWN Zod boundary (the KPI strip's strict one in `server/actions/dashboard.ts`,
+ * the anchor's projection below), so a change to one boundary cannot silently
+ * widen the other.
+ */
+export type DashboardSummaryRead =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string };
+
+/**
+ * PERF-3.3 — THE ONE gateway read of `/api/v1/analytics/dashboard`.
+ *
+ * Before this, the route was read TWICE per dashboard render: once by
+ * `fetchDashboardSummaryAction` (`server/actions/dashboard.ts`, which called
+ * `gatewayGet` directly and was NOT memoised) and once by the analytics
+ * anchor below, which IS inside React's `cache()`. The route is the most
+ * expensive one in the product — measured at p50 467 ms, p95 995 ms, p99
+ * 1184 ms for the default window — so the second read cost a tutor another
+ * 214–1184 ms on every dashboard view (audit M15/M46).
+ *
+ * `cache()` is React's PER-REQUEST memoisation: the entry lives for one
+ * request and is dropped when the response is done, so two callers in the same
+ * request share one read and two requests never share one. That is also what
+ * keeps it tenant-safe — a process-wide cache keyed by the window would hand
+ * one tutor's books to another.
+ *
+ * The memo is keyed by the FUNCTION and its ARGUMENTS, so the two callers
+ * collapse into one call ONLY when they ask for the same window. That is why
+ * the anchor below asks for the DEFAULT dashboard window rather than the
+ * analytics filter's own window — see the note there.
+ */
+export const getDashboardSummary = cache(
+  async (
+    periodStartIso: string,
+    periodEndIso: string,
+  ): Promise<DashboardSummaryRead> => {
+    const res = await withQueryTimeout(
+      gatewayGet<unknown>("/api/v1/analytics/dashboard", { periodStartIso, periodEndIso }),
+      QUERY_TIMEOUT_MS,
+    );
+    if (!res.success) return { ok: false, error: res.error };
+    return { ok: true, data: res.data };
+  },
+);
+
 async function readDashboard(periodStartIso: string, periodEndIso: string) {
-  const res = await withQueryTimeout(
-    gatewayGet<unknown>("/api/v1/analytics/dashboard", { periodStartIso, periodEndIso }),
-    QUERY_TIMEOUT_MS,
-  );
-  if (!res.success) throw new Error(res.error);
+  const res = await getDashboardSummary(periodStartIso, periodEndIso);
+  if (!res.ok) throw new Error(res.error);
   return DashboardSummarySchema.parse(res.data);
 }
 
@@ -394,13 +438,37 @@ export const getDashboardAnalytics = cache(
     const nowMs = Date.now();
     const today = dayIso(0, nowMs);
     const months = monthKeysForWindow(periodMonths, nowMs);
-    const periodStartIso = `${months[0] ?? today.slice(0, 7)}-01`;
-    const periodEndIso = today;
     const periodLabel =
       periodMonths === 3 ? "Last 3 months" : periodMonths === 6 ? "Last 6 months" : "Last 12 months";
 
+    /**
+     * PERF-3.3 — THE ANCHOR'S WINDOW IS THE DEFAULT DASHBOARD PERIOD, AND THAT
+     * IS THE POINT.
+     *
+     * This read consumes exactly ONE field from the route: `kpis.
+     * paymentBreakdown`. The gateway computes that partition from the ACTIVE
+     * ROSTER, the OPEN-INVOICE SET and the payments attributed to those
+     * invoices — none of which is period-scoped (`apps/gateway/routes/
+     * analytics.ts`: `paymentBreakdown` is `activeStudents × paymentState`,
+     * and the window enters only `collectedThisMonthMinor` and
+     * `dueForMonthMinor`). So the window the anchor asks for is UNOBSERVABLE
+     * in everything this section renders.
+     *
+     * It is nevertheless load-bearing, because the shared read is memoised per
+     * request and keyed by its ARGUMENTS: the anchor and the KPI strip's
+     * summary collapse into ONE gateway call only when they ask for the same
+     * window. The server render's summary asks for the default dashboard
+     * period (the calendar month), so the anchor asks for that too.
+     *
+     * Before this, the anchor asked for the analytics filter's own window
+     * (3/6/12 months back). The two windows could therefore never match, the
+     * memo could never collapse them, and the most expensive route in the
+     * product was read TWICE per dashboard render — 2 × 214–1184 ms (M15/M46).
+     */
+    const anchorWindow = resolvePeriodWindow(defaultDashboardPeriod(), nowMs);
+
     const settled = await Promise.allSettled([
-      readDashboard(periodStartIso, periodEndIso),
+      readDashboard(anchorWindow.periodStartIso, anchorWindow.periodEndIso),
       readFeesRoster(),
       readInvoices(),
       readLedger(),
