@@ -204,7 +204,17 @@ async function insertReceiptRow(tx: SqlExecutor, r: ReceiptInsert): Promise<void
  * row-level statement or one indexed read — no decisions about money happen
  * here (they live in `feesFlow.ts`).
  */
-function sqlFeeTx(tx: SqlExecutor): FeeTx {
+/**
+ * The libsql dialect's port implementation.
+ *
+ * Exported for the same reason `ormFeeTx` is: the parity suite needs to reach
+ * a SINGLE port operation (`creditedForInvoice`) in both dialects and compare
+ * them, and the only honest way to compare a port operation is through the
+ * port. AGENTS.md §3.5 — the money logic lives once in `feesFlow.ts`; this is
+ * the statement dialect's row-level implementation of it, deciding NOTHING
+ * about money.
+ */
+export function sqlFeeTx(tx: SqlExecutor): FeeTx {
   return {
     async requireStudent(tenantId, studentId) {
       // F5: a ghost id is a typed error, never a phantom row.
@@ -321,10 +331,30 @@ function sqlFeeTx(tx: SqlExecutor): FeeTx {
     },
 
     async creditedForInvoice(tenantId, invoiceId) {
+      // AUD-001 (P0) — the credits that COUNT are the ones that have not been
+      // REVERSED, not the ones that are not themselves reversals.
+      //
+      // The old filter was `type != 'VOID' AND void_of_id IS NULL`. That reads
+      // "this row is not a reversal" — but a VOIDED ORIGINAL is not a reversal
+      // either: the reversal is the LATER row that carries `void_of_id`
+      // pointing back at it. So a voided payment still satisfied the filter and
+      // still counted as credited. There is no `reverses_entry_id` column on
+      // the original (11_Data_Model.md §4.13), so "has been reversed" needs a
+      // reverse lookup: a row is reversed iff some OTHER row carries its id in
+      // `void_of_id`.
+      //
+      // 12_Business_Rules.md BR-RPT-04 [CRITICAL]: "balance_due = Σ(charges,
+      // type≠VOID, reverses IS NULL) − Σ(credits, type≠VOID, reverses IS
+      // NULL)". This query is that formula. EC-F-05 requires the invoice
+      // status to revert on a void, which depends on this being right.
       const res = await tx.execute({
-        sql: `SELECT COALESCE(SUM(credit_paise), 0) AS paid FROM ledger_entries
-              WHERE tenant_id = ? AND invoice_id = ?
-                AND type != 'VOID' AND void_of_id IS NULL`,
+        sql: `SELECT COALESCE(SUM(e.credit_paise), 0) AS paid FROM ledger_entries e
+              WHERE e.tenant_id = ? AND e.invoice_id = ?
+                AND e.type != 'VOID' AND e.void_of_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM ledger_entries v
+                  WHERE v.tenant_id = e.tenant_id AND v.void_of_id = e.id AND v.type = 'VOID'
+                )`,
         args: [tenantId, invoiceId],
       });
       return Number(res.rows[0]?.paid ?? 0);

@@ -96,15 +96,52 @@ function isOpenInvoice(inv: Row): boolean {
  * `PAYMENT_RECEIVED` credits attributed to an invoice, in integer paise.
  * `paiseAdd` means a corrupt (non-integer / overflowing) credit throws instead
  * of quietly producing a fractional balance (BR-M-01, Rule 9).
+ *
+ * AUD-001/AUD-013: a credit that has been REVERSED does not count. "Reversed"
+ * is NOT "this row is a reversal" — a voided ORIGINAL is not a reversal either
+ * (the reversal is the later row that carries `void_of_id` pointing back at
+ * it). `reversedIds` carries the ids of the credits some later row reversed.
  */
-function paymentsByInvoice(entries: Row[]): Map<string, number> {
+function paymentsByInvoice(entries: Row[], reversedIds: Set<string>): Map<string, number> {
   const paid = new Map<string, number>();
   for (const e of entries) {
     if (!e.invoiceId) continue;
+    if (e.id !== undefined && e.id !== null && reversedIds.has(String(e.id))) continue;
     const key = String(e.invoiceId);
     paid.set(key, paiseAdd(paid.get(key) ?? 0, Number(e.creditPaise ?? 0)));
   }
   return paid;
+}
+
+/**
+ * The ids of the credits that some later ledger row REVERSED.
+ *
+ * There is no `reverses_entry_id` column on the original row
+ * (11_Data_Model.md §4.13), so "has this credit been reversed?" is answered by
+ * looking the other way: a VOID row carries `void_of_id` = the id of the row it
+ * reverses. 12_Business_Rules.md BR-RPT-04 [CRITICAL] counts a credit only
+ * when it has NOT been reversed; 14_Edge_Cases.md EC-F-05 requires the invoice
+ * to revert on a void.
+ *
+ * The read is bounded by the candidate credits' own ids, so it cannot grow
+ * with the tenant's history.
+ */
+async function reversedCreditIds(
+  orm: { ledgerEntry: { findMany(args: unknown): Promise<Row[]> } },
+  creditIds: string[],
+): Promise<Set<string>> {
+  const reversed = new Set<string>();
+  if (creditIds.length === 0) return reversed;
+  const reversals = await orm.ledgerEntry.findMany({
+    where: { type: "VOID", voidOfId: { in: creditIds } },
+  });
+  for (const r of reversals) {
+    const target = r.voidOfId;
+    if (target !== null && target !== undefined && String(target).length > 0) {
+      reversed.add(String(target));
+    }
+  }
+  return reversed;
 }
 
 /**
@@ -326,7 +363,7 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     // graduated or archived student — the case that produced `student_name:
     // "Student"`. Reading the roster once and deriving the active subset in
     // the route keeps the same cost and gives every due row a real name.
-    const [allStudents, openInvoices, ledger, notifs, periodPayments] = await Promise.all([
+    const [allStudents, openInvoices, ledger, notifs, periodPayments, periodRefunds] = await Promise.all([
       orm.student.findMany({ where: {} }),
       // The open-invoice set — `paid` and `void` are gone before the row leaves
       // SQLite. This ONE read replaces both unbounded invoice reads: it is a
@@ -354,6 +391,17 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
       // `<= periodEnd` would wrongly exclude. No `take`: this SUM must be exact.
       orm.ledgerEntry.findMany({
         where: { type: "PAYMENT_RECEIVED", occurredOn: { gte: periodStart } },
+      }),
+      // BR-CALC-10: "Collected for a period = Σ(credit_paise where
+      // type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED')
+      // over the period's date range. Voided entries excluded." The refund leg
+      // was missing, so a refund never came out of the collected figure — the
+      // dashboard overstated revenue by every refund the tutor issued. The
+      // shared implementation (`packages/shared/src/feeCalc.ts:272-273`) DOES
+      // subtract them; AGENTS.md §3.5 forbids two copies of one rule
+      // disagreeing.
+      orm.ledgerEntry.findMany({
+        where: { type: "REFUND_ISSUED", occurredOn: { gte: periodStart } },
       }),
     ]);
 
@@ -383,7 +431,16 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
         where: { type: "PAYMENT_RECEIVED", invoiceId: { in: openInvoiceIds } },
       });
 
-    const paidByInv = paymentsByInvoice(attributedPayments);
+    // AUD-001/AUD-013: a credit that a later row REVERSED does not count —
+    // neither against the invoice's outstanding nor toward the period's
+    // collected figure. The reversal is found by looking the other way (a VOID
+    // row carries `void_of_id` = the id of the row it reverses), because the
+    // original row has no marker of its own.
+    const attributedReversed = await reversedCreditIds(
+      orm,
+      attributedPayments.map((p) => (p.id === undefined || p.id === null ? "" : String(p.id))).filter((id) => id.length > 0),
+    );
+    const paidByInv = paymentsByInvoice(attributedPayments, attributedReversed);
 
     const activeStudents = allStudents.filter(
       (s) =>
@@ -407,10 +464,28 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     // runs because it owns the upper bound and the day-shape check that the
     // SQL `occurred_on >= ?` cannot express. The rows that survive BOTH are
     // exactly the rows the old all-time read was windowed down to.
-    const collected = periodPayments.reduce((a, p) => {
+    //
+    // AUD-001/AUD-013: BR-CALC-10 says "Collected for a period = Σ(credit_paise
+    // where type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED')
+    // over the period's date range. **Voided entries excluded.**" Two legs were
+    // missing: a VOIDED payment still counted as cash in (it is still a
+    // PAYMENT_RECEIVED row with no marker of its own), and refunds never came
+    // out. So the dashboard's headline revenue included money the tutor gave
+    // back and money the tutor never kept.
+    const periodReversed = await reversedCreditIds(
+      orm,
+      periodPayments.map((p) => (p.id === undefined || p.id === null ? "" : String(p.id))).filter((id) => id.length > 0),
+    );
+    const collectedPayments = periodPayments.reduce((a, p) => {
       if (!isWithinPeriod(readDay(p.occurredOn), periodStart, periodEnd)) return a;
+      if (p.id !== undefined && p.id !== null && periodReversed.has(String(p.id))) return a;
       return paiseAdd(a, Number(p.creditPaise ?? 0));
     }, 0);
+    const collectedRefunds = periodRefunds.reduce((a, p) => {
+      if (!isWithinPeriod(readDay(p.occurredOn), periodStart, periodEnd)) return a;
+      return paiseAdd(a, Number(p.debitPaise ?? 0));
+    }, 0);
+    const collected = paiseSub(collectedPayments, collectedRefunds);
 
     // The subset of the open set that carries a deadline. Applied in JS (not
     // `due_date IS NOT NULL` in the where clause) so the SINGLE open read stays

@@ -22,8 +22,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createInvoicePrisma, recordPaymentPrisma } from "./feesPrisma";
-import { createInvoiceSql, recordPaymentSql } from "./fees";
+import { createInvoicePrisma, ormFeeTx, recordPaymentPrisma } from "./feesPrisma";
+import { createInvoiceSql, recordPaymentSql, sqlFeeTx } from "./fees";
+import type { FeeTx } from "./feesFlow";
 import { createLibsqlProxy } from "../../../apps/web/src/lib/libsql-proxy";
 
 const TENANT = "tenant_dialect_parity";
@@ -291,6 +292,9 @@ type Dialect = {
   name: string;
   createInvoice(db: unknown, input: CreateInvoiceInputLike): Promise<CreateInvoiceOutcome>;
   recordPayment(db: unknown, input: RecordPaymentInputLike): Promise<RecordPaymentOutcome>;
+  /** The dialect's port implementation, so a SINGLE port operation can be
+   *  compared across dialects without going through a whole flow. */
+  feeTx(db: unknown): FeeTx;
 };
 
 /** The libsql dialect talks to the raw client; the ORM dialect to the shim. */
@@ -299,11 +303,13 @@ const DIALECTS: Dialect[] = [
     name: "libsql dialect (fees.ts, gateway path)",
     createInvoice: (db, input) => createInvoiceSql(db as never, input),
     recordPayment: (db, input) => recordPaymentSql(db as never, input),
+    feeTx: (db) => sqlFeeTx(db as never),
   },
   {
     name: "ORM dialect (feesPrisma.ts, web path)",
     createInvoice: (db, input) => createInvoicePrisma(db as never, input),
     recordPayment: (db, input) => recordPaymentPrisma(db as never, input),
+    feeTx: (db) => ormFeeTx(db as never),
   },
 ];
 
@@ -373,8 +379,124 @@ describe("dialect parity — the same money from either writer", () => {
     expect(results[1]).toEqual(results[0]);
   });
 
-  it("every paise is attributed — the invariant that aborts the transaction", async () => {
+  it("AUD-001: a VOIDED payment stops counting as credited — in BOTH dialects", async () => {
+    // THE DEFECT (P0). The "has this credit been reversed?" test was
+    // `type != 'VOID' AND void_of_id IS NULL` — which reads "this row is not
+    // itself a reversal". A VOIDED ORIGINAL is not a reversal either: the
+    // reversal is the LATER row that carries `void_of_id` pointing back at it.
+    // So a voided payment still counted as credited, in all three dialects.
+    // 12_Business_Rules.md BR-RPT-04 [CRITICAL] counts a credit only when it
+    // has NOT been reversed; 14_Edge_Cases.md EC-F-05 requires the invoice to
+    // revert on a void, which depends on this being right.
+    //
+    // The VOID row below is inserted in PRODUCTION shape (apps/gateway/routes/
+    // ledger.ts:1019-1035): it carries `void_of_id` = the id of the row it
+    // reverses and does NOT carry `invoice_id`. That is why the fix needs a
+    // reverse lookup rather than a filter on the row itself.
     for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+      await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
+
+      // 1. Pay the invoice in full.
+      const paid = await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      expect(paid.ok, `${dialect.name}: ${paid.error?.message}`).toBe(true);
+      expect(paid.value?.creditedPaise).toBe(100000);
+
+      const tx = dialect.feeTx(handleFor(dialect, db));
+      expect(
+        await tx.creditedForInvoice(TENANT, "invoice-a"),
+        `${dialect.name}: a paid invoice must read as fully credited`,
+      ).toBe(100000);
+
+      // 2. The tutor voids the receipt.
+      const pay = await one<{ id: string }>(
+        db,
+        `SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' AND invoice_id = ?`,
+        ["invoice-a"],
+      );
+      expect(pay, `${dialect.name}: the payment row must exist`).not.toBeNull();
+      const now = new Date().toISOString();
+      await db.execute({
+        sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, invoice_id, type,
+                debit_paise, credit_paise, balance_after_paise, description,
+                prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
+              VALUES (?, ?, ?, NULL, 'VOID', 100000, 0, 100000, 'VOID: wrong amount',
+                      'prev-hash', 'void-hash', ?, '2026-09-13', 'manual', ?, ?)`,
+        args: ["void-entry-1", TENANT, studentId, pay?.id, now, now],
+      });
+
+      // 3. The credit is GONE. Before the fix this was still 100000 — the void
+      //    did not move the number, so the invoice kept reading as paid and the
+      //    next payment could not be attributed to it.
+      expect(
+        await tx.creditedForInvoice(TENANT, "invoice-a"),
+        `${dialect.name}: a VOIDED payment must not count as credited`,
+      ).toBe(0);
+    }
+  });
+
+  it("AUD-001: the void and the credit agree with BR-RPT-04's formula", async () => {
+    // The spec's formula, computed independently in SQL, must equal what the
+    // implementation reports. Before the fix the implementation said 100000
+    // and the formula said 0.
+    for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+      await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
+      await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      const pay = await one<{ id: string }>(
+        db,
+        `SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' AND invoice_id = ?`,
+        ["invoice-a"],
+      );
+      const now = new Date().toISOString();
+      await db.execute({
+        sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, invoice_id, type,
+                debit_paise, credit_paise, balance_after_paise, description,
+                prev_hash, this_hash, void_of_id, occurred_on, source, created_at, updated_at)
+              VALUES (?, ?, ?, NULL, 'VOID', 100000, 0, 100000, 'VOID: wrong amount',
+                      'prev-hash', 'void-hash', ?, '2026-09-13', 'manual', ?, ?)`,
+        args: ["void-entry-1", TENANT, studentId, pay?.id, now, now],
+      });
+
+      // BR-RPT-04: Σ(credits, type≠VOID, reverses IS NULL).
+      const spec = await scalar(
+        db,
+        `SELECT COALESCE(SUM(e.credit_paise), 0) AS c
+           FROM ledger_entries e
+          WHERE e.tenant_id = ? AND e.invoice_id = ?
+            AND e.type != 'VOID' AND e.void_of_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM ledger_entries v
+               WHERE v.tenant_id = e.tenant_id AND v.void_of_id = e.id AND v.type = 'VOID'
+            )`,
+        [TENANT, "invoice-a"],
+      );
+      const tx = dialect.feeTx(handleFor(dialect, db));
+      expect(
+        await tx.creditedForInvoice(TENANT, "invoice-a"),
+        `${dialect.name}: must equal BR-RPT-04's formula`,
+      ).toBe(spec);
+      expect(spec).toBe(0);
+    }
+  });
+
+  it("every paise is attributed — the invariant that aborts the transaction", async () => {    for (const dialect of DIALECTS) {
       const db = await openDb();
       const studentId = "student-parity";
       await seedStudent(db, studentId, 0);

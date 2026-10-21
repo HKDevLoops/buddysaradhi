@@ -24,6 +24,7 @@
 // (EC-F-01), so a corrupt total can never become NaN money.
 import { randomUUID } from "crypto";
 import { encodeOutboxPayload, nextCreatedAtIso, postLedgerEntry, type Result } from "./ledger";
+import { paiseAdd } from "./money";
 import {
   createInvoiceFlow,
   recordPaymentFlow,
@@ -65,6 +66,14 @@ export interface OrmTx {
   };
   ledgerEntry: {
     aggregate(args: RowArgs & { _sum: Record<string, string> }): Promise<Row>;
+    /**
+     * AUD-001 (P0): `creditedForInvoice` needs the invoice's credits AND the
+     * rows that reverse them, so it can exclude a credit whose id some later
+     * row carries in `void_of_id`. `voidOfId: { in: [...] }` is the only
+     * operator beyond plain equality this needs — both ORM surfaces (the web
+     * shim and the gateway's `createPrismaOrm`) support it.
+     */
+    findMany(args: RowArgs): Promise<Row[]>;
   };
   receipt: {
     create(args: DataArgs): Promise<Row>;
@@ -344,26 +353,50 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
     },
 
     async creditedForInvoice(tenantId, invoiceId) {
-      // Σ credits attributed to THIS invoice, excluding the VOID row and the
-      // row it reverses — the §9.6 step 5 filter, expressed as an aggregate.
-      const res = await tx.ledgerEntry.aggregate({
+      // AUD-001 (P0) — see the long note in `fees.ts` (the SQL dialect) for
+      // why `voidOfId: null` is NOT the same as "has not been reversed".
+      //
+      // The ORM surface has no subquery, so the reverse lookup is done in two
+      // steps: the invoice's candidate credits, then the VOID rows that point
+      // back at them. A credit that appears in that reversal set does not
+      // count.
+      const credits = await tx.ledgerEntry.findMany({
         where: {
           tenantId,
           invoiceId,
           type: { not: "VOID" },
           voidOfId: null,
         },
-        _sum: { creditPaise: "credit_paise" },
       });
-      // `_sum` arrives untyped (`Row`), so the value is narrowed explicitly:
-      // anything that is not a finite number counts as zero credited, which the
-      // flow's attribution invariant then fails closed on.
-      const sumHolder = res._sum;
-      const sum =
-        typeof sumHolder === "object" && sumHolder !== null
-          ? (sumHolder as { creditPaise?: unknown }).creditPaise
-          : undefined;
-      return typeof sum === "number" && Number.isFinite(sum) ? sum : 0;
+
+      const reversed = new Set<string>();
+      const creditIds = credits
+        .map((c) => (c.id === null || c.id === undefined ? "" : String(c.id)))
+        .filter((id) => id.length > 0);
+      if (creditIds.length > 0) {
+        const reversals = await tx.ledgerEntry.findMany({
+          where: { tenantId, type: "VOID", voidOfId: { in: creditIds } },
+        });
+        for (const r of reversals) {
+          const target = r.voidOfId;
+          if (target !== null && target !== undefined && String(target).length > 0) {
+            reversed.add(String(target));
+          }
+        }
+      }
+
+      // Rule 6 / BR-M-01: every addend is a safe integer checked by
+      // `paiseAdd`, so a corrupt credit can never become NaN money (EC-F-01).
+      let sum = 0;
+      for (const c of credits) {
+        const id = c.id === null || c.id === undefined ? "" : String(c.id);
+        if (id.length > 0 && reversed.has(id)) continue;
+        const credit = c.creditPaise === null || c.creditPaise === undefined
+          ? 0
+          : Number(c.creditPaise);
+        sum = paiseAdd(sum, credit);
+      }
+      return sum;
     },
 
     async postEntry(input: EntryInput) {

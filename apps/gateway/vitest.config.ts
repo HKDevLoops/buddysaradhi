@@ -12,5 +12,14 @@ export default defineConfig({
     environment: "node",
     globals: false,
     testTimeout: 10_000,
+    // AUD-068: this config had NO `hookTimeout`, so it inherited vitest's
+    // 10 000 ms default, while the ROOT config (which is what CI's
+    // `bun run test:unit` actually runs) sets 60 000. The same suite therefore
+    // had TWO verdicts: `pin-proof-vector.test.ts` imports BOTH the gateway's
+    // and the web's `crypto.ts` in a `beforeAll` — the web one pulls in the
+    // native argon2 binding, so a cold import can exceed 10 s — and the file
+    // was reported as failed under this config while passing under the root
+    // one. The two configs must agree, or a developer cannot trust a red.
+    hookTimeout: 60_000,
   },
 });

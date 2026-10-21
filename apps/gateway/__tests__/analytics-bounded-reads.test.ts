@@ -189,7 +189,15 @@ describe("P1 / the payment read is bounded to the period window and the open set
       .filter((sql) => sql.includes("type = ?"));
     expect(paymentReads.length).toBeGreaterThan(0);
     for (const sql of paymentReads) {
-      const bounded = sql.includes("occurred_on >= ?") || sql.includes("invoice_id IN (");
+      // Every typed ledger read must be bounded. The bound is one of three
+      // forms: a period window (`occurred_on >= ?`), the open-invoice set
+      // (`invoice_id IN (…)`), or — for the VOID-reversal read added by audit
+      // AUD-013 — the candidate credits' own ids (`void_of_id IN (…)`). That
+      // third form is bounded by the same population the read is derived from,
+      // so it cannot grow with the tenant's history either.
+      const bounded = sql.includes("occurred_on >= ?") ||
+        sql.includes("invoice_id IN (") ||
+        sql.includes("void_of_id IN (");
       expect(bounded).toBe(true);
     }
   });
