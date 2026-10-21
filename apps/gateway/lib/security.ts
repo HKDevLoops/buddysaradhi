@@ -475,8 +475,20 @@ export function checkIpRateLimit(clientIp: string): SecurityCheckResult {
     return { allowed: true };
   }
   if (entry.penaltyUntil > 0 && now < entry.penaltyUntil) {
+    // The count STILL advances on the reject path.
+    //
+    // THE DEFECT (2.12): the counter was only incremented on the ALLOW path,
+    // so a client that kept hammering through a penalty never earned a longer
+    // one - the backoff was frozen at the value it had when the penalty was
+    // first set, for the rest of the window. A client could be told "wait N
+    // seconds" and, by continuing, keep getting exactly N seconds.
+    //
+    // With the count advancing here, the penalty that follows an expired one
+    // is computed from a larger count (`PROGRESSIVE_PENALTY_BASE_MS * 2^k`),
+    // so the backoff escalates with continued abuse.
+    entry.count++;
     const retryAfter = Math.ceil((entry.penaltyUntil - now) / 1000);
-    logWarn("security.ip_rate_limited", { clientIp, retryAfter });
+    logWarn("security.ip_rate_limited", { clientIp, retryAfter, count: entry.count });
     return { allowed: false, status: 429, error: "too many requests" };
   }
   entry.count++;
