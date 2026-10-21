@@ -209,28 +209,47 @@ function periodicSecurityCleanup(): void {
  * Resolve the client IP for rate limiting and audit.
  *
  * Precedence is deliberate and ordered by trust:
- * 1. `cf-connecting-ip` — written by the edge, unspoofable there. Unchanged.
- * 2. Strict mode (`TRUSTED_PROXY_CIDRS` non-empty) with a `peer` transport
- *    address: if the peer is a declared proxy, the client is the LAST
- *    `x-forwarded-for` entry — the one OUR proxy appended (anything left of
- *    it is caller-supplied noise). If the peer is NOT declared, the
- *    connection is direct and any `x-forwarded-for` is attacker noise, so
- *    the peer itself is the client.
- * 3. Legacy default (no peer, or strict mode off): exactly today's chain —
- *    first XFF entry, then `x-real-ip`, then `"unknown"`. Byte-for-byte the
- *    old behavior for every deployment that does not opt in.
+ * 1. Strict mode (`TRUSTED_PROXY_CIDRS` non-empty) with a `peer` transport
+ *    address. The peer is a FACT (the socket); every header is a CLAIM.
+ *    - Peer IS a declared proxy → the headers that proxy set are trusted:
+ *      `cf-connecting-ip` first (the Cloudflare-style edge IP), then the
+ *      LAST `x-forwarded-for` entry (the one OUR proxy appended — anything
+ *      left of it is caller-supplied noise), then the peer.
+ *    - Peer is NOT declared → the connection is direct. EVERY header is
+ *      attacker noise, including `cf-connecting-ip` and `x-forwarded-for`.
+ *      The peer itself is the client.
+ * 2. Legacy default (no peer observable, or strict mode off): exactly today's
+ *    chain — `cf-connecting-ip`, then the first XFF entry, then `x-real-ip`,
+ *    then `"unknown"`. Byte-for-byte the old behavior for every deployment
+ *    that does not opt in.
+ *
+ * WHY `cf-connecting-ip` MOVED BEHIND THE PEER CHECK (audit AUD-004):
+ * it used to be read FIRST, unconditionally. That short-circuited the whole
+ * strict-mode design: an operator who declared their proxies and verified the
+ * peer was untrusted still got an attacker-chosen identity — and because
+ * `index.ts` also keys the 15-attempt credential lockout on this value, the
+ * rotation defeated the brute-force lockout too. A header is only a fact
+ * because a trusted hop asserts it; without the peer check, nobody asserted
+ * anything.
+ *
+ * RESIDUAL RISK IN LEGACY MODE (accepted, documented, not hidden): when the
+ * peer is unobservable or strict mode is off, the header chain is trusted
+ * because there is nothing to check it against. That is why the legacy path
+ * exists only for deployments that cannot observe the peer. Operators who
+ * want a spoof-proof rate-limit and lockout identity MUST declare
+ * `TRUSTED_PROXY_CIDRS` (see `apps/gateway/.env.example`).
  *
  * `peer` is the transport peer (`info.remoteAddr.hostname` from
- * `Deno.serve`), NOT a header — that is the whole point: headers are claims,
- * the peer is a fact. Callers that cannot observe the peer (unit tests, the
- * legacy path) omit it and get the legacy chain.
+ * `Deno.serve`), NOT a header. Callers that cannot observe the peer (unit
+ * tests, the legacy path) omit it and get the legacy chain.
  */
 export function getClientIp(req: Request, peer?: string, trusted?: string[]): string {
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf && cf.trim()) return cf.trim();
   const list = trusted ?? trustedProxies();
   if (peer !== undefined && list.length > 0) {
+    // Strict mode. The peer decides whether the headers are trusted at all.
     if (list.some((c) => cidrContains(c, peer))) {
+      const cf = req.headers.get("cf-connecting-ip");
+      if (cf && cf.trim()) return cf.trim();
       const xff = req.headers.get("x-forwarded-for");
       if (xff) {
         const parts = xff
@@ -241,8 +260,12 @@ export function getClientIp(req: Request, peer?: string, trusted?: string[]): st
       }
       return peer;
     }
+    // Direct connection: every header is caller-supplied. Use the peer.
     return peer;
   }
+  // Legacy chain — byte-for-byte the pre-strict-mode behaviour.
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf && cf.trim()) return cf.trim();
   return (
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
@@ -365,6 +388,20 @@ export function validateHeaders(req: Request, peer?: string): SecurityCheckResul
       clientIp: getClientIp(req, peer),
     });
     req.headers.delete("x-forwarded-for");
+  }
+  // AUD-004: on a strict DIRECT connection the peer is not a declared proxy, so
+  // `cf-connecting-ip` is caller-supplied like any other header — and
+  // `getClientIp` now ignores it for exactly that reason. Strip it too, so no
+  // downstream reader can mistake it for the edge's assertion. On a
+  // declared-proxy connection it is KEPT (that is who wrote it); in legacy mode
+  // it is KEPT (there is no peer to check it against, and stripping it would
+  // collapse a proxy-only deployment into one bucket).
+  if (strictUntrusted && req.headers.has("cf-connecting-ip")) {
+    logWarn("security.header_injection", {
+      header: "cf-connecting-ip",
+      clientIp: getClientIp(req, peer),
+    });
+    req.headers.delete("cf-connecting-ip");
   }
   for (const header of dangerousHeaders) {
     if (req.headers.has(header)) {

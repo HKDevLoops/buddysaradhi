@@ -415,13 +415,64 @@ describe("F-05b / client IP resolution with transport peer + trusted proxies", (
     return makeRequest("https://example.com/api/v1/students", { headers });
   }
 
-  it("cf-connecting-ip wins over everything, even in strict mode", () => {
+  it("cf-connecting-ip wins over everything when the peer is a DECLARED proxy", () => {
     process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
     const req = ipReq({
       "cf-connecting-ip": "203.0.113.9",
       "x-forwarded-for": "198.51.100.7",
     });
+    // The peer (10.1.2.3) is inside the declared 10/8, so the edge that
+    // asserted cf-connecting-ip is one we trust.
     expect(getClientIp(req, "10.1.2.3")).toBe("203.0.113.9");
+  });
+
+  // ── AUD-004 — the regression this pins ────────────────────────────────────
+  // `cf-connecting-ip` used to be read FIRST, before the peer check. That
+  // short-circuited the entire strict-mode design: an operator who declared
+  // their proxies and saw the peer fall OUTSIDE the declared set still got an
+  // attacker-chosen identity — and because `index.ts` also keys the 15-attempt
+  // credential lockout on this value, rotating the header rotated the lockout
+  // bucket too. The brute-force lockout was defeated by one header.
+  it("AUD-004: strict + UNTRUSTED peer: a spoofed cf-connecting-ip is IGNORED", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const req = ipReq({
+      "cf-connecting-ip": "9.9.9.9",
+      "x-forwarded-for": "198.51.100.7",
+    });
+    // The peer (192.0.2.44) is NOT inside 10/8 — a direct connection. Every
+    // header is caller-supplied, so the peer is the client.
+    expect(getClientIp(req, "192.0.2.44")).toBe("192.0.2.44");
+  });
+
+  it("AUD-004: the spoofed cf-connecting-ip cannot rotate the lockout identity", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    // Two requests from the SAME real peer, each claiming a different client
+    // IP. Before the fix these resolved to two different identities (two
+    // limiter buckets, two lockout buckets). Now they resolve to one.
+    const a = ipReq({ "cf-connecting-ip": "9.9.9.9" });
+    const b = ipReq({ "cf-connecting-ip": "8.8.8.8" });
+    expect(getClientIp(a, "192.0.2.44")).toBe(getClientIp(b, "192.0.2.44"));
+    expect(getClientIp(a, "192.0.2.44")).toBe("192.0.2.44");
+  });
+
+  it("AUD-004: a spoofed cf-connecting-ip is STRIPPED on a strict direct connection", () => {
+    process.env.TRUSTED_PROXY_CIDRS = "10.0.0.0/8";
+    const direct = ipReq({ "cf-connecting-ip": "9.9.9.9" });
+    validateHeaders(direct, "192.0.2.44");
+    expect(direct.headers.has("cf-connecting-ip")).toBe(false);
+
+    // Kept when the peer IS a declared proxy — that is who wrote it.
+    const viaProxy = ipReq({ "cf-connecting-ip": "203.0.113.9" });
+    validateHeaders(viaProxy, "10.1.2.3");
+    expect(viaProxy.headers.get("cf-connecting-ip")).toBe("203.0.113.9");
+  });
+
+  it("AUD-004: legacy mode still honours cf-connecting-ip (byte-for-byte default)", () => {
+    // No env, no peer: the pre-strict-mode chain is unchanged, because there
+    // is no peer to check a header against. Operators who need a spoof-proof
+    // identity must declare TRUSTED_PROXY_CIDRS.
+    delete process.env.TRUSTED_PROXY_CIDRS;
+    expect(getClientIp(ipReq({ "cf-connecting-ip": "203.0.113.9" }))).toBe("203.0.113.9");
   });
 
   it("legacy default: first XFF entry, peer ignored when strict mode is off", () => {
