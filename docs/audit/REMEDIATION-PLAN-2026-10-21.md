@@ -57,8 +57,12 @@ The ledger decides what a tutor's books say. Nothing ships until these are green
 | 1.15 | **P1** The chain ORDER is not total — three writers, three tie-breaks → false "chain broken" alarms | DECIDE |
 | 1.16 | **P2** The spec's `trg_ledger_hash` is byte-incompatible with the app's hash AND installed nowhere — implementing §10.2 literally bricks every write | DECIDE (amend the spec or change the hash) |
 | 1.17 | **P2** BR-FEE-01 vs BR-M-05 contradict on rounding; the Conflicts Matrix has no row | DECIDE |
+| 1.18 | **P1** An overpayment auto-invoiced the surplus - a synthetic bill for money the tutor was holding in cash (BR-FEE-15, EC-F-02). The books netted to zero, which is why the tests were green. The surplus is now ONE `[ADVANCE]` PAYMENT_RECEIVED with no invoice, and the receipts partition the payment (the settled part's receipt, plus the advance's OWN receipt number) | FIXED (`6caf3e9`) - the auto-apply half (the advance consumed by the next charge) is OPEN: it needs the gateway's `FeeTx` adapter |
+| 1.19 | **P1** `migrations/0001_init.sql` has NO `students.balance_paise` and NO `students.base_fee_paise` - a tenant DB created from the canonical DDL cannot record a balance or a fee. The code writes both, the gateway's self-heal has them, and the adversarial suite patches the column in by hand - so the shipped migration is not the schema the money engine runs on | OPEN - a forward-only `0004` ALTER (never edit `0001`) |
+| 1.20 | **P2** The web consumes core's BUILT `dist/`, not its source - a stale build silently serves the old money behaviour. The web fees suite caught it here; nothing enforces the rebuild | OPEN - build core before the web suite, or alias the package to its source |
+| 1.21 | **P1** The gateway's `fee-strictness.test.ts` and `idempotency-cas.test.ts` count TWO ledger rows per payment - the auto-invoice row model the spec forbids. They contradict the same suite's G8 test, which demands the balance go NEGATIVE for an overpayment (impossible under the auto-invoice model, which is why G8 was already red) | BLOCKED - those files are the in-flight RFC-005 WIP; the counts must move with the vendor re-sync |
 
-**Gate:** `packages/core` 249 passed + 8 expected-fail · `packages/shared` 321 green · the parity gate
+**Gate:** `packages/core` 254 passed + 8 expected-fail · `packages/shared` 321 green · the parity gate
 covers a **void** scenario and compares outbox **payloads** byte-for-byte.
 
 ---
@@ -122,6 +126,7 @@ AND on an idle one.
 
 | # | Finding | Status |
 |---|---|---|
+| 4.0 | **P2** `13_UI_Guidelines.md` 20 mandated a `pro-*` "Professional Polish Layer" of ~18 utilities that were NEVER BUILT - the consistency contract pointed at classes that did not exist, so nothing could enforce it. The app ships the 5 glass tiers, the 6 neumorphic controls and the 8 component recipes | FIXED (`58a7be0`) - 20 now describes what ships, and principle-lint L13 makes it a machine gate |
 | 4.1 | **P1** The hero copy panel composites to **1.8–2.6 : 1** against the animated scene (34 %-opaque over an accent-bright WebGL backdrop); the token system's contrast guarantee does not cover it | OPEN (product-page lane) |
 | 4.2 | **P1** The no-WebGL path is **500 vh** (600 vh on `/tour`) of frozen content | OPEN (product-page lane) |
 | 4.3 | **P1** The "Poster" fallback is a flat colour rectangle, not a poster — the spec requires a static image | OPEN (product-page lane) |
