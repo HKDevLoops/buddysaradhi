@@ -83,11 +83,12 @@ export function assertPaise(v: number): void {
 }
 
 /**
- * BR-FEE-01 + 22_Redundancy_Audit.md P16: division-derived money rounds
+ * BR-FEE-01 + 12_Business_Rules.md §15 row 16: division-derived money rounds
  * half-to-even (banker's). EC-F-01: 12555/10 -> 1256. BigInt-exact, no float.
- * Scope: division sites only (discounts, prorations). Display-step rounding
- * stays Math.round per BR-M-05; instalment splits use remainder-to-last per
- * BR-CALC-03. Non-negative dividend, positive divisor — throws otherwise.
+ * Scope: division sites only (discounts, prorations). The display step rounds
+ * nothing - the value it renders is already integer paise - and an instalment
+ * split uses remainder-to-last per BR-CALC-03, so neither is a rounding-mode
+ * choice. Non-negative dividend, positive divisor - throws otherwise.
  */
 export function paiseDivHalfEven(dividend: number, divisor: number): number {
   if (!Number.isSafeInteger(dividend) || !Number.isSafeInteger(divisor)) throw new Error("paiseDivHalfEven: non-safe-integer");
