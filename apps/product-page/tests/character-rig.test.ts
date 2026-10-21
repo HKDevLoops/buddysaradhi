@@ -45,11 +45,6 @@ function figureMeshesOf(root: THREE.Object3D): THREE.SkinnedMesh[] {
   return meshes;
 }
 
-/** Every skinned mesh in the figure. */
-function figureMeshes(seeker: Seeker): THREE.SkinnedMesh[] {
-  return figureMeshesOf(seeker.bones.figure);
-}
-
 describe("the vendored asset (brief §0.1)", () => {
   it("is the file the code says it is", () => {
     const bytes = readCharacterAsset();
