@@ -182,6 +182,12 @@ const L1_ALLOW: AllowEntry[] = [
       "§7.2 trigger-fire test — the secure-erase regression must prove the append-only guard is STILL INSTALLED after the audited cascade (audit AUD-003), so the test issues a DELETE that is expected to be ABORTED. Nothing is destroyed: the trigger raises and the statement rolls back.",
   },
   {
+    file: "migrations/0004_student_money_columns.test.ts",
+    re: /(UPDATE|DELETE\s+FROM)\s+ledger_entries/,
+    reason:
+      "§7.2 trigger-fire test — the 0004 migration test must prove the append-only guard is STILL INSTALLED after the repair, so it issues an UPDATE and a DELETE that are expected to be ABORTED. Nothing is destroyed: the trigger raises and the statement rolls back.",
+  },
+  {
     file: "apps/web/src/server/actions/settings.ts",
     re: /(?:db|tx)\.ledgerEntry\s*\.\s*deleteMany/,
     reason:

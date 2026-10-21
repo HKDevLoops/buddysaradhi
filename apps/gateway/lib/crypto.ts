@@ -92,7 +92,35 @@ const DATA_KEY = DATA_KEY_RAW || HMAC_SECRET;
  * `BR-SEC-07` already binds the PIN pepper to the argon2id `pin_hash`, so this
  * keeps one PIN-derived credential bound to one secret.
  */
-const PIN_PEPPER = readSecret("PIN_PEPPER") || HMAC_SECRET;
+const PIN_PEPPER_RAW = readSecret("PIN_PEPPER");
+const PIN_PEPPER = PIN_PEPPER_RAW || HMAC_SECRET;
+
+// In strict mode the PIN pepper must be its OWN secret.
+//
+// THE DEFECT (2.9): with `PIN_PEPPER` unset, the pepper IS the
+// request-signing key. One leaked secret then forges requests AND verifies
+// PINs - a fleet-wide impersonation key that is also an offline PIN-cracking
+// key. The pin-proof signing key is a DERIVED subkey
+// (`HMAC-SHA256(pepper, subkey-info)`), so the two USES are separated, but
+// the MATERIAL is not: knowing the pepper derives the subkey, so a request
+// signature and a PIN proof come from the same secret.
+//
+// The precedence itself cannot change - the web computes the proof from
+// `PIN_PEPPER || GATEWAY_SHARED_SECRET` and the edge verifies it, so a
+// different precedence would make every proof mismatch and the destructive
+// erase endpoint would 401 for every tutor, permanently and silently (the
+// reason it is written this way). So the fallback STAYS, and strict mode
+// makes it fatal instead of silent - the same treatment
+// `DATA_ENCRYPTION_KEY` already gets.
+if (STRICT_KEY_SEPARATION && (!PIN_PEPPER_RAW || PIN_PEPPER_RAW === HMAC_SECRET)) {
+  throw new Error(
+    "CRITICAL: STRICT_KEY_SEPARATION is on but PIN_PEPPER is not set to a value " +
+      "distinct from GATEWAY_SHARED_SECRET. The pepper is the request-signing " +
+      "key in that state, so one leaked secret both forges requests and " +
+      "verifies PINs (BR-SEC-07). Set PIN_PEPPER to a distinct random value " +
+      "and redeploy.",
+  );
+}
 
 /**
  * Startup gate. Every secret the gateway signs, verifies or encrypts with is

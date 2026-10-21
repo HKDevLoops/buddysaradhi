@@ -20,6 +20,7 @@ import { logWarn } from "../lib/log.ts";
 
 const SHARED = "gateway-shared-secret-that-is-at-least-32-chars";
 const DATA = "gateway-data-key-that-is-at-least-32-chars-000";
+const PEPPER = "gateway-pin-pepper-that-is-at-least-32-chars";
 const saved = new Map<string, string | undefined>();
 
 function setEnv(name: string, value: string | undefined): void {
@@ -88,6 +89,7 @@ describe("key separation — STRICT_KEY_SEPARATION refuses the coupled mode", ()
     setEnv("GATEWAY_SHARED_SECRET", SHARED);
     setEnv("DATA_ENCRYPTION_KEY", undefined);
     setEnv("STRICT_KEY_SEPARATION", "true");
+    setEnv("PIN_PEPPER", PEPPER);
     await expect(freshCrypto()).rejects.toThrow(
       /STRICT_KEY_SEPARATION is on but DATA_ENCRYPTION_KEY is not set/,
     );
@@ -99,6 +101,7 @@ describe("key separation — STRICT_KEY_SEPARATION refuses the coupled mode", ()
     setEnv("GATEWAY_SHARED_SECRET", SHARED);
     setEnv("DATA_ENCRYPTION_KEY", undefined);
     setEnv("STRICT_KEY_SEPARATION", "true");
+    setEnv("PIN_PEPPER", PEPPER);
     await expect(freshCrypto()).rejects.toThrow(/STRICT_KEY_SEPARATION is on/);
   });
 
@@ -107,6 +110,7 @@ describe("key separation — STRICT_KEY_SEPARATION refuses the coupled mode", ()
     setEnv("GATEWAY_SHARED_SECRET", SHARED);
     setEnv("DATA_ENCRYPTION_KEY", DATA);
     setEnv("STRICT_KEY_SEPARATION", "true");
+    setEnv("PIN_PEPPER", PEPPER);
     const crypto = await freshCrypto();
     expect(crypto.isStrictKeySeparation()).toBe(true);
     expect(crypto.isDataKeyFallback()).toBe(false);
@@ -143,5 +147,37 @@ describe("key separation — STRICT off + DATA unset behaves exactly as today", 
     expect(explicit.isDataKeyFallback()).toBe(false);
     expect(await explicit.decryptRequest(ciphertext)).toBe(plaintext);
     expect(await fallback.decryptRequest(ciphertext)).toBe(plaintext);
+  });
+});
+
+describe("key separation — the PIN pepper must be its own secret in strict mode", () => {
+  it("STRICT on + PIN_PEPPER unset refuses boot (the pepper is the signing key otherwise)", async () => {
+    devContext();
+    setEnv("GATEWAY_SHARED_SECRET", SHARED);
+    setEnv("DATA_ENCRYPTION_KEY", DATA);
+    setEnv("STRICT_KEY_SEPARATION", "true");
+    setEnv("PIN_PEPPER", undefined);
+    await expect(freshCrypto()).rejects.toThrow(
+      /PIN_PEPPER is not set to a value distinct from GATEWAY_SHARED_SECRET/,
+    );
+  });
+
+  it("STRICT on + PIN_PEPPER equal to the shared secret refuses boot", async () => {
+    devContext();
+    setEnv("GATEWAY_SHARED_SECRET", SHARED);
+    setEnv("DATA_ENCRYPTION_KEY", DATA);
+    setEnv("STRICT_KEY_SEPARATION", "true");
+    setEnv("PIN_PEPPER", SHARED);
+    await expect(freshCrypto()).rejects.toThrow(/PIN_PEPPER is not set to a value distinct/);
+  });
+
+  it("STRICT off + PIN_PEPPER unset boots (the default deployment, unchanged)", async () => {
+    devContext();
+    setEnv("GATEWAY_SHARED_SECRET", SHARED);
+    setEnv("DATA_ENCRYPTION_KEY", DATA);
+    setEnv("STRICT_KEY_SEPARATION", undefined);
+    setEnv("PIN_PEPPER", undefined);
+    const crypto = await freshCrypto();
+    expect(crypto.isStrictKeySeparation()).toBe(false);
   });
 });
