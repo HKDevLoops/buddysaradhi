@@ -53,8 +53,34 @@ export async function updateSession(
 
   let user: any = null;
   try {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+    // THE FAST PATH IS OFFLINE (3.5).
+    //
+    // `getUser()` asks GoTrue to verify the session: a WAN call on EVERY
+    // request the middleware sees, measured at 236-707 ms. `getClaims()`
+    // verifies the JWT's SIGNATURE locally against the project's JWKS (cached
+    // after the first fetch) and enforces `exp`; it never asks GoTrue. The
+    // gateway made the same move (apps/gateway/lib/auth.ts, with the claim
+    // policy it adds on top).
+    //
+    // The fallback is not optional: `getClaims()` is offline, so it cannot
+    // REFRESH an expired access token, and only `getUser()` can. So the round
+    // trip is paid where it must be paid - on the rare path where the local
+    // verification cannot decide - and NOT on every request.
+    let claims: any = null;
+    try {
+      const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+      if (!claimsError) claims = claimsData?.claims ?? null;
+    } catch {
+      // A JWKS fetch failure is NOT an authentication failure. Fall through to
+      // the network path rather than logging the tutor out.
+      claims = null;
+    }
+    if (claims) {
+      user = claims;
+    } else {
+      const { data } = await supabase.auth.getUser();
+      user = data.user;
+    }
   } catch (err) {
     log.warn("middleware_auth_get_user_failed", err instanceof Error ? err.message : String(err));
     request.cookies.getAll().forEach((cookie) => {
@@ -81,8 +107,35 @@ export async function updateSession(
       // Only enforce when BOTH sides have an active_session_id AND they
       // actively disagree. Never force-signout if the cookie is absent
       // (that means the user just logged in and the cookie hasn't been set yet).
-      const activeSessionId = user.user_metadata?.active_session_id as string | undefined;
       const deviceSessionCookie = request.cookies.get('buddysaradhi_session')?.value;
+
+      // THE LIVE VALUE, not the token's snapshot.
+      //
+      // The enforcement compares this device's cookie with the LIVE
+      // `active_session_id`, and a token's metadata is a SNAPSHOT: a session
+      // opened on another device changes the live value without changing this
+      // token. So the enforcement still asks GoTrue for the live value - on
+      // the five screen routes, which is where the enforcement runs. The API
+      // routes, which are the hot path the finding measured, are now decided
+      // entirely offline.
+      //
+      // This is the ONE place the middleware still makes a network call, and
+      // it is here deliberately: dropping it would trade a 236-707 ms page
+      // navigation for a weaker single-session rule, which is not a trade
+      // worth making silently.
+      let activeSessionId = user.user_metadata?.active_session_id as string | undefined;
+      if (deviceSessionCookie) {
+        try {
+          const { data: liveData } = await supabase.auth.getUser();
+          const liveActive = liveData.user?.user_metadata?.active_session_id as
+            | string
+            | undefined;
+          if (liveActive) activeSessionId = liveActive;
+        } catch {
+          // The live value is unavailable. The snapshot is used instead: it
+          // cannot fire a FALSE kick, it can only miss one.
+        }
+      }
 
       try {
         if (deviceSessionCookie && activeSessionId && deviceSessionCookie !== activeSessionId) {
