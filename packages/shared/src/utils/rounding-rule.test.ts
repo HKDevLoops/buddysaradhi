@@ -16,14 +16,31 @@
 // rounding mode the code does not implement is exactly the orphan-rule
 // failure AGENTS.md §0.2 is about, and it is invisible until a tutor's
 // discount is one paisa off.
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { paiseDivHalfEven } from "./format";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const RULES = readFileSync(resolve(here, "../../../../12_Business_Rules.md"), "utf8");
+/**
+ * The repo root, found by walking up from the working directory.
+ *
+ * WHY NOT `import.meta.url`. This package compiles with `module: CommonJS`
+ * (`packages/shared/tsconfig.json`), and `import.meta` is a hard TS1343 error
+ * under CommonJS - so the package's OWN BUILD fails on a test file that uses
+ * it. The working directory is the workspace root under the root vitest
+ * config, and a package-local run sits one or two directories down, so the
+ * search walks up until it finds the spec it is asserting against.
+ */
+function repoRoot(): string {
+  let dir = process.cwd();
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (existsSync(resolve(dir, "12_Business_Rules.md"))) return dir;
+    dir = resolve(dir, "..");
+  }
+  throw new Error("cannot locate 12_Business_Rules.md above " + process.cwd());
+}
+
+const RULES = readFileSync(resolve(repoRoot(), "12_Business_Rules.md"), "utf8");
 
 /** The row for a rule ID, or null when the ID is not in the file. */
 function ruleRow(id: string): string | null {

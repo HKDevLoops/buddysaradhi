@@ -2,7 +2,7 @@ import type { RouteHandler } from "./students.ts";
 import { ok, json, fail, failZod } from "../lib/errors.ts";
 import { recordOutbox, recordAudit } from "./students.ts";
 import { invalidateTenant } from "../lib/cache.ts";
-import { createPrismaOrm } from "../lib/orm.ts";
+import { createPrismaOrm, type PrismaOrm } from "../lib/orm.ts";
 import {
   oneRow,
   run,
@@ -269,6 +269,83 @@ async function syncStudentBalance(
   }).payload);
 }
 
+// ── Live credits: the reversal graph (BR-RPT-04 [CRITICAL], BR-LED-09) ──────
+//
+// "Credited" is NOT "this row is not a reversal". The ledger has no
+// `reverses_entry_id` column on the ORIGINAL row (11_Data_Model.md §4.13):
+// the reversal is the LATER row — a VOID entry carrying `void_of_id` pointing
+// back at the row it reverses. So "has this credit been reversed?" is answered
+// by looking the OTHER way: a credit is LIVE when no VOID row carries its id.
+//
+// The predicate this replaces — `void_of_id IS NULL` ON THE CREDIT ROW — reads
+// "this row is not itself a reversal", which a VOIDED ORIGINAL also satisfies:
+// the receipt the tutor already voided is not a reversal row, so it kept
+// counting as money received. That is AUD-001 in packages/core and AUD-014
+// here, and the two copies of the rule (core's `sumLiveCredits` and this file)
+// must not differ — AGENTS.md §3.5 makes a second copy of the money rule a
+// P0 defect, not a convenience.
+//
+// The read is CHUNKED: SQLite's variable ceiling is 32,766 on the shipped
+// libsql build (measured) and 999 on the oldest one, and exceeding it is a
+// HARD error, not a truncation — an unchunked `IN (…)` over every credit id
+// 500s on a long-lived institute (the same shape `routes/analytics.ts` uses
+// and `packages/core`'s `chunkIds` helper exists for).
+const MAX_SQL_VARIABLES_PER_STATEMENT = 500;
+
+/** The ids of the credits some later ledger row REVERSED. */
+async function reversedCreditIds(orm: PrismaOrm, creditIds: string[]): Promise<Set<string>> {
+  const reversed = new Set<string>();
+  if (creditIds.length === 0) return reversed;
+  for (let i = 0; i < creditIds.length; i += MAX_SQL_VARIABLES_PER_STATEMENT) {
+    const chunk = creditIds.slice(i, i + MAX_SQL_VARIABLES_PER_STATEMENT);
+    const reversals = await orm.ledgerEntry.findMany({
+      where: { type: "VOID", voidOfId: { in: chunk } },
+    });
+    for (const r of reversals) {
+      const target = r.voidOfId;
+      if (target !== null && target !== undefined && String(target).length > 0) {
+        reversed.add(String(target));
+      }
+    }
+  }
+  return reversed;
+}
+
+/**
+ * Σ the credits that are STILL LIVE against one invoice, in integer paise.
+ *
+ * `type` narrows the sum: "PAYMENT_RECEIVED" for the BR-LED-09 void guard,
+ * null for "every credit" (the invoice's credited total, §9.6 step 5). The
+ * `type != 'VOID'` half matters: a VOID row always carries `void_of_id`, so on
+ * well-formed data the two agree — but on a row that somehow does not, the
+ * mirroring credit of a voided charge would count as money received, and the
+ * dialects must not differ there (packages/core/src/ledger.ts `sumLiveCredits`
+ * says the same thing about the same edge).
+ */
+async function liveCreditPaise(
+  orm: PrismaOrm,
+  invoiceId: string,
+  type: string | null,
+): Promise<number> {
+  const where: Record<string, unknown> = { invoiceId, voidOfId: null };
+  if (type === null) where.type = { not: "VOID" };
+  else where.type = type;
+  const credits = await orm.ledgerEntry.findMany({ where });
+  const creditIds = credits
+    .map((c) => String(c.id ?? ""))
+    .filter((id) => id.length > 0);
+  const reversed = await reversedCreditIds(orm, creditIds);
+  // Rule 6 / BR-M-01 — every addend is a safe integer checked by `paiseAdd`,
+  // so a corrupt credit can never become NaN money (EC-F-01).
+  let sum = 0;
+  for (const c of credits) {
+    const id = String(c.id ?? "");
+    if (id.length > 0 && reversed.has(id)) continue;
+    sum = paiseAdd(sum, Number(c.creditPaise ?? 0));
+  }
+  return sum;
+}
+
 // ── F-08: the gateway FeeTx dialect ─────────────────────────────────────────
 //
 // POST /api/v1/ledger/payment used to be a THIRD money implementation: one
@@ -443,20 +520,27 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       }));
     },
 
-    async creditedForInvoice(_tid, invoiceId) {
-      // §9.6 step 5 filter: credits attributed to THIS invoice, VOID rows and
-      // reversal-linked rows excluded. Summed in JS with paiseAdd (not a SQL
-      // SUM) so an overflow or NaN aborts fail-closed instead of silently
-      // producing a wrong outstanding — same guarantee as the SQL dialect's
-      // COALESCE, without adding a new audited builder for one aggregate.
-      const attributed = await txOrm.ledgerEntry.findMany({
-        where: { invoiceId, type: { not: "VOID" }, voidOfId: null },
-      });
-      let sum = 0;
-      for (const r of attributed as Record<string, unknown>[]) {
-        sum = paiseAdd(sum, Number(r.creditPaise ?? 0));
-      }
-      return sum;
+    creditedForInvoice(_tid, invoiceId) {
+      // §9.6 step 5 — outstanding = total − Σ the credits already attributed
+      // to THIS invoice. "Credited" means NOT REVERSED (BR-RPT-04 [CRITICAL]):
+      // a voided receipt does NOT count, so the invoice re-opens and the next
+      // payment settles it (EC-F-05).
+      //
+      // The predicate this replaces — `type != 'VOID' AND void_of_id IS NULL`
+      // ON THE CREDIT ROW — is true of a VOIDED ORIGINAL (the receipt the tutor
+      // already voided is not itself a reversal), so a voided receipt kept
+      // counting as money received: the invoice read as settled, the tutor's
+      // next payment was swallowed as an overpayment, and the balance drifted
+      // (AUD-001 / AUD-014). Core's two dialects already carry the reverse
+      // lookup (packages/core/src/fees.ts, feesPrisma.ts); the gateway is a
+      // THIRD dialect of the same flow (AGENTS.md §3.5) and must not differ.
+      //
+      // Summed in JS with paiseAdd (not a SQL SUM) so an overflow or NaN aborts
+      // fail-closed instead of silently producing a wrong outstanding — the
+      // same guarantee the SQL dialect's COALESCE gives, without adding a new
+      // audited builder for one aggregate.
+      // Non-async deliberately (deno require-await): returning the promise.
+      return liveCreditPaise(txOrm, invoiceId, null);
     },
 
     async postEntry(input) {
@@ -698,25 +782,35 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
       take: 100,
     });
 
-    // BR-LED-06 read consistency: mirror the money flow's
-    // `type != 'VOID' AND void_of_id IS NULL` filter
-    // (packages/core/src/feesFlow.ts:301-302, fees.ts:239-241,
-    // feesPrisma.ts:266-275). A VOID or reversal-linked row must never inflate
-    // paid_amount_minor. `voidOfId: null` is enforced at the query level via the
-    // audited builder (`void_of_id IS NULL`); the in-memory guard below is
-    // defence-in-depth for rows already in flight (Rule 9 — no silent wrong figure).
+    // BR-LED-06 read consistency + BR-RPT-04 [CRITICAL]: a credit counts only
+    // while it has NOT been reversed. "Reversed" is the REVERSE LOOKUP — some
+    // later VOID row carries this credit's id — not "this row is not itself a
+    // reversal", which a VOIDED ORIGINAL also satisfies. The predicate this
+    // replaces kept counting a voided receipt as money received, so an invoice
+    // whose payment had been voided read as still paid (AUD-001 / AUD-014).
+    // Mirrors the money flow's own filter (packages/core/src/feesFlow.ts,
+    // fees.ts, feesPrisma.ts).
     const entries = await orm.ledgerEntry.findMany({
       where: { type: "PAYMENT_RECEIVED", voidOfId: null },
       take: 200,
     });
+    const reversed = await reversedCreditIds(
+      orm,
+      entries.map((e) => String(e.id ?? "")).filter((id) => id.length > 0),
+    );
 
     const paidMap = new Map<string, number>();
     for (const e of entries) {
       // Defence-in-depth: skip any VOID or reversal-linked row that reached us
-      // despite the query filter (see above).
+      // despite the query filter (see above), and any credit a later VOID row
+      // reverses.
       if (e.type === "VOID" || e.voidOfId != null) continue;
+      const id = String(e.id ?? "");
+      if (id.length > 0 && reversed.has(id)) continue;
       if (e.invoiceId) {
-        paidMap.set(e.invoiceId, (paidMap.get(e.invoiceId) ?? 0) + (e.creditPaise ?? 0));
+        const key = String(e.invoiceId);
+        // Rule 6 / BR-M-01 — integer paise, never a float sum.
+        paidMap.set(key, paiseAdd(paidMap.get(key) ?? 0, Number(e.creditPaise ?? 0)));
       }
     }
 
@@ -1096,22 +1190,34 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         // names. 07 §10.2 BR-LED-04 and EC-F-06 give the same rule as the UI
         // half of the contract: "Void those receipts first."
         //
-        // The check is scoped to the charge's own invoice and excludes VOID
-        // rows and reversal-linked rows (§9.6 step 5's double guard, BR-LED-02),
-        // so a payment that has ALREADY been reversed does not keep blocking the
-        // charge. An ad-hoc charge with no invoice has no credit set to protect,
-        // so there is nothing to check and the void proceeds.
+        // WHAT COUNTS AS A CREDIT — the reversal graph, not the row's own
+        // `void_of_id` (AUD-014). The old predicate was
+        // `voidOfId: null` ON THE CREDIT ROW, which reads "this row is not
+        // itself a reversal" — and a payment the tutor ALREADY voided is not a
+        // reversal row either (the reversal is the LATER row that points back
+        // at it). So the voided receipt kept counting as a live credit and
+        // kept blocking the charge: the tutor was told "void those receipts
+        // first" about a receipt they had already voided, and on an append-only
+        // ledger that closes the correction path for good (the fee stays on the
+        // books forever). A receipt that is still LIVE does count, and the void
+        // is refused — and the refusal writes NOTHING: this guard runs before
+        // the audit row, the reversing row and every outbox row, so the throw
+        // rolls the transaction back.
+        //
+        // An ad-hoc charge with no invoice has no credit set to protect, so
+        // there is nothing to check and the void proceeds.
         if (entry.type === "FEE_CHARGED" && typeof entry.invoiceId === "string" && entry.invoiceId.length > 0) {
-          const credits = await txOrm.ledgerEntry.findMany({
-            where: {
-              invoiceId: entry.invoiceId,
-              type: "PAYMENT_RECEIVED",
-              voidOfId: null,
-            },
-            take: 1,
-          });
-          if (credits.length > 0) {
-            throw new LedgerRouteError("charge_has_credits", 409);
+          const livePayments = await liveCreditPaise(txOrm, entry.invoiceId, "PAYMENT_RECEIVED");
+          if (livePayments > 0) {
+            // The engine's wording is the reference (packages/core/src/ledger.ts
+            // `voidLedgerFlow`): the typed code first, then the tutor-facing
+            // half of EC-F-06 — "void those receipts first". The web maps this
+            // code to its own one-liner (apps/web/src/server/actions/fees.ts
+            // `mapVoidGatewayError`).
+            throw new LedgerRouteError(
+              `CHARGE_HAS_CREDITS: this fee has ${livePayments} paise of live payments against it — void those receipts first, then void the fee (BR-LED-09).`,
+              409,
+            );
           }
         }
 
