@@ -1,8 +1,8 @@
 {
   "policy": {
     "blocking": [
-      "A PRODUCTION-REACHABLE advisory at HIGH or CRITICAL blocks the merge. Production-reachable means: reachable from the `dependencies` of a SHIPPED workspace (the root, apps/web, apps/product-page, packages/core, packages/shared, packages/design-system, packages/security) or from the Deno gateway's npm imports, following the lockfile's own `dependencies` and `optionalDependencies` edges.",
-      "A DEV-ONLY advisory at CRITICAL blocks the merge. Dev-only means: reachable only from a `devDependencies` entry, or from a workspace that is not deployed (apps/mobile and apps/desktop are v1.x LOCKED per 16_Platform_Delivery_Sequence.md; apps/services/* is the superseded microservice split that nothing deploys and nothing imports).",
+      "A PRODUCTION-REACHABLE advisory at HIGH or CRITICAL blocks the merge. Production-reachable means: reachable from the `dependencies` of a SHIPPED workspace (the root, apps/web, apps/product-page, packages/core, packages/shared, packages/design-system) or from the Deno gateway's npm imports, following the lockfile's own `dependencies` and `optionalDependencies` edges.",
+      "A DEV-ONLY advisory at CRITICAL blocks the merge. Dev-only means: reachable only from a `devDependencies` entry, or from a workspace that is not deployed (apps/mobile and apps/desktop are v1.x LOCKED per 16_Platform_Delivery_Sequence.md; the superseded apps/services/* microservice split and the dead packages/security workspace were deleted on 2026-10-21 and are no longer workspaces at all).",
       "A DEV-ONLY advisory at HIGH or below is REPORTED and does not block. A gate that can never be green is a gate nobody reads (AGENTS.md §2 Rule 9)."
     ],
     "reached_from": "The reachability graph is computed from bun.lock (the npm workspaces) plus the Deno gateway's npm imports. peerDependencies are NOT followed: a peer is a contract, not a shipped edge, and following them made packages that the product never loads look production-reachable.",
