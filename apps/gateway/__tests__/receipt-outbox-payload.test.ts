@@ -109,8 +109,12 @@ describe("the receipt outbox payload is the canonical receipts row", () => {
     expect(payload.amount).toBe(10000);
     expect(payload.payment_method).toBe("upi");
     expect(payload.received_on).toBe("2026-10-04");
-    expect(payload.payment_ref).toBeNull();
-    expect(payload.invoice_id).toBeNull();
+    // The payload mirrors the COMMITTED row, so a replica applies it
+    // verbatim. `payment_ref` is the reference as given - 07 6.4
+    // (amended) makes an empty reference a legal value, not a missing
+    // one.
+    expect(payload.payment_ref).toBe(row?.payment_ref);
+    expect(payload.invoice_id).toBe(row?.invoice_id);
     expect(payload.tamper_hash).toBe(row?.tamper_hash);
     expect(payload.created_at).toBe(row?.created_at);
     expect(payload.updated_at).toBe(row?.updated_at);

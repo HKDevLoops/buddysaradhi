@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { costInStickUnits, fastestStickPerOp } from "./perf-stick.ts";
 import {
   getCachedResponse,
   setCacheResponse,
@@ -165,6 +166,11 @@ describe("Parallel query execution", () => {
   });
 });
 
+// The budgets, in stick units (see `./perf-stick.ts`).
+const CACHE_HIT_UNITS = 40;
+const PRE_SERIALISED_UNITS = 200;
+const INVALIDATION_UNITS = 6000;
+
 describe("Cache performance", () => {
   it("cache hit is faster than cache miss", () => {
     const cache = createCache();
@@ -177,13 +183,12 @@ describe("Cache performance", () => {
       cache.set(`students:tenant1:${i}`, data, 30000);
     }
 
-    const start = Date.now();
-    for (let i = 0; i < 1000; i++) {
-      cache.get(`students:tenant1:${i}`);
-    }
-    const cacheTime = Date.now() - start;
-
-    expect(cacheTime).toBeLessThan(10);
+    // In stick units, not milliseconds: a millisecond budget measures the
+    // runner (see `./perf-stick.ts` for the whole argument).
+    const units = costInStickUnits(() => {
+      cache.get(`students:tenant1:${999}`);
+    });
+    expect(units).toBeLessThanOrEqual(CACHE_HIT_UNITS);
   });
 });
 
@@ -257,17 +262,14 @@ describe("LRU gateway cache latency benchmarks", () => {
       setCacheResponse(`bench:resp-${i}`, bigPayload, 200, "application/json", 60_000);
     }
 
-    const samples: number[] = [];
-    for (let i = 0; i < 200; i++) {
-      const start = performance.now();
-      getCachedResponse(`bench:resp-${i}`);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-
-    expect(p95).toBeLessThan(1.0);
+    // In stick units, not milliseconds: a millisecond budget measures the
+    // runner (see `./perf-stick.ts` for the whole argument). The keys cycle so
+    // every call is a HIT - a miss would be a different, slower path.
+    let i = 0;
+    const units = costInStickUnits(() => {
+      getCachedResponse(`bench:resp-${i++ % 200}`);
+    });
+    expect(units).toBeLessThanOrEqual(PRE_SERIALISED_UNITS);
   });
 
   it("invalidation is fast for large caches", () => {
@@ -280,7 +282,8 @@ describe("LRU gateway cache latency benchmarks", () => {
     invalidateTenant("tenant-b");
     const elapsed = performance.now() - start;
 
-    expect(elapsed).toBeLessThan(5.0);
+    // In stick units, not milliseconds - the same reason as the gate above.
+    expect(elapsed / fastestStickPerOp()).toBeLessThanOrEqual(INVALIDATION_UNITS);
     expect(cacheStats().size).toBe(1);
   });
 

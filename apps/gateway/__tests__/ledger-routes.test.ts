@@ -165,7 +165,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
 
     const paymentEntry = rows(
       f,
-      "SELECT id, receipt_no FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'",
+  "SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'",
     )[0];
     const voided = await post(f, "/api/v1/ledger/void", {
       entryId: paymentEntry.id,
@@ -183,9 +183,9 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     expect(String(voidRow.description)).toBe("VOID: duplicate entry");
 
     // EC-F-05 — the receipt is marked voided in the same transaction.
-    const receipt = rows(f, "SELECT voided_at FROM receipts WHERE number = ?", [
-      paymentEntry.receipt_no,
-    ])[0];
+  const receipt = rows(f, "SELECT voided_at FROM receipts WHERE ledger_entry_id = ?", [
+    paymentEntry.id,
+  ])[0];
     expect(receipt.voided_at).not.toBeNull();
   });
 
@@ -271,9 +271,13 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     expect(dataOf<{ newBalance: number }>(payment.body).newBalance).toBe(-30000);
     expect(balanceOf(f)).toBe(-30000);
 
+    // The payment settles the invoice (50,000) and holds 30,000 in
+    // advance (BR-FEE-15), so the LAST PAYMENT_RECEIVED - the
+    // `[ADVANCE]` row - carries the negative balance. The clamp that
+    // floored it at zero is gone.
     const entry = rows(
       f,
-      "SELECT balance_after_paise FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'",
+      "SELECT balance_after_paise FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' ORDER BY rowid DESC",
     )[0];
     expect(Number(entry.balance_after_paise)).toBe(-30000);
   });
@@ -389,9 +393,11 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
       /append-only/,
     );
     expect(() => f.db.raw.exec("DELETE FROM ledger_entries")).toThrow(/append-only/);
-    expect(rows(f, "SELECT description FROM ledger_entries")[0]?.description).toBe(
-      "Payment received",
-    );
+  // The payment had no open invoice, so its row is the ADVANCE -
+  // tagged `[ADVANCE]` in the description (BR-FEE-04).
+  expect(rows(f, "SELECT description FROM ledger_entries")[0]?.description).toBe(
+  "[ADVANCE] Payment received",
+  );
   });
 
   it("Rule 7: every mutation writes sync_outbox + audit_log in the same transaction", async () => {
@@ -408,7 +414,10 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     const byTable = (table: string) =>
       rows(f, `SELECT op FROM sync_outbox WHERE table_name = '${table}'`).map((r) => r.op);
     expect(byTable("ledger_entries")).toEqual(["insert", "insert"]);
-    expect(byTable("invoices")).toEqual(["insert"]);
+  // The payment is a PARTIAL settlement, so the invoice's status is
+  // recomputed (07 9.6 step 5) - and that recompute is a mutation,
+  // so it replicates like one.
+  expect(byTable("invoices")).toEqual(["insert", "update"]);
     expect(byTable("receipts")).toEqual(["insert"]);
     expect(byTable("students")).toEqual(["update", "update"]);
     expect(byTable("settings")).toEqual(["update", "update"]);
@@ -416,7 +425,9 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     const actions = rows(f, "SELECT action FROM audit_log ORDER BY created_at, rowid").map(
       (r) => r.action,
     );
-    expect(actions).toEqual(["ledger.invoice", "ledger.payment"]);
+    // The audit action is the FLOW's canonical one (packages/core/src/feesFlow.ts
+  // writes `payment_record`), so the gateway and the web name the same event.
+  expect(actions).toEqual(["ledger.invoice", "payment_record"]);
   });
 
   it("W1: a failing statement inside the transaction propagates instead of using the pipeline fallback", async () => {

@@ -102,7 +102,12 @@ describe("fee strictness — Zod rejects before any DB touch (BR-M-01)", () => {
       });
       expect(res.status).toBe(200);
     }
-    expect(rows(f, "SELECT id FROM ledger_entries").length).toBe(6);
+  // Six payments, six rows: each payment had no open invoice, so its
+  // whole amount is an ADVANCE (BR-FEE-15 / EC-F-02) - ONE
+  // PAYMENT_RECEIVED, tagged `[ADVANCE]`, carrying no invoice. The
+  // strictness property - every method accepted - is unchanged; only
+  // the row model moved the count.
+  expect(rows(f, "SELECT id FROM ledger_entries").length).toBe(6);
   });
 
   it("rejects non-UUID student ids and non-ISO dates", async () => {
@@ -174,7 +179,13 @@ describe("void requires a reason + posts a reversing entry (Rule 1, BR-LED-04/05
       studentId: f.studentId,
       amount: 1000,
     });
-    const entryId = rows(f, "SELECT id FROM ledger_entries")[0]?.id as string;
+    // F-08: the first row is now the auto-invoice FEE_CHARGED, and voiding a
+    // settled charge is a 409 (BR-LED-09) — so void the PAYMENT_RECEIVED entry
+    // instead, exactly as a tutor voiding a receipt would.
+    const entryId = rows(
+      f,
+      "SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' ORDER BY rowid LIMIT 1",
+    )[0]?.id as string;
 
     const res = await call(f, handleLedger, "/api/v1/ledger/void", "POST", {
       entryId,

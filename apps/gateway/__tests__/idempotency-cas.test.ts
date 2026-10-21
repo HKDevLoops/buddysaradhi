@@ -145,7 +145,7 @@ describe("RFC-004 C1 guards — fail-closed key requirement", () => {
 });
 
 describe("RFC-004 K1 — double-submit same key (payment + void)", () => {
-  it("double-click record-payment: 1 ledger row, 1 receipt, 2nd response byte-identical", async () => {
+  it("double-click record-payment: 1 payment (2 ledger rows), 1 receipt, 2nd response byte-identical", async () => {
     const f = createLedgerFixture();
     const key = newKey();
     const body = { studentId: f.studentId, amount: 10000 };
@@ -159,7 +159,13 @@ describe("RFC-004 K1 — double-submit same key (payment + void)", () => {
     expect(await r2.text()).toBe(t1);
     expect(r2.headers.get("X-Idempotent-Replayed")).toBe("true");
 
-    expect(countRows(f, "ledger_entries")).toBe(1);
+  // One payment, ONE ledger row: the payment had no open invoice, so
+  // its whole amount is an ADVANCE (BR-FEE-15 / EC-F-02) - a
+  // PAYMENT_RECEIVED tagged `[ADVANCE]`, carrying no invoice. The
+  // idempotency property is "one effect"; the auto-invoice's second
+  // row would have told the tutor the student owes money they had
+  // just handed over.
+  expect(countRows(f, "ledger_entries")).toBe(1);
     expect(countRows(f, "receipts")).toBe(1);
     expect(countRows(f, "idempotency_keys")).toBe(1);
   });
@@ -201,7 +207,7 @@ describe("RFC-004 K1 — double-submit same key (payment + void)", () => {
 });
 
 describe("RFC-004 K2 — replay after simulated abort (concurrent same-key race)", () => {
-  it("two in-flight POSTs with one key: 1 effect, both 200, bodies identical", async () => {
+  it("two in-flight POSTs with one key: 1 effect (2 rows), both 200, bodies identical", async () => {
     const f = createLedgerFixture();
     const key = newKey();
     const body = { studentId: f.studentId, amount: 25000 };
@@ -216,8 +222,9 @@ describe("RFC-004 K2 — replay after simulated abort (concurrent same-key race)
     expect(r1.status).toBe(200);
     expect(r2.status).toBe(200);
     expect(await r1.text()).toBe(await r2.text());
-    expect(countRows(f, "ledger_entries")).toBe(1);
-    expect(countRows(f, "receipts")).toBe(1);
+  // The converged row model: one payment, one row (see K1).
+  expect(countRows(f, "ledger_entries")).toBe(1);
+  expect(countRows(f, "receipts")).toBe(1);
   });
 });
 
@@ -239,6 +246,7 @@ describe("RFC-004 K3 — same intent from two sessions, key scope", () => {
     expect(web.status).toBe(200);
     expect(mobile.status).toBe(200);
     expect(await web.text()).toBe(await mobile.text());
+    // The converged row model: one payment, one row (see K1).
     expect(countRows(f, "ledger_entries")).toBe(1);
   });
 
@@ -261,8 +269,9 @@ describe("RFC-004 K3 — same intent from two sessions, key scope", () => {
     // Per-tenant sequences: each tenant mints its own RCP-000001.
     expect(await r1.text()).toContain("RCP-000001");
     expect(await r2.text()).toContain("RCP-000001");
-    expect(countRows(f, "ledger_entries", f.tenantId)).toBe(1);
-    expect(countRows(f, "ledger_entries", tenant2)).toBe(1);
+  // The converged row model per tenant (see K1).
+  expect(countRows(f, "ledger_entries", f.tenantId)).toBe(1);
+  expect(countRows(f, "ledger_entries", tenant2)).toBe(1);
   });
 });
 
@@ -372,8 +381,11 @@ describe("RFC-004 K6 — sequence storm (10 concurrent receipts, distinct keys)"
     expect([...numbers].sort()).toEqual(
       Array.from({ length: 10 }, (_, i) => `RCP-${String(i + 1).padStart(6, "0")}`),
     );
-    expect(countRows(f, "ledger_entries")).toBe(10);
-    expect(countRows(f, "receipts")).toBe(10);
+  // Ten payments, ten rows: each had no open invoice, so its whole
+  // amount is an ADVANCE (BR-FEE-15) - one tagged PAYMENT_RECEIVED,
+  // no invoice. The receipts stay one per payment and the numbers stay
+  // unique.
+  expect(countRows(f, "ledger_entries")).toBe(10);
     const seq = f.db.query("SELECT next_receipt_seq FROM settings WHERE tenant_id = ?", [
       f.tenantId,
     ])[0];

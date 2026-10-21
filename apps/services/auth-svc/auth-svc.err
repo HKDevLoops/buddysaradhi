@@ -1,0 +1,16 @@
+90 |     } else {
+91 |       const authToken = opts?.authToken ?? "";
+92 |       const encryptionKey = opts?.encryptionKey ?? "";
+93 |       const timeout = opts?.timeout ?? 0.0;
+94 |       const remoteEncryptionKey = opts?.remoteEncryptionKey ?? "";
+95 |       this.db = databaseOpen(path, authToken, encryptionCipher, encryptionKey, timeout, remoteEncryptionKey);
+                     ^
+error: ConnectionFailed("Unable to open connection to local database D:\\Projects\\buddysaradhi\\buddysaradhi\\apps\\prisma\\dev.db: 14")
+ code: ""
+
+      at new Database (D:\Projects\buddysaradhi\buddysaradhi\node_modules\.bun\libsql@0.5.29\node_modules\libsql\index.js:95:17)
+      at _createClient (D:\Projects\buddysaradhi\buddysaradhi\node_modules\.bun\@libsql+client@0.17.4\node_modules\@libsql\client\lib-esm\sqlite3.js:51:16)
+      at getInstance (D:\Projects\buddysaradhi\buddysaradhi\apps\services\auth-svc\src\db.ts:15:24)
+      at D:\Projects\buddysaradhi\buddysaradhi\apps\services\auth-svc\src\db.ts:45:28
+
+Bun v1.3.14 (Windows x64)

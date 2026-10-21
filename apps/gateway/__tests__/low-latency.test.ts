@@ -16,6 +16,7 @@ import {
   checkIpRateLimit,
 } from "../lib/security.ts";
 import { ok, fail, okCached, securityFail } from "../lib/errors.ts";
+import { BATCH, BATCHES, costInStickUnits, fastestPerOp, stick } from "./perf-stick.ts";
 
 // ─── Why this file batches its measurements ─────────────────────────────
 //
@@ -35,11 +36,7 @@ import { ok, fail, okCached, securityFail } from "../lib/errors.ts";
 // not. `PER_OP_BUDGET_SCALE` gives headroom for shared runners without moving
 // the number enough to hide an order-of-magnitude regression.
 
-/** Operations per timed batch. Large enough to amortise a preemption. */
-const BATCH = 200;
 
-/** Timed batches, excluding the discarded warm-up. */
-const BATCHES = 20;
 
 /**
  * Per-operation cost in milliseconds, measured as the p95 across `BATCHES`
@@ -74,57 +71,72 @@ export function p95PerOp(op: () => void, batches = BATCHES): number {
   return perOp[Math.ceil(perOp.length * 0.95) - 1]!;
 }
 
+// ─── The budgets, in stick units ─────────────────────────────────────────
+//
+// Each is the measured cost of the operation expressed in multiples of the
+// stick, with headroom for a loaded runner but well under the 10x a genuine
+// regression would cost. They are RATIOS, so a slow runner moves both sides
+// and the verdict holds - which is the whole point (see `costInStickUnits`).
+
+//
+// Each budget is the MEASURED ratio (on this machine, 2026-10-21) with ~3x
+// headroom. The headroom covers a loaded runner and a different CPU; the 3x is
+// deliberate, because a genuine regression of 10x must still trip the gate
+// (the old absolute budgets missed a 10x regression on a quiet machine and
+// failed on a loaded one - they measured the runner, not the code).
+//
+// Measured (worst of 3 runs, 2026-10-21): security checks 33.8 | URL validation
+// 7.4 | path validation 3.6 | warm cache 2.3 | response cache 28.1 | tenant
+// invalidation 1761 | body validation 1.7 | header validation 3.4 | ok 100.1 |
+// fail 57.6 | okCached 46.4 | securityFail 59.0. The budget is 3x the worst
+// observed, and the spread between runs is 1.2x-2.3x - so the gate holds on a
+// loaded runner AND a 10x regression trips it.
+
+const SECURITY_CHECKS_UNITS = 102;
+const URL_VALIDATION_UNITS = 23;
+const PATH_VALIDATION_UNITS = 11;
+const WARM_CACHE_UNITS = 7;
+const RESPONSE_CACHE_UNITS = 85;
+const INVALIDATION_UNITS = 5300;
+const BODY_VALIDATION_UNITS = 5;
+const HEADER_VALIDATION_UNITS = 11;
+const OK_UNITS = 301;
+const FAIL_UNITS = 173;
+const OK_CACHED_UNITS = 140;
+const SECURITY_FAIL_UNITS = 177;
+const IP_RATE_LIMIT_UNITS = 5;
 /** How many times `p95PerOp` actually invokes its op. */
-const P95_INVOCATIONS = BATCH * (BATCHES + 1);
+// The ABBA interleave runs the candidate twice per batch (see
+// `costInStickUnits`), so the candidate is invoked twice per batch.
+const P95_INVOCATIONS = BATCH * (BATCHES + 1) * 2;
 
 // ─── Gateway cold-start latency ────────────────────────────────────────
 
 describe("Gateway cold-start simulation", () => {
-  it("all security checks complete in <10ms (p99)", () => {
+  it("all security checks cost at most SECURITY_CHECKS_UNITS stick units", () => {
     const req = new Request("https://example.com/api/v1/students?search=test", {
       method: "GET",
       headers: { authorization: "Bearer test-token" },
     });
 
-    const samples: number[] = [];
-    for (let i = 0; i < 200; i++) {
-      const start = performance.now();
+    expect(costInStickUnits(() => {
       runSecurityChecks(req);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p99 = samples[Math.floor(samples.length * 0.99)];
-    expect(p99).toBeLessThan(10);
+    })).toBeLessThanOrEqual(SECURITY_CHECKS_UNITS);
   });
 
-  it("URL validation completes in <2ms (p99)", () => {
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const req = new Request(`https://example.com/api/v1/students?page=${i}&limit=20`);
-      const start = performance.now();
+  it("URL validation costs at most URL_VALIDATION_UNITS stick units", () => {
+    const req = new Request("https://example.com/api/v1/students?page=7&limit=20");
+    expect(costInStickUnits(() => {
       validateUrl(req);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p99 = samples[Math.floor(samples.length * 0.99)];
-    expect(p99).toBeLessThan(2);
+    })).toBeLessThanOrEqual(URL_VALIDATION_UNITS);
   });
 
-  it("path validation completes in <1ms (p99)", () => {
+  it("path validation costs at most PATH_VALIDATION_UNITS stick units", () => {
     const paths = ["/api/v1/students", "/api/v1/attendance", "/api/v1/analytics/dashboard"];
-    const samples: number[] = [];
-    for (let i = 0; i < 1000; i++) {
-      const path = paths[i % paths.length];
-      const start = performance.now();
-      validatePath(path);
-      samples.push(performance.now() - start);
-    }
-
-    samples.sort((a, b) => a - b);
-    const p99 = samples[Math.floor(samples.length * 0.99)];
-    expect(p99).toBeLessThan(1);
+    let i = 0;
+    expect(costInStickUnits(() => {
+      validatePath(paths[i++ % paths.length] as string);
+    })).toBeLessThanOrEqual(PATH_VALIDATION_UNITS);
   });
 });
 
@@ -137,29 +149,29 @@ describe("Cache response latency", () => {
     invalidateTenant("latency-test");
   });
 
-  it("warm cache GET is under 100µs per op (batched p95)", () => {
+  it("warm cache GET costs at most WARM_CACHE_UNITS", () => {
     const payload = { kpis: { totalStudents: 100 }, activity: [] };
     setCache(`${KEY_PREFIX}:warm:1`, payload, 30_000);
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       getCached(`${KEY_PREFIX}:warm:1`);
-    })).toBeLessThan(0.1);
+    })).toBeLessThanOrEqual(WARM_CACHE_UNITS);
   });
 
-  it("Response cache round-trip is under 500µs per op (batched p95)", () => {
+  it("Response cache round-trip costs at most RESPONSE_CACHE_UNITS", () => {
     const body = JSON.stringify({ students: Array.from({ length: 50 }, (_, i) => ({ id: i, name: `S${i}` })) });
     setCacheResponse(`${KEY_PREFIX}:resp:1`, body, 200, "application/json", 30_000);
 
     let hits = 0;
-    const p95 = p95PerOp(() => {
+    const units = costInStickUnits(() => {
       if (getCachedResponse(`${KEY_PREFIX}:resp:1`) !== null) hits++;
     });
-    // Every single call must have been a hit — a cache that started missing
+    // Every single call must have been a hit - a cache that started missing
     // would make this faster and meaningless.
     expect(hits).toBe(P95_INVOCATIONS);
-    expect(p95).toBeLessThan(0.5);
+    expect(units).toBeLessThanOrEqual(RESPONSE_CACHE_UNITS);
   });
 
-  it("tenant invalidation completes in <5ms for 512 entries", () => {
+  it("tenant invalidation costs at most INVALIDATION_UNITS stick units", () => {
     // LRU cache caps at 512 entries
     for (let i = 0; i < 512; i++) {
       setCache(`${KEY_PREFIX}:bulk:${i}`, { id: i }, 60_000);
@@ -168,10 +180,27 @@ describe("Cache response latency", () => {
     setCache("other-tenant:1", { id: 999 }, 60_000);
 
     const start = performance.now();
-    invalidateTenant(KEY_PREFIX);
-    const elapsed = performance.now() - start;
+    // The invalidation is ONE operation over 512 entries, so it is timed
+    // against the stick measured in the same run rather than per-op. It is
+    // repeated and the median taken, because a single-shot measurement on a
+    // shared runner is the scheduler's to decide.
+    const stickCost = fastestPerOp(stick);
+    const samples: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 512; j++) {
+        setCache(`${KEY_PREFIX}:bulk:${j}`, { id: j }, 60_000);
+      }
+      // Re-seeded too: the cache is LRU-capped at 512 entries, so the other
+      // tenant's entry has to be the NEWEST to survive the seed.
+      setCache("other-tenant:1", { id: 999 }, 60_000);
+      const start = performance.now();
+      invalidateTenant(KEY_PREFIX);
+      samples.push(performance.now() - start);
+    }
+    samples.sort((a, b) => a - b);
+    const elapsed = samples[Math.floor(samples.length / 2)] ?? 0;
 
-    expect(elapsed).toBeLessThan(5);
+    expect(elapsed / stickCost).toBeLessThanOrEqual(INVALIDATION_UNITS);
     // Only the other-tenant entry survives
     expect(cacheStats().size).toBe(1);
   });
@@ -180,14 +209,14 @@ describe("Cache response latency", () => {
 // ─── Security function latency ─────────────────────────────────────────
 
 describe("Security function latency", () => {
-  it("request body validation is under 200µs per op (batched p95) for 1KB payloads", () => {
+  it("request body validation costs at most BODY_VALIDATION_UNITS for 1KB payloads", () => {
     const smallBody = JSON.stringify({ name: "Test Student", grade: "10" });
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       validateRequestBody(smallBody);
-    })).toBeLessThan(0.2);
+    })).toBeLessThanOrEqual(BODY_VALIDATION_UNITS);
   });
 
-  it("header validation is under 500µs per op (batched p95)", () => {
+  it("header validation costs at most HEADER_VALIDATION_UNITS", () => {
     const headers = {
       authorization: "Bearer TEST.FAKE.JWT",
       "content-type": "application/json",
@@ -201,38 +230,38 @@ describe("Security function latency", () => {
       headers,
     });
 
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       validateHeaders(req);
-    })).toBeLessThan(0.5);
+    })).toBeLessThanOrEqual(HEADER_VALIDATION_UNITS);
   });
 });
 
 // ─── Response construction latency ─────────────────────────────────────
 
 describe("Response construction latency", () => {
-  it("ok() builds a response in under 500µs per op (batched p95)", () => {
+  it("ok() costs at most OK_UNITS", () => {
     const data = { students: Array.from({ length: 50 }, (_, i) => ({ id: i, name: `S${i}` })) };
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       ok(data);
-    })).toBeLessThan(0.5);
+    })).toBeLessThanOrEqual(OK_UNITS);
   });
 
-  it("fail() builds a response in under 500µs per op (batched p95)", () => {
+  it("fail() costs at most FAIL_UNITS", () => {
     // fail() runs sanitizeError() with 4 regex replacements + json() — more
     // expensive than ok().  Threshold matches ok()'s to avoid CI flakiness.
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       fail("not found", 404);
-    })).toBeLessThan(0.5);
+    })).toBeLessThanOrEqual(FAIL_UNITS);
   });
 
-  it("okCached() builds a response in under 200µs per op (batched p95)", () => {
+  it("okCached() costs at most OK_CACHED_UNITS", () => {
     const body = JSON.stringify({ success: true, data: { rows: [] } });
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       okCached(body, "public, max-age=30");
-    })).toBeLessThan(0.2);
+    })).toBeLessThanOrEqual(OK_CACHED_UNITS);
   });
 
-  it("securityFail() builds a response in under 500µs per op (batched p95)", () => {
+  it("securityFail() costs at most SECURITY_FAIL_UNITS", () => {
     // Budget matches fail()'s 0.5, not okCached()'s 0.2: securityFail() builds
     // the full security-header set plus a request id per call, which is the
     // fail()-shaped cost profile, not the okCached() one. The 0.2 budget was
@@ -240,22 +269,25 @@ describe("Response construction latency", () => {
     // run for a code path that had not changed. 0.5 keeps ~40% headroom over
     // the worst observed contention while a genuine 10x regression (~2-3.5ms)
     // still trips it by a wide margin (F-34).
-    expect(p95PerOp(() => {
+    expect(costInStickUnits(() => {
       securityFail(403, "req-123");
-    })).toBeLessThan(0.5);
+    })).toBeLessThanOrEqual(SECURITY_FAIL_UNITS);
   });
 });
 
 // ─── IP rate limit throughput ───────────────────────────────────────────
 
 describe("IP rate limit throughput", () => {
-  it("checkIpRateLimit handles 10,000 calls in <100ms", () => {
+  it("checkIpRateLimit handles 10,000 calls within IP_RATE_LIMIT_UNITS stick units", () => {
+    // The cost of 10,000 calls, in stick units: the same conversion as every
+    // other gate here, so a loaded runner cannot redden it.
+    const stickCost = fastestPerOp(stick);
     const start = performance.now();
     for (let i = 0; i < 10_000; i++) {
       checkIpRateLimit(`throughput-ip-${i % 100}`);
     }
     const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(100);
+    expect(elapsed / (10_000 * stickCost)).toBeLessThanOrEqual(IP_RATE_LIMIT_UNITS);
   });
 });
 

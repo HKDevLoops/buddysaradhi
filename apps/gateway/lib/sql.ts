@@ -1129,6 +1129,21 @@ export function stmtFindLiveReceipt(tenantId: string, receiptNo: string): BuiltS
   };
 }
 
+/**
+ * F-08: find the receipt linked to one ledger entry. The canonical link since
+ * payment convergence (receipts.ledger_entry_id, written by the flow for the
+ * first entry of every payment); `stmtFindLiveReceipt` (by number) remains
+ * for rows written before convergence, which carry receipt_no denormalized on
+ * the entry. Live-only in both cases: re-stamping an already-voided receipt
+ * would move its voided_at under a second void.
+ */
+export function stmtFindLiveReceiptByEntry(tenantId: string, entryId: string): BuiltStatement {
+  return {
+    sql: "SELECT id FROM receipts WHERE tenant_id = ? AND ledger_entry_id = ? AND voided_at IS NULL",
+    args: [auditedTenant(tenantId), IdSchema.parse(entryId)],
+  };
+}
+
 export function stmtVoidReceipt(tenantId: string, receiptId: string, nowIso: string): BuiltStatement {
   return {
     sql: "UPDATE receipts SET voided_at = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
