@@ -24,6 +24,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createInvoicePrisma, ormFeeTx, recordPaymentPrisma } from "./feesPrisma";
 import { createInvoiceSql, recordPaymentSql, sqlFeeTx } from "./fees";
+import { voidEntry } from "./ledger";
+import { voidEntrySql } from "./ledgerSql";
 import type { FeeTx } from "./feesFlow";
 import { createLibsqlProxy } from "../../../apps/web/src/lib/libsql-proxy";
 
@@ -104,7 +106,8 @@ async function moneyFootprint(db: Client): Promise<Record<string, unknown>> {
   // hand a tutor two different books.
   const receipts = await db.execute({
     sql: `SELECT number, amount, payment_method, received_on, tamper_hash,
-                 ledger_entry_id IS NOT NULL AS has_entry, invoice_id IS NOT NULL AS has_invoice
+                 ledger_entry_id IS NOT NULL AS has_entry, invoice_id IS NOT NULL AS has_invoice,
+                 voided_at IS NOT NULL AS voided
           FROM receipts ORDER BY number`,
   });
   return {
@@ -295,6 +298,13 @@ type Dialect = {
   /** The dialect's port implementation, so a SINGLE port operation can be
    *  compared across dialects without going through a whole flow. */
   feeTx(db: unknown): FeeTx;
+  /**
+   * The dialect's void path (BR-LED-04/05/09, EC-F-05). The ORM one is
+   * `voidEntry` in `ledger.ts`; the libsql one is `voidEntrySql` in
+   * `ledgerSql.ts`. Both decide through the SAME flow, so the parity gate
+   * holds their books to each other.
+   */
+  voidEntry(db: unknown, entryId: string): Promise<{ ok: boolean; error?: Error }>;
 };
 
 /** The libsql dialect talks to the raw client; the ORM dialect to the shim. */
@@ -304,12 +314,22 @@ const DIALECTS: Dialect[] = [
     createInvoice: (db, input) => createInvoiceSql(db as never, input),
     recordPayment: (db, input) => recordPaymentSql(db as never, input),
     feeTx: (db) => sqlFeeTx(db as never),
+    voidEntry: (db, entryId) =>
+      voidEntrySql(db as never, {
+        tenantId: TENANT,
+        entryToVoidId: entryId,
+        reason: "wrong amount",
+        occurredOn: "2026-09-13",
+        actor: "tutor",
+      }),
   },
   {
     name: "ORM dialect (feesPrisma.ts, web path)",
     createInvoice: (db, input) => createInvoicePrisma(db as never, input),
     recordPayment: (db, input) => recordPaymentPrisma(db as never, input),
     feeTx: (db) => ormFeeTx(db as never),
+    voidEntry: (db, entryId) =>
+      voidEntry(db as never, TENANT, entryId, "wrong amount", "2026-09-13", "tutor"),
   },
 ];
 
@@ -640,5 +660,94 @@ describe("dialect parity — the same money from either writer", () => {
     }
     expect(hashes[0]).not.toBe("");
     expect(hashes[1]).toBe(hashes[0]);
+  });
+
+  it("the void path leaves identical books in both dialects (BR-LED-04, EC-F-05)", async () => {
+    // A void is a NEW row plus two state changes (the receipt's `voided_at`,
+    // the invoice's status). If one dialect forgot one of them, the tutor's
+    // receipt book and the invoice would disagree — depending on which device
+    // they used.
+    const results: unknown[] = [];
+    for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+      await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
+      const paid = await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      expect(paid.ok, `${dialect.name}: ${paid.error?.message}`).toBe(true);
+
+      const pay = await one<{ id: string }>(
+        db,
+        `SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' AND invoice_id = ?`,
+        ["invoice-a"],
+      );
+      const res = await dialect.voidEntry(handleFor(dialect, db), String(pay?.id));
+      expect(res.ok, `${dialect.name}: ${res.error?.message}`).toBe(true);
+
+      // The receipt is voided and the invoice reopens, in BOTH dialects.
+      const receipt = await one<{ voided: number }>(
+        db,
+        `SELECT voided_at IS NOT NULL AS voided FROM receipts LIMIT 1`,
+      );
+      expect(receipt?.voided, `${dialect.name}: the receipt must be voided`).toBe(1);
+      const invoice = await one<{ status: string }>(
+        db,
+        `SELECT status FROM invoices WHERE id = 'invoice-a'`,
+      );
+      expect(invoice?.status, `${dialect.name}: the invoice must reopen`).toBe("unpaid");
+
+      results.push(await moneyFootprint(db));
+    }
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("both dialects REFUSE to void a charge a live payment credits (BR-LED-09)", async () => {
+    // The refusal is the money-safety half: no reversing row, no receipt
+    // stamped, no invoice touched. If one dialect allowed it, the books would
+    // read −₹4,500 on the platform that allowed it.
+    for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+      // The invoice is created through the DIALECT, so the FEE_CHARGED row
+      // exists — that row is the thing BR-LED-09 refuses to void.
+      const created = await dialect.createInvoice(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "August tuition",
+        issueDate: "2026-09-01",
+      });
+      expect(created.ok, `${dialect.name}: ${created.error?.message}`).toBe(true);
+      await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      const charge = await one<{ id: string }>(
+        db,
+        `SELECT id FROM ledger_entries WHERE type = 'FEE_CHARGED' LIMIT 1`,
+      );
+
+      const res = await dialect.voidEntry(handleFor(dialect, db), String(charge?.id));
+      expect(res.ok, `${dialect.name} must refuse the void`).toBe(false);
+      expect(res.error?.message).toMatch(/CHARGE_HAS_CREDITS/);
+      expect(
+        await scalar(db, `SELECT COUNT(*) AS c FROM ledger_entries WHERE type = 'VOID'`),
+        `${dialect.name}: a refused void writes nothing`,
+      ).toBe(0);
+      expect(
+        await scalar(db, `SELECT COUNT(*) AS c FROM receipts WHERE voided_at IS NOT NULL`),
+        `${dialect.name}: a refused void stamps no receipt`,
+      ).toBe(0);
+    }
   });
 });

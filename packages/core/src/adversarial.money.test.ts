@@ -1109,12 +1109,17 @@ describe("ATTACK 9 — dialect drift the parity gate cannot see", () => {
 });
 
 describe("ATTACK 7 — voiding a charge that a payment already credits", () => {
-  it.fails("ATK-7.1 [P1] voidEntry has no BR-LED-09 guard: the books end up with a NEGATIVE balance and a 'paid' invoice", async () => {
+  it("ATK-7.1 [P1] voidEntry refuses to void a charge that a live payment credits (BR-LED-09)", async () => {
     // BR-LED-09 [critical path]: "Voiding a FEE_CHARGED is permitted only if
-    // no PAYMENT_RECEIVED credits it." The core `voidEntry` checks only
+    // no PAYMENT_RECEIVED credits it." The core `voidEntry` used to check only
     // "is it already a VOID" and "has it already been voided" — never "does a
-    // credit point at it". The gateway's own void route implements the
-    // check (apps/gateway/routes/ledger.ts); the core path does not.
+    // LIVE credit point at it". The reversal then stood alone: the books read
+    // balance −450,000 (the tutor owes the student ₹4,500) while the invoice
+    // still read `paid`, and on an append-only ledger (Rule 1) there was no
+    // further correction available.
+    //
+    // The gateway's void route had the guard; the core path did not, so the
+    // two writers disagreed about the same books (AGENTS.md §3.5).
     const studentId = "student-adv";
     await seedStudent(studentId);
     const inv = await createInvoiceSql(rig.client as never, {
@@ -1156,7 +1161,12 @@ describe("ATTACK 7 — voiding a charge that a payment already credits", () => {
     // eslint-disable-next-line no-console
     console.log("[ATK-7.1] books:", JSON.stringify(books, null, 1));
     expect(res.ok, "BR-LED-09: the void must be refused").toBe(false);
-    expect(books.balancePaise).toBe(450000);
+    if (!res.ok) expect(res.error.message).toMatch(/CHARGE_HAS_CREDITS/);
+    // THE BOOKS DID NOT MOVE. The charge and the payment still cancel, the
+    // invoice still reads what it read, and no reversing row was written.
+    expect(books.balancePaise).toBe(0);
+    expect(books.invoices[0]?.status).toBe("paid");
+    expect(books.ledger.filter((l) => l.type === "VOID")).toHaveLength(0);
   });
 });
 

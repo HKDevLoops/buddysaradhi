@@ -400,7 +400,7 @@ describe("voidReceiptAction — reason-required + VERIFIED PIN (07 §9.10, 10_Se
     expect(mocks.gatewayPost).not.toHaveBeenCalled();
   });
 
-  it("accepts the correct PIN and forwards exactly {entryId, reason} — never the PIN", async () => {
+  it("accepts the correct PIN and forwards {entryId, reason, pinProof} — never the PIN", async () => {
     await seedPinnedTenant();
     mocks.gatewayPost.mockResolvedValue({
       success: true,
@@ -412,9 +412,17 @@ describe("voidReceiptAction — reason-required + VERIFIED PIN (07 §9.10, 10_Se
     // SAFETY: asserting the exact forwarded shape — the test fails if it drifts.
     const [path, body] = mocks.gatewayPost.mock.calls[0] as [string, Record<string, unknown>];
     expect(path).toBe("/api/v1/ledger/void");
-    expect(body).toEqual({ entryId, reason });
-    // Verified here, never forwarded: the PIN stays on this side of the wire.
+    // The EDGE verifies the PIN again (BR-SEC-07): a void is the ledger's only
+    // correction path, and the edge is where a stolen session arrives. What
+    // rides the request is the PROOF - a derived value - not the PIN.
+    expect(Object.keys(body).sort()).toEqual(["entryId", "pinProof", "reason"]);
+    expect(body.entryId).toBe(entryId);
+    expect(body.reason).toBe(reason);
+    expect(typeof body.pinProof).toBe("string");
+    expect(String(body.pinProof)).not.toBe(TEST_PIN);
+    // The PIN itself stays on this side of the wire.
     expect("pin" in body).toBe(false);
+    expect(JSON.stringify(body)).not.toContain(TEST_PIN);
     // Audit completeness: the void is audit-logged at the boundary too.
     expect(mocks.log.audit).toHaveBeenCalledWith(
       "fee_void_receipt_posted",

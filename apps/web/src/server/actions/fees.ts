@@ -7,7 +7,7 @@ import {
 } from "@/server/get-db";
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { verifyPin } from "@/lib/crypto";
+import { pinProof, verifyPin } from "@/lib/crypto";
 import { pinVerifyFormatError, formatINR, paiseSub } from "@buddysaradhi/shared";
 import {
   createInvoicePrisma,
@@ -733,6 +733,13 @@ export async function voidReceiptAction(
     });
     return { success: false as const, error: pinProblem };
   }
+  // The PIN PROOF rides the request (BR-SEC-07).
+  //
+  // The edge verifies the PIN AGAIN, at the edge, because a void is the
+  // ledger's ONLY correction path (the ledger is append-only, Rule 1) and the
+  // edge is where a stolen session arrives. The PIN itself never crosses the
+  // wire - the proof is a derived value, and it is never persisted.
+  let voidPinProof: string | null = null;
   {
     const { db, tenantId } = await getAuthenticatedPrisma();
     const settingsRow = await db.setting.findFirst({ where: { tenantId } });
@@ -750,6 +757,16 @@ export async function voidReceiptAction(
       });
       return { success: false as const, error: "That PIN isn't right. Nothing was written." };
     }
+    voidPinProof = await pinProof(tenantId, parsed.data.pin);
+  }
+  if (voidPinProof === null) {
+    // Unreachable: the block above returns on every failure path. It is here
+    // so a future edit cannot send a void with no proof and have it typed as
+    // a proof-shaped null (Rule 9).
+    return {
+      success: false as const,
+      error: "That void request was missing its security check. Nothing was written — try again.",
+    };
   }
   try {
     // Rule 1 + Rule 7: the reversing VOID entry, the receipt `voided_at`,
@@ -758,13 +775,15 @@ export async function voidReceiptAction(
     // (apps/gateway/routes/ledger.ts void path — read-only parity, never
     // re-implemented here). BR-RC-01: the gateway sequence is only ever
     // incremented, so voiding can never reuse or decrement a receipt number.
-    // Smallest sufficient payload: `{entryId, reason}` — one POST, 12s abort.
+    // The payload carries the proof, not the PIN: `{entryId, reason, pinProof}`.
+    // One POST, 12s abort.
     // RFC-004 C1: the caller's intent key rides as Idempotency-Key so a
     // retried/aborted void replays instead of double-voiding (gateway 409
     // double-void guard is the backstop, not the mechanism).
     const res = await gatewayPost<unknown>("/api/v1/ledger/void", {
       entryId: parsed.data.entryId,
       reason: parsed.data.reason,
+      pinProof: voidPinProof,
     }, opts?.intentKey ? { "Idempotency-Key": opts.intentKey } : undefined);
     if (!res.success) {
       throw new Error(mapVoidGatewayError(res.error));
@@ -802,6 +821,14 @@ function mapVoidGatewayError(message: string): string {
   // rule id: void the receipts first, then the charge.
   if (/charge_has_credits/i.test(message))
     return "This fee already has payments against it. Void those receipts first, then void the fee — nothing was written.";
+  // The edge's PIN gate (BR-SEC-04). A 401 is a WRONG proof; a 403 is a proof
+  // that could not be checked at all - no PIN configured, or no proof on
+  // record for this tenant, which is the state a tutor is in after a PIN
+  // change on another device.
+  if (/PIN_PROOF_MISMATCH/i.test(message))
+    return "That PIN isn't right. Nothing was written.";
+  if (/PIN_PROOF_UNAVAILABLE/i.test(message))
+    return "Re-confirm your security PIN in Settings → Security, then void again. Nothing was written.";
   return message;
 }
 
