@@ -22,8 +22,16 @@
 //   6. STRUCTURE — a duplicate canvas, an invisible surface hierarchy, or a role
 //      collapsing onto another.
 import { contrastRatio, hexToRgb } from "./oklch";
-import { MATERIALS, MATERIAL_ROLE_KEYS, buildMaterial, type MaterialId } from "./material";
-import { CONTRAST, buildPalette, type GeneratedPalette, type PaletteTokens } from "./tokens";
+import {
+  MATERIALS,
+  MATERIAL_ROLE_KEYS,
+  OVERLAY_LEGIBILITY_BASE,
+  buildMaterial,
+  compositeOverBase,
+  paintComposite,
+  type MaterialId,
+} from "./material";
+import { CONTRAST, TEXT_TARGETS, buildPalette, type GeneratedPalette, type PaletteTokens } from "./tokens";
 import {
   NON_TEXT_ROLE_KEYS,
   TEXT_ROLE_KEYS,
@@ -223,6 +231,62 @@ export function verifyMaterialInvariance(
   return findings;
 }
 
+/**
+ * MATERIAL LEGIBILITY — the translucent overlay must hold every text role's
+ * floor, even on the palette's own canvas.
+ *
+ * `--surface-overlay` is the one material role the app paints over the aurora,
+ * and it carries a legibility base (see `material.ts`). The base's job is to
+ * CAP how much of the backdrop the overlay's text can see, so the invariant it
+ * can be held to without knowing the backdrop is: the composite the browser
+ * paints over the canvas must still clear the floor each text role was solved
+ * for (10 / 7 / 4.5 — `TEXT_TARGETS`).
+ *
+ * The backdrop half of the guarantee — the aurora — is measured where the
+ * aurora lives: `apps/web/src/app/token-layer.test.ts` samples the real
+ * painted backdrop for every palette, material mode and text role. This gate
+ * is the half the design system can see.
+ */
+export function verifyMaterialLegibility(
+  palette: GeneratedPalette,
+  materials: readonly MaterialId[],
+): Finding[] {
+  const findings: Finding[] = [];
+  const t = palette.tokens;
+  const floors = {
+    textPrimary: TEXT_TARGETS.primary,
+    textSecondary: TEXT_TARGETS.secondary,
+    textMuted: TEXT_TARGETS.muted,
+  } as const;
+  for (const id of materials) {
+    const material = MATERIALS[id];
+    const composite = compositeOverBase(
+      t.surfaceOverlaySolid,
+      t.canvas,
+      Number(material.overlayAlpha),
+      OVERLAY_LEGIBILITY_BASE,
+    );
+    const painted = paintComposite(composite, t.canvas);
+    for (const role of ["textPrimary", "textSecondary", "textMuted"] as const) {
+      const colour = t[role];
+      const required = floors[role];
+      const measured = ratio(colour, painted);
+      if (measured < required) {
+        findings.push({
+          paletteId: palette.id,
+          severity: "error",
+          code: "OVERLAY_COMPOSITE_CONTRAST",
+          role: `${role} on ${id} overlay`,
+          message: `${role} over the ${id} overlay's composite is below its floor — the legibility base is not holding`,
+          measured: round(measured),
+          required,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
 export function verifyUniqueness(palettes: readonly GeneratedPalette[]): Finding[] {
   const findings: Finding[] = [];
   const byCanvas = new Map<string, string[]>();
@@ -256,6 +320,7 @@ export function buildAndVerify(): TokenBundle {
   findings.push(...verifyUniqueness(palettes));
   const materials = Object.keys(MATERIALS) as MaterialId[];
   for (const palette of palettes) findings.push(...verifyMaterialInvariance(palette, materials));
+  for (const palette of palettes) findings.push(...verifyMaterialLegibility(palette, materials));
   return { palettes, findings };
 }
 

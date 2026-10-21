@@ -22,16 +22,28 @@ export {
   type SchemeDefinition,
   type SemanticHues,
 } from "./schemes";
-export { buildPalette, buildAllPalettes, CONTRAST, type GeneratedPalette, type PaletteTokens } from "./tokens";
+export { buildPalette, buildAllPalettes, CONTRAST, TEXT_TARGETS, type GeneratedPalette, type PaletteTokens } from "./tokens";
 export {
   MATERIALS,
   MATERIAL_IDS,
   MATERIAL_ROLE_KEYS,
+  OVERLAY_LEGIBILITY_BASE,
   buildMaterial,
+  compositeOverBase,
+  formatComposite,
+  paintComposite,
+  type Composite,
   type MaterialDefinition,
   type MaterialId,
 } from "./material";
-export { buildAndVerify, verifyPalette, verifyUniqueness, verifyMaterialInvariance, type Finding } from "./verify";
+export {
+  buildAndVerify,
+  verifyPalette,
+  verifyUniqueness,
+  verifyMaterialInvariance,
+  verifyMaterialLegibility,
+  type Finding,
+} from "./verify";
 export {
   oklchToRgb,
   oklchToHex,

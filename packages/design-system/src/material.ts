@@ -13,6 +13,7 @@
 // @ 0.0 light) and the shadow ramp follows Fluent 2 (blur = n, 28% dark).
 // Microsoft's blur radius is system-derived and unpublished, so `--mat-blur` is
 // an explicitly tuned port, marked as such in material-modes.md §2.
+import { hexToRgb, rgbToHex, type Rgb } from "./oklch";
 import type { GeneratedPalette } from "./tokens";
 
 export const MATERIAL_IDS = ["minimal", "acrylic", "liquid-glass"] as const;
@@ -110,6 +111,119 @@ export const MATERIALS: Readonly<Record<MaterialId, MaterialDefinition>> = {
 };
 
 /**
+ * THE LEGIBILITY BASE the translucent overlay composites over — the same
+ * mechanism the app's glass tiers use, at the same measured value.
+ *
+ * WHY IT EXISTS. The app's glass tiers carry a base (the app declares
+ * `--glass-legibility-base: 70%` of `--canvas`): a tier's fill is 2–8% opaque,
+ * so without a base the panel's backdrop IS the aurora, and the aurora's lift
+ * is what breaks the text roles. The overlay never got one. `GlassCard
+ * variant="strong"` paints `var(--surface-overlay)`, which in Acrylic is 15%
+ * opaque and in Liquid Glass 34%, so it composited straight over the 20%
+ * aurora and dropped `--text-primary` from 10.06:1 to 8.38:1 on `honey-opal`
+ * (dark) — under the 10:1 floor the role was solved for. The overlay is the
+ * last surface in the app that sees the aurora raw.
+ *
+ * THE VALUE IS MEASURED, NOT CHOSEN. `apps/web/src/app/token-layer.test.ts`
+ * samples the real painted backdrop — the radial falloff, the stacking order,
+ * three viewport aspect ratios, a 17×11 grid — and holds every text role to its
+ * floor. The minimum base that holds is 60.2 % (Acrylic) and 60.9 % (Liquid
+ * Glass) on the dark tier; the light tier needs none. 70 % ships because it is
+ * the SAME number the app's tiers use, and it clears the minimum with room
+ * (worst margin +0.112 and +0.061 against the floor, where the tiers hold
+ * +0.145). The overlay needs MORE base than the tiers' own aurora-equivalent
+ * (66.5 % for Acrylic) because its tint is three times heavier than a tier's
+ * (15–34 % against 2–8 %), so its composite sits closer to the palette's
+ * lightest surface — the one the text roles were solved against.
+ */
+export const OVERLAY_LEGIBILITY_BASE = 0.7;
+
+/** A painted colour: 0–255 channels plus the alpha it is mixed at. */
+export interface Composite {
+  rgb: Rgb;
+  alpha: number;
+}
+
+/**
+ * The composite of a translucent tint over a legibility base, as ONE colour.
+ *
+ * `--surface-overlay` is consumed three ways — `background`, `background-color`
+ * and inside `color-mix()` — and only a single COLOUR survives all three: a
+ * two-layer value is not a colour, so `background-color` would drop it and
+ * `color-mix()` would reject it. So the two layers are collapsed here, at
+ * generation time, into the one colour the browser paints:
+ *
+ *     tint @ a   over   base @ Y   over   backdrop B
+ *   = a·tint + (1−a)·Y·base + (1−a)(1−Y)·B
+ *   = A·C + (1−A)·B,   A = a + (1−a)·Y,   C = (a·tint + (1−a)·Y·base) / A
+ *
+ * which is exactly what the browser paints for the two-layer form — the base
+ * caps how much of the backdrop (the aurora) the surface's text can see.
+ *
+ * An opaque tint needs no base: the base would be invisible under it, so the
+ * tint is returned unchanged and the Minimal mode's emitted block stays
+ * byte-identical.
+ */
+export function compositeOverBase(
+  tintHex: string,
+  baseHex: string,
+  tintAlpha: number,
+  baseAlpha: number,
+): Composite {
+  if (tintAlpha >= 1) return { rgb: hexToRgb(tintHex), alpha: 1 };
+  const tint = hexToRgb(tintHex);
+  const base = hexToRgb(baseHex);
+  const alpha = tintAlpha + (1 - tintAlpha) * baseAlpha;
+  const channel = (t: number, b: number): number =>
+    Math.round((tintAlpha * t + (1 - tintAlpha) * baseAlpha * b) / alpha);
+  return {
+    rgb: {
+      r: channel(tint.r, base.r),
+      g: channel(tint.g, base.g),
+      b: channel(tint.b, base.b),
+    },
+    alpha: Number(alpha.toFixed(3)),
+  };
+}
+
+/** A composite as the CSS colour the browser paints. */
+export function formatComposite(composite: Composite): string {
+  const { r, g, b } = composite.rgb;
+  return `rgb(${r} ${g} ${b} / ${composite.alpha})`;
+}
+
+/**
+ * What the browser paints when the composite sits on a backdrop: the
+ * composite's own colour at its own alpha, over the backdrop, in sRGB — the
+ * arithmetic CSS uses for an alpha fill.
+ */
+export function paintComposite(composite: Composite, backdropHex: string): string {
+  const backdrop = hexToRgb(backdropHex);
+  const mix = (channel: number, behind: number): number =>
+    Math.round(channel * composite.alpha + behind * (1 - composite.alpha));
+  return rgbToHex({
+    r: mix(composite.rgb.r, backdrop.r),
+    g: mix(composite.rgb.g, backdrop.g),
+    b: mix(composite.rgb.b, backdrop.b),
+  });
+}
+
+/**
+ * The overlay's painted colour: the material's tint over the legibility base.
+ *
+ * An opaque tint (Minimal) needs no base — the base would be invisible under
+ * it — so the tint is returned as the plain hex and Minimal's emitted block
+ * stays byte-identical.
+ */
+function overlayColour(tintHex: string, baseHex: string, tintAlpha: string): string {
+  const alpha = Number(tintAlpha);
+  if (alpha >= 1) return tintHex;
+  return formatComposite(
+    compositeOverBase(tintHex, baseHex, alpha, OVERLAY_LEGIBILITY_BASE),
+  );
+}
+
+/**
  * The material layer for one palette. Tints are derived from the palette's own
  * canvas/accent so acrylic never introduces a hue the palette does not contain —
  * a material that recolours the product is exactly the "generic glass" failure
@@ -134,7 +248,7 @@ export function buildMaterial(
     "mat-saturate": material.saturate,
     "mat-brightness": material.brightness,
     "mat-translucent": material.translucent ? "1" : "0",
-    "surface-overlay": rgba(surfaceOverlaySolid, material.overlayAlpha),
+    "surface-overlay": overlayColour(surfaceOverlaySolid, canvas, material.overlayAlpha),
     "surface-nav": rgba(surfaceNavSolid, material.navAlpha),
     "surface-sheet": rgba(surfaceSheetSolid, material.sheetAlpha),
     "surface-palette": rgba(surfacePaletteSolid, material.paletteAlpha),

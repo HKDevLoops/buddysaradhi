@@ -125,7 +125,7 @@ function solveText(hue: number, tokens: PaletteTokens, tier: "dark" | "light", t
 }
 
 /** Per-role contrast targets: a hierarchy, not three copies of the same grey. */
-const TEXT_TARGETS = { primary: 10, secondary: 7, muted: CONTRAST.text } as const;
+export const TEXT_TARGETS = { primary: 10, secondary: 7, muted: CONTRAST.text } as const;
 
 /**
  * The accent is TWO tokens, because a bright accent cannot be both a vivid FILL
