@@ -288,10 +288,12 @@ const ListLedgerQuerySchema = z.object({
   to: z.string().datetime().optional(),
   type: z.enum([
     "FEE_CHARGED", "PAYMENT_RECEIVED", "DISCOUNT_GRANTED",
-    "REFUND_ISSUED", "ADJUSTMENT", "VOID", "ADVANCE_APPLIED"
+    "REFUND_ISSUED", "ADJUSTMENT", "WRITEOFF", "VOID"
   ]).optional(),
 });
 ```
+
+> **The `type` filter is by TYPE, and the seven values are the DDL's** — the `ledger_entries.type` CHECK (`11_Data_Model.md` §4.13): `FEE_CHARGED`, `PAYMENT_RECEIVED`, `DISCOUNT_GRANTED`, `REFUND_ISSUED`, `ADJUSTMENT`, `WRITEOFF`, `VOID`. There is **no `ADVANCE_APPLIED` type**: an advance application is an `ADJUSTMENT` row whose DESCRIPTION carries the `[ADVANCE_APPLIED]` tag (BR-FEE-15, EC-F-02), so it is fetched with `type=ADJUSTMENT` and told apart from other adjustments by its description — the same tag the advance wallet is derived from (BR-FEE-04).
 
 **Response 200:**
 ```json
@@ -310,7 +312,7 @@ const ListLedgerQuerySchema = z.object({
 type LedgerEntryDTO = {
   id: string;
   studentId: string;
-  type: "FEE_CHARGED" | "PAYMENT_RECEIVED" | "DISCOUNT_GRANTED" | "REFUND_ISSUED" | "ADJUSTMENT" | "VOID" | "ADVANCE_APPLIED";
+  type: "FEE_CHARGED" | "PAYMENT_RECEIVED" | "DISCOUNT_GRANTED" | "REFUND_ISSUED" | "ADJUSTMENT" | "WRITEOFF" | "VOID";
   direction: "charge" | "credit";
   amountPaise: number;
   occurredOn: string;        // ISO date
