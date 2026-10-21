@@ -16,6 +16,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  spec_ref:
+    name: Spec-ref gate (AGENTS.md §5.3)
+    runs-on: ubuntu-22.04
+    # The description of a pull request only exists on a pull_request event.
+    # On a push to main there is nothing to check, so the job does not run —
+    # it never "passes" by checking nothing on a push.
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: 1.4.3
+
+      # The description is passed through the environment, not interpolated
+      # into the shell — a pull-request body is attacker-controlled text.
+      - name: Write the pull-request description to a file
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          mkdir -p /tmp/pr
+          printf '%s' "$PR_BODY" > /tmp/pr/body.md
+
+      # Implements: AGENTS.md §5.3 — "A PR without a `## Spec ref` block is
+      # auto-blocked by CI". Audit AUD-022: the gate did not exist; a
+      # repo-wide search of every workflow, script and tool for
+      # `Spec ref|spec-ref|spec_ref` returned zero hits.
+      - name: Spec-ref gate
+        run: bun scripts/spec-ref-gate.ts --body-file /tmp/pr/body.md
+
   testing_agent:
     name: Testing Agent (Lint + Typecheck + Tests)
     runs-on: ubuntu-22.04

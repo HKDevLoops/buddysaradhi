@@ -1,0 +1,94 @@
+# .github/CODEOWNERS
+# Implements: AGENTS.md §5.4 (the reviewer counts) — "Touches
+#   `ledger_entries` grammar or `packages/core` → 2, including one ledger-crypto
+#   reviewer", "Touches `10_Security.md` or crypto envelope → 2, including one
+#   security reviewer", "Touches `01_Product_Principles.md` or this `AGENTS.md`
+#   → 2 + orchestrator sign-off", "Adds a 6th screen or new top-level route →
+#   blocked", ">500 lines → 2 + flag in the PR description".
+#
+# WHY THIS FILE EXISTS. Audit AUD-023 (docs/audit/AUDIT-2026-10-21.md) found
+#   that §5.4's reviewer counts were enforced by NOTHING: `.github/` contained
+#   no CODEOWNERS file, so a change to the ledger engine or the gateway trust
+#   boundary could be merged by one reviewer with no specialist in the loop.
+#
+# HOW TO READ IT. The LAST matching pattern wins for a given path (GitHub's
+#   rule), so the file is ordered from most specific to least specific. Every
+#   rule names `@HKDevLoops` — the owning organisation, which always resolves
+#   and therefore always requests a human reviewer — plus the specialist team
+#   §5.4 names for that class of change.
+#
+# OWNER ACTIONS STILL REQUIRED (repository settings, not files — an agent
+#   cannot set them, and a CODEOWNERS file alone does NOT enforce a COUNT):
+#   1. Create the specialist teams named below, or replace each handle with a
+#      real one: `@HKDevLoops/ledger-crypto` (ledger grammar + crypto
+#      envelope) and `@HKDevLoops/security` (auth, secrets, transport).
+#   2. In Settings -> Branches -> Branch protection rules for `main`, set
+#      "Require a pull request before merging" with **2 approvals**, and add
+#      "Require review from Code Owners". That combination is what turns the
+#      §5.4 table into an enforced rule: CODEOWNERS decides WHO must review,
+#      branch protection decides HOW MANY must approve.
+#   3. Until both exist, this file still requests an owner for every load-
+#      bearing path — but it cannot, by itself, refuse a one-reviewer merge.
+#
+# Every path below is load-bearing in the sense AGENTS.md §5.4 uses the word:
+# a change there can corrupt a tutor's books, leak a tenant's data, or change
+# the constitution the rest of the repo is held to.
+
+# ---------------------------------------------------------------------------
+# The constitution — 2 + orchestrator sign-off (AGENTS.md §5.4)
+# ---------------------------------------------------------------------------
+/AGENTS.md                       @HKDevLoops @HKDevLoops/security
+/01_Product_Principles.md       @HKDevLoops @HKDevLoops/security
+
+# ---------------------------------------------------------------------------
+# The ledger engine — 2, including one ledger-crypto reviewer
+# (AGENTS.md §5.4; Rule 1, BR-LED-01..06; 12_Business_Rules.md §3)
+# ---------------------------------------------------------------------------
+/packages/core/**                @HKDevLoops @HKDevLoops/ledger-crypto
+/prisma/**                      @HKDevLoops @HKDevLoops/ledger-crypto
+/migrations/**                   @HKDevLoops @HKDevLoops/ledger-crypto
+
+# ---------------------------------------------------------------------------
+# The trust boundary — 2, including one security reviewer
+# (AGENTS.md §3.2; 23_Security_Harness_Plan.md §2)
+# ---------------------------------------------------------------------------
+/apps/gateway/**                 @HKDevLoops @HKDevLoops/security
+
+# ---------------------------------------------------------------------------
+# Crypto envelope — 2, including one security reviewer
+# (AGENTS.md §2 Rule 8; 10_Security.md §15)
+# ---------------------------------------------------------------------------
+/apps/web/src/lib/crypto.ts      @HKDevLoops @HKDevLoops/security
+/apps/web/src/lib/backup.ts      @HKDevLoops @HKDevLoops/security
+
+# ---------------------------------------------------------------------------
+# The spec corpus — the files a PR's `## Spec ref` block cites
+# (AGENTS.md §3, §5.2; the spec-ref gate is scripts/spec-ref-gate.ts)
+# ---------------------------------------------------------------------------
+/10_Security.md                  @HKDevLoops @HKDevLoops/security
+/11_Data_Model.md                @HKDevLoops @HKDevLoops/ledger-crypto
+/12_Business_Rules.md            @HKDevLoops @HKDevLoops/ledger-crypto
+/14_Edge_Cases.md                @HKDevLoops @HKDevLoops/ledger-crypto
+
+# ---------------------------------------------------------------------------
+# The surfaces — 1 reviewer, plus the design reviewer for a new route
+# (AGENTS.md §5.4; Rule 4, five screens only)
+# ---------------------------------------------------------------------------
+/apps/web/src/app/**             @HKDevLoops
+/apps/web/src/components/**      @HKDevLoops
+/packages/design-system/**       @HKDevLoops
+/packages/shared/**              @HKDevLoops
+/apps/product-page/**            @HKDevLoops
+
+# ---------------------------------------------------------------------------
+# The locked platforms — no edits until their gate (AGENTS.md §9.3)
+# ---------------------------------------------------------------------------
+/apps/mobile/**                  @HKDevLoops
+/apps/desktop/**                 @HKDevLoops
+
+# ---------------------------------------------------------------------------
+# The gates themselves — 1 reviewer
+# (AGENTS.md §7.4, §9.2.6; 21_Automation_Testing.md; 23_Security_Harness_Plan.md)
+# ---------------------------------------------------------------------------
+/.github/**                      @HKDevLoops @HKDevLoops/security
+/scripts/**                      @HKDevLoops
