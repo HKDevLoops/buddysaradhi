@@ -106,6 +106,10 @@ describe("BR-SEC-04 — the void route re-authenticates at the edge", () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error).toContain("PIN_PROOF_MISMATCH");
+    // The ACTIONABLE detail survives the gateway's error sanitizer
+    // (`fail()` collapses a body over 200 characters to the bare status word,
+    // which would leave the tutor with nothing to do about it).
+    expect(res.body.error).toContain("Nothing was written");
     expect(count(f, "SELECT COUNT(*) AS c FROM ledger_entries WHERE type = 'VOID'")).toBe(0);
     expect(count(f, "SELECT COUNT(*) AS c FROM audit_log WHERE action = 'ledger.void'")).toBe(0);
   });
@@ -146,6 +150,8 @@ describe("BR-SEC-04 — the void route re-authenticates at the edge", () => {
 
     expect(res.status).toBe(403);
     expect(res.body.error).toContain("PIN_PROOF_UNAVAILABLE");
+    // The tutor is told WHAT to do, and the message survives the sanitizer.
+    expect(res.body.error).toContain("re-confirm");
     expect(count(f, "SELECT COUNT(*) AS c FROM ledger_entries WHERE type = 'VOID'")).toBe(0);
   });
 
