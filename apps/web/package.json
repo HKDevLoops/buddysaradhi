@@ -7,14 +7,14 @@
   },
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && next build",
     "postinstall": "",
     "start": "next start",
     "lint": "eslint .",
-    "test": "vitest",
+    "test": "bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && vitest",
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
