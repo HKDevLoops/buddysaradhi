@@ -1,0 +1,58 @@
+# .github/workflows/webdev-review.yml
+# Implements: AGENTS.md §9.2.6 (the `no-orphaned-task` lint runs in the
+#   `webDevReview` cron job AND on every PR) and 21_Automation_Testing.md §2
+#   (the `webDevReview` cron ticks every 15 minutes).
+#
+# WHY THIS EXISTS. Audit AUD-053 (docs/audit/AUDIT-2026-10-21.md) found the
+#   lint did not exist, nothing in `.github/workflows/**` referenced it, and NO
+#   workflow in the repo had a `schedule:` trigger — so there was no
+#   `webDevReview` cron at all. The four checks AGENTS.md §9.2.6 specifies were
+#   enforced by nothing, and the measured gap was exactly the promised failure:
+#   68 `Task ID` entries in `worklog.md`, 62 `State:` fields.
+#
+# WHAT IT FAILS ON (AGENTS.md §9.2.6, verbatim):
+#   (a) a todo that is `in_progress` with no worklog entry in the last 30
+#       minutes;
+#   (b) a worklog entry whose `Stage Summary` lacks a `State:` field;
+#   (c) a `PAUSED` task's worklog entry with no `Resume point:` field;
+#   (d) two `in_progress` todos at once (§9.2.1: exactly ONE task in flight).
+#
+# The gate NEVER skips: an unreadable worklog exits 2, which fails the job.
+name: webDevReview
+
+on:
+  schedule:
+    # Every 15 minutes (21_Automation_Testing.md §2). GitHub schedules the
+    # tick on the quarter hour; a busy repository can delay it, so this is a
+    # net, not a metronome.
+    - cron: "*/15 * * * *"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webdev-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-orphaned-task:
+    name: No orphaned task (AGENTS.md §9.2.6)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: 1.4.3
+
+      # The lint reads `worklog.md` (the close-out record, AGENTS.md §9.2.2)
+      # and `todos.json` (the in-flight task state, when one is committed).
+      # Neither needs a dependency install: the script is plain Node.
+      - name: Orphaned-task lint
+        run: bun scripts/no-orphaned-task.ts
