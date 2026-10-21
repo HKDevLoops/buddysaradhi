@@ -142,7 +142,11 @@ export function checkSpecRef(
   for (const ref of references) {
     if (!existsSync(path.join(repoRoot, ref))) {
       missing.push(ref);
-      problems.push(`the `+"`## Spec ref`"+` block cites \`${ref}\`, which does not exist in this repository`);
+      problems.push(
+        `the ` +
+          "`## Spec ref`" +
+          ` block cites \`${ref}\`, which does not exist in this repository`,
+      );
       continue;
     }
     if (sections.includes(ref)) cited.push(ref);
@@ -193,13 +197,13 @@ function main(): number {
 
   const result = checkSpecRef(body);
   if (result.ok) {
-    process.stdout.write(
-      `spec-ref-gate: PASS — cites ${result.cited.join(", ")}\n`,
-    );
+    process.stdout.write(`spec-ref-gate: PASS — cites ${result.cited.join(", ")}\n`);
     return 0;
   }
 
-  process.stderr.write("spec-ref-gate: FAIL — the pull-request description does not cite a real spec.\n");
+  process.stderr.write(
+    "spec-ref-gate: FAIL — the pull-request description does not cite a real spec.\n",
+  );
   for (const problem of result.problems) process.stderr.write(`  - ${problem}\n`);
   process.stderr.write(
     "  Add a `## Spec ref` block (AGENTS.md §5.2): `Implements: <spec file> §<section>`.\n",

@@ -86,7 +86,9 @@ export function classifyViolations(violations: AxeViolation[]): {
     critical: violations.filter((v) => v.impact !== null && CRITICAL_IMPACTS.includes(v.impact)),
     serious: violations.filter((v) => v.impact !== null && WARN_IMPACTS.includes(v.impact)),
     other: violations.filter(
-      (v) => v.impact === null || (!CRITICAL_IMPACTS.includes(v.impact) && !WARN_IMPACTS.includes(v.impact)),
+      (v) =>
+        v.impact === null ||
+        (!CRITICAL_IMPACTS.includes(v.impact) && !WARN_IMPACTS.includes(v.impact)),
     ),
   };
 }
@@ -111,7 +113,9 @@ export function decideExitCode(results: RouteResult[]): {
       continue;
     }
     if (!result.rendered) {
-      failures.push(`${result.path}: did not render — the gate refuses to pass a page it could not read`);
+      failures.push(
+        `${result.path}: did not render — the gate refuses to pass a page it could not read`,
+      );
       continue;
     }
     const { critical, serious, other } = classifyViolations(result.violations);
@@ -122,7 +126,9 @@ export function decideExitCode(results: RouteResult[]): {
       warnings.push(`${result.path}: ${violation.id} (serious) — ${violation.help}`);
     }
     for (const violation of other) {
-      warnings.push(`${result.path}: ${violation.id} (${violation.impact ?? "unknown"}) — ${violation.help}`);
+      warnings.push(
+        `${result.path}: ${violation.id} (${violation.impact ?? "unknown"}) — ${violation.help}`,
+      );
     }
   }
   return { code: failures.length === 0 ? 0 : 1, failures, warnings };
@@ -156,7 +162,12 @@ export async function scanRoutes(
         timeout: 30_000,
       });
       if (response !== null && response.status() >= 500) {
-        out.push({ path: route.path, rendered: false, violations: [], error: `HTTP ${response.status()}` });
+        out.push({
+          path: route.path,
+          rendered: false,
+          violations: [],
+          error: `HTTP ${response.status()}`,
+        });
         continue;
       }
       await page.addScriptTag({ content: axeSource });
@@ -177,7 +188,11 @@ export async function scanRoutes(
         continue;
       }
       const raw = await page.evaluate(async () => {
-        const axe = (globalThis as unknown as { axe: { run: (ctx: unknown, opts: unknown) => Promise<unknown> } }).axe;
+        const axe = (
+          globalThis as unknown as {
+            axe: { run: (ctx: unknown, opts: unknown) => Promise<unknown> };
+          }
+        ).axe;
         const result = (await axe.run(document, {
           runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
         })) as { violations: unknown[] };
@@ -206,7 +221,9 @@ async function main(): Promise<number> {
   const baseUrl =
     flag !== -1
       ? (args[flag + 1] ?? "")
-      : (process.env.A11Y_BASE_URL ?? process.env.PLAYWRIGHT_TEST_BASE_URL ?? "http://127.0.0.1:3300");
+      : (process.env.A11Y_BASE_URL ??
+        process.env.PLAYWRIGHT_TEST_BASE_URL ??
+        "http://127.0.0.1:3300");
   if (baseUrl === "") {
     process.stderr.write("a11y-gate: --base-url needs a value\n");
     return 2;

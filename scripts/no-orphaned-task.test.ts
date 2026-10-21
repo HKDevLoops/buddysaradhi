@@ -68,14 +68,24 @@ describe("the lint — a compliant worklog passes", () => {
   });
 
   it("passes with one in_progress todo that has a fresh entry", () => {
-    const result = lintOrphanedTasks(goodWorklog(), FRESH, [{ id: "TEST-001", status: "in_progress" }], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      FRESH,
+      [{ id: "TEST-001", status: "in_progress" }],
+      NOW,
+    );
     expect(result.violations).toEqual([]);
   });
 });
 
 describe("rule (a) — an in_progress todo needs a recent worklog entry", () => {
   it("FAILS when the todo has no worklog entry at all — the negative control", () => {
-    const result = lintOrphanedTasks(goodWorklog(), FRESH, [{ id: "GHOST-999", status: "in_progress" }], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      FRESH,
+      [{ id: "GHOST-999", status: "in_progress" }],
+      NOW,
+    );
     expect(result.ok).toBe(false);
     const ruleA = result.violations.filter((v) => v.rule === "a");
     expect(ruleA).toHaveLength(1);
@@ -83,14 +93,24 @@ describe("rule (a) — an in_progress todo needs a recent worklog entry", () => 
   });
 
   it("FAILS when the entry is older than the 30-minute window", () => {
-    const result = lintOrphanedTasks(goodWorklog(), STALE, [{ id: "TEST-001", status: "in_progress" }], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      STALE,
+      [{ id: "TEST-001", status: "in_progress" }],
+      NOW,
+    );
     expect(result.ok).toBe(false);
     expect(result.violations.filter((v) => v.rule === "a")).toHaveLength(1);
     expect(result.violations[0]?.message).toContain("minutes old");
   });
 
   it("PASSES a todo whose entry is inside the window", () => {
-    const result = lintOrphanedTasks(goodWorklog(), FRESH, [{ id: "TEST-001", status: "in_progress" }], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      FRESH,
+      [{ id: "TEST-001", status: "in_progress" }],
+      NOW,
+    );
     expect(result.violations.filter((v) => v.rule === "a")).toHaveLength(0);
   });
 });
@@ -156,10 +176,15 @@ Work Log:
 
 describe("rule (d) — only ONE task may be in flight", () => {
   it("FAILS when two todos are in_progress — the negative control", () => {
-    const result = lintOrphanedTasks(goodWorklog(), FRESH, [
-      { id: "TEST-001", status: "in_progress" },
-      { id: "TEST-002", status: "in_progress" },
-    ], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      FRESH,
+      [
+        { id: "TEST-001", status: "in_progress" },
+        { id: "TEST-002", status: "in_progress" },
+      ],
+      NOW,
+    );
     expect(result.ok).toBe(false);
     const ruleD = result.violations.filter((v) => v.rule === "d");
     expect(ruleD).toHaveLength(1);
@@ -167,10 +192,15 @@ describe("rule (d) — only ONE task may be in flight", () => {
   });
 
   it("does not fire for two todos that are not in_progress", () => {
-    const result = lintOrphanedTasks(goodWorklog(), FRESH, [
-      { id: "TEST-001", status: "pending" },
-      { id: "TEST-002", status: "completed" },
-    ], NOW);
+    const result = lintOrphanedTasks(
+      goodWorklog(),
+      FRESH,
+      [
+        { id: "TEST-001", status: "pending" },
+        { id: "TEST-002", status: "completed" },
+      ],
+      NOW,
+    );
     expect(result.violations.filter((v) => v.rule === "d")).toHaveLength(0);
   });
 });

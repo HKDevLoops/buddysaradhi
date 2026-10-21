@@ -90,7 +90,9 @@ export function parseTodos(text: string): Todo[] {
   const parsed: unknown = JSON.parse(text);
   const list: unknown = Array.isArray(parsed)
     ? parsed
-    : typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { todos?: unknown }).todos)
+    : typeof parsed === "object" &&
+        parsed !== null &&
+        Array.isArray((parsed as { todos?: unknown }).todos)
       ? (parsed as { todos: unknown[] }).todos
       : [];
   const out: Todo[] = [];
@@ -169,8 +171,7 @@ export function lintOrphanedTasks(
     if (entry.state === null) {
       violations.push({
         rule: "b",
-        message:
-          `a worklog entry${entry.taskId ? ` (${entry.taskId})` : ""} has a Stage Summary with no \`State:\` field — \`State: COMPLETED | PAUSED | BLOCKED\` is mandatory (AGENTS.md §9.2.2 step 3)`,
+        message: `a worklog entry${entry.taskId ? ` (${entry.taskId})` : ""} has a Stage Summary with no \`State:\` field — \`State: COMPLETED | PAUSED | BLOCKED\` is mandatory (AGENTS.md §9.2.2 step 3)`,
       });
     }
   }

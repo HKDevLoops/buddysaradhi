@@ -62,7 +62,9 @@ afterEach(async () => {
   }
 });
 
-async function cols(table: string): Promise<Record<string, { type: string; notnull: number; dflt: string | null }>> {
+async function cols(
+  table: string,
+): Promise<Record<string, { type: string; notnull: number; dflt: string | null }>> {
   const r = await client.execute(
     'SELECT name, type, "notnull", dflt_value FROM pragma_table_info(?)',
     [table],
@@ -89,8 +91,14 @@ async function insertStudent(id: string, firstName: string): Promise<void> {
 describe("0004 — before the migration the canonical schema is broken", () => {
   it("the shipped 0001 creates students WITHOUT the two money columns", async () => {
     const students = await cols("students");
-    expect(students.balance_paise, "0001 already has balance_paise — the migration would be a no-op").toBeUndefined();
-    expect(students.base_fee_paise, "0001 already has base_fee_paise — the migration would be a no-op").toBeUndefined();
+    expect(
+      students.balance_paise,
+      "0001 already has balance_paise — the migration would be a no-op",
+    ).toBeUndefined();
+    expect(
+      students.base_fee_paise,
+      "0001 already has base_fee_paise — the migration would be a no-op",
+    ).toBeUndefined();
   });
 
   it("a balance write fails the way a tutor's would", async () => {
@@ -101,7 +109,9 @@ describe("0004 — before the migration the canonical schema is broken", () => {
       })
       .then(() => null)
       .catch((e: unknown) => (e instanceof Error ? e.message : String(e)));
-    expect(write, "the balance write unexpectedly succeeded on the 0001 shape").toMatch(/no such column/i);
+    expect(write, "the balance write unexpectedly succeeded on the 0001 shape").toMatch(
+      /no such column/i,
+    );
   });
 });
 
