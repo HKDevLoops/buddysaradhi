@@ -12,6 +12,9 @@ on:
         description: 'Version (e.g., 1.4.0)'
         required: true
 
+permissions:
+  contents: read
+
 concurrency:
   group: eas-build-${{ github.ref }}
   cancel-in-progress: false
@@ -112,8 +115,13 @@ jobs:
           token: ${{ secrets.EAS_TOKEN }}
 
       - name: Wait for Android build
+        env:
+          # 2026-10-21 (SC-06): step outputs and env values were interpolated
+          # into the shell body.
+          ANDROID_BUILD_ID: ${{ needs.build.outputs.android_build_id }}
+          ANDROID_ARTIFACT_URL: ${{ env.android_artifact_url }}
         run: |
-          BUILD_ID=${{ needs.build.outputs.android_build_id }}
+          BUILD_ID="$ANDROID_BUILD_ID"
           for i in {1..60}; do
             STATUS=$(eas build:view $BUILD_ID --json | jq -r '.build.status')
             echo "Attempt $i: Android build $BUILD_ID status=$STATUS"
@@ -134,7 +142,7 @@ jobs:
 
       - name: Download Android APK
         run: |
-          curl -L -o Buddysaradhi.apk "${{ env.android_artifact_url }}"
+          curl -L -o Buddysaradhi.apk "$ANDROID_ARTIFACT_URL"
           ls -lh Buddysaradhi.apk
 
       - name: Mirror APK to Vercel Blob
@@ -148,8 +156,10 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Verify iOS build (no mirror)
+        env:
+          IOS_BUILD_ID: ${{ needs.build.outputs.ios_build_id }}
         run: |
-          BUILD_ID=${{ needs.build.outputs.ios_build_id }}
+          BUILD_ID="$IOS_BUILD_ID"
           for i in {1..60}; do
             STATUS=$(eas build:view $BUILD_ID --json | jq -r '.build.status')
             echo "Attempt $i: iOS build $BUILD_ID status=$STATUS"
@@ -168,7 +178,18 @@ jobs:
 
       - name: Notify on failure
         if: failure()
+        env:
+          # 2026-10-21 (SC-06): the webhook URL was a bare shell word carrying a
+          # secret, and the payload was hand-built JSON.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"⚠️ eas-build failed on ${{ github.ref_name }}\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          CONTENT=$(printf '⚠️ eas-build failed on %s' "$REF_NAME")
+          PAYLOAD=$(printf '%s' "$CONTENT" | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"

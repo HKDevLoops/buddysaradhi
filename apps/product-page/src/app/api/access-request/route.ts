@@ -26,6 +26,7 @@ import {
   resolveAccessRequestStore,
   submitAccessRequest,
 } from "@/app/admin/_lib/access-requests";
+import { resolveOriginVerdict } from "@/lib/request-origin";
 
 function clientIp(source: Headers): string {
   const forwarded = source.get("x-forwarded-for");
@@ -36,7 +37,41 @@ function clientIp(source: Headers): string {
   return "unknown";
 }
 
+/**
+ * SAME-ORIGIN GATE (CSRF). A route handler gets NO automatic Origin check
+ * from Next.js - that protection covers Server Actions only. Without this
+ * gate any page on the internet could make a visitor's browser write a row
+ * into the ops inbox: the attacker cannot READ the response, but the side
+ * effect happens all the same.
+ *
+ * The check is host-relative, not an allowlist of guessed origins: this app
+ * is reachable at a deployment origin, the apex and every preview origin, and
+ * a list that missed one of them would silently break the form for real
+ * tutors. `NEXT_PUBLIC_SITE_URL` is additive.
+ */
+function refuseCrossOrigin(): NextResponse {
+  return NextResponse.json(
+    {
+      ok: false,
+      errors: {
+        note: "This request did not come from this site, so it was not recorded. Nothing was sent and nothing was charged. Open the request form on this site and send it again.",
+      },
+    },
+    { status: 403 },
+  );
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
+  const requestHeaders = await headers();
+  const verdict = resolveOriginVerdict(
+    requestHeaders,
+    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host"),
+    process.env.NEXT_PUBLIC_SITE_URL ? [process.env.NEXT_PUBLIC_SITE_URL] : [],
+  );
+  if (!verdict.allowed) {
+    return refuseCrossOrigin();
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -65,7 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // as-is. Only a programmer error (a bug) escapes as a throw.
   const outcome = await submitAccessRequest({
     body,
-    ip: clientIp(await headers()),
+    ip: clientIp(requestHeaders),
     nowMs: Date.now(),
     store,
     audit: (input) => adminAudit(input),

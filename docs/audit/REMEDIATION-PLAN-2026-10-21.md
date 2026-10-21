@@ -23,6 +23,7 @@ Nothing else can be trusted until this is done.
 
 | # | Item | Status |
 |---|---|---|
+| 0.0 | **⛔ OWNER ACTION** — see the ESCALATION section at the top of `AUDIT-2026-10-21.md`: (a) the public anon key can READ/UPDATE/DELETE Supabase tables because RLS is not enabled, (b) the live `service_role` key was committed to a public repo and needs ROTATION, (c) `next@16.2.12` had three live CRITICAL RCE advisories — pinned to 16.3.8, needs a DEPLOY | **OWNER** |
 | 0.1 | **Z: disk full** — `ENOSPC` corrupted `node_modules` (empty package dirs shadowing complete root copies), which broke `bun install`, the dev server and the per-package test runners | FIXED — freed 3.3 GB (stale `supabase/` mirror, `Z:\.pnpm-store` cache, build artefacts), removed the empty husks, `bun install` repaired |
 | 0.2 | `bun run lint` red — 3 × L7 (`apps/product-page/scripts/*.mjs`) + 1 × L10 (`apps/desktop/package.json`) | OPEN |
 | 0.3 | `bun run typecheck` green across 7 workspaces | FIXED |

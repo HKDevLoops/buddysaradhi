@@ -16,7 +16,7 @@
     "elysia": "^1.4.29"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.4.3",
     "typescript": "^7.0.2"
   }
 }

@@ -7,9 +7,11 @@ import { describe, expect, it } from "vitest";
 import {
   FOV_PEAK,
   FOV_REST,
+  POSTER_ASPECT,
   beatIdToIndex,
   beatIndexToId,
   resolveBeatIndex,
+  resolveCoverFov,
   resolveDpr,
   resolveFloatProps,
   resolveFovTarget,
@@ -127,6 +129,43 @@ describe("resolveFovTarget (shonen whip 55→75→55)", () => {
     expect(resolveFovTarget(-1)).toBe(55);
     expect(resolveFovTarget(2)).toBe(75);
     expect(resolveFovTarget(NaN)).toBe(55);
+  });
+});
+
+describe("resolveCoverFov (the live scene frames like the poster)", () => {
+  it("leaves the field of view alone at the poster's own aspect", () => {
+    expect(resolveCoverFov(FOV_REST, POSTER_ASPECT)).toBe(FOV_REST);
+  });
+
+  it("leaves the field of view alone on a NARROWER viewport", () => {
+    // `cover` crops the poster left and right, so the vertical extent the
+    // camera shows is unchanged.
+    expect(resolveCoverFov(FOV_REST, 0.5)).toBe(FOV_REST);
+    expect(resolveCoverFov(FOV_REST, 1.6)).toBe(FOV_REST);
+  });
+
+  it("narrows the field of view on a WIDER viewport, by the cover factor", () => {
+    // `cover` crops the poster top and bottom, so the camera must show the
+    // same vertical extent: tan(fov/2) shrinks by posterAspect/viewportAspect.
+    const wide = resolveCoverFov(FOV_REST, 2.4);
+    expect(wide).toBeLessThan(FOV_REST);
+    const half = (FOV_REST * Math.PI) / 360;
+    const expected = (2 * Math.atan(Math.tan(half) * (POSTER_ASPECT / 2.4)) * 180) / Math.PI;
+    expect(wide).toBeCloseTo(expected, 6);
+  });
+
+  it("is monotonic: the wider the viewport, the narrower the field", () => {
+    const narrow = resolveCoverFov(FOV_REST, 1.9);
+    const wide = resolveCoverFov(FOV_REST, 2.6);
+    expect(wide).toBeLessThan(narrow);
+  });
+
+  it("refuses garbage rather than producing a broken camera", () => {
+    expect(resolveCoverFov(Number.NaN, 1.8)).toBe(FOV_REST);
+    expect(resolveCoverFov(0, 1.8)).toBe(FOV_REST);
+    expect(resolveCoverFov(FOV_REST, Number.NaN)).toBe(FOV_REST);
+    expect(resolveCoverFov(FOV_REST, 0)).toBe(FOV_REST);
+    expect(resolveCoverFov(FOV_REST, -1)).toBe(FOV_REST);
   });
 });
 

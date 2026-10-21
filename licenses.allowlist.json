@@ -1,11 +1,22 @@
-[
-  "MIT",
-  "ISC",
-  "Apache-2.0",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "MPL-2.0",
-  "Unlicense",
-  "CC0-1.0",
-  "Public Domain"
-]
+{
+  "licenses": [
+    "MIT",
+    "ISC",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MPL-2.0",
+    "Unlicense",
+    "CC0-1.0",
+    "Public Domain"
+  ],
+  "exceptions": [
+    {
+      "license": "Standard 'no charge' license: https://gsap.com/standard-license.",
+      "package": "gsap",
+      "reason": "GSAP 3.15.0 is used ONLY by apps/product-page (the marketing/3D hero surface), not by the tutor-facing product. Webflow's Standard 'No Charge' License (effective 2025-04-30) grants commercial use for 'Permitted Uses' and explicitly confirms commercial usage is covered at no charge. It is NOT an OSI-approved licence, and it is revocable ('Webflow may terminate this GSAP License and revoke your access in its discretion'). 23_Security_Harness_Plan.md §5.4 says allow-list additions require a Decision Protocol run, so this entry is scoped to the exact licence string + package, expires, and must be re-reviewed. OWNER DECISION REQUIRED: confirm the product never offers a no-code visual-animation builder (a 'Prohibited Use') and decide whether a revocable licence is acceptable for a shipped surface.",
+      "expires": "2026-11-30",
+      "reviewedBy": "supply-chain-audit-2026-10-21"
+    }
+  ]
+}

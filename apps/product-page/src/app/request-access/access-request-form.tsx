@@ -58,15 +58,25 @@ interface SentCopy {
  * to the access-request store, readable by the owner. Mail delivery to a person
  * is not connected, so we say the request is recorded and will be read — never
  * that an administrator has already been emailed.
+ *
+ * HONESTY FIX (audit DYNAMIC-PRODUCTPAGE.md, PP-06). The heading used to read
+ * "Received. We will reply by email." Mail delivery is NOT connected
+ * (`REQUEST_DELIVERY_NOTE` in src/lib/access-request.ts says so, and the
+ * endpoint's `delivery: "console"` says so), so the heading promised a channel
+ * that does not exist, while the body below it explained that nobody is
+ * emailed. A tutor who is told "we will reply by email" and is never replied
+ * to has been lied to by the first line they read. The heading now states the
+ * thing that is actually true — the request is on file with a reference — and
+ * the body names where it went.
  */
 function sentCopy(receipt: AccessRequestReceipt): SentCopy {
   switch (receipt.delivery) {
     case "console":
       return {
-        heading: "Received. We will reply by email.",
+        heading: "Received. Your request is on file.",
         outcome: [
           "Your request is recorded under the reference below.",
-          "An administrator reads every request in the operations console. Nothing is charged.",
+          "An administrator reads every request in the operations console. We email you a reply once that channel is live; until then, the free plan below is the way in today.",
         ],
         correctionIsSafe: false,
       };

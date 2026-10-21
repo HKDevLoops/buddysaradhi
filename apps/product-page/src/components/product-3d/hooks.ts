@@ -82,6 +82,16 @@ export interface SceneTokens {
   readonly ok: string;
   readonly info: string;
   readonly warn: string;
+  /**
+   * The palette's LIGHT-valued roles. A three.js light's colour MULTIPLIES its
+   * intensity, so a light coloured with a near-black SURFACE token is a light
+   * that emits almost nothing - the scene renders black. These are the
+   * palette's own light roles, so the rig stays token-driven (Rule 5) without
+   * inventing a colour the palette never declared.
+   */
+  readonly key: string;
+  readonly fill: string;
+  readonly ambient: string;
 }
 
 const SCENE_TOKEN_NAMES: Readonly<Record<keyof SceneTokens, string>> = {
@@ -95,6 +105,9 @@ const SCENE_TOKEN_NAMES: Readonly<Record<keyof SceneTokens, string>> = {
   ok: "--success",
   info: "--info",
   warn: "--warning",
+  key: "--text-primary",
+  fill: "--text-muted",
+  ambient: "--text-secondary",
 };
 
 /**

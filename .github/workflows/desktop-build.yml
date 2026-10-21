@@ -12,6 +12,9 @@ on:
         description: 'Version (e.g., 1.4.0)'
         required: true
 
+permissions:
+  contents: read
+
 concurrency:
   group: desktop-build-${{ github.ref }}
   cancel-in-progress: false
@@ -81,49 +84,60 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: |
           # Decode the codesign cert from base64 secret
-          echo ${{ secrets.WINDOWS_CODESIGN_PFX }} | base64 -d > cert.pfx
-          # Set env vars for Tauri's signing
-          export TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
+          echo "$WINDOWS_CODESIGN_PFX" | base64 -d > cert.pfx
           # Build with Tauri (signtool runs as a post-build step via tauri.conf.json)
           bunx tauri build
         working-directory: apps/desktop
         env:
+          # 2026-10-21 (SC-06): the signing key, its password and the base64
+          # PFX were interpolated into the shell body. A secret in a `run:`
+          # body lands in the rendered script and in the process table; `env:`
+          # passes it as data the shell never re-parses.
+          WINDOWS_CODESIGN_PFX: ${{ secrets.WINDOWS_CODESIGN_PFX }}
           WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Sign + Notarize + Build (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
-          export TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
-          export APPLE_ID="${{ secrets.MACOS_NOTARY_APPLE_ID }}"
-          export APPLE_TEAM_ID="${{ secrets.MACOS_NOTARY_TEAM_ID }}"
-          export APPLE_PASSWORD="${{ secrets.MACOS_NOTARY_PASSWORD }}"
           bunx tauri build
         working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
 
       - name: Build (Linux)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
-          export TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}"
-          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
           bunx tauri build
         working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload to Vercel Blob
         id: upload
+        env:
+          # 2026-10-21 (SC-06): matrix values were interpolated into the shell.
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+          PLATFORM: ${{ matrix.platform }}
+          INSTALLER_EXT: ${{ matrix.installer_ext }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           # Find the installer
-          INSTALLER=$(find apps/desktop/src-tauri/target/release/bundle -name "${{ matrix.artifact_glob }}" | head -1)
+          INSTALLER=$(find apps/desktop/src-tauri/target/release/bundle -name "$ARTIFACT_GLOB" | head -1)
           if [ -z "$INSTALLER" ]; then
             echo "FAIL: no installer found"
             exit 1
           fi
           # Determine the blob pathname
-          case "${{ matrix.platform }}" in
+          case "$PLATFORM" in
             windows-latest) BLOB_PATH="desktop/windows/Buddysaradhi-${VERSION}-x64.${{ matrix.installer_ext }}" ;;
             macos-latest)   BLOB_PATH="desktop/macos/Buddysaradhi-${VERSION}-universal.${{ matrix.installer_ext }}" ;;
             ubuntu-22.04)   BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}" ;;
@@ -144,18 +158,23 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Upload signature to Vercel Blob
+        env:
+          # 2026-10-21 (SC-06): matrix values were interpolated into the shell.
+          ARTIFACT_GLOB: ${{ matrix.artifact_glob }}
+          PLATFORM: ${{ matrix.platform }}
+          INSTALLER_EXT: ${{ matrix.installer_ext }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          INSTALLER=$(find apps/desktop/src-tauri/target/release/bundle -name "${{ matrix.artifact_glob }}" | head -1)
+          INSTALLER=$(find apps/desktop/src-tauri/target/release/bundle -name "$ARTIFACT_GLOB" | head -1)
           SIG_FILE="${INSTALLER}.sig"
           if [ ! -f "$SIG_FILE" ]; then
             echo "FAIL: no .sig file found at $SIG_FILE"
             exit 1
           fi
-          case "${{ matrix.platform }}" in
-            windows-latest) SIG_BLOB_PATH="desktop/windows/Buddysaradhi-${VERSION}-x64.${{ matrix.installer_ext }}.sig" ;;
-            macos-latest)   SIG_BLOB_PATH="desktop/macos/Buddysaradhi-${VERSION}-universal.${{ matrix.installer_ext }}.sig" ;;
-            ubuntu-22.04)   SIG_BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${{ matrix.installer_ext }}.sig" ;;
+          case "$PLATFORM" in
+            windows-latest) SIG_BLOB_PATH="desktop/windows/Buddysaradhi-${VERSION}-x64.${INSTALLER_EXT}.sig" ;;
+            macos-latest)   SIG_BLOB_PATH="desktop/macos/Buddysaradhi-${VERSION}-universal.${INSTALLER_EXT}.sig" ;;
+            ubuntu-22.04)   SIG_BLOB_PATH="desktop/linux/Buddysaradhi-${VERSION}-x86_64.${INSTALLER_EXT}.sig" ;;
           esac
           node scripts/blob-upload.ts \
             --local-path "$SIG_FILE" \
@@ -198,14 +217,35 @@ jobs:
         run: bun scripts/verify-manifest.ts --manifest manifests/desktop-staging.json
 
       - name: Notify on completion
+        env:
+          # 2026-10-21 (SC-06): the webhook URL was a bare word in the command
+          # line and the payload was hand-built JSON.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"✅ desktop-build complete for ${{ github.ref_name }} — manifest at desktop-staging.json\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          CONTENT=$(printf '✅ desktop-build complete for %s — manifest at desktop-staging.json' "$REF_NAME")
+          PAYLOAD=$(printf '%s' "$CONTENT" | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
       - name: Notify on failure
         if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"⚠️ desktop-build failed on ${{ github.ref_name }}\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          CONTENT=$(printf '⚠️ desktop-build failed on %s' "$REF_NAME")
+          PAYLOAD=$(printf '%s' "$CONTENT" | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+

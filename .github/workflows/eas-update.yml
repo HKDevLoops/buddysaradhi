@@ -14,6 +14,9 @@ on:
         required: true
         default: production
 
+permissions:
+  contents: read
+
 concurrency:
   group: eas-update-${{ github.ref }}
   cancel-in-progress: false
@@ -48,10 +51,16 @@ jobs:
 
       - name: Determine channel
         id: channel
+        env:
+          # A branch name can contain shell metacharacters, and GitHub
+          # substitutes `${{ }}` before the shell parses the text, so the ref
+          # arrives as an environment variable (data), never as script.
+          GIT_REF: ${{ github.ref }}
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          set -euo pipefail
+          if [[ "$GIT_REF" == "refs/heads/main" ]]; then
             echo "channel=production" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+          elif [[ "$GIT_REF" == refs/heads/release/* ]]; then
             echo "channel=staging" >> $GITHUB_OUTPUT
           else
             echo "channel=development" >> $GITHUB_OUTPUT
@@ -99,27 +108,73 @@ jobs:
 
       - name: Push OTA update
         if: steps.check-token.outputs.has_token == 'true'
-        run: |
-          CHANNEL=${{ needs.detect-changes.outputs.channel }}
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          # Sanitise the commit message (no newlines, escape quotes)
-          COMMIT_MSG_CLEAN=$(echo "$COMMIT_MSG" | head -1 | sed 's/"/\\"/g')
-          eas update --branch "$CHANNEL" --channel "$CHANNEL" \
-            --message "$COMMIT_MSG_CLEAN" --non-interactive
-        working-directory: apps/mobile
         env:
+          # 2026-10-21 (supply-chain audit, SC-07): these were interpolated
+          # DIRECTLY into the shell script:
+          #     CHANNEL=${{ needs.detect-changes.outputs.channel }}
+          #     COMMIT_MSG="${{ github.event.head_commit.message }}"
+          # GitHub substitutes `${{ ... }}` BEFORE the shell sees the text, so a
+          # commit message containing `$(...)` or backticks executes arbitrary
+          # commands in a runner that holds EAS_TOKEN. The "sanitise" comment
+          # below the old code was a fiction: the substitution had already
+          # happened by then. The values now arrive as ENVIRONMENT VARIABLES,
+          # which are data, not code, and the shell never re-parses them.
+          CHANNEL: ${{ needs.detect-changes.outputs.channel }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
           EXPO_PROJECT_ID: ${{ vars.EXPO_PROJECT_ID }}
+          EAS_TOKEN: ${{ secrets.EAS_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Belt-and-braces: the channel is a closed set, so reduce it to
+          # [A-Za-z0-9-] before it is used as a CLI argument.
+          CHANNEL_CLEAN=$(printf '%s' "$CHANNEL" | tr -cd '[:alnum:]-')
+          if [ -z "$CHANNEL_CLEAN" ]; then
+            echo "::error::refusing to push an OTA update with an empty channel"
+            exit 1
+          fi
+          # One line, no quotes/backticks/$() — it is a commit MESSAGE, not a
+          # shell fragment.
+          COMMIT_MSG_CLEAN=$(printf '%s' "$COMMIT_MSG" | head -1 | tr -cd '[:print:]')
+          eas update --branch "$CHANNEL_CLEAN" --channel "$CHANNEL_CLEAN" \
+            --message "$COMMIT_MSG_CLEAN" --non-interactive
 
       - name: Notify on success
         if: steps.check-token.outputs.has_token == 'true'
+        env:
+          # 2026-10-21 (SC-07): the webhook URL was interpolated straight into
+          # the shell command line, and the commit message was interpolated
+          # into a JSON string literal. Both are injection sinks, and a secret
+          # written into a `run:` body is also visible in the process table.
+          # Everything now arrives as an environment variable and the payload
+          # is built with a real JSON encoder.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          CHANNEL: ${{ needs.detect-changes.outputs.channel }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"✅ EAS OTA pushed to ${{ needs.detect-changes.outputs.channel }} — ${{ github.event.head_commit.message }}\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          CONTENT=$(printf '✅ EAS OTA pushed to %s — %s' "$CHANNEL" "$COMMIT_MSG" \
+            | head -1 | tr -cd '[:print:]')
+          PAYLOAD=$(printf '%s' "$CONTENT" | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
       - name: Notify on failure
         if: failure() && steps.check-token.outputs.has_token == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REF_NAME: ${{ github.ref }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"⚠️ eas-update failed on ${{ github.ref }}\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          PAYLOAD=$(printf '⚠️ eas-update failed on %s' "$REF_NAME" \
+            | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+

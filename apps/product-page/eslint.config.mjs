@@ -42,6 +42,11 @@ export default [
         ResizeObserver: "readonly",
         matchMedia: "readonly",
         performance: "readonly",
+        // Used by the build-time tools in `scripts/`: `AbortSignal.timeout`
+        // for the server wait, and `getComputedStyle` inside the
+        // `page.evaluate` callbacks, which run in the BROWSER.
+        AbortSignal: "readonly",
+        getComputedStyle: "readonly",
       },
     },
     rules: {

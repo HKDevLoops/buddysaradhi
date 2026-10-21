@@ -31,48 +31,17 @@ const onest = Onest({
 });
 
 /**
- * The committed production origin of THIS site. `metadataBase` is the base every
- * relative URL resolves against, so a wrong value does not fail a build — it
- * quietly mints canonicals, Open Graph tags and share images that point at an
- * origin no visitor is on. It was `https://product-page-one-nu.vercel.app`, a
- * preview deployment slug, which meant production shipped the wrong canonical.
+ * The committed production origin of THIS site lives in ONE place:
+ * `src/lib/site-origin.ts`. `metadataBase` is the base every relative URL
+ * resolves against, so a wrong value does not fail a build - it quietly mints
+ * canonicals, Open Graph tags and share images that point at an origin no
+ * visitor is on. It was `https://product-page-one-nu.vercel.app`, a preview
+ * deployment slug, which meant production shipped the wrong canonical.
  *
- * The fallback is the same apex `apps/web` uses for its own `metadataBase`
- * (apps/web/src/app/layout.tsx:43) and for its `openGraph.url` (`:50`); the
- * gateway's own CSP allowlists `https://api.buddysaradhi.app`
- * (apps/product-page/next.config.ts:33), which confirms the apex.
+ * The resolver is shared with `src/app/sitemap.ts` and `src/app/robots.ts` so
+ * one host cannot be spelled two ways.
  */
-const SITE_ORIGIN_FALLBACK = "https://buddysaradhi.app";
-
-/**
- * Resolves the site origin from the environment, never from a literal in the
- * metadata block (AGENTS.md §15 FM-06).
- *
- * A malformed value throws here, at module evaluation, naming the variable
- * rather than degrading to a guess: a red build is recoverable and a silently
- * wrong canonical is not (AGENTS.md §2 Rule 9).
- */
-function resolveSiteOrigin(): URL {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (!configured) return new URL(SITE_ORIGIN_FALLBACK);
-  let parsed: URL;
-  try {
-    parsed = new URL(configured);
-  } catch (cause) {
-    throw new Error(
-      `NEXT_PUBLIC_SITE_URL is not an absolute URL (received ${JSON.stringify(configured)}). ` +
-        `Fix the variable, or unset it to use ${SITE_ORIGIN_FALLBACK}.`,
-      { cause },
-    );
-  }
-  const local = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-  if (parsed.protocol !== "https:" && !(local && parsed.protocol === "http:")) {
-    throw new Error(
-      `NEXT_PUBLIC_SITE_URL must be an https origin (received ${JSON.stringify(configured)}).`,
-    );
-  }
-  return parsed;
-}
+import { resolveSiteOrigin } from "@/lib/site-origin";
 
 export const metadata: Metadata = {
   title: "BuddySaradhi. Tuition management for Indian tutors.",

@@ -52,7 +52,7 @@ viewport, the hero copy contrast fixed and **measured** (every pairing ≥ 4.5:1
 live scene at every beat), a reusable procedural-asset module, a path-scoped CSP (the console
 now has a nonce policy with no `'unsafe-inline'`), a same-origin gate on the public write
 endpoint, `robots.txt` + `sitemap.xml`, and honest delivery copy. **9 fixes, 9 verified-red
-negative controls, 74 tests, design-system `verify` green (20 palettes, 0 findings), build
+negative controls, 88 tests, design-system `verify` green (20 palettes, 0 findings), build
 green, lint green, typecheck green.**
 
 **Two things I could not fix from here and will not pretend to have fixed:** the deployment

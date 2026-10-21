@@ -447,6 +447,24 @@ const L7_ALLOW: AllowEntry[] = [
     reason:
       "cache cleanup utility (cron job) — not product code; AGENTS.md §6.1 exemption for maintenance scripts",
   },
+  {
+    file: "apps/product-page/scripts/generate-poster.mjs",
+    re: /generate-poster\.mjs$/,
+    reason:
+      "build tooling, not product code — renders the beat-0 poster still that 20_3D_Product_Page.md 2.2 requires; the same exemption as the desktop/mobile token generators",
+  },
+  {
+    file: "apps/product-page/scripts/measure-hero-contrast.mjs",
+    re: /measure-hero-contrast\.mjs$/,
+    reason:
+      "build tooling, not product code — measures the hero copy panel's composited contrast against the live scene",
+  },
+  {
+    file: "apps/product-page/scripts/negative-controls.mjs",
+    re: /negative-controls\.mjs$/,
+    reason:
+      "build tooling, not product code — proves the generated assets are reproducible and the contrast numbers are not incidental",
+  },
 ];
 
 // L8 — tenant-bound proxy construction (Phase-4 residual: docs/adr/0007,
@@ -552,6 +570,48 @@ function lintPlaintextPin(findings: Finding[]): void {
   }
 }
 
+const L10_MANIFEST_FILES: string[] = ["package.json", "deno.json", "deno.jsonc"];
+const L10_ALLOW: AllowEntry[] = [];
+
+const L11_PREFIXES: string[] = ["apps/web/src/", "apps/gateway/", "packages/"];
+const L11_CREDENTIAL_NAME: RegExp =
+  /(?:^|_)(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|KEY|PRIVATE_KEY|API_KEY|AUTH_KEY)(?:_|$)/i;
+// Three shapes, all of which appear in real code:
+//   process.env.NAME                 (dot property)
+//   process.env["NAME"]              (bracket property)
+//   Deno.env.get("NAME")             (gateway runtime — Deno)
+// The gate is useless if it only covers one of them.
+const L11_ENV_READ: RegExp =
+  /(?:process\.env|Deno\.env\.get)\s*(?:\.\s*([A-Za-z0-9_]+)|\[\s*["'`]([A-Za-z0-9_]+)["'`]\s*\]|\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\))/;
+/** A LOG CALL. The defect is a secret reaching one of these. */
+const L11_LOG_CALL: RegExp =
+  /\b(?:console\s*\.\s*(?:log|warn|error|info|debug|trace)|log\s*\.\s*(?:info|warn|error|debug|audit)|logger\s*\.\s*\w+)\s*\(/;
+/**
+ * Remove the CONTENTS of string literals, keeping the quotes. Used by the
+ * taint-sink check so that a log MESSAGE that merely mentions the word
+ * "token" is not mistaken for the identifier `token`.
+ */
+function stripStringContents(line: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] as string;
+    if (quote) {
+      if (c === "\\") { i++; out += "  "; continue; }
+      if (c === quote) { quote = null; out += c; continue; }
+      out += " ";
+      continue;
+    }
+    if (c === "'" || c === '"' || c === "`") { quote = c; out += c; continue; }
+    out += c;
+  }
+  return out;
+}
+const L11_ALLOW: AllowEntry[] = [];
+
+const L12_WORKFLOW_DIR: string = ".github/workflows/";
+const L12_EXPR: string = "$" + "{{";
+
 const RULES: Rule[] = [  {
     id: "L1",
     name: "no-ledger-mutation",
@@ -634,6 +694,37 @@ const RULES: Rule[] = [  {
     patterns: [], // key scan handled by lintPlaintextPin
     allow: [],
     extra: lintPlaintextPin,
+  },
+  {
+    id: "L10",
+    name: "no-remote-or-floating-dependency",
+    spec:
+      "23_Security_Harness_Plan.md §5.1 (supply-chain gate) · §5.4 (licence allow-list) · docs/audit/DYNAMIC-SUPPLYCHAIN.md SC-08",
+    exts: [".json"],
+    patterns: [], // manifest scan handled by lintSupplyChainManifests
+    allow: L10_ALLOW,
+    extra: lintSupplyChainManifests,
+  },
+  {
+    id: "L12",
+    name: "no-github-expression-in-run-body",
+    spec:
+      "23_Security_Harness_Plan.md §5.2 (secrets are never handed to uncontrolled code) · AGENTS.md §2 Rule 9",
+    exts: [".yml", ".yaml"],
+    prefixes: [L12_WORKFLOW_DIR],
+    patterns: [], // workflow scan handled by lintNoRunInterpolation
+    allow: [],
+    extra: lintNoRunInterpolation,
+  },
+  {
+    id: "L11",
+    name: "no-credential-in-log-payload",
+    spec: "AGENTS.md §2 Rule 9 · 10_Security.md §17 TELE-1 · 23_Security_Harness_Plan.md §9 (observability)",
+    exts: CODE_EXTS,
+    prefixes: L11_PREFIXES,
+    patterns: [], // env-read scan handled by lintEnvCredentialReads
+    allow: L11_ALLOW,
+    extra: lintEnvCredentialReads,
   },
 ];
 
@@ -855,6 +946,281 @@ function lintTenantBinding(findings: Finding[]): void {
           text: line.trim(),
         });
       }
+    });
+  }
+}
+
+// L10 — supply-chain hygiene (23_Security_Harness_Plan.md §5.1/§5.4, audit SC-08).
+// A manifest is where a supply-chain decision is made that the lockfile cannot undo:
+//   (a) a REMOTE specifier fetches code from a host that is not the registry, with
+//       no integrity hash and — for a remote import map — no lockfile entry at all;
+//   (b) a FLOATING specifier ("latest", "*") lets whoever published last decide
+//       what ships;
+//   (c) a Deno npm specifier that is not EXACT floats on every Deno resolution.
+// Measured: the gateway's deno.json carried a remote import_map AND a remote
+// dependency; 7 manifests in apps/services/* declared "@types/bun": "latest".
+
+
+/**
+ * Scan a manifest for supply-chain hazards.
+ *
+ * The manifest is PARSED, not line-matched. A line-based scan cannot tell
+ * `"version": "0.0.0"` (the package's own placeholder version) from
+ * `"@types/bun": "0.0.0"` (a floating dependency), and that difference is
+ * exactly the one that matters.
+ */
+function lintSupplyChainManifests(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    const base = file.slice(file.lastIndexOf("/") + 1);
+    if (!L10_MANIFEST_FILES.includes(base)) continue;
+    // .agent/.claude/.kilo tooling manifests are not shipped and are not
+    // part of the product's dependency graph.
+    if (file.startsWith(".agent/") || file.startsWith(".claude/") || file.startsWith(".kilo/")) {
+      continue;
+    }
+    if (file.startsWith("node_modules/")) continue;
+    let raw: string;
+    try {
+      raw = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    let manifest: Record<string, unknown>;
+    try {
+      manifest = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      findings.push({
+        rule: "L10",
+        file,
+        line: 0,
+        msg: "manifest is not parseable JSON — a manifest that cannot be parsed cannot be reviewed",
+        text: "",
+      });
+      continue;
+    }
+
+    /** Report a specifier at the line it appears on. */
+    const report = (specifier: string, why: string): void => {
+      const needle = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(needle);
+      const lines = raw.split("\n");
+      let line = 0;
+      for (let i = 0; i < lines.length; i++) {
+        if (re.test(lines[i] as string)) {
+          line = i + 1;
+          break;
+        }
+      }
+      findings.push({ rule: "L10", file, line, msg: why, text: specifier });
+    };
+
+    const isRemote = (spec: string): boolean =>
+      /^(?:https?:|git\+|git:|file:)/.test(spec) ||
+      // Deno's "npm:"/"jsr:" scheme is a REGISTRY specifier, not a remote
+      // fetch — but it must still be EXACT (see the floating check below).
+      false;
+    const isFloating = (spec: string): boolean =>
+      spec === "latest" ||
+      spec === "*" ||
+      spec === "x" ||
+      spec === "next" ||
+      spec === "canary" ||
+      spec === "nightly" ||
+      /\*\.\d/.test(spec) ||
+      /^\d+\.\d+\.\*$/.test(spec);
+
+    // (a) REMOTE specifiers.
+    const scanMap = (map: unknown, label: string): void => {
+      if (!map || typeof map !== "object") return;
+      for (const [name, value] of Object.entries(map as Record<string, unknown>)) {
+        if (typeof value !== "string") continue;
+        if (isRemote(value)) {
+          report(
+            value,
+            `remote dependency specifier for "${name}" in ${label} — 23_Security_Harness_Plan.md §5.1: a manifest must not fetch code from a URL. Use a registry specifier with an exact version; the lockfile is the single source of truth`,
+          );
+        } else if (isFloating(value)) {
+          report(
+            value,
+            `floating version specifier for "${name}" in ${label} — pin an exact version; a floating specifier lets whoever published last decide what ships`,
+          );
+        } else if (/^(?:npm|jsr):/.test(value) && /@(\^|~)/.test(value)) {
+          report(
+            value,
+            `floating Deno npm specifier for "${name}" in ${label} — pin the exact version so a Deno resolution cannot silently drift (deno.lock records the specifier key)`,
+          );
+        }
+      }
+    };
+
+    for (const section of [
+      "dependencies",
+      "devDependencies",
+      "peerDependencies",
+      "optionalDependencies",
+      "imports",
+    ]) {
+      scanMap(manifest[section], section);
+    }
+
+    // (b) a deno.json "dependencies" ARRAY of raw specifiers.
+    const arr = manifest.dependencies;
+    if (Array.isArray(arr)) {
+      for (const value of arr) {
+        if (typeof value !== "string") continue;
+        if (isRemote(value)) {
+          report(
+            value,
+            "remote dependency specifier in the dependencies array — 23_Security_Harness_Plan.md §5.1: a manifest must not fetch code from a URL",
+          );
+        }
+      }
+    }
+
+    // (c) a deno.json "import_map" that points at a REMOTE import map. This
+    // is the worst case: the remote file decides the module RESOLUTION, and
+    // a Deno lockfile records nothing about it.
+    const importMap = manifest.import_map;
+    if (typeof importMap === "string" && isRemote(importMap)) {
+      report(
+        importMap,
+        "remote import map — the remote file decides module resolution and no lockfile records it. A change to that host silently changes which code runs",
+      );
+    }
+  }
+}
+
+// L11 — Rule 9 / 10_Security.md §17 (TELE-1): a credential must never reach a log.
+// semgrep's no-console-log-env catches the DIRECT form (console.log(process.env.X))
+// but not the indirect one a developer actually writes:
+//     const secret = process.env.GATEWAY_SHARED_SECRET;
+//     log.info("connecting", { secret });        // <- leaks
+// semgrep CE taint mode would catch it; this ruleset does not use taint mode.
+
+
+function lintEnvCredentialReads(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!L11_PREFIXES.some((p: string) => file.startsWith(p))) continue;
+    if (!hasExt(file, CODE_EXTS)) continue;
+    if (/\.test\.tsx?$/.test(file) || /\.spec\.tsx?$/.test(file)) continue;
+    let text: string;
+    try {
+      text = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    const st: BlockState = { inBlock: false };
+    // Variables in this file that were bound from a credential-named env var.
+    const tainted = new Set<string>();
+    text.split("\n").forEach((line: string, i: number) => {
+      const code = stripComments(line, ".ts", st);
+      if (!code) return;
+
+      // 1. A credential-named env var read on a line that LOGS.
+      const read = L11_ENV_READ.exec(code);
+      const readName: string = read ? (read[1] ?? read[2] ?? read[3] ?? "") : "";
+      if (read && L11_CREDENTIAL_NAME.test(readName) && L11_LOG_CALL.test(code)) {
+        findings.push({
+          rule: "L11",
+          file,
+          line: i + 1,
+          msg: `credential-named environment variable "${readName}" is logged — Rule 9: a secret must never reach a log line. Log a redaction marker instead`,
+          text: line.trim(),
+        });
+        return;
+      }
+
+      // 2. Bind a credential-named env var to a variable (taint source).
+      if (read && L11_CREDENTIAL_NAME.test(readName)) {
+        const bound = /(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=/.exec(code);
+        if (bound) tainted.add(bound[1]!);
+      }
+
+      // 3. A tainted variable used inside a log call (taint sink).
+      if (L11_LOG_CALL.test(code)) {
+        const codeNoStrings = stripStringContents(code);
+        for (const v of tainted) {
+          const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const used = new RegExp(`\\b${escaped}\\b`).test(codeNoStrings);
+          if (!used) continue;
+          findings.push({
+            rule: "L11",
+            file,
+            line: i + 1,
+            msg: `"${v}" holds a credential and is passed to a log call — Rule 9: a secret must never reach a log line. Log a redaction marker instead`,
+            text: line.trim(),
+          });
+          break;
+        }
+      }
+    });
+  }
+}
+
+// L12 — 23_Security_Harness_Plan.md §5.2 (secrets are never handed to uncontrolled
+// code) + AGENTS.md §2 Rule 9.
+//
+// A `run:` body is SHELL. GitHub substitutes `${{ }}` BEFORE the shell parses
+// the text, so any interpolation inside a `run:` body is a command-injection
+// sink — and a SECRET interpolated there is also in the rendered script and in
+// the process table.
+//
+// Measured on this repository before the fix (2026-10-21): 24 sinks across 5
+// workflows, including the Tauri signing PRIVATE KEY, the Apple notarization
+// password, the Discord webhook URL and the Vercel/Twitter bearer tokens.
+//
+// The fix is mechanical: every such value arrives as an ENVIRONMENT VARIABLE,
+// which is data the shell never re-parses.
+
+function lintNoRunInterpolation(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!file.startsWith(L12_WORKFLOW_DIR)) continue;
+    if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
+    let text: string;
+    try {
+      text = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    const report = (line: number, body: string): void => {
+      findings.push({
+        rule: "L12",
+        file,
+        line,
+        msg:
+          "GitHub expression inside a run: body — 23_Security_Harness_Plan.md §5.2: a run: body is shell, and GitHub substitutes expressions before the shell parses it. Pass the value as an environment variable instead",
+        text: body,
+      });
+    };
+    let inRun = false;
+    let runIndent = 0;
+    text.split("\n").forEach((line: string, i: number) => {
+      if (line.trim().startsWith("#")) {
+        inRun = false;
+        return;
+      }
+      const runMatch = /^(\s*)run:\s*(.*)$/.exec(line);
+      if (runMatch) {
+        const indent = (runMatch[1] ?? "").length;
+        const rest = (runMatch[2] ?? "").trim();
+        const block = rest === "" || rest === "|" || rest === ">" || rest === "|-" || rest === ">-" || rest === "|+" || rest === ">+";
+        if (block) {
+          inRun = true;
+          runIndent = indent;
+        } else {
+          inRun = false;
+          if (rest.includes(L12_EXPR)) report(i + 1, line.trim());
+        }
+        return;
+      }
+      if (!inRun) return;
+      if (line.trim() === "") return;
+      const indent = line.length - line.trimStart().length;
+      if (indent <= runIndent) {
+        inRun = false;
+        return;
+      }
+      if (line.includes(L12_EXPR)) report(i + 1, line.trim());
     });
   }
 }

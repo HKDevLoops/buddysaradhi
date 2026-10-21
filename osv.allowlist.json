@@ -1,0 +1,38 @@
+{
+  "policy": {
+    "blocking": [
+      "A PRODUCTION-REACHABLE advisory at HIGH or CRITICAL blocks the merge. Production-reachable means: reachable from the `dependencies` of a SHIPPED workspace (the root, apps/web, apps/product-page, packages/core, packages/shared, packages/design-system, packages/security) or from the Deno gateway's npm imports, following the lockfile's own `dependencies` and `optionalDependencies` edges.",
+      "A DEV-ONLY advisory at CRITICAL blocks the merge. Dev-only means: reachable only from a `devDependencies` entry, or from a workspace that is not deployed (apps/mobile and apps/desktop are v1.x LOCKED per 16_Platform_Delivery_Sequence.md; apps/services/* is the superseded microservice split that nothing deploys and nothing imports).",
+      "A DEV-ONLY advisory at HIGH or below is REPORTED and does not block. A gate that can never be green is a gate nobody reads (AGENTS.md §2 Rule 9)."
+    ],
+    "reached_from": "The reachability graph is computed from bun.lock (the npm workspaces) plus the Deno gateway's npm imports. peerDependencies are NOT followed: a peer is a contract, not a shipped edge, and following them made packages that the product never loads look production-reachable.",
+    "authority": "23_Security_Harness_Plan.md §5.1 (the CI gate order) and §12.1 G-SEC-1 ('No P0/S1 vulnerability open' — `pr-security / osv-scanner` clean, block deploy).",
+    "review": "Every entry below carries a reason and an expiry date. An EXPIRED entry is a hard failure of the gate itself (scripts/osv-audit.ts exits 1 before it scans), because an allowlist that silently rots is not an allowlist."
+  },
+  "entries": [
+    {
+      "id": "GHSA-gc25-3vc5-2jf9",
+      "package": "sandbox",
+      "version": "3.4.0",
+      "reason": "Sandbox Breakout / Arbitrary Code Execution in sandbox. Transitive dependency of the `vercel` CLI (root devDependency) — it is not loaded by any shipped application code. No fixed version is published for the 3.x line (npm latest is 4.9.0, a major bump the Vercel CLI does not accept), so there is no upgrade that removes the finding without breaking the consumer.",
+      "expires": "2026-11-30",
+      "reviewedBy": "supply-chain-audit-2026-10-21"
+    },
+    {
+      "id": "GHSA-5gmw-xhrv-c9v3",
+      "package": "tinypool",
+      "version": "1.1.1",
+      "reason": "Prototype Pollution gadget in worker options leads to Remote Code Execution. Transitive dependency of vitest 3.2.7 (the @buddysaradhi/design-system test runner), a test-only worker pool. The fix is in the 2.x line, which vitest 3 does not accept; the repository's other vitest is already on 4.1.12 and will pick the fix up when design-system moves to vitest 4.",
+      "expires": "2026-11-30",
+      "reviewedBy": "supply-chain-audit-2026-10-21"
+    },
+    {
+      "id": "GHSA-85c8-ppgw-ccpr",
+      "package": "tinypool",
+      "version": "1.1.1",
+      "reason": "Prototype Pollution Gadget to RCE in run() options. Same transitive path as GHSA-5gmw-xhrv-c9v3 above (vitest 3.2.7's worker pool, test-only, fix is 2.x).",
+      "expires": "2026-11-30",
+      "reviewedBy": "supply-chain-audit-2026-10-21"
+    }
+  ]
+}

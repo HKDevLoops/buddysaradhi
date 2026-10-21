@@ -39,6 +39,19 @@ rules:
     languages: [javascript, typescript]
     severity: ERROR
 
+  # 2026-10-21 (supply-chain audit, SC-05): the OLD rule matched ONLY
+  # `console.log(process.env.$VAR)`. Two defects, both measured:
+  #   1. It did not cover DENO. The canonical backend is @apps/gateway, which
+  #      runs on Deno and reads `Deno.env.get(...)`. A
+  #      `console.log(Deno.env.get("GATEWAY_SHARED_SECRET"))` in the gateway
+  #      was invisible to this rule — the rule covered the one runtime the
+  #      product does not use for its backend.
+  #   2. It did not cover `console.info` / `console.debug`.
+  # The Deno forms and the remaining console methods are added below. The
+  # INDIRECT form (`const k = process.env.SECRET; console.log(k)`) needs
+  # semgrep's taint mode, which this ruleset does not use; that gap is closed
+  # by the repo's own `scripts/principle-lints.ts` L11, which is testable
+  # in-repo and runs in every lint job.
   - id: no-console-log-env
     pattern-either:
       - pattern: |
@@ -47,18 +60,58 @@ rules:
           console.warn(process.env.$VAR)
       - pattern: |
           console.error(process.env.$VAR)
-    message: "Do not print process.env variables to logs. This can leak sensitive API keys or credentials in production."
+      - pattern: |
+          console.info(process.env.$VAR)
+      - pattern: |
+          console.debug(process.env.$VAR)
+      - pattern: |
+          console.log(Deno.env.get($KEY))
+      - pattern: |
+          console.warn(Deno.env.get($KEY))
+      - pattern: |
+          console.error(Deno.env.get($KEY))
+      - pattern: |
+          console.info(Deno.env.get($KEY))
+      - pattern: |
+          console.debug(Deno.env.get($KEY))
+    message: "Do not print process.env / Deno.env variables to logs. This can leak sensitive API keys or credentials in production."
     languages: [javascript, typescript]
     severity: WARNING
 
+  # 2026-10-21 (SC-05): the OLD `no-supabase-token-in-localStorage` rule was
+  # DEAD. It used `patterns:` (an AND), so a finding required the matched code
+  # region to contain BOTH a `localStorage.setItem(...)` call AND the literal
+  # regex `sb-[a-zA-Z0-9_-]+-auth-token`. A real Supabase token stored in
+  # localStorage is `localStorage.setItem(key, session.access_token)` — the
+  # token is a VARIABLE, not a literal inside the matched region, so the regex
+  # never matched and the rule never fired. Proof: the repository contains 12
+  # real `localStorage.setItem` call sites (apps/web/src/lib/palette-provider.tsx,
+  # apps/web/src/components/settings/appearance-section.tsx,
+  # apps/web/src/lib/offline-queue.ts, apps/desktop/src/theme/appearance.tsx)
+  # and the rule reported zero.
+  #
+  # The rule below is the SAME INTENT, expressed so that it can actually fire:
+  # a `localStorage.setItem` / `sessionStorage.setItem` whose KEY or VALUE
+  # mentions a Supabase credential. The alternatives are OR'd, so each one is
+  # independently sufficient — a credential in the key OR a credential in the
+  # value is a finding.
   - id: no-supabase-token-in-localStorage
-    patterns:
+    pattern-either:
+      # the storage slot is named like a Supabase credential slot
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  localStorage.setItem($KEY, ...)
+              - pattern: |
+                  sessionStorage.setItem($KEY, ...)
+          - pattern-regex: '(?i)(supabase|auth[-_]?token|access[-_]?token|refresh[-_]?token|session[-_]?token|sb-[a-zA-Z0-9_-]+-auth-token)'
+      # ...or the VALUE being stored is a Supabase credential
       - pattern-either:
           - pattern: |
-              localStorage.setItem($KEY, ...)
+              localStorage.setItem(..., $VALUE)
           - pattern: |
-              sessionStorage.setItem($KEY, ...)
-      - pattern-regex: "sb-[a-zA-Z0-9_-]+-auth-token"
+              sessionStorage.setItem(..., $VALUE)
+      - pattern-regex: '(?i)(access[-_]?token|refresh[-_]?token|auth[-_]?token|sb-[a-zA-Z0-9_-]+-auth-token)'
     message: "Do not store Supabase tokens in localStorage or sessionStorage. Use secure, httpOnly, SameSite cookies instead."
     languages: [javascript, typescript]
     severity: ERROR

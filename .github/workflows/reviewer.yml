@@ -31,6 +31,14 @@ concurrency:
   group: reviewer-${{ github.ref }}
   cancel-in-progress: true
 
+# Repository default: read-only. The job below widens it to exactly what the
+# reviewer needs (post review comments). Declaring it here means a future job
+# added to this workflow inherits read-only by default rather than whatever
+# the organisation's default token permissions happen to be
+# (23_Security_Harness_Plan.md §5.2).
+permissions:
+  contents: read
+
 jobs:
   review:
     name: Reviewer Agent (AI PR Review)

@@ -78,20 +78,24 @@ the defect with no server running; see §6.1.
 
 ## 2. Findings table
 
+Rows are ordered by severity. The **IDs are stable identifiers, not ranks** —
+F-4/F-5 sit in the gateway and were reported, not fixed (out of this
+subagent's scope).
+
 | ID | SEV | file:line | What | Proof (command → output) | Fix | Status |
 |----|-----|-----------|------|--------------------------|-----|--------|
 | **F-1** | **P0** | `apps/web/src/proxy.ts:357-371` (+ `src/app/(auth)/*/page.tsx`) | The edge serves a **per-request CSP nonce** with `strict-dynamic`; the five auth pages are `force-static` (prerendered) so their `<script>` tags carry **no nonce** → the browser refuses **every** same-origin script → **production sign-in is dead** | `node scripts/_audit_pw_live_signin.mjs` → `hydrated? reactRootKeys = 0`, `scripts w/ real nonce: 0`, `requestfailed (csp): 17`, `after submit url: https://buddysaradhi.vercel.app/login?`, `cookies: buddysaradhi_ab_*` only (no auth cookie) | Removed `export const dynamic = "force-static"` from the 5 auth pages so the root layout's `headers()` call renders them per request and the document carries the policy's nonce | **FIXED** (+ regression test, negative control) |
 | **F-2** | **P1** | `apps/web/src/proxy.ts:102-111` (pre-fix) | The `/api/v1/*` token bucket was keyed on the **first entry of `x-forwarded-for`** — client-chosen on any deployment that does not overwrite it. Unlimited buckets ⇒ the limiter is a no-op | `bash rl3.sh` → three requests with distinct `x-forwarded-for` each answered `ratelimit-remaining: 59` (a fresh bucket), while the no-header bucket fell `29, 28, 27` | New `src/lib/client-ip.ts`: prefer a **platform-overwritten** header (`x-vercel-forwarded-for` on Vercel, `cf-connecting-ip` on Cloudflare), shape-check the value, fall back to the shared bucket; **plus** a per-instance ceiling that no header forgery can pass | **FIXED** (+ regression test, negative control) |
-| **F-3** | **P2** | `apps/web/src/proxy.ts:326-328` (pre-fix) | `isHtmlPage` excluded any path containing a dot, so `/nope.json` (an **HTML** 404) was served under the static safety-net policy `script-src 'self' 'unsafe-inline'` while `/nope` got the strict nonce policy | `bash csp_map.sh` → `/nope.json  → 404 ct=text/html … csp: script-src 'self' 'unsafe-inline'` vs `/nope → 404 … csp: script-src 'self' 'nonce-3Hem8e…' 'strict-dynamic'` | `isHtmlPage` is now "not `/api/*`, not `/_next/*`" — the strict policy applies to every document | **FIXED** (+ regression test, negative control) |
 | **F-4** | **P1** | `apps/gateway/index.ts` (read-only) | The gateway accepts a **GET with no `X-Signature` at all**. A forged signature is rejected, an *absent* one is not | `python3 gw_auth.py` → `[200] unsigned + all of A's creds` returns A's roster; `[401] unsigned POST → "signature, timestamp, and nonce required for mutations"` | **NOT FIXED — out of scope (`apps/gateway/**`).** Reported to the gateway owner. Reads still require a valid bearer whose uid matches `X-Tutor-Id`, so this is defence-in-depth, not an open door. | OPEN (gateway) |
 | **F-5** | **P1** | `apps/gateway/lib/sql.ts` / `apps/gateway/index.ts` (read-only) | The gateway is a **public** Supabase Edge Function and it dials the `X-Db-Url` the caller supplies — a **blind SSRF** from inside Supabase's network. A bogus token returns **200 + an empty roster** instead of an error (silent failure, Rule 9) | `python3 gw_ssrf_timing.py` → `libsql://nonexistent-host` took **9.58 s** (a real DNS attempt) while the others failed fast; `[200] real db + WRONG token → {"students":[],"total":0}` | **NOT FIXED — out of scope.** Recommended: whitelist the db host, and make a credential failure a typed 401/503 instead of an empty list. | OPEN (gateway) |
+| **F-3** | **P2** | `apps/web/src/proxy.ts:326-328` (pre-fix) | `isHtmlPage` excluded any path containing a dot, so `/nope.json` (an **HTML** 404) was served under the static safety-net policy `script-src 'self' 'unsafe-inline'` while `/nope` got the strict nonce policy | `bash csp_map.sh` → `/nope.json  → 404 ct=text/html … csp: script-src 'self' 'unsafe-inline'` vs `/nope → 404 … csp: script-src 'self' 'nonce-3Hem8e…' 'strict-dynamic'` | `isHtmlPage` is now "not `/api/*`, not `/_next/*`" — the strict policy applies to every document | **FIXED** (+ regression test, negative control) |
 | **F-6** | **P2** | `apps/web/src/app/api/v1/[...slug]/route.ts:154-240` | The BFF **forwards every client query parameter to the gateway unvalidated** — no Zod at the boundary, contrary to AGENTS §6.1. The gateway validates today, so this is a defence-in-depth gap, not a live injection | `grep` shows no `zod` import in the route; `bash inject_battery.sh` §4 — 5 params × 5 payloads, **no SQL error surfaced**; §5 — `limit='; DROP TABLE students;--` → `{"success":false,"error":"forbidden"}` and the table was intact | **NOT FIXED** (deliberate: the BFF is a thin pass-through and a per-route Zod allowlist is a larger change than this engagement can verify end-to-end). Recommend a Zod allowlist per gateway path. | OPEN (web, recommended) |
 | **F-7** | **P2** | `apps/web/src/app/(app)/dashboard/page.tsx` + `src/server/queries/dashboard-analytics.ts` | The dashboard is a **blocking waterfall**: ~6 gateway legs (the analytics leg alone fans out ~20 sub-legs) at 0.6–0.8 s each ⇒ a **4.9 s** render | `bash perf.sh` → `/dashboard 4.89 s`; the six legs sum to **6.41 s**; `perf3.sh` → `/api/v1/analytics/dashboard 2.83 s`, the other five 0.61–0.80 s | **NOT FIXED** — a perf change, not a security fix, and it needs a correctness review of the prefetch/dehydration contract. Measured and reported. | OPEN (perf) |
+| **F-12** | **P2** | `apps/web/src/app/csp-hydration.test.ts` | The regression test for F-1 **skips when no app is reachable** (`ctx.skip("no app at …")`), so the gate that would have caught the production break **can never fail in CI** — which is why F-1 shipped | the test's own comment already records the live measurement ("30 CSP violations on `/login` … NEVER HYDRATED") and the test still skipped | Two server-less invariant tests added (`auth-pages-csp.test.ts`, `proxy.csp.test.ts`) that fail on the defect with no server at all; the browser test stays as the end-to-end proof | **FIXED** (new tests) / CI wiring still open |
 | **F-8** | **P3** | `apps/web/src/lib/supabase/middleware.ts:108-120` | The `buddysaradhi_session` cookie is set with `httpOnly` + `path` but **no `Secure` and no `SameSite`** | `node _audit_pw_login.mjs` → `buddysaradhi_session secure=false httpOnly=true sameSite=Lax` (dev); the same code path is used in production, where `secure` is not set for this cookie (the A/B cookies in `src/proxy.ts:388-394` DO set it) | **NOT FIXED** — `SameSite=Lax` is the CSRF control for the session cookie and the Supabase cookie is `Lax` too; changing only this one is cosmetic while changing the Supabase cookie to `HttpOnly` would break the browser client that signs in. Reported with the reasoning. | OPEN (recommended) |
 | **F-9** | **P3** | `apps/web/src/lib/supabase/client.ts` | The Supabase **session cookie is `httpOnly=false`** (that is `@supabase/ssr`'s `DEFAULT_COOKIE_OPTIONS`), so any XSS is immediately a session theft | `node _audit_pw_login.mjs` → `sb-gmqwdnvbfnwpzpctwvho-auth-token.0 secure=false httpOnly=false sameSite=Lax` | **NOT FIXED** — inherent to the browser-client sign-in flow. The compensating control is the nonce CSP (which F-1 had broken); now that the CSP works again, the cookie is only readable by same-origin script. | OPEN (architectural) |
 | **F-10** | **P3** | repo root `.env.local`, `apps/web/.env.local` | Live secrets are present in the working tree (`SUPABASE_SERVICE_ROLE_KEY`, `TURSO_API_TOKEN`, `TURSO_AUTH_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GATEWAY_SHARED_SECRET`, `VERCEL_OIDC_TOKEN`) | `bash secret_value_scan.sh` → only `NEXT_PUBLIC_SUPABASE_ANON_KEY` appears in any client bundle; the secrets themselves appear in **no** bundle | **NOT FIXED — out of scope** (not a web-app file; the owner must rotate + remove them from the tree). Recorded because a service-role key in a repo is a P0 the moment the repo is shared. | OPEN (owner) |
 | **F-11** | **P3** | `apps/web/src/proxy.ts` / `next.config.ts` | The **static** safety-net CSP still carries `script-src 'self' 'unsafe-inline'`; it now only applies to non-document responses, but it is the policy a future refactor could accidentally hand to a document | `next.config.ts:14` | Kept deliberately (it is the net for API/static responses) but the middleware now covers every document. Recorded so the next change does not widen it. | ACCEPTED (documented) |
-| **F-12** | **P2** | `apps/web/src/app/csp-hydration.test.ts` | The regression test for F-1 **skips when no app is reachable** (`ctx.skip("no app at …")`), so the gate that would have caught the production break **can never fail in CI** — which is why F-1 shipped | the test's own comment already records the live measurement ("30 CSP violations on `/login` … NEVER HYDRATED") and the test still skipped | Two server-less invariant tests added (`auth-pages-csp.test.ts`, `proxy.csp.test.ts`) that fail on the defect with no server at all; the browser test stays as the end-to-end proof | **FIXED** (new tests) / CI wiring still open |
 
 ---
 
@@ -683,8 +687,17 @@ hydrated: {"next":"object","flight":"object","reactManaged":true,"bodyChildren":
 script tags: 19
 submit button present: 1
 after submit url: http://127.0.0.1:3200/dashboard      <-- was /login?  (nothing happened)
-cookies: …, sb-gmqwdnvbfnwpzpctwvho-auth-token.0, sb-…-auth-token.1, buddysaradhi_session
+cookies: buddysaradhi_ab_hero, …, sb-gmqwdnvbfnwpzpctwvho-auth-token.0,
+         sb-gmqwdnvbfnwpzpctwvho-auth-token.1, buddysaradhi_session
 body: Skip to main content T My Tuition Dashboard g 1 Students g 2 Attendance g 3 Fees & Payments g 4 Settings g 5 Sync …
+```
+
+The auth round trip in the same run:
+
+```
+RESP 200 https://gmqwdnvbfnwpzpctwvho.supabase.co/auth/v1/token?grant_type=password
+   token response keys: access_token,token_type,expires_in,expires_at,refresh_token,user,weak_password
+RESP 200 http://127.0.0.1:3200/dashboard
 ```
 
 The build manifest agrees — the auth pages are no longer prerendered:
@@ -696,6 +709,18 @@ $ jq '.routes | keys' .next/prerender-manifest.json
 
 (Before the fix `/login`, `/signup`, `/forgot-password`, `/reset-password` and
 `/signup/provision` were in that list.)
+
+The repository's own real-browser proof, run against the same build:
+
+```
+$ CSP_PROBE_BASE_URL=http://127.0.0.1:3200 bunx vitest run src/app/csp-hydration.test.ts
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+```
+
+It asserts every server script tag carries the enforced nonce, that the browser
+reports **no** CSP violation, and that `window.next`, `window.__next_f` and
+React's `__reactFiber$` marker are all present. It fails on the pre-fix build.
 
 ### 6.1 A governance finding that matters more than the fix
 
@@ -753,15 +778,24 @@ rendered 404 page carried matching nonces and worked. The real mechanism is
 no nonce can be stamped on it. That distinction is the difference between the
 two fixes above.
 
-### 6.2 Concurrent change during the engagement
+### 6.2 Concurrent changes during the engagement
 
 While this assessment was running, **another session in the same working tree
-ran `bun install --force --frozen-lockfile`**, which upgraded
-`apps/web/package.json` (`next 16.2.12 → 16.3.8`, `vitest ^4.1.10 → ^4.1.12`)
-and briefly deleted the `@rolldown/binding-win32-x64-msvc` native binary
-(vitest could not start until it was restored). The verification in §6 was
-run against **Next 16.3.8**. That package.json change is **not** mine and is
-not part of this engagement's diff.
+made changes that are not mine**:
+
+* `bun install --force --frozen-lockfile` upgraded
+  `apps/web/package.json` (`next 16.2.12 → 16.3.8`,
+  `vitest ^4.1.10 → ^4.1.12`) and briefly deleted the
+  `@rolldown/binding-win32-x64-msvc` native binary, so vitest could not start
+  a worker until it was restored from the npm tarball of the exact pinned
+  version (`1.2.14`).
+* `apps/web/src/server/get-db.ts` was edited (comment trimming).
+* The Kali WSL distro's user database stopped resolving
+  (`getpwuid(1000) failed`) part-way through, so the last probes were run from
+  Windows instead of Kali.
+
+The verification in §6 was run against **Next 16.3.8**. None of those changes
+is part of this engagement's diff, and none of them is in §7.
 
 ---
 
@@ -783,6 +817,11 @@ apps/web/src/proxy.ts                                        (F-2, F-3)
 apps/web/src/proxy.csp.test.ts                               (F-3, NEW)
 docs/audit/DYNAMIC-WEB.md                                    (this report)
 ```
+
+Not mine, but in the same tree during the engagement (see §6.2):
+`apps/web/package.json` (a concurrent `bun install` upgrade) and
+`apps/web/src/server/get-db.ts` (a concurrent comment edit). Both are
+**excluded** from the diff above.
 
 No dependency was added, no network origin was added, no telemetry was added,
 no screen was added, no money handling was touched, no raw SQL was introduced,

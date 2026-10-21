@@ -12,6 +12,9 @@ on:
       - 'apps/gateway/**'
       - '.github/workflows/supabase-ci.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: supabase-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -76,9 +79,12 @@ jobs:
           mkdir -p .temp-deploy/supabase/functions/gateway
           cp -r apps/gateway/* .temp-deploy/supabase/functions/gateway/
           cd .temp-deploy
-          supabase functions deploy gateway --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy gateway --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
         env:
+          # 2026-10-21 (SC-06): the project ref was a bare shell word carrying a
+          # secret; it is now an environment variable, quoted.
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
 
       - name: Deploy Provision DB
         if: steps.check-secrets.outputs.has_token == 'true'
@@ -86,9 +92,10 @@ jobs:
           mkdir -p .temp-deploy/supabase/functions/provision-db
           cp -r apps/gateway/provision/* .temp-deploy/supabase/functions/provision-db/
           cd .temp-deploy
-          supabase functions deploy provision-db --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --no-verify-jwt
+          supabase functions deploy provision-db --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
 
       # The standalone `gateway-graphql` function was REMOVED (F-12a), not
       # redeployed: it served the same queries as the main gateway's

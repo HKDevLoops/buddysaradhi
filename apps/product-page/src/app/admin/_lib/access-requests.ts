@@ -25,6 +25,7 @@
 // reply needs, nothing that identifies the network).
 
 import { randomUUID } from "node:crypto";
+import { adminLogWarn } from "./log.ts";
 import {
   validateAccessRequest,
   type AccessRequestErrors,
@@ -322,12 +323,23 @@ export class AccessRequestStoreError extends Error {
  * Reads the Supabase sink configuration. Returns null when the deployment has
  * no Supabase env at all (memory serves). Throws `ACCESS_REQUEST_UNCONFIGURED`
  * when the env is half-set or malformed: fail closed, never silently memory.
+ *
+ * TWO SPELLINGS, ON PURPOSE. The deployment sets
+ * `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`. Reading only
+ * `SUPABASE_URL` left the URL missing and the key present, so the
+ * half-configured branch fired and EVERY request to `/api/access-request`
+ * answered 503 in production while the marketing copy still promised a
+ * recorded request. `SUPABASE_URL` stays first so an explicit server-side
+ * value still wins.
  */
 export function readAccessRequestSinkConfig(): AccessRequestSinkConfig | null {
-  const rawUrl = (process.env.SUPABASE_URL ?? "").trim();
+  const rawUrl = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   const rawKey = (process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
   if (rawUrl.length === 0 && rawKey.length === 0) return null;
   if (rawUrl.length === 0 || rawKey.length === 0) {
+    // The NAME of the missing variable is safe to log; the value never is.
+    const missing = rawUrl.length === 0 ? "SUPABASE_URL" : "SUPABASE_SERVICE_ROLE_KEY";
+    adminLogWarn("admin.access_request.store_half_configured", { missing });
     throw new AccessRequestStoreError(
       "ACCESS_REQUEST_UNCONFIGURED",
       503,

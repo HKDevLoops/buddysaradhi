@@ -20,10 +20,12 @@ import {
   useWideDesktop,
 } from "@/components/product-3d/hooks";
 import {
+  TOUR_RUNWAY_VH,
   beatIdToIndex,
   beatIndexToId,
   resolveBeatIndex,
 } from "@/components/product-3d/scene-tiers";
+import { resolveStageMode, storyHeightCss } from "@/lib/stage-mode";
 import type { ProgressProxy } from "@/components/product-3d/Journey";
 import { TOUR_IDS, TOUR_STOPS } from "./tour-copy";
 
@@ -107,6 +109,12 @@ export function TourExperience() {
   // Same contract as the hero: no canvas without WebGL, with Save-Data, or
   // before the palette resolves (invented colours are forbidden).
   const showPoster = webgl === false || saveData || tokens === null;
+
+  // The stage HEIGHT, the same rule the hero uses (src/lib/stage-mode.ts):
+  // one viewport on the poster path, the scroll runway on the canvas path.
+  const stageMode = resolveStageMode(!showPoster, false);
+  const storyStyle = { height: storyHeightCss(stageMode, TOUR_RUNWAY_VH) };
+
 
   const stopTop = (index: number): number => {
     const section = sectionRef.current;
@@ -230,8 +238,8 @@ export function TourExperience() {
     <section
       ref={sectionRef}
       aria-label="Guided tour"
-      className="relative"
-      style={{ height: "600vh" }}
+      className="story-stage relative"
+      style={storyStyle}
     >
       <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden">
         {showPoster || !tokens ? (
@@ -263,11 +271,18 @@ export function TourExperience() {
         {/* DOM overlay: the accessible surface (canvas is aria-hidden).
             P1 fix (mirrors ProductHero): the bottom reserve (`pb-44` /
             `md:pb-40`) holds room for the pins + prev/next + skip-link
-            cluster below, so the centred panel can never slide under it at
+            cluster below, so the centred panel can never overlap it at
             1280x720. The panel scrolls internally on very short viewports
-            instead of overlapping (`max-h-full overflow-y-auto`). */}
-        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-12 md:pb-40">
-          <div className="mat mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
+            instead of overlapping (`max-h-full overflow-y-auto`).
+
+            P0 fix (audit DYNAMIC-PRODUCTPAGE.md, DESIGN-03): the top reserve
+            was `md:pt-12` (48px) while the sticky header is 64px tall, so the
+            panel could start UNDER the header - whose surface is only 30%
+            opaque - and the headline's first line was measured at 2.38:1
+            against the live scene. The reserve is now the header's real height
+            plus breathing room. */}
+        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-[5.5rem] md:pb-40">
+          <div className="mat mat-copy mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
             <p className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
               {current.kicker}
             </p>

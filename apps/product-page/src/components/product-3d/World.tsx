@@ -53,6 +53,18 @@ export function World({ tokens, lowEnd = false }: WorldProps) {
         <meshStandardMaterial color={tokens.sunken} roughness={0.9} metalness={0} />
       </mesh>
 
+      {/*
+        The BACKLIGHT. A glass card shows what is behind it, and what was
+        behind it was black floor fading into black fog - so the product the
+        page is about was invisible. This lit scrim gives the glass something
+        with structure to refract. It is unlit on purpose: a basic material
+        ignores the lights, so the composition is the same at every beat.
+      */}
+      <mesh position={[0, 1.1, -6.5]}>
+        <planeGeometry args={[16, 9]} />
+        <meshBasicMaterial color={tokens.accent} transparent opacity={0.12} depthWrite={false} />
+      </mesh>
+
       {/* Desk clusters. Tuition hallway chaos (beats 1-3). */}
       {desks.map((d, i) => (
         <mesh key={i} position={[d.x, -1.1, d.z]} rotation={[0, d.r, 0]}>

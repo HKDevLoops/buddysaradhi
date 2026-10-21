@@ -27,7 +27,8 @@ import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "./Poster";
 import { useLowEnd, useReducedMotion, useSceneTokens, useWebGLAvailable, useWideDesktop } from "./hooks";
-import { resolveBeatIndex } from "./scene-tiers";
+import { HERO_RUNWAY_VH, resolveBeatIndex } from "./scene-tiers";
+import { resolveStageMode, storyHeightCss } from "@/lib/stage-mode";
 import {
   APP_SIGNUP_URL,
   CONTRACTED_PLAN_CTA,
@@ -163,6 +164,23 @@ export function ProductHero() {
   // resolved. Until then the Poster holds the frame.
   const showPoster = webgl === false || saveData || tokens === null;
 
+  // The stage HEIGHT. One viewport on the poster path (the fix for the
+  // "500vh of frozen content" defect: a budget phone was given five screens
+  // of a static image with the same copy pinned in place), the scroll runway
+  // on the canvas path. Both numbers come from the ONE pure rule in
+  // `src/lib/stage-mode.ts`, so the hero and the tour cannot drift.
+  //
+  // The server renders the poster height, so a visitor with no JavaScript
+  // gets one viewport and the still. When the device proves it can draw, the
+  // section grows to its runway in the same commit that creates the
+  // ScrollTrigger (a LAYOUT effect, so the trigger measures the height it
+  // will scrub), and nothing visible moves: the stage is `sticky top-0
+  // h-[100dvh]` either way, and the content below the hero was never on
+  // screen - the hero fills the viewport, so the next section starts exactly
+  // at the fold.
+  const stageMode = resolveStageMode(!showPoster, false);
+  const storyStyle = { height: storyHeightCss(stageMode, HERO_RUNWAY_VH) };
+
   // Scrub proxy: section scroll → 0..1. Killed on unmount (FM-15).
   useLayoutEffect(() => {
     if (showPoster) return;
@@ -234,8 +252,8 @@ export function ProductHero() {
     <section
       ref={sectionRef}
       aria-label="Product story"
-      className="relative"
-      style={{ height: "500vh" }}
+      className="story-stage relative"
+      style={storyStyle}
     >
       <div ref={stageRef} className="sticky top-0 h-[100dvh] w-full overflow-hidden">
         {showPoster || !tokens ? (
@@ -269,9 +287,15 @@ export function ProductHero() {
             P1 fix: the bottom reserve (`pb-44` / `md:pb-40`) holds room for the
             pins + skip-link cluster below, so the centred panel can never slide
             under it at 1280x720. The panel scrolls internally on very short
-            viewports instead of overlapping (`max-h-full overflow-y-auto`). */}
-        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-12 md:pb-40">
-          <div className="mat mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
+            viewports instead of overlapping (`max-h-full overflow-y-auto`).
+
+            P0 fix: the top reserve was `md:pt-12` (48px) while the sticky
+            header is 64px tall and only 30% opaque, so the first line of the
+            headline rendered UNDER the header - measured at 2.38:1 against the
+            live scene. The reserve is now the header's real height plus
+            breathing room, so the copy scrolls INSIDE the panel instead. */}
+        <div className="pointer-events-none absolute inset-0 flex min-h-0 flex-col justify-center px-6 pt-6 pb-44 md:px-12 md:pt-[5.5rem] md:pb-40">
+          <div className="mat mat-copy mat-fresnel pointer-events-auto max-h-full w-full max-w-xl overflow-y-auto rounded-panel p-6 md:p-8">
             <p className="text-sm font-medium" style={{ color: "var(--accent-primary)" }}>
               {current.kicker}
             </p>

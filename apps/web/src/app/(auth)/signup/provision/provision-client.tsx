@@ -22,9 +22,10 @@ import { log } from "@/lib/logger";
 
 type ProvisionStatus = "checking" | "creating" | "done" | "error" | "expired";
 
-// Redirect-back intent (?next=) without useSearchParams — this page is
-// force-static, and useSearchParams would require a Suspense boundary at
-// prerender. Guarded for SSR (window undefined at prerender → default).
+// Redirect-back intent (?next=) without useSearchParams — reading the query
+// string directly keeps this island out of the Suspense boundary that
+// useSearchParams would demand, and the value is still validated
+// same-origin before use. Guarded for SSR (window undefined server-side).
 function readIntentNext(): string {
   if (typeof window === "undefined") return "/dashboard";
   try {

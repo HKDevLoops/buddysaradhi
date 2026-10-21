@@ -1,6 +1,8 @@
 # .github/workflows/security.yml
 # Comprehensive Security Harness workflow for BuddySaradhi
 # Implements: 23_Security_Harness_Plan.md §4 — automation harness
+#           23_Security_Harness_Plan.md §5.1 — the CI gate order
+#           23_Security_Harness_Plan.md §12.1 — G-SEC-1..G-SEC-8 hard gate
 name: security-agent
 
 on:
@@ -8,6 +10,15 @@ on:
     branches: [main, release/*]
   push:
     branches: [main]
+
+# Least privilege (23_Security_Harness_Plan.md §5.2 — secrets are never handed
+# to uncontrolled code). The repository's DEFAULT token permissions depend on
+# the org's settings, which live OUTSIDE this file — so a workflow that does
+# not declare `permissions` inherits whatever the org happens to grant, and
+# that is not a decision this repository makes or can audit. Every job in
+# .github/workflows/ now declares its own, and this is the repository default.
+permissions:
+  contents: read
 
 concurrency:
   group: security-${{ github.ref }}
@@ -18,6 +29,8 @@ jobs:
     name: Secrets Scan (Gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -62,45 +75,54 @@ jobs:
       # A finding fails the job. That is the whole point of the change, and it
       # matches AGENTS.md §2 Rule 9 — a scan that reports and passes is worse than
       # no scan, because it reads as coverage that does not exist.
+      #
+      # 2026-10-21 (supply-chain audit, SC-01): this job is RED on main and
+      # that is the CORRECT state. The history contains four live credentials
+      # that were committed to PUBLIC branches (a Supabase `service_role` key in
+      # three workflow files, plus the gateway shared secret, the database URL
+      # and the admin token) and one Turso API token. A path allowlist in
+      # .gitleaks.toml was hiding the four workflow-file findings. The
+      # allowlist entry has been REMOVED and the findings are now reported.
+      # The gate turns green when the owner rotates the credentials — see
+      # .gitleaks.toml "SECURITY FINDING 2" and
+      # docs/audit/DYNAMIC-SUPPLYCHAIN.md.
 
   semgrep:
     name: SAST Scan (Semgrep)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       # Run only our project-specific custom rules to avoid network calls
       # to the Semgrep registry (which require an account for some rulesets).
+      #
+      # 2026-10-21 (supply-chain audit, SC-05): the image was
+      #   `returntocorp/semgrep semgrep`
+      # — a FLOATING tag on a DEPRECATED org (the images moved to
+      # `semgrep/semgrep`), so the SAST gate ran whatever the registry served
+      # at that moment. A gate whose analyser can be swapped by whoever controls
+      # the tag is not a gate. It is now pinned by DIGEST, and the org is the
+      # maintained one. Digest resolved from the Docker Hub registry API for
+      # semgrep/semgrep 1.160.0.
       - name: Run Semgrep with Custom Rules
+        env:
+          WORKSPACE_DIR: ${{ github.workspace }}
         run: |
-          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep \
-            --config=/src/semgrep.yml \
-            --error
+          docker run --rm -v "$WORKSPACE_DIR:/src" \
+            semgrep/semgrep@sha256:7810f1d7884974ab6dda7bef8f4a2c8e165ea2142fd8260515d380e4f1407263 \
+            semgrep --config=/src/semgrep.yml --error
 
   osv-scanner:
+    # JOB ID UNCHANGED on purpose: 23_Security_Harness_Plan.md §12.1 names the
+    # required status check `pr-security / osv-scanner`, and renaming the job
+    # would silently detach the branch-protection requirement from the gate.
     name: Dependency Vulnerability Audit (OSV-Scanner)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-      # Install OSV-Scanner CLI directly for reliable cross-platform use.
-      # The github action wrapper has had versioning issues; direct binary is stable.
-      - name: Install OSV-Scanner
-        run: |
-          curl -L https://github.com/google/osv-scanner/releases/download/v1.9.1/osv-scanner_linux_amd64 \
-            -o /usr/local/bin/osv-scanner
-          chmod +x /usr/local/bin/osv-scanner
-      - name: Run OSV-Scanner
-        # The package manager migrated pnpm -> bun, so the scanned lockfile is
-        # bun.lock. If this OSV-Scanner release cannot parse it, the step stays
-        # advisory (continue-on-error) rather than silently scanning nothing.
-        run: osv-scanner --lockfile=bun.lock .
-        continue-on-error: true
-
-  license-checker:
-    name: License Compliance Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: Setup Bun
@@ -109,29 +131,88 @@ jobs:
           bun-version: 1.4.3
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Run License Audit Script
-        run: bun run scripts/license-checker.ts
-        continue-on-error: true
+      # 2026-10-21 (supply-chain audit, SC-02): this step was
+      #   curl -L https://github.com/google/osv-scanner/releases/download/... -o
+      #     /usr/local/bin/osv-scanner
+      #   osv-scanner --lockfile=bun.lock .
+      #   continue-on-error: true
+      # with THREE independent defects:
+      #   1. the binary was fetched with NO checksum (the gitleaks step in the
+      #      SAME workflow verifies a SHA256 — this one did not);
+      #   2. `continue-on-error: true` made the gate advisory, contradicting
+      #      §5.1 ("a failure at any step blocks merge") and §12.1 (G-SEC-1);
+      #   3. it relied on the scanner being able to parse bun.lock, and the
+      #      step's own comment admits it might not ("If this OSV-Scanner
+      #      release cannot parse it, the step stays advisory rather than
+      #      silently scanning nothing") — a step that is allowed to scan
+      #      nothing and pass.
+      # The replacement queries the OSV.dev v1 API directly from the repo's own
+      # lockfiles: no third-party binary is downloaded into the runner at all,
+      # so there is no unpinned artefact left to verify, and the exit code is a
+      # real gate.
+      - name: Run OSV audit (hard gate)
+        run: bun scripts/osv-audit.ts --report osv-report.json
+      - name: Upload OSV report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: osv-report
+          path: osv-report.json
+          retention-days: 7
 
-  sbom:
-    name: Generate CycloneDX SBOM
+  license-checker:
+    name: License Compliance Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
         with:
           bun-version: 1.4.3
-      # --package-only was removed in cyclonedx-npm v6. Omit to use defaults.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      # 2026-10-21 (supply-chain audit, SC-04): this step was
+      # `continue-on-error: true` — advisory. It is RED on main and has been
+      # red for a while: `gsap` (apps/product-page) ships under Webflow's
+      # Standard "No Charge" licence, which is NOT on the allow-list. The
+      # advisory flag meant nobody saw it. The gate is now real; the one
+      # accepted exception lives in licenses.allowlist.json with an exact
+      # licence string, an exact package, a written reason and an expiry date
+      # (scripts/license-checker.ts fails the build when that expiry passes).
+      - name: Run License Audit Script
+        run: bun run scripts/license-checker.ts
+
+  sbom:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2
+        with:
+          bun-version: 1.4.3
+      # 2026-10-21 (supply-chain audit, SC-03): this job was
+      #   bun install -g @cyclonedx/cyclonedx-npm   <- UNPINNED, at run time
+      #   cyclonedx-npm --output-format JSON ... || echo "SBOM generation skipped"
+      #   continue-on-error: true
+      # `cyclonedx-npm` reads package-lock.json / npm-shrinkwrap.json. This
+      # repository uses bun and has no package-lock.json, so the tool had
+      # nothing to read, the `||` branch printed "skipped", and the job went
+      # green with an empty upload — G-SEC-5 satisfied by nothing.
+      # The replacement reads the lockfiles the repo actually ships and emits a
+      # valid CycloneDX 1.6 document. It exits non-zero if it cannot, so an
+      # empty SBOM can never be uploaded as if it were a real one.
       - name: Generate SBOM
         run: |
           mkdir -p sbom
-          bun install -g @cyclonedx/cyclonedx-npm 2>/dev/null || true
-          cyclonedx-npm --output-format JSON --output-file sbom/bom.web.json || \
-            bunx @cyclonedx/cyclonedx-npm@latest --output-format JSON --output-file sbom/bom.web.json || \
-            echo "SBOM generation skipped — tool unavailable"
-        continue-on-error: true
+          bun scripts/sbom-generator.ts --out sbom/bom.web.json --app web
+          bun scripts/sbom-generator.ts --out sbom/bom.gateway.json --app gateway
       - name: Upload SBOM Artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4

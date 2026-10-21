@@ -13,6 +13,7 @@ import { Canvas } from "@react-three/fiber";
 import { AdaptiveDpr } from "@react-three/drei";
 import * as THREE from "three";
 import { Journey, type ProgressProxy } from "./Journey";
+import { CoverCamera } from "./CoverCamera";
 import type { SceneTokens } from "./hooks";
 import { resolveDpr } from "./scene-tiers";
 
@@ -51,13 +52,22 @@ export function ProductScene({
       frameloop={inView ? "always" : "never"}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
-        gl.toneMappingExposure = 1.1;
+        // 1.1 -> 1.25. The scene is a dark palette lit by a light rig; at 1.1
+        // the mid-tones sat in the bottom of the curve and the desks read as
+        // black boxes. Measured on the rendered poster, not guessed.
+        gl.toneMappingExposure = 1.25;
         onReady?.();
       }}
     >
       <color attach="background" args={[tokens.canvas]} />
-      <fog attach="fog" args={[tokens.sunken, 8, 18]} />
+      {/* The fog was 8..18, which put the far half of the alley - and
+          everything the glass card refracts - inside the black. 16..46 keeps
+          the depth cue and lets the corridor read. */}
+      <fog attach="fog" args={[tokens.sunken, 16, 46]} />
       <AdaptiveDpr />
+      {/* Frames the live scene exactly the way the 16:9 poster frames it, so
+          the veil lift is not a zoom (20_3D §2.2). */}
+      <CoverCamera baseFov={55} />
       <Suspense fallback={null}>
         <Journey progressRef={progressRef} tokens={tokens} frozen={frozen} lowEnd={lowEnd} />
         {children}

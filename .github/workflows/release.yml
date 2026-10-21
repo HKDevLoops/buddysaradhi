@@ -14,6 +14,9 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Create GitHub Release
@@ -31,8 +34,25 @@ jobs:
           bun-version: 1.3.4
 
       - name: Verify version matches tag
+        env:
+          # 2026-10-21 (SC-07): `VERSION=${{ inputs.version }}` put a
+          # workflow_dispatch input DIRECTLY into the shell body. GitHub
+          # substitutes it before the shell parses the text, so a value like
+          # `1.4.0"; curl evil; #` executes in a runner that holds
+          # BLOB_READ_WRITE_TOKEN, TWITTER_BEARER_TOKEN and the GitHub token.
+          # workflow_dispatch requires write access, so this is not an
+          # unauthenticated vector — but a release input is exactly the kind of
+          # value that gets copy-pasted from a chat, and the fix is free.
+          # The value now arrives as an environment variable (data, not code)
+          # AND is validated against a strict semver shape before use.
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${{ inputs.version }}
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "FAIL: version '$VERSION' is not a plain semver version"
+            exit 1
+          fi
           TAG="v${VERSION}"
           if ! git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "FAIL: tag $TAG does not exist"
@@ -47,8 +67,11 @@ jobs:
 
       - name: Generate changelog
         id: changelog
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${{ inputs.version }}
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           PREV_TAG=$(git describe --tags --abbrev=0 "v${VERSION}^" 2>/dev/null || echo "")
           if [ -z "$PREV_TAG" ]; then
             RANGE="v${VERSION}"
@@ -78,28 +101,32 @@ jobs:
 
       - name: Promote desktop staging → stable
         if: ${{ inputs.promote_desktop }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
-          VERSION=${{ inputs.version }}
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           node scripts/promote-manifest.ts \
             --from manifests/desktop-staging.json \
             --to manifests/desktop-stable.json \
             --version "$VERSION"
-        env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Verify stable manifest
         if: ${{ inputs.promote_desktop }}
         run: node scripts/verify-manifest.ts --manifest manifests/desktop-stable.json
 
       - name: Upload changelog to Blob
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
-          VERSION=${{ inputs.version }}
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           node scripts/blob-upload.ts \
             --local-path CHANGELOG_ENTRY.md \
             --blob-pathname "changelogs/${VERSION}.md" \
             --content-type "text/markdown"
-        env:
-          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
@@ -114,20 +141,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tweet release announcement
+        env:
+          # 2026-10-21 (SC-07): the bearer token was interpolated into the
+          # shell body and the tweet text was assembled by string
+          # concatenation into a JSON literal. Both are now data, and the JSON
+          # is produced by an encoder rather than by hand.
+          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          VERSION=${{ inputs.version }}
-          TWEET="🚀 Buddysaradhi v${VERSION} is live! Web (https://buddysaradhi.app), Desktop (https://buddysaradhi.app/download), Mobile (TestFlight + Play Store). Changelog: https://buddysaradhi.app/api/changelog/${VERSION}"
-          # Tweet via Twitter API v2
-          curl -X POST \
-            -H "Authorization: Bearer ${{ secrets.TWITTER_BEARER_TOKEN }}" \
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
+          TWEET=$(printf '🚀 Buddysaradhi v%s is live! Web (https://buddysaradhi.app), Desktop (https://buddysaradhi.app/download), Mobile (TestFlight + Play Store). Changelog: https://buddysaradhi.app/api/changelog/%s' "$VERSION" "$VERSION")
+          PAYLOAD=$(printf '%s' "$TWEET" | python3 -c 'import json,sys; print(json.dumps({"text": sys.stdin.read()}))')
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${TWITTER_BEARER_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"text\": \"$TWEET\"}" \
+            -d "$PAYLOAD" \
             https://api.twitter.com/2/tweets
         continue-on-error: true  # tweet failures don't fail the release
 
       - name: Append worklog entry
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          VERSION=${{ inputs.version }}
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
           cat >> worklog.md << EOF
           ---
           Task ID: RELEASE-${VERSION}
@@ -140,7 +179,7 @@ jobs:
           - Mobile: EAS build shipped to TestFlight + Play Internal; OTA pushed to production channel.
           - Desktop: installers uploaded to Vercel Blob; manifest promoted staging → stable.
           - Changelog published at https://buddysaradhi.app/api/changelog/${VERSION}.
-          - GitHub Release created: https://github.com/\${{ github.repository }}/releases/tag/v${VERSION}.
+          - GitHub Release created: https://github.com/${REPOSITORY}/releases/tag/v${VERSION}.
 
           Stage Summary:
           - All three surfaces live at v${VERSION}.
@@ -149,7 +188,17 @@ jobs:
           EOF
 
       - name: Notify on completion
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-            -d "{\"content\": \"🚀 Buddysaradhi v${{ inputs.version }} released! Web + Mobile + Desktop all live.\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
+          fi
+          CONTENT=$(printf '🚀 Buddysaradhi v%s released! Web + Mobile + Desktop all live.' "$RELEASE_VERSION")
+          PAYLOAD=$(printf '%s' "$CONTENT" | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+

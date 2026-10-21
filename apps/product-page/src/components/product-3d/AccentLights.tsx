@@ -20,15 +20,26 @@ export function AccentLights({ tokens, frozen = false }: AccentLightsProps) {
   const floatProps = resolveFloatProps(frozen);
   return (
     <group>
-      {/* Ambient + key/fill are never pure black or pure white (20_3D §7.2). */}
-      <ambientLight intensity={0.2} color={tokens.canvas} />
-      <directionalLight position={[3, 5, 4]} intensity={0.7} color={tokens.raised} />
-      <directionalLight position={[-3, -2, 2]} intensity={0.25} color={tokens.inset} />
-      {/* Accent energy stays a small fraction of the frame. */}
+      {/*
+        A light's COLOUR MULTIPLIES ITS INTENSITY. The key/fill were coloured
+        with SURFACE roles (#1C1D20 = 11% grey, #060709 = 2%), so the rig
+        emitted ~11% of a white light and the whole scene rendered black
+        (measured: the desks, the floor and the reveal screens were
+        indistinguishable from the canvas). The rig now uses the palette's own
+        LIGHT roles: --text-primary key, --text-muted fill, --text-secondary
+        ambient. Same tokens, same discipline (Rule 5), a lit scene.
+      */}
+      <ambientLight intensity={0.9} color={tokens.ambient} />
+      <directionalLight position={[3, 5, 4]} intensity={4.5} color={tokens.key} />
+      <directionalLight position={[-3, -2, 2]} intensity={1.4} color={tokens.fill} />
+      {/* A cool rim from behind, so the glass card has an edge to refract. */}
+      <directionalLight position={[-2, 3, -8]} intensity={2} color={tokens.key} />
+      {/* `distance` is a hard cutoff: at 6 units the accent lights died
+          before the first row of desks. */}
       <Float {...floatProps}>
-        <pointLight position={[2, 1, 2]} intensity={9} distance={6} color={tokens.accent} />
-        <pointLight position={[-2, 1, 2]} intensity={5} distance={6} color={tokens.info} />
-        <pointLight position={[0, -1.5, 2]} intensity={4} distance={6} color={tokens.warn} />
+        <pointLight position={[2, 1, 2]} intensity={16} distance={16} color={tokens.accent} />
+        <pointLight position={[-2, 1, 2]} intensity={10} distance={16} color={tokens.info} />
+        <pointLight position={[0, -1.5, 2]} intensity={7} distance={14} color={tokens.warn} />
       </Float>
     </group>
   );

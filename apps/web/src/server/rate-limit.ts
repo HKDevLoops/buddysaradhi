@@ -74,8 +74,26 @@ const EVICTION_TARGET = Math.floor(MAX_BUCKETS * 0.9);
 
 const buckets = new Map<string, Bucket>();
 
+/**
+ * PER-INSTANCE CEILING — the half of the anti-bypass contract that survives a
+ * deployment where the client can choose its own IP (measured: a fresh
+ * 60-token bucket per request, i.e. no limit at all — docs/audit/DYNAMIC-WEB.md
+ * F-2). Keyed on nothing the client can influence.
+ *
+ * Deliberately 100x the per-IP read cap: a flood tripwire, not rationing.
+ * Override with API_RATE_LIMIT_GLOBAL_READ_CAP / _WRITE_CAP.
+ */
+const GLOBAL_READ_CAP = Number(process.env.API_RATE_LIMIT_GLOBAL_READ_CAP ?? 6000);
+const GLOBAL_WRITE_CAP = Number(process.env.API_RATE_LIMIT_GLOBAL_WRITE_CAP ?? 600);
+
+const globalBuckets = new Map<string, Bucket>();
+
 function capFor(kind: ApiRouteKind): number {
   return kind === "read" ? READ_CAP : WRITE_CAP;
+}
+
+function globalCapFor(kind: ApiRouteKind): number {
+  return kind === "read" ? GLOBAL_READ_CAP : GLOBAL_WRITE_CAP;
 }
 
 /**
@@ -155,9 +173,61 @@ export function rateLimitApiRequest(
   };
 }
 
+/**
+ * The per-INSTANCE ceiling, consumed in addition to the per-IP bucket.
+ *
+ * `remaining` stays the PER-IP figure — that is what the `RateLimit-*`
+ * headers already promise. The global figure is reported separately so
+ * "you are over your own quota" is distinguishable from "this instance is
+ * saturated".
+ */
+export interface GlobalApiRateLimitDecision {
+  allowed: boolean;
+  /** Seconds until at least one global token is available. */
+  retryAfterSeconds: number;
+  /** Whole tokens left on the instance-wide bucket after this request. */
+  remaining: number;
+  limit: number;
+}
+
+/** Consume one instance-wide token for `kind`. Pure in `nowMs` for tests. */
+export function rateLimitApiRequestGlobal(
+  kind: ApiRouteKind,
+  nowMs: number = Date.now(),
+): GlobalApiRateLimitDecision {
+  const key = `__global__|${kind}`;
+  const cap = globalCapFor(kind);
+  const refillRate = cap / (WINDOW_MS / 1000);
+
+  const stored = globalBuckets.get(key);
+  const tokens = stored
+    ? Math.min(cap, stored.tokens + ((nowMs - stored.lastRefillMs) / 1000) * refillRate)
+    : cap;
+
+  if (tokens < 1) {
+    globalBuckets.set(key, { tokens, lastRefillMs: stored?.lastRefillMs ?? nowMs, cap });
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((1 - tokens) / refillRate)),
+      remaining: 0,
+      limit: cap,
+    };
+  }
+
+  const left = tokens - 1;
+  globalBuckets.set(key, { tokens: left, lastRefillMs: nowMs, cap });
+  return {
+    allowed: true,
+    retryAfterSeconds: 0,
+    remaining: Math.floor(left),
+    limit: cap,
+  };
+}
+
 /** Test-only reset (buckets are module-private). */
 export function resetApiRateLimits(): void {
   buckets.clear();
+  globalBuckets.clear();
 }
 
 /**

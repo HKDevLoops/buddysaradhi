@@ -14,6 +14,89 @@ export const WIDE_DESKTOP_MIN_WIDTH = 1280;
 /** Resting field of view for the journey camera (20_3D §12 shonen pacing). */
 export const FOV_REST = 55;
 
+/**
+ * The POSTER's aspect ratio. The poster is a still of THIS scene at beat 0,
+ * rendered offline by `scripts/generate-poster.mjs` and committed. It is the
+ * single source of truth for the no-WebGL path AND for the first-frame veil,
+ * so the two can never be different pictures (20_3D §2.2).
+ */
+export const POSTER_ASPECT = 16 / 9;
+
+/** The committed poster asset. Public path, same origin, no CDN, no stock image. */
+export const POSTER_SRC = "/scene/hero-poster.png";
+
+/**
+ * The scroll runway of each stage, in viewport heights. The hero pins five
+ * beats over 500vh; the tour pins five stops over 600vh (a longer runway, so
+ * each stop gets more scroll).
+ */
+export const HERO_RUNWAY_VH = 500;
+export const TOUR_RUNWAY_VH = 600;
+
+/**
+ * How tall the stage is, given which path it took.
+ *
+ * `poster` -> ONE viewport. This is the fix for the "500vh of frozen content"
+ * defect: a budget phone or a Save-Data visitor was given a five-screen
+ * scroll of a static image with the same copy pinned in place, so every beat
+ * pin and every scroll gesture moved nothing. A control whose target cannot
+ * exist is removed, not disabled - and a runway that cannot be scrolled is
+ * removed, not kept.
+ *
+ * `canvas` -> the runway, unchanged.
+ *
+ * The value is a CSS length string so it can go straight into a style
+ * attribute, and it is a pure function so the choice is testable without a
+ * browser.
+ */
+export function resolveStoryHeight(runwayVh: number, mode: "poster" | "canvas"): string {
+  if (mode === "poster") return "100dvh";
+  const safe = Number.isFinite(runwayVh) && runwayVh > 0 ? Math.round(runwayVh) : 0;
+  return `${safe}vh`;
+}
+
+
+/**
+ * The vertical field of view the camera must use so that the LIVE canvas
+ * frames the scene exactly the way the POSTER frames it.
+ *
+ * WHY THIS EXISTS. The poster is a fixed 16:9 image, and the visitor's
+ * viewport is not 16:9. `object-fit: cover` crops the poster to the
+ * viewport's aspect; if the camera keeps its 55° vertical FOV, the canvas
+ * shows a DIFFERENT slice of the scene, and the veil lift becomes a visible
+ * pop (the scene zooms). Matching the two is what makes the veil honest:
+ * "identical pixels until the first frame" (20_3D §2.2).
+ *
+ * THE GEOMETRY. For a pinhole camera the horizontal half-angle is
+ * `atan(tan(fov/2) * aspect)`, and the image plane is linear in that tangent
+ * space. So:
+ *
+ *   - Viewport NARROWER than the poster (aspect <= posterAspect): `cover`
+ *     scales to the viewport HEIGHT, so the poster's full vertical extent is
+ *     shown and the excess is cropped left and right. The camera must show
+ *     that same vertical extent -> fov unchanged.
+ *   - Viewport WIDER than the poster (aspect > posterAspect): `cover` scales
+ *     to the viewport WIDTH, so the poster's full horizontal extent is shown
+ *     and the excess is cropped top and bottom. The camera's vertical
+ *     half-tangent must shrink by the same factor -> fov shrinks.
+ *
+ * The result: at any aspect ratio, the first frame the visitor sees and the
+ * poster they saw a moment earlier are the same picture.
+ */
+export function resolveCoverFov(
+  baseFovDeg: number,
+  viewportAspect: number,
+  posterAspect: number = POSTER_ASPECT,
+): number {
+  if (!Number.isFinite(baseFovDeg) || baseFovDeg <= 0) return FOV_REST;
+  if (!Number.isFinite(viewportAspect) || viewportAspect <= 0) return baseFovDeg;
+  if (!Number.isFinite(posterAspect) || posterAspect <= 0) return baseFovDeg;
+  if (viewportAspect <= posterAspect) return baseFovDeg;
+  const half = (baseFovDeg * Math.PI) / 360;
+  const scaled = Math.atan(Math.tan(half) * (posterAspect / viewportAspect));
+  return (scaled * 360) / Math.PI;
+}
+
 /** Whip-pan peak: scroll velocity pushes FOV toward this, then it falls back
  *  to {@link FOV_REST}. Both bounds are the spec's `55->75->55`. */
 export const FOV_PEAK = 75;

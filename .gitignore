@@ -138,3 +138,17 @@ testsprite_tests/tmp/config.json
 # "Filename too long" before it could reach product code).
 .cache/
 **/.cache/
+
+# Agent scratch files at the repo root. Audit + review agents drop throwaway
+# probes here (`.tmp-hunt*.ts`, `.tmp-negctl.ps1`, `.tmp-rig.sh`, ...). They
+# are untracked AND unignored, which makes them one `git add -A` away from
+# landing in history — and several of them contain live credential material
+# read out of the local .env files. They belong in the OS temp directory, not
+# in the repository. (2026-10-21 supply-chain audit, SC-09.)
+.tmp-*
+.tmp_*
+
+# Generated CycloneDX SBOMs (CI artefacts, not source — scripts/sbom-generator.ts
+# writes them; 23_Security_Harness_Plan.md §5.3).
+sbom/
+osv-report.json

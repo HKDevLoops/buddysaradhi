@@ -106,6 +106,19 @@
 }
 
 @layer components {
+  /* ---- The 3D stage height (20_3D §3.1 degradation ladder).
+     The height is set INLINE by the stage component from the one pure rule
+     in `src/lib/stage-mode.ts` (`storyHeightCss`): one viewport on the poster
+     path, the scroll runway on the canvas path. The rule is in TypeScript
+     because it is a DECISION, and a decision in CSS is a decision nobody can
+     test.
+
+     This class is the marker both stages carry, so a test can assert the two
+     routes agree on the shape without parsing a style attribute. */
+  .story-stage {
+    position: relative;
+  }
+
   /* ---- Material primitives (material-modes.md §2.6). All three modes route
      through these; a component never branches on the mode. ---- */
   .mat,
@@ -119,6 +132,17 @@
 
   .mat {
     background: var(--surface-overlay);
+  }
+
+  /* ---- The COPY PANEL over a LIVE WebGL backdrop (Rule 10, measured).
+     `.mat` is 34% opaque, so its text is composited over 66% of whatever the
+     scene is painting: measured against the live scene the H1 read 2.38:1
+     and the accent link 3.55:1. `--surface-overlay-solid` is the token the
+     design system already ships for "a surface over unknown content"
+     (packages/design-system/src/surfaces.ts `overlayLegibility`); the panel
+     keeps its glass contour, only its BODY is opaque. */
+  .mat-copy {
+    background: var(--surface-overlay-solid);
   }
 
   .mat-nav {

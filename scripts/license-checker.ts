@@ -1,25 +1,79 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 
+// Implements: 23_Security_Harness_Plan.md §5.4 (the licence allow-list) and
+// §12.1 G-SEC-1's sibling gate, `pr-security / license-check`.
+//
+// The allowlist file accepts TWO shapes, so an existing plain array keeps
+// working:
+//
+//   [ "MIT", "ISC", ... ]                                    <- legacy
+//   { "licenses": [...], "exceptions": [ { license, package,
+//                                           reason, expires } ] }
+//
+// An exception is scoped to the EXACT licence string AND the package name, and
+// MUST carry a reason and an expiry date. An expired exception is a hard
+// failure — an allowlist that silently rots is not an allowlist (AGENTS.md §2
+// Rule 9). This is the same discipline `scripts/osv-audit.ts` applies to
+// `osv.allowlist.json`.
+
+interface LicenseException {
+  license: string;
+  package: string;
+  reason: string;
+  expires: string;
+  reviewedBy?: string;
+}
+
+interface AllowlistShape {
+  licenses: string[];
+  exceptions: LicenseException[];
+}
+
 const ALLOWLIST_PATH = join(process.cwd(), "licenses.allowlist.json");
-const ALLOWED_LICENSES: string[] = JSON.parse(readFileSync(ALLOWLIST_PATH, "utf8"));
+
+function loadAllowlist(): AllowlistShape {
+  const raw = JSON.parse(readFileSync(ALLOWLIST_PATH, "utf8")) as
+    | string[]
+    | { licenses?: string[]; exceptions?: LicenseException[] };
+  if (Array.isArray(raw)) {
+    return { licenses: raw, exceptions: [] };
+  }
+  return {
+    licenses: raw.licenses ?? [],
+    exceptions: raw.exceptions ?? [],
+  };
+}
+
+const ALLOWLIST: AllowlistShape = loadAllowlist();
+const ALLOWED_LICENSES: string[] = ALLOWLIST.licenses;
+
+function isExpired(expires: string | undefined): boolean {
+  if (!expires) return true;
+  return expires < new Date().toISOString().slice(0, 10);
+}
 
 // Helper to normalize license strings
-function isAllowed(licenseStr: unknown): boolean {
+function isAllowed(licenseStr: unknown, pkgName: string): boolean {
   if (typeof licenseStr !== "string") return false;
   const normalized = licenseStr.replace(/[()]/g, "").trim();
-  
+
   // Handle compound licenses (e.g., "MIT OR Apache-2.0")
   if (normalized.includes(" OR ")) {
     const parts = normalized.split(" OR ");
-    return parts.some(part => ALLOWED_LICENSES.includes(part.trim()));
+    if (parts.some((part) => ALLOWED_LICENSES.includes(part.trim()))) return true;
   }
   if (normalized.includes(" AND ")) {
     const parts = normalized.split(" AND ");
-    return parts.every(part => ALLOWED_LICENSES.includes(part.trim()));
+    if (parts.every((part) => ALLOWED_LICENSES.includes(part.trim()))) return true;
   }
-  
-  return ALLOWED_LICENSES.includes(normalized);
+
+  if (ALLOWED_LICENSES.includes(normalized)) return true;
+
+  // A scoped exception: exact licence string + exact package, not expired.
+  return ALLOWLIST.exceptions.some(
+    (e) => e.license === licenseStr && e.package === pkgName && !isExpired(e.expires),
+  );
 }
 
 function findPackageJsonFiles(): string[] {
@@ -45,10 +99,24 @@ function findPackageJsonFiles(): string[] {
 
 function runAudit() {
   console.log("🔍 Auditing dependencies against license allowlist...");
-  
+
+  // An expired exception is a hard failure BEFORE the scan — otherwise a
+  // lapsed exception silently keeps a non-allow-listed licence in the tree.
+  const expired = ALLOWLIST.exceptions.filter((e) => isExpired(e.expires));
+  if (expired.length > 0) {
+    console.error("❌ Expired or malformed license exceptions:");
+    for (const e of expired) {
+      console.error(`   ${e.package} (${e.license}) expires=${e.expires}`);
+    }
+    console.error(
+      "   Rule 9: an allowlist that silently rots is not an allowlist. Re-review or remove these entries.",
+    );
+    process.exit(1);
+  }
+
   const pkgFiles = findPackageJsonFiles();
   const allDeps = new Set<string>();
-  
+
   for (const pkgFile of pkgFiles) {
     try {
       const pkg = JSON.parse(readFileSync(pkgFile, "utf8"));
@@ -94,7 +162,7 @@ function runAudit() {
 
     if (found) {
       auditedPackages[dep] = license;
-      if (!isAllowed(license)) {
+      if (!isAllowed(license, dep)) {
         console.error(`❌ Dependency "${dep}" uses an unapproved license: "${license}"`);
         violationsCount++;
       }

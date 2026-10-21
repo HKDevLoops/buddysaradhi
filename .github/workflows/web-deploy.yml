@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: web-deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -61,10 +64,16 @@ jobs:
 
       - name: Wait for Vercel deployment
         continue-on-error: true
+        env:
+          # 2026-10-21 (SC-07): the secrets were interpolated into the shell
+          # body. A secret inside a `run:` block is written into the process
+          # table and into the rendered script. Environment variables are
+          # passed as data and never re-parsed.
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
-          VERCEL_TOKEN="${{ secrets.VERCEL_TOKEN }}"
-          VERCEL_PROJECT_ID="${{ secrets.VERCEL_PROJECT_ID }}"
-          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ] || [ -z "${VERCEL_PROJECT_ID:-}" ]; then
             echo "VERCEL_TOKEN or VERCEL_PROJECT_ID not configured — skipping deployment wait."
             echo "Sleeping 60s to give Vercel time to pick up the push regardless."
             sleep 60
@@ -132,12 +141,19 @@ jobs:
 
       - name: Notify on failure
         if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
-            curl -X POST -H "Content-Type: application/json" \
-              -d "{\"content\": \"⚠️ web-deploy smoke failed on commit ${{ github.sha }}\"}" \
-              ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
           fi
+          PAYLOAD=$(printf '⚠️ web-deploy smoke failed on commit %s' "$COMMIT_SHA" \
+            | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
   # -------------------------------------------------------------------------
   # Job 3: Product page — build in CI (catches marketing breakage post-merge)
@@ -182,9 +198,16 @@ jobs:
 
       - name: Notify on failure
         if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
-          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
-            curl -X POST -H "Content-Type: application/json" \
-              -d "{\"content\": \"⚠️ web-deploy product-page smoke failed on commit ${{ github.sha }}\"}" \
-              ${{ secrets.DISCORD_WEBHOOK_URL }}
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_WEBHOOK_URL not configured — skipping notification."
+            exit 0
           fi
+          PAYLOAD=$(printf '⚠️ web-deploy product-page smoke failed on commit %s' "$COMMIT_SHA" \
+            | python3 -c 'import json,sys; print(json.dumps({"content": sys.stdin.read()}))')
+          curl -sS -X POST -H "Content-Type: application/json" \
+            -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
