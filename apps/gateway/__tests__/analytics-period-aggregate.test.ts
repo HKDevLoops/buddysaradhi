@@ -77,6 +77,10 @@ const END = "2026-10-31";
  *   p_before 700000  the day before periodStart               → does not
  *   other    900000  another tenant's payment                 → does not
  *
+ * The refunds that count: 50000 (one refund, in the window). The 60000 refund
+ * is not a day, and the 70000 refund is REVERSED - a voided refund did not
+ * leave the tutor's hands, so it does not come out of the figure.
+ *
  * 100000 + 200000 + 300000 = 600000, minus the 50000 refund = 550000.
  */
 const EXPECTED_CREDITS = 600000;
@@ -157,6 +161,24 @@ function seed(f: RecordingDb): void {
                                  balance_after_paise, description, receipt_no, occurred_on, source, void_of_id, created_at, updated_at)
      VALUES (?, ?, ?, NULL, 'REFUND_ISSUED', 60000, 0, 0, 'Refund issued', NULL, 'not-a-date', 'gateway', NULL, ?, ?)`,
   ).run(id("b"), TENANT, STUDENT, now, now);
+
+  // A REVERSED REFUND: inside the window, and reversed by a VOID row. A voided
+  // refund did NOT leave the tutor's hands, so it must not come out of the
+  // collected figure. This is the case that pins the exclusion to BOTH legs - an
+  // exclusion written as `type <> creditType OR id NOT IN (reversed)` keeps a
+  // reversed refund, and the figure would be 70000 too low.
+  f.raw.prepare(
+    `INSERT INTO ledger_entries (id, tenant_id, student_id, invoice_id, type, debit_paise, credit_paise,
+                                 balance_after_paise, description, receipt_no, occurred_on, source, void_of_id, created_at, updated_at)
+     VALUES (?, ?, ?, NULL, 'REFUND_ISSUED', 70000, 0, 0, 'Refund issued', NULL, '2026-10-22', 'gateway', NULL, ?, ?)`,
+  ).run(id("c"), TENANT, STUDENT, now, now);
+
+  // The VOID row that reverses the refund above.
+  f.raw.prepare(
+    `INSERT INTO ledger_entries (id, tenant_id, student_id, invoice_id, type, debit_paise, credit_paise,
+                                 balance_after_paise, description, receipt_no, occurred_on, source, void_of_id, created_at, updated_at)
+     VALUES (?, ?, ?, NULL, 'VOID', 70000, 0, 0, 'VOID: refund reversed', NULL, '2026-10-23', 'gateway', ?, ?, ?)`,
+  ).run(id("d"), TENANT, STUDENT, id("c"), now, now);
 }
 
 /** The PRE-FIX algorithm, in the test, as the reference the SQL must match. */
@@ -200,8 +222,17 @@ function collectedByJavaScript(f: RecordingDb, start: string, end: string): {
   let refundsPaise = 0;
   for (const row of rows) {
     if (!isWithinPeriod(readDay(row.occurred_on), start, end)) continue;
+    // The reversal exclusion applies to BOTH legs.
+    //
+    // It used to be inside the credit branch - and so was the defect this
+    // fixture now pins: a REVERSED REFUND was still counted as money that
+    // left the tutor's hands, so a voided refund came out of the collected
+    // figure. The shared layer (`packages/shared/src/feeCalc.ts`
+    // `collectedForPeriod`) excludes a voided row from both legs, so the
+    // gateway's dashboard and the web's fees screen did not agree about the
+    // same tutor's revenue.
+    if (reversed.has(String(row.id))) continue;
     if (row.type === "PAYMENT_RECEIVED") {
-      if (reversed.has(String(row.id))) continue;
       creditsPaise += Number(row.credit_paise);
     } else {
       refundsPaise += Number(row.debit_paise);

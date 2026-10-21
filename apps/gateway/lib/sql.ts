@@ -1358,6 +1358,22 @@ const DAY_SHAPE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]";
  * here on purpose: widening or narrowing that is a money-semantics change
  * under BR-CALC-10, not a performance fix, and it needs its own decision.
  */
+/**
+ * The period leg of BR-CALC-10, as ONE statement.
+ *
+ * THE EXCLUSION IS TYPE-AGNOSTIC, and that matters. It was written as
+ * `type <> creditType OR id NOT IN (reversed)`, which looks like it excludes
+ * the reversed rows and actually excludes only the reversed rows OF THE CREDIT
+ * TYPE: for a reversed refund the first disjunct is true, the row is kept, and
+ * a VOIDED REFUND still came out of the collected figure. The shared layer
+ * (`packages/shared/src/feeCalc.ts` `collectedForPeriod`) excludes a voided row
+ * from BOTH legs, so the two copies of BR-CALC-10 disagreed - and the
+ * gateway's dashboard and the web's fees screen would not have shown the same
+ * number for the same tutor.
+ *
+ * The VOID rows themselves need no exclusion: the `type IN (credit, debit)`
+ * clause already keeps them out of both sums.
+ */
 export function stmtSumPeriodLedgerAmounts(
   tenantId: string,
   opts: {
@@ -1383,9 +1399,8 @@ export function stmtSumPeriodLedgerAmounts(
              AND type IN (?, ?)
              AND substr(occurred_on, 1, 10) GLOB ?
              AND substr(occurred_on, 1, 10) BETWEEN ? AND ?
-             AND (type <> ?
-                  OR id NOT IN (SELECT void_of_id FROM ledger_entries
-                                 WHERE tenant_id = ? AND type = ? AND void_of_id IS NOT NULL))`,
+             AND id NOT IN (SELECT void_of_id FROM ledger_entries
+                        WHERE tenant_id = ? AND type = ? AND void_of_id IS NOT NULL)`,
     args: [
       creditType,
       debitType,
@@ -1395,7 +1410,6 @@ export function stmtSumPeriodLedgerAmounts(
       DAY_SHAPE_GLOB,
       startDay,
       endDay,
-      creditType,
       tenant,
       "VOID",
     ],
