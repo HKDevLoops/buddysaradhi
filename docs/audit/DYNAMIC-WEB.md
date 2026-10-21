@@ -793,6 +793,16 @@ made changes that are not mine**:
 * The Kali WSL distro's user database stopped resolving
   (`getpwuid(1000) failed`) part-way through, so the last probes were run from
   Windows instead of Kali.
+* Two commits by that session swept up parts of this engagement's diff:
+  `20fbcf2` ("docs(agents): a readable-code rule, and the comment trim that
+  follows it") took `apps/web/src/proxy.ts`, and `d59a285` ("fix(ci,
+  product-page): …") took `apps/web/src/lib/client-ip.ts`,
+  `apps/web/src/proxy.csp.test.ts` and
+  `apps/web/src/app/(auth)/auth-pages-csp.test.ts`.
+  This subagent ran no `git add` / `git commit` / `git push` — the fix was
+  left in the working tree, as instructed, and another session committed it
+  while this assessment was running. Everything is on disk and verified in
+  the state described here.
 
 The verification in §6 was run against **Next 16.3.8**. None of those changes
 is part of this engagement's diff, and none of them is in §7.

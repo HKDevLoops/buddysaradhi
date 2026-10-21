@@ -174,3 +174,60 @@ describe("L11 — no credential in a log payload", () => {
     );
   });
 });
+
+describe("L12 — no GitHub expression inside a run: body", () => {
+  it("the clean tree has no L12 findings", () => {
+    const { stdout } = runLint();
+    expect(rulesReported(stdout).has("L12")).toBe(false);
+  });
+
+  it("FIRES on an expression interpolated into a run: body (negative control)", () => {
+    withPlantedFile(
+      ".github/workflows/zz-l12-negative-control.yml",
+      [
+        "name: negative-control",
+        "on: workflow_dispatch",
+        "permissions:",
+        "  contents: read",
+        "jobs:",
+        "  probe:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - name: sink",
+        "        run: |",
+        "          echo \"value is ${{ github.event.head_commit.message }}\"",
+        "",
+      ].join("\n"),
+      () => {
+        const { stdout } = runLint();
+        expect(rulesReported(stdout).has("L12")).toBe(true);
+        expect(plain(stdout)).toContain("GitHub expression inside a run: body");
+      },
+    );
+  });
+
+  it("does NOT fire on an expression in an env: value", () => {
+    withPlantedFile(
+      ".github/workflows/zz-l12-negative-control.yml",
+      [
+        "name: negative-control",
+        "on: workflow_dispatch",
+        "permissions:",
+        "  contents: read",
+        "jobs:",
+        "  probe:",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - name: safe",
+        "        env:",
+        "          MSG: ${{ github.event.head_commit.message }}",
+        "        run: echo \"$MSG\"",
+        "",
+      ].join("\n"),
+      () => {
+        const { stdout } = runLint();
+        expect(rulesReported(stdout).has("L12")).toBe(false);
+      },
+    );
+  });
+});
