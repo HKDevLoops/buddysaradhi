@@ -289,7 +289,12 @@ agent. Each rule carries: **the rule**, **why**, **how it's enforced**, and
 - **Why.** Offline-first means writes must replay on reconnect
   (`12_Business_Rules.md` BR-SYN-01..03).
 - **Enforced.** Integration tests assert `sync_outbox` row count after every
-  mutation flow. Review gate.
+  mutation flow. Review gate. `scripts/principle-lints.ts` **L9
+  `no-plaintext-pin-in-replication`** rejects a literal `pin` key in any
+  replication write (`sync_outbox` payload, gateway route) — a `sync_outbox`
+  row is durable, replicated and backed up, so BR-SEC-07 [CRITICAL] forbids a
+  plaintext PIN in one (audit AUD-002, 2026-10-21). A PIN may ride a
+  *transient* request body; it may never be persisted.
 - **If asked to violate.** Refuse. Cite P5 + BR-SYN-01. Propose: write the
   outbox row in the same transaction as the mutation.
 
@@ -815,8 +820,11 @@ await postLedgerEntry(db, entry); // what did this test?
 Merge is blocked unless **all** pass:
 
 1. `bun run lint` — ESLint + Prettier + design-system rules (`no-indigo-accent`,
-   `no-float-money`, `no-color-only-status`) + oxlint `no-empty`/`no-console`.
-2. `bun run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`.
+   `no-float-money`, `no-color-only-status`) + oxlint `no-empty`/`no-console`
+   (all TypeScript) + `scripts/principle-lints.ts` L1–L9.
+2. `bun run typecheck` — `tsc --noEmit` across `apps/web`, `packages/*`,
+   `apps/product-page`, and `deno check` for the gateway. **A workspace
+   without a `typecheck` script is a gap, not a pass** (audit AUD-021).
 3. `bun run test:unit` — Vitest, ≥70% line coverage on `packages/core` and
    `packages/shared`.
 4. `bun run test:integration` — Vitest with in-memory SQLite, every flow in
@@ -884,6 +892,7 @@ When an autonomous agent is working a task:
    already documented — project conventions, prior decisions, environment paths,
    known bugs.
 2. Read `worklog.md` to learn prior context.
+   Read `docs/audit/AUDIT-2026-10-21.md` for the open findings (severity-ranked, file:line, spec-cited). Its `§8` lists what is **verified correct** - do not "fix" those.
 3. Read the relevant spec section per §4.
 4. Make the smallest correct change.
 5. Run `bun run lint`. Fix all errors.
@@ -1211,6 +1220,7 @@ Study 3). Command palette (Ctrl+K) → all `NO`; continue; P3.
 | 8   | Server actions/API routes parse input with Zod before DB; return typed `Result<T, E>`                      | §6.1, §6.4                 |
 | 9   | Every mutation appends `sync_outbox` + `audit_log` rows in the same transaction                            | Rule 7, BR-SYN-01, AP-13   |
 | 10  | No `console.log` in prod (`no-console`) and no empty `catch {}` (`no-empty`) — enforced by `bun run lint:oxlint`; no new telemetry dep; PR `## Spec ref` cites a real section | Rule 9, AP-9, AP-10, §5.3  |
+| 11  | No plaintext PIN (or any secret) in a replication write - a `sync_outbox` payload carries derived values only (`pin_proof`, `pin_hash`), never the secret. Enforced by principle-lint L9 | Rule 7, BR-SEC-07 |
 
 ---
 

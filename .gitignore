@@ -60,6 +60,12 @@ pnpm-debug.log*
 
 # Supabase temp
 supabase/.temp/
+# The whole supabase/ mirror was DELETED from the tree in 2433137 (the gateway
+# now lives in apps/gateway). A local leftover copy survived and it carries a REAL
+# .env - DATABASE_URL, GATEWAY_SHARED_SECRET, SUPABASE_SERVICE_ROLE_KEY - that was
+# never committed but was NOT ignored, so one git add -A would have committed
+# production secrets. Audit AUD-069.
+supabase/
 
 # Playwright
 playwright-report/
