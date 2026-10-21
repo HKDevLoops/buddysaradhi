@@ -23,7 +23,7 @@ One set of semantic names. Three values each. **Only the surface/border/shadow r
 | `--surface-inset` | `#0A0819` | `#0A0819` | `#090716` |
 | `--surface-row` | `#120F33` | `#120F33` | `#100E2E` |
 | `--surface-sunken` | `#07050F` | `#07050F` | `#07050F` |
-| `--surface-overlay` *(translucent role)* | `#1D1A4F` | `color-mix(in srgb, #2C2C2C 15%, transparent)` | `color-mix(in srgb, #1C1A40 35%, transparent)` |
+| `--surface-overlay` *(translucent role)* | `#1D1A4F` | `rgb(r g b / 0.745)` — the tint over the 70 % `--canvas` base (§2.0.1) | `rgb(r g b / 0.802)` — the tint over the same 70 % base |
 | `--surface-overlay-solid` *(paired fallback)* | `#1D1A4F` | `#2C2C2C` | `#1A1840` |
 | `--surface-nav` / `--surface-nav-solid` | `#14123A` / `#14123A` | `color-mix(in srgb, #2C2C2C 15%, transparent)` / `#232326` | `color-mix(in srgb, #1C1A40 30%, transparent)` / `#181634` |
 | `--surface-sheet` / `--surface-sheet-solid` | `#191647` / `#191647` | `color-mix(in srgb, #202020 60%, transparent)` / `#202020` | `color-mix(in srgb, #1C1A40 55%, transparent)` / `#16142F` |
@@ -78,6 +78,71 @@ This is the load-bearing structural decision, and it is what prevents glass slop
 - **Layer B — material** (`--surface-overlay`, `--surface-nav`, `--surface-sheet`, `--surface-palette`, `--surface-scrim`, `--border-*`, `--mat-*`, `--shadow-overlay/sheet`). These are the surfaces that float *above* content. Only these change materially between modes.
 
 **Every Layer-B translucent role ships with a paired `-solid` token.** The `-solid` value is the legible no-blur fallback (no `backdrop-filter` support, Reduce Transparency, forced colors, battery saver). Components reference only the translucent name; the fallbacks remap it globally, so **no component ever needs to branch.**
+
+### 2.0.1 The overlay's legibility base — the one value that changed after the first ship
+
+**What shipped.** `--surface-overlay` is no longer the bare tint. It is the tint
+composited over a **70 % `--canvas` legibility base**, collapsed into the ONE
+colour the token can be:
+
+```
+tint @ a   over   base @ 0.70   over   backdrop B
+= a·tint + (1−a)·0.70·canvas + (1−a)·0.30·B
+= A·C + (1−A)·B,   A = a + (1−a)·0.70,   C = (a·tint + (1−a)·0.70·canvas) / A
+```
+
+`A` is the alpha the browser paints, `C` the colour it paints. The collapse is
+not cosmetic: `--surface-overlay` is read three ways — as `background`, as
+`background-color`, and inside `color-mix()` — and only a single COLOUR survives
+all three (`packages/design-system/src/material.ts`, `compositeOverBase()`).
+
+| Mode | tint alpha | shipped alpha | the aurora still comes through at |
+|---|---|---|---|
+| Minimal | 1 (opaque) | 1 — byte-identical | — (a base under an opaque fill is invisible) |
+| Acrylic | 0.15 | **0.745** | 25.5 % |
+| Liquid Glass | 0.34 | **0.802** | 19.8 % |
+
+**Why the base exists.** The app's glass tiers carry the same base — the app
+declares `--glass-legibility-base: 70%` of `--canvas`
+(`apps/web/src/app/globals.css`, `13_UI_Guidelines.md` §5.1): a tier's fill is
+2–8 % opaque, so without a base the panel's backdrop IS the aurora, and the
+aurora's lift is what breaks the text roles. The overlay was the last surface in
+the app that still saw the aurora raw — `GlassCard variant="strong"` paints
+`var(--surface-overlay)`, and in Acrylic that was 15 % opaque, so it composited
+straight over the 20 % aurora.
+
+**The floors it fixed** — worst of the 20 palettes, over the REAL painted aurora
+(the radial falloff, the stacking order, three aspect ratios, a 17×11 grid;
+`apps/web/src/app/token-layer.test.ts`):
+
+| Mode · tier | role | floor | before | after |
+|---|---|---|---|---|
+| Acrylic · dark | `--text-primary` | 10 | 8.38 | **10.27** |
+| Acrylic · dark | `--text-secondary` | 7 | 5.83 | **7.17** |
+| Acrylic · dark | `--text-muted` | 4.5 | 3.75 | **4.61** |
+| Liquid Glass · dark | `--text-primary` | 10 | 8.74 | **10.18** |
+| Liquid Glass · dark | `--text-secondary` | 7 | 6.09 | **7.09** |
+| Liquid Glass · dark | `--text-muted` | 4.5 | 3.91 | **4.56** |
+| Acrylic · light | `--text-primary` | 10 | 10.35 | **11.73** |
+| Acrylic · light | `--text-secondary` | 7 | 7.29 | **8.22** |
+| Acrylic · light | `--text-muted` | 4.5 | 4.65 | **5.28** |
+| Liquid Glass · light | `--text-primary` | 10 | 10.98 | **12.01** |
+| Liquid Glass · light | `--text-secondary` | 7 | 7.73 | **8.41** |
+| Liquid Glass · light | `--text-muted` | 4.5 | 4.93 | **5.43** |
+
+**The value is MEASURED, not chosen.** The minimum base that holds every floor is
+60.2 % (Acrylic) and 60.9 % (Liquid Glass) on the dark tier; the light tier needs
+none. 70 % ships because it is the tiers' own value, and it clears the minimum
+with room (worst margin +0.112 and +0.061 against the floor, where the tiers hold
++0.145). The overlay needs MORE base than the tiers' aurora-equivalent (66.5 % for
+Acrylic) because its own tint is three times heavier than a tier's (15–34 % against
+2–8 %), so its composite sits closer to the palette's lightest surface — the one
+the text roles were solved against.
+
+**What did NOT change.** The modes keep their blur, saturation, brightness,
+specular hairline, fresnel and shadow ramp; the tint's own colour is unchanged;
+Minimal is byte-identical. Only the overlay's share of the surface grew, so the
+aurora still comes through and the material still reads as material.
 
 ### 2.1 Layer A + shared ramps
 
@@ -180,7 +245,7 @@ Values are a direct port of the WinUI in-app acrylic theme resource. Source: `Ac
   --mat-specular:   inset 0 1px 0 rgb(255 255 255 / 0.06);
   --mat-fresnel:    none;
 
-  --surface-overlay:       color-mix(in srgb, #2C2C2C 15%, transparent);
+  --surface-overlay:       color-mix(in srgb, #2C2C2C 15%, transparent); /* + the 70% canvas base, §2.0.1 */
   --surface-overlay-solid: #2C2C2C;                          /* = WinUI FallbackColor */
   --surface-nav:           color-mix(in srgb, #2C2C2C 15%, transparent);
   --surface-nav-solid:     #232326;
@@ -197,6 +262,14 @@ Values are a direct port of the WinUI in-app acrylic theme resource. Source: `Ac
   --shadow-sheet:   0 28px 64px rgb(0 0 0 / 0.45);
 }
 ```
+
+> **The shipped `--surface-overlay` is the tint OVER the 70 % `--canvas` base**
+> (§2.0.1): `rgb(r g b / 0.745)`, generated per palette from that palette's own
+> `surfaceOverlaySolid` and `canvas` (e.g. `honey-opal` → `rgb(26 19 11 / 0.745)`).
+> The `color-mix()` above is the TINT layer — the layer Microsoft's `TintOpacity`
+> names — and the base under it is the one the app's glass tiers already carry.
+> Blur, saturation, brightness, specular, fresnel and the shadow ramp are
+> unchanged: only the overlay's opacity grew.
 
 ### 2.4 Liquid Glass
 
@@ -217,7 +290,7 @@ CSS-achievable subset of Apple's material: blur + adaptive saturation + tint + s
     rgb(255 255 255 / 0.10) 0%,
     rgb(255 255 255 / 0) 42%);
 
-  --surface-overlay:       color-mix(in srgb, #1C1A40 35%, transparent);
+  --surface-overlay:       color-mix(in srgb, #1C1A40 35%, transparent); /* + the 70% canvas base, §2.0.1 */
   --surface-overlay-solid: #1A1840;
   --surface-nav:           color-mix(in srgb, #1C1A40 30%, transparent);
   --surface-nav-solid:     #181634;
@@ -236,6 +309,14 @@ CSS-achievable subset of Apple's material: blur + adaptive saturation + tint + s
   --shadow-sheet:   0 32px 64px rgb(0 0 0 / 0.55);
 }
 ```
+
+> **The shipped `--surface-overlay` is the tint OVER the 70 % `--canvas` base**
+> (§2.0.1): `rgb(r g b / 0.802)`, generated per palette from that palette's own
+> `surfaceOverlaySolid` and `canvas` (e.g. `honey-opal` → `rgb(29 22 13 / 0.802)`).
+> Everything else in this block is unchanged — the same blur, the same
+> saturation, the same specular hairline and fresnel, the same shadow ramp. The
+> overlay's opacity is the only thing that moved, and it moved because the
+> overlay is the one material role the app paints over the aurora.
 
 ### 2.5 Light mode
 
@@ -271,7 +352,7 @@ CSS-achievable subset of Apple's material: blur + adaptive saturation + tint + s
   [data-material="acrylic"] {
     --mat-tint: #FCFCFC; --mat-tint-alpha: 0;
     --mat-brightness: 100%; --mat-contrast: 100%; --mat-saturate: 125%;
-    --surface-overlay:       color-mix(in srgb, #FCFCFC 0%, transparent);
+    --surface-overlay:       color-mix(in srgb, #FCFCFC 0%, transparent); /* + the 70% canvas base, §2.0.1 */
     --surface-overlay-solid: #F9F9F9;   /* = WinUI FallbackColor, light */
     --surface-nav:           color-mix(in srgb, #FCFCFC 0%, transparent);
     --surface-nav-solid:     #F3F3F3;
@@ -287,7 +368,7 @@ CSS-achievable subset of Apple's material: blur + adaptive saturation + tint + s
   [data-material="liquid-glass"] {
     --mat-tint: #EAF6FF; --mat-tint-alpha: 0.30;
     --mat-brightness: 100%; --mat-contrast: 104%;
-    --surface-overlay:       color-mix(in srgb, #EAF6FF 30%, transparent);
+    --surface-overlay:       color-mix(in srgb, #EAF6FF 30%, transparent); /* + the 70% canvas base, §2.0.1 */
     --surface-overlay-solid: #F2F8FF;
     --surface-nav:           color-mix(in srgb, #EAF6FF 25%, transparent);
     --surface-nav-solid:     #EDF5FF;
@@ -304,6 +385,17 @@ CSS-achievable subset of Apple's material: blur + adaptive saturation + tint + s
 ```
 
 > In-app `data-theme="light"` (Settings override) wins over the media query — the repo already ships 8 palettes × light/dark in `apps/web/src/app/globals.css`; every `[data-palette]` block re-declares the Layer-A values, and the Layer-B blocks above are what the mode switch adds. Keep the palettes owning colour and the material blocks owning blur/alpha/shadow.
+
+> **The light tier's overlay carries the same 70 % base** (§2.0.1), and it needs
+> it least: Windows' light acrylic is UNTINTED (`TintOpacity="0.0"`), so the
+> shipped light overlay is the palette's own canvas at 70 % —
+> `rgb(243 249 253 / 0.745)` on `frosted-aura` for Acrylic, and
+> `rgb(246 250 253 / 0.802)` for Liquid Glass. The base is applied in both
+> tiers anyway, because the value is a property of the ROLE, not of the
+> palette: one rule, twenty palettes, two tiers, no exceptions to remember.
+> The light tier's floors improved too (Acrylic `--text-primary`
+> 10.35 → 11.73, `--text-secondary` 7.29 → 8.22, `--text-muted`
+> 4.65 → 5.28).
 
 ### 2.6 Applying the material — the one class that all three modes share
 
@@ -436,7 +528,7 @@ Microsoft's acrylic recipe is **"background, blur, exclusion blend, color/tint o
 | Acrylic layer | CSS status in this spec | Reason |
 | --- | --- | --- |
 | Blur | ✅ `backdrop-filter: blur(40px)` | Exact port, value tuned (see §2.9). |
-| Color/tint overlay | ✅ `color-mix(... 15%, transparent)` | Exact port of `TintColor` + `TintOpacity`. |
+| Color/tint overlay | ✅ `color-mix(... 15%, transparent)` | Exact port of `TintColor` + `TintOpacity`. The tint layer is the port; the 70 % `--canvas` base under it is ours (§2.0.1), and it is what makes the port legible over the aurora. |
 | Luminosity opacity | ⚠️ approximated by `saturate(125%)` | `AcrylicBrush.TintLuminosityOpacity` "controls the amount of saturation that is allowed through the acrylic surface" and is otherwise set by the system from `TintColor`/`TintOpacity`. `saturate()` is the closest CSS filter function; the percentage is ours, not Microsoft's. |
 | Exclusion blend | ❌ dropped | Guarantees legibility. Replaced by the §6.1 contrast-floor rule, which is *testable*; an exclusion layer is neither. |
 | Noise | ❌ dropped | `craft-floor.md` Refuse list: "`feTurbulence` grain read as amateur." Replaced by the 1px specular hairline (`--mat-specular`). |
@@ -445,6 +537,13 @@ Microsoft's acrylic recipe is **"background, blur, exclusion blend, color/tint o
 ### 2.9 Honesty note on the tuned values
 
 Only the **tint and opacity** numbers are Microsoft-published (`#2C2C2C` / `0.15` dark, `#FCFCFC` / `0.0` light, `#F9F9F9` and `#202020` fallbacks, `0.8` accent). The **blur radius (40px / 48px), saturate (125% / 150%), brightness and contrast** values are **our port, chosen by eye against the same visual target and to be validated in-browser at the §5.6 checkpoints.** Microsoft publishes no pixel value for acrylic blur, and the docs say the luminosity opacity is "automatically adjusted" when unspecified. Treat these four rows as a tunable surface, not as a spec constant, and record any change in the worklog with a before/after screenshot.
+
+**The overlay's shipped alpha is DERIVED, not published.** `0.15` (Acrylic) and
+`0.34` (Liquid Glass) are the tint layers; the browser paints `0.745` and
+`0.802` because the legibility base sits under them (§2.0.1). So the published
+`TintOpacity` is still the honest description of the TINT, and the shipped
+number is the tint plus the base — the same arithmetic the app's glass tiers
+already do with `--glass-legibility-base`.
 
 ---
 
