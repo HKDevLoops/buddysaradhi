@@ -31,6 +31,7 @@ import {
   stmtInsertSyncOutbox,
   stmtAuditLogFindMany,
   stmtSyncOutboxFindMany,
+  stmtSumPeriodLedgerAmounts,
   STUDENT_SORT,
   ATTENDANCE_SESSION_SORT,
   LEDGER_SORT,
@@ -275,6 +276,25 @@ export interface PrismaOrm {
       },
     ): Promise<Record<string, any>[]>;
     create(args: { data: Record<string, any> }): Promise<Record<string, any>>;
+    /**
+     * BR-CALC-10 — the period's collected figure, summed in the database.
+     *
+     * ONE statement, ONE snapshot, ONE row back. The JavaScript equivalent
+     * read every qualifying row and reduced it here, which on a 200-student
+     * institute was 3,600 rows and 1,895 KB per request.
+     *
+     * The three things the SQL reproduces (the day-shape check, the trimmed
+     * day with inclusive bounds, and the reversal graph) are documented on
+     * `stmtSumPeriodLedgerAmounts` in lib/sql.ts — the builder is the rule;
+     * this method only reads its one row back and refuses to turn a corrupt
+     * money column into a figure.
+     */
+    sumPeriodAmounts(args: {
+      creditType: string;
+      debitType: string;
+      startDay: string;
+      endDay: string;
+    }): Promise<{ creditsPaise: number; refundsPaise: number }>;
   };
   receipt: {
     findMany(
@@ -341,6 +361,29 @@ function mapRowToCamel(
     out[snakeToCamel(k)] = v;
   }
   return out;
+}
+
+/**
+ * A money column read back from SQLite, as integer paise.
+ *
+ * BR-M-01 + Rule 9: a corrupt money value THROWS here rather than being
+ * rounded into a figure a tutor would read as a balance. Two shapes reach it:
+ * a REAL (a 10¹⁹-paise amount SQLite stored as a float — the shape the plan's
+ * row 1.9 describes) and a bigint past the safe-integer range (a sum that
+ * outgrew a double). The JavaScript reduction this replaced threw the same
+ * way, through `paiseAdd`.
+ */
+function readPaise(value: unknown, column: string): number {
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      throw new Error(`${column} is outside the safe integer range (BR-M-01)`);
+    }
+    return Number(value);
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`${column} is not integer paise (BR-M-01)`);
+  }
+  return value;
 }
 
 export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
@@ -575,6 +618,14 @@ export function createPrismaOrm(db: SqlHandle, tenantId: string): PrismaOrm {
         await run(db, stmt.sql, stmt.args);
         const back = stmtSelectOneWhere("ledger_entries", tenantId, { id });
         return mapRowToCamel(await oneRow(db, back.sql, back.args))!;
+      },
+      sumPeriodAmounts: async (args) => {
+        const stmt = stmtSumPeriodLedgerAmounts(tenantId, args);
+        const row = mapRowToCamel(await oneRow(db, stmt.sql, stmt.args));
+        return {
+          creditsPaise: readPaise(row?.creditsPaise, "credits_paise"),
+          refundsPaise: readPaise(row?.refundsPaise, "refunds_paise"),
+        };
       },
     },
 

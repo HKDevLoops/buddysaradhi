@@ -189,13 +189,19 @@ describe("P1 / the payment read is bounded to the period window and the open set
       .filter((sql) => sql.includes("type = ?"));
     expect(paymentReads.length).toBeGreaterThan(0);
     for (const sql of paymentReads) {
-      // Every typed ledger read must be bounded. The bound is one of three
-      // forms: a period window (`occurred_on >= ?`), the open-invoice set
-      // (`invoice_id IN (…)`), or — for the VOID-reversal read added by audit
-      // AUD-013 — the candidate credits' own ids (`void_of_id IN (…)`). That
-      // third form is bounded by the same population the read is derived from,
-      // so it cannot grow with the tenant's history either.
-      const bounded = sql.includes("occurred_on >= ?") ||
+      // Every typed ledger read must be bounded. The bound is one of four
+      // forms: the period window as a SUM (`substr(occurred_on, 1, 10) BETWEEN
+      // ? AND ?`), the open-invoice set (`invoice_id IN (…)`), or — for the
+      // VOID-reversal read added by audit AUD-013 — the candidate credits' own
+      // ids (`void_of_id IN (…)`). Each is bounded by the population the read
+      // is derived from, so none of them can grow with the tenant's history.
+      //
+      // The period leg's bound used to be a `SELECT *` over `occurred_on >= ?`
+      // that the route reduced in JavaScript. It is a SUM now — one statement,
+      // one snapshot, one row back — and the window is expressed on the
+      // TRIMMED day, because `occurred_on` may carry a time component.
+      const bounded = sql.includes("substr(occurred_on, 1, 10) BETWEEN ? AND ?") ||
+        sql.includes("occurred_on >= ?") ||
         sql.includes("invoice_id IN (") ||
         sql.includes("void_of_id IN (");
       expect(bounded).toBe(true);
@@ -205,10 +211,12 @@ describe("P1 / the payment read is bounded to the period window and the open set
   it("reads the period leg and the netting leg separately", async () => {
     await dashboard(db);
     const reads = db.selectsFrom("ledger_entries").filter((sql) => sql.includes("type = ?"));
-    // Leg 1 — the period sum: bounded by the window, never capped.
-    const period = reads.find((sql) => sql.includes("occurred_on >= ?"));
+    // Leg 1 — the period sum: a SUM in SQL, bounded by the window, never
+    // capped, and never a row-read reduced in JavaScript.
+    const period = reads.find((sql) => sql.includes("SUM(CASE WHEN type = ?"));
     expect(period).toBeDefined();
     expect(period).not.toContain("LIMIT");
+    expect(period).not.toContain("SELECT *");
     // Leg 2 — the per-invoice netting: bounded by the open-invoice set. It
     // exists precisely because a payment can land OUTSIDE the window and still
     // settle an invoice due inside it, so it cannot be folded into leg 1.

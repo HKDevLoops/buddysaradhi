@@ -1288,6 +1288,120 @@ export function stmtSecurityAuditInsert(
   };
 }
 
+// ── The dashboard's period aggregate (BR-CALC-10) ───────────────────────────
+
+/** A calendar day, `YYYY-MM-DD`. The period window's two bounds, and the same
+ *  shape the route's `PERIOD_DAY_PATTERN` enforces before it reads anything. */
+const DaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * The SQL form of "the first ten characters of this value are a `YYYY-MM-DD`
+ * day" — the shape check the route's `readDay` performs in JavaScript.
+ *
+ * SQLite's GLOB matches the WHOLE string (unlike LIKE) and supports `[a-z]`
+ * character classes, so this pattern is ten characters long and accepts only
+ * four digits, a dash, two digits, a dash, two digits. A value shorter than
+ * ten characters cannot match a ten-character pattern, which is what the
+ * JavaScript's `slice(0, 10)` + pattern test does with it.
+ *
+ * WHY IT IS NEEDED AT ALL: a lexicographic range on the RAW column cannot
+ * express the shape. "2026-1" sorts between "2026-01-01" and "2026-12-31" and
+ * would be INCLUDED by a plain range, while the JavaScript window EXCLUDES it
+ * because it is not a day. Without this test the two ways of computing the
+ * same figure would disagree — and the figure is money.
+ */
+const DAY_SHAPE_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]";
+
+/**
+ * BR-CALC-10 — "Collected for a period = Σ(credit_paise where
+ * type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED') over the
+ * period's date range. **Voided entries excluded.**"
+ *
+ * Implements: 12_Business_Rules.md BR-CALC-10 + 14_Edge_Cases.md EC-F-05
+ * (a reversed credit does not count) + 04_Dashboard.md §3 (the KPI strip must
+ * stay affordable as the institute grows) + AGENTS.md §3.4 (this module is the
+ * only place runtime SQL text may live).
+ *
+ * WHY IT EXISTS. The route used to READ every qualifying row and reduce it in
+ * JavaScript. On the spec's own scale (a 200-student institute, 24 months of
+ * history) that was 3,600 rows and 1,895 KB per request, and the "All time"
+ * window read the tenant's ENTIRE payment history off an append-only table
+ * (Rule 1: a void is a new row, so `ledger_entries` only ever grows). The
+ * figure the route needs is a SCALAR, so the sum happens here, in the
+ * database, and ONE row comes back.
+ *
+ * THE JAVASCRIPT WINDOW HAD THREE PARTS, and all three are reproduced here —
+ * a SQL range alone is NOT the same rule:
+ *
+ *  1. THE DAY-SHAPE CHECK. `readDay` returned null unless the leading ten
+ *     characters matched `YYYY-MM-DD`, so a malformed `occurred_on` was
+ *     EXCLUDED. `DAY_SHAPE_GLOB` is the same test in SQL.
+ *  2. THE TRIMMED DAY, with INCLUSIVE bounds. The range is on
+ *     `substr(occurred_on, 1, 10)`, so a payment at `2026-10-31T10:00:00Z` is
+ *     INSIDE a window ending `2026-10-31`. A raw `occurred_on <= periodEnd`
+ *     would exclude it — the exact bug this builder must not have.
+ *  3. THE REVERSAL GRAPH. "Voided entries excluded" is NOT the row's own
+ *     `void_of_id`: a voided ORIGINAL carries null there, and the reversal is
+ *     the LATER row pointing back at it. So the predicate is "this row's id is
+ *     not some OTHER row's `void_of_id`" — a `NOT IN` over a SUBQUERY of the
+ *     tenant's own VOID rows. A subquery, never an `IN` list of ids: the
+ *     candidate set grows with the tenant's history and SQLite's variable
+ *     ceiling is 32,766, so an id list would 500 on a long-lived institute.
+ *
+ * ONE STATEMENT, TWO LEGS. The credit sum and the refund sum are two CASE
+ * expressions over ONE scan, so they share ONE snapshot: a payment and its
+ * refund cannot land on opposite sides of a concurrent write. They were two
+ * statements before, and two statements are two snapshots.
+ *
+ * The reversal exclusion applies to the CREDIT leg only, which is the rule the
+ * route has always implemented. A voided REFUND still subtracts — unchanged
+ * here on purpose: widening or narrowing that is a money-semantics change
+ * under BR-CALC-10, not a performance fix, and it needs its own decision.
+ */
+export function stmtSumPeriodLedgerAmounts(
+  tenantId: string,
+  opts: {
+    creditType: string;
+    debitType: string;
+    startDay: string;
+    endDay: string;
+  },
+): BuiltStatement {
+  const tenant = auditedTenant(tenantId);
+  const creditType = z.string().min(1).max(64).parse(opts.creditType);
+  const debitType = z.string().min(1).max(64).parse(opts.debitType);
+  const startDay = DaySchema.parse(opts.startDay);
+  const endDay = DaySchema.parse(opts.endDay);
+  if (startDay > endDay) {
+    throw new Error("period window is empty: startDay is after endDay");
+  }
+  return {
+    sql: `SELECT COALESCE(SUM(CASE WHEN type = ? THEN credit_paise ELSE 0 END), 0) AS credits_paise,
+                 COALESCE(SUM(CASE WHEN type = ? THEN debit_paise ELSE 0 END), 0) AS refunds_paise
+            FROM ledger_entries
+           WHERE tenant_id = ?
+             AND type IN (?, ?)
+             AND substr(occurred_on, 1, 10) GLOB ?
+             AND substr(occurred_on, 1, 10) BETWEEN ? AND ?
+             AND (type <> ?
+                  OR id NOT IN (SELECT void_of_id FROM ledger_entries
+                                 WHERE tenant_id = ? AND type = ? AND void_of_id IS NOT NULL))`,
+    args: [
+      creditType,
+      debitType,
+      tenant,
+      creditType,
+      debitType,
+      DAY_SHAPE_GLOB,
+      startDay,
+      endDay,
+      creditType,
+      tenant,
+      "VOID",
+    ],
+  };
+}
+
 // ── GraphQL read builders (parameterized LIKE values; identifiers fixed) ──
 
 export function stmtGraphqlSettings(tenantId: string): BuiltStatement {

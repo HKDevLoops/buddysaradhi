@@ -50,11 +50,12 @@
 //    What survives is the part that is a genuine correctness fix: both bounds
 //    must be REAL calendar days, so `2026-02-30` is a typed 400 instead of a
 //    silently shifted window.
-//    The performance concern is real and stays open, but its correct fix is to
-//    aggregate in SQL (SUM with a filter) rather than to clamp a window the
-//    spec calls unbounded — a clamp would under-report `collectedInPeriod` with
-//    nothing in the response to disclose it. Tracked in
-//    `docs/audit/REMEDIATION_PLAN.md` (F-19a), not silently resolved here.
+//    The performance concern was real, and it is now CLOSED the right way: the
+//    period's collected figure is summed IN SQL (one statement, one snapshot)
+//    rather than clamped, because a clamp would under-report
+//    `collectedInPeriod` with nothing in the response to disclose it. See
+//    `stmtSumPeriodLedgerAmounts` in lib/sql.ts and
+//    `__tests__/analytics-period-aggregate.test.ts`.
 // 5. Activity rows named a payment as if it were a student
 //    (`student_name: e.description || e.type`, so the column read "Payment
 //    received"). A ledger row is now joined to the roster and carries the real
@@ -345,11 +346,13 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     //   4. student.findMany({ where: {} })                                 — the
     //      whole roster, unfiltered.
     //
-    // (1) splits into two reads that are each bounded by the population the
-    // measure is actually defined over: the PERIOD for the period sum, and the
-    // OPEN-INVOICE SET for the per-invoice netting. (2)+(3) collapse into ONE
-    // read of the open set — the union read was `openDatedInvoices ⊆ invoices`,
-    // so two unbounded reads were fetching an overlap of one.
+    // (1) splits into two measures that are each bounded by the population they
+    // are actually defined over: the PERIOD for the period sum, and the
+    // OPEN-INVOICE SET for the per-invoice netting. The period sum is now a
+    // SUM IN SQL — one statement, one row, one snapshot — so it reads no rows
+    // into JavaScript at all. (2)+(3) collapse into ONE read of the open set:
+    // the union read was `openDatedInvoices ⊆ invoices`, so two unbounded reads
+    // were fetching an overlap of one.
     //
     // The bound is a FILTER, never a cap. There is deliberately no `take` on any
     // of these reads: a capped read of a money population silently under-reports
@@ -371,7 +374,7 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     // graduated or archived student — the case that produced `student_name:
     // "Student"`. Reading the roster once and deriving the active subset in
     // the route keeps the same cost and gives every due row a real name.
-    const [allStudents, openInvoices, ledger, notifs, periodPayments, periodRefunds] = await Promise.all([
+    const [allStudents, openInvoices, ledger, notifs, periodTotals] = await Promise.all([
       orm.student.findMany({ where: {} }),
       // The open-invoice set — `paid` and `void` are gone before the row leaves
       // SQLite. This ONE read replaces both unbounded invoice reads: it is a
@@ -389,27 +392,29 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
       }),
       orm.ledgerEntry.findMany({ orderBy: { occurredOn: "desc" }, take: 20 }),
       orm.notification.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
-      // The PERIOD leg of what used to be one all-time read. `occurred_on >= ?`
-      // is a lexicographic range over TEXT 'YYYY-MM-DD…' (lib/schema.ts:121-145),
-      // and it is a strict SUPERSET of the rows the measure keeps: any row whose
-      // leading day is `>= periodStart` is lexically `>= periodStart` as a whole
-      // string, so nothing the JS `isWithinPeriod` accepts can be filtered out
-      // here. The upper bound and the shape check stay in JS because they are
-      // day-granular and `occurred_on` may carry a time component that a plain
-      // `<= periodEnd` would wrongly exclude. No `take`: this SUM must be exact.
-      orm.ledgerEntry.findMany({
-        where: { type: "PAYMENT_RECEIVED", occurredOn: { gte: periodStart } },
-      }),
-      // BR-CALC-10: "Collected for a period = Σ(credit_paise where
-      // type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED')
-      // over the period's date range. Voided entries excluded." The refund leg
-      // was missing, so a refund never came out of the collected figure — the
-      // dashboard overstated revenue by every refund the tutor issued. The
-      // shared implementation (`packages/shared/src/feeCalc.ts:272-273`) DOES
-      // subtract them; AGENTS.md §3.5 forbids two copies of one rule
-      // disagreeing.
-      orm.ledgerEntry.findMany({
-        where: { type: "REFUND_ISSUED", occurredOn: { gte: periodStart } },
+      // The PERIOD leg — BR-CALC-10 — summed IN SQL, in ONE statement.
+      //
+      // It used to be two `findMany` calls (every PAYMENT_RECEIVED and every
+      // REFUND_ISSUED row in the window) reduced in JavaScript below. On the
+      // spec's own scale that was 3,600 rows and 1,895 KB per request, and the
+      // "All time" window read the tenant's entire payment history off an
+      // append-only table (Rule 1). The figure is a SCALAR, so it is a SUM.
+      //
+      // The builder reproduces the JavaScript window exactly — the day-shape
+      // check, the inclusive bounds on the TRIMMED day, and the reversal graph
+      // (a credit some later row reversed does not count). See
+      // `stmtSumPeriodLedgerAmounts` in lib/sql.ts for the three parts, and
+      // `analytics-period-aggregate.test.ts` for the paise-for-paise parity
+      // that holds them together.
+      //
+      // ONE statement, not two: the credit sum and the refund sum share one
+      // scan and therefore one snapshot, so a payment and its refund cannot
+      // land on opposite sides of a concurrent write.
+      orm.ledgerEntry.sumPeriodAmounts({
+        creditType: "PAYMENT_RECEIVED",
+        debitType: "REFUND_ISSUED",
+        startDay: periodStart,
+        endDay: periodEnd,
       }),
     ]);
 
@@ -468,32 +473,20 @@ export const handleAnalytics: RouteHandler = async (_req, db, tenantId, path, me
     const dueTill = dues.reduce((a, s) => paiseAdd(a, Number(s.balancePaise ?? 0)), 0);
 
     // ── Collected in the period ───────────────────────────────────────────────
-    // `periodPayments` is the PERIOD-bounded read above; the JS window still
-    // runs because it owns the upper bound and the day-shape check that the
-    // SQL `occurred_on >= ?` cannot express. The rows that survive BOTH are
-    // exactly the rows the old all-time read was windowed down to.
     //
-    // AUD-001/AUD-013: BR-CALC-10 says "Collected for a period = Σ(credit_paise
-    // where type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED')
-    // over the period's date range. **Voided entries excluded.**" Two legs were
-    // missing: a VOIDED payment still counted as cash in (it is still a
-    // PAYMENT_RECEIVED row with no marker of its own), and refunds never came
-    // out. So the dashboard's headline revenue included money the tutor gave
-    // back and money the tutor never kept.
-    const periodReversed = await reversedCreditIds(
-      orm,
-      periodPayments.map((p) => (p.id === undefined || p.id === null ? "" : String(p.id))).filter((id) => id.length > 0),
-    );
-    const collectedPayments = periodPayments.reduce((a, p) => {
-      if (!isWithinPeriod(readDay(p.occurredOn), periodStart, periodEnd)) return a;
-      if (p.id !== undefined && p.id !== null && periodReversed.has(String(p.id))) return a;
-      return paiseAdd(a, Number(p.creditPaise ?? 0));
-    }, 0);
-    const collectedRefunds = periodRefunds.reduce((a, p) => {
-      if (!isWithinPeriod(readDay(p.occurredOn), periodStart, periodEnd)) return a;
-      return paiseAdd(a, Number(p.debitPaise ?? 0));
-    }, 0);
-    const collected = paiseSub(collectedPayments, collectedRefunds);
+    // BR-CALC-10: "Collected for a period = Σ(credit_paise where
+    // type='PAYMENT_RECEIVED') − Σ(debit_paise where type='REFUND_ISSUED')
+    // over the period's date range. **Voided entries excluded.**"
+    //
+    // Both sums come back from ONE statement, so they share one snapshot, and
+    // the window — the day-shape check, the inclusive bounds on the trimmed
+    // day, and the reversal graph (a credit some later row reversed does not
+    // count) — is the audited builder's, not this file's.
+    //
+    // The per-invoice netting above still needs its own read: a payment that
+    // landed BEFORE the window can settle an invoice due inside it, so
+    // windowing one measure must not blind the others.
+    const collected = paiseSub(periodTotals.creditsPaise, periodTotals.refundsPaise);
 
     // The subset of the open set that carries a deadline. Applied in JS (not
     // `due_date IS NOT NULL` in the where clause) so the SINGLE open read stays
