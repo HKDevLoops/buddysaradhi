@@ -15,6 +15,11 @@ export default defineConfig({
       // node:test suites (not vitest) — run via `pnpm --filter product-page test`.
       'apps/product-page/src/app/admin/_lib/access-requests.test.ts',
       'apps/product-page/src/app/admin/_lib/engine.test.ts',
+      // The perf gates run in their OWN lane (apps/gateway/vitest.perf.config.ts):
+      // a perf measurement taken while the rest of the suite burns the CPU is a
+      // measurement of the suite. See the config's header for the whole argument.
+      'apps/gateway/__tests__/low-latency.test.ts',
+      'apps/gateway/__tests__/performance.test.ts',
     ],
     // Gateway tests need Deno shims (stdout.writeSync, env.get, serve).
     // The setup file is a no-op for tests that don't use Deno APIs.

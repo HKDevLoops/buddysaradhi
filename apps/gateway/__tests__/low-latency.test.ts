@@ -79,31 +79,47 @@ export function p95PerOp(op: () => void, batches = BATCHES): number {
 // and the verdict holds - which is the whole point (see `costInStickUnits`).
 
 //
-// Each budget is the MEASURED ratio (on this machine, 2026-10-21) with ~3x
-// headroom. The headroom covers a loaded runner and a different CPU; the 3x is
-// deliberate, because a genuine regression of 10x must still trip the gate
-// (the old absolute budgets missed a 10x regression on a quiet machine and
-// failed on a loaded one - they measured the runner, not the code).
+// THE BUDGET RULE (and why it is 2x, not 3x).
 //
-// Measured (worst of 3 runs, 2026-10-21): security checks 33.8 | URL validation
-// 7.4 | path validation 3.6 | warm cache 2.3 | response cache 28.1 | tenant
-// invalidation 1761 | body validation 1.7 | header validation 3.4 | ok 100.1 |
-// fail 57.6 | okCached 46.4 | securityFail 59.0. The budget is 3x the worst
-// observed, and the spread between runs is 1.2x-2.3x - so the gate holds on a
-// loaded runner AND a 10x regression trips it.
+// A budget has to satisfy two requirements at once:
+//
+//   1. it must NOT trip on a healthy machine, so it has to clear the WORST
+//      ratio any machine produces, times the headroom for a loaded runner;
+//   2. it MUST trip on a genuine regression, so it has to sit below the
+//      multiple a regression costs.
+//
+// With the stick's own cross-machine spread measured at 1.2x-2.3x, the two
+// meet at TWICE the worst observed ratio: a three-times regression is then
+// 1.5x over the budget on the machine the budget was calibrated on, and the
+// runner's noise (1.3x) stays comfortably under it.
+//
+// MEASURED (the worst of four runs, 2026-10-21, on the calibration machine
+// and on a second one): security checks 33.8 | URL validation 7.4 | path
+// validation 3.6 | warm cache 2.3 | response cache 28.1 | tenant invalidation
+// 1761 | body validation 2.1 | header validation 4.2 | ok 100.1 | fail 57.6 |
+// okCached 46.4 | securityFail 59.0. Each budget is twice the worst observed.
+//
+// WHAT THE INSTRUMENT CANNOT SEE, STATED PLAINLY. The stick costs about 0.6
+// microseconds, so an operation that costs a few tens of nanoseconds - a
+// cache HIT on a warm map - measures as a fraction of one unit and its ratio
+// has no resolution left to spare. A three-times regression of THAT
+// operation is not detectable. The instrument's floor is the stick's own
+// resolution; below it, the gate is a smoke test, not a budget. The negative
+// control in `perf-negative-control.test.ts` pins the instrument's floor so
+// it cannot be mistaken for a budget.
 
-const SECURITY_CHECKS_UNITS = 102;
-const URL_VALIDATION_UNITS = 23;
-const PATH_VALIDATION_UNITS = 11;
-const WARM_CACHE_UNITS = 7;
-const RESPONSE_CACHE_UNITS = 85;
-const INVALIDATION_UNITS = 5300;
-const BODY_VALIDATION_UNITS = 5;
-const HEADER_VALIDATION_UNITS = 11;
-const OK_UNITS = 301;
-const FAIL_UNITS = 173;
-const OK_CACHED_UNITS = 140;
-const SECURITY_FAIL_UNITS = 177;
+const SECURITY_CHECKS_UNITS = 68;
+const URL_VALIDATION_UNITS = 15;
+const PATH_VALIDATION_UNITS = 7;
+const WARM_CACHE_UNITS = 5;
+const RESPONSE_CACHE_UNITS = 56;
+const INVALIDATION_UNITS = 3500;
+const BODY_VALIDATION_UNITS = 4;
+const HEADER_VALIDATION_UNITS = 8;
+const OK_UNITS = 200;
+const FAIL_UNITS = 115;
+const OK_CACHED_UNITS = 93;
+const SECURITY_FAIL_UNITS = 118;
 const IP_RATE_LIMIT_UNITS = 5;
 /** How many times `p95PerOp` actually invokes its op. */
 // The ABBA interleave runs the candidate twice per batch (see
@@ -179,7 +195,6 @@ describe("Cache response latency", () => {
     // Different tenant prefix — should survive invalidation
     setCache("other-tenant:1", { id: 999 }, 60_000);
 
-    const start = performance.now();
     // The invalidation is ONE operation over 512 entries, so it is timed
     // against the stick measured in the same run rather than per-op. It is
     // repeated and the median taken, because a single-shot measurement on a

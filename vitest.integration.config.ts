@@ -7,7 +7,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     include: ["apps/gateway/__tests__/**/*.test.ts", "apps/gateway/src/__tests__/**/*.test.ts"],
-    exclude: ["**/node_modules/**", "**/dist/**"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      // The perf gates run in their OWN lane (apps/gateway/vitest.perf.config.ts):
+      // a perf measurement taken while the rest of the suite burns the CPU is a
+      // measurement of the suite.
+      "apps/gateway/__tests__/low-latency.test.ts",
+      "apps/gateway/__tests__/performance.test.ts",
+    ],
     // Gateway tests need Deno shims (stdout.writeSync, env.get, serve).
     setupFiles: [path.resolve(__dirname, "apps/gateway/__tests__/setup.ts")],
     // MUST match `apps/gateway/vitest.config.ts` — this config runs the SAME 43

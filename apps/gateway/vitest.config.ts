@@ -9,6 +9,12 @@ export default defineConfig({
       "@libsql/client/web": "@libsql/client",
     },
     include: ["__tests__/**/*.test.ts"],
+    // The perf gates run in their OWN lane (vitest.perf.config.ts), on one
+    // worker, with nothing else competing for the CPU they are timing.
+    exclude: [
+      "__tests__/low-latency.test.ts",
+      "__tests__/performance.test.ts",
+    ],
     environment: "node",
     globals: false,
     testTimeout: 10_000,
