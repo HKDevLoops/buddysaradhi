@@ -187,6 +187,7 @@ describe("RFC-004 K1 — double-submit same key (payment + void)", () => {
     const v1 = await mutate(f, handleLedger, "/api/v1/ledger/void", "POST", {
       entryId,
       reason: "duplicate charge",
+      pinProof: f.pinProof,
     }, { key });
     expect(v1.status).toBe(200);
     const t1 = await v1.text();
@@ -194,6 +195,7 @@ describe("RFC-004 K1 — double-submit same key (payment + void)", () => {
     const v2 = await mutate(f, handleLedger, "/api/v1/ledger/void", "POST", {
       entryId,
       reason: "duplicate charge",
+      pinProof: f.pinProof,
     }, { key });
     expect(v2.status).toBe(200);
     expect(await v2.text()).toBe(t1);

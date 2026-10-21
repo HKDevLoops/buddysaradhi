@@ -201,9 +201,26 @@ export interface LedgerFixture {
   tenantId: string;
   studentId: string;
   tenantSecret: string;
+  /** The tenant's stored PIN proof — what a void must present (BR-SEC-04). */
+  pinProof: string;
 }
 
 export const TEST_TENANT_SECRET = "fixture-tenant-secret-pepper";
+
+/**
+ * The tenant's stored PIN proof (12_Business_Rules.md BR-SEC-04).
+ *
+ * The edge COMPARES the proof a request offers with the one on record; it
+ * never derives one from a PIN (the edge has no argon2, and the proof is
+ * derived server-side by the settings sync-apply route). So a fixed value is a
+ * faithful stand-in for a tenant's own proof, and a test can present it
+ * without an argon2 dependency.
+ */
+export const TEST_PIN_PROOF = "a1b2c3d4".repeat(8);
+
+/** A stand-in for the argon2id `pin_hash` — its presence is what the gate
+ *  reads ("does this tenant HAVE a PIN?"), never its value. */
+export const TEST_PIN_HASH = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$Zml4dHVyZQ";
 
 /**
  * A fresh in-memory tenant DB (gateway DDL + triggers) with one settings row
@@ -217,10 +234,10 @@ export function createLedgerFixture(): LedgerFixture {
 
   db.raw
     .prepare(
-      `INSERT INTO settings (tenant_id, institute_name, tenant_secret, created_at, updated_at)
-       VALUES (?, 'Fixture Tuition', ?, ?, ?)`,
+      `INSERT INTO settings (tenant_id, institute_name, tenant_secret, pin_hash, pin_proof, created_at, updated_at)
+       VALUES (?, 'Fixture Tuition', ?, ?, ?, ?, ?)`,
     )
-    .run(tenantId, TEST_TENANT_SECRET, now, now);
+    .run(tenantId, TEST_TENANT_SECRET, TEST_PIN_HASH, TEST_PIN_PROOF, now, now);
 
   db.raw
     .prepare(
@@ -229,5 +246,5 @@ export function createLedgerFixture(): LedgerFixture {
     )
     .run(studentId, tenantId, now, now);
 
-  return { db, tenantId, studentId, tenantSecret: TEST_TENANT_SECRET };
+  return { db, tenantId, studentId, tenantSecret: TEST_TENANT_SECRET, pinProof: TEST_PIN_PROOF };
 }

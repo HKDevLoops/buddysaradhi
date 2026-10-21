@@ -12,6 +12,7 @@ import {
   stmtFindLiveReceipt,
   stmtFindLiveReceiptByEntry,
   stmtVoidReceipt,
+  stmtSettingPinProof,
 } from "../lib/sql.ts";
 import {
   computeChainHash,
@@ -29,6 +30,8 @@ import {
   storeIdempotentResponse,
 } from "../lib/idempotency.ts";
 import { z } from "zod";
+import { constantTimeCompare } from "../lib/crypto.ts";
+import { logWarn } from "../lib/log.ts";
 import { paiseAdd, paiseSub } from "../lib/vendor/format.ts";
 import { encodeOutboxPayload } from "../lib/vendor/outboxPayload.ts";
 import { computeInvoiceTamperHash } from "../lib/vendor/tamper.ts";
@@ -119,9 +122,18 @@ const LedgerInvoiceSchema = z.object({
 // that ends up in `audit_log.metadata` (the empty-metadata defect G4). The
 // reason is REQUIRED: an unexplained reversal is an audit hole (BR-SEC-03),
 // so a missing/blank reason is a typed 400 VALIDATION, never a default.
+//
+// `pinProof` is the tutor's PIN PROOF (BR-SEC-04) — the HMAC the web computes
+// over the PIN under a server-side pepper, which the edge can verify WITHOUT
+// argon2 (`lib/crypto.ts` `pinProof`). It is OPTIONAL in the schema on
+// purpose: a request that carries no proof must answer the typed refusal
+// `403 PIN_PROOF_UNAVAILABLE` (the audit's prescribed status), not a Zod 400
+// that reads as "your body was malformed" and sends the client looking in the
+// wrong place. The gate itself is `assertVoidPinProof` below.
 const LedgerVoidSchema = z.object({
   entryId: uuidSchema,
   reason: z.string().trim().min(1, "reason is required").max(500, "must be 500 characters or fewer"),
+  pinProof: z.string().trim().max(200, "must be 200 characters or fewer").optional(),
 });
 
 /** Zero-pad a sequence to 6 digits — BR-LED-03 / 07 §9.7. */
@@ -514,6 +526,106 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       // settings outbox row per sequence take") pins this.
     },
   };
+}
+
+/**
+ * BR-SEC-04 — the void route's PIN gate.
+ *
+ * WHY THE EDGE HAS TO CHECK IT. The ledger is append-only (Rule 1), so a void
+ * is the ONLY correction path a mistaken payment has (07_Fees_and_Payments.md
+ * §9.10, 12_Business_Rules.md BR-LED-04). The web's server action verified the
+ * PIN with argon2id before it called this route — a CALLER-side control on a
+ * route the gateway itself exposes. A stolen session could post a void with
+ * no PIN material at all, and the tutor's books would read as unpaid with no
+ * correction left to make. The gateway's own attendance route states the
+ * principle: "A client-side check is not a sufficient control".
+ *
+ * WHY A PROOF AND NOT THE PIN. `settings.pin_hash` is argon2id(m=64MiB) and
+ * the Deno edge has no argon2 (WebCrypto offers PBKDF2/SHKDF only). What the
+ * edge CAN compute is `settings.pin_proof` — an HMAC over the PIN under a
+ * server-side key (`lib/crypto.ts` `pinProof`), the same machinery the
+ * secure-erase gate uses (routes/security.ts, 10_Security.md §18.1). The
+ * proof is a DERIVED value: it proves knowledge of the PIN without the PIN
+ * and without the PIN crossing the wire (BR-SEC-07).
+ *
+ * THE REFUSALS, each fail-closed and each typed:
+ *   1. no PIN configured    → there is nothing to confirm against (403)
+ *   2. no proof on record   → the tutor must re-confirm their PIN once (403)
+ *   3. no proof offered     → the request carried none (403)
+ *   4. the proof does not match → the PIN was wrong (401)
+ *
+ * The wrong-PIN and no-PIN answers are deliberately DIFFERENT statuses: a
+ * wrong PIN is a failed authentication (401) and a missing proof is a
+ * request that cannot be authorised at all (403). Neither answer says
+ * anything about the stored proof itself.
+ */
+async function assertVoidPinProof(
+  db: SqlHandle,
+  tenantId: string,
+  offeredProof: unknown,
+): Promise<void> {
+  const pinStmt = stmtSettingPinProof(tenantId);
+  const pinRow = await oneRow(
+    // SAFETY: `SqlHandle` is the only capability this route uses; `DB` (the
+    // libsql client) satisfies it structurally — the same cast the erase
+    // route makes (routes/security.ts).
+    db as unknown as SqlHandle,
+    pinStmt.sql,
+    pinStmt.args,
+  );
+
+  const pinConfigured = typeof pinRow?.pin_hash === "string" && pinRow.pin_hash.length > 0;
+  if (!pinConfigured) {
+    logWarn("ledger.void_pin_unset", { tenantId });
+    throw new LedgerRouteError(
+      "PIN_PROOF_UNAVAILABLE: no PIN is configured for this account. Set a " +
+        "security PIN in Settings → Security, then void again. (BR-SEC-04.)",
+      403,
+    );
+  }
+
+  const storedProof = typeof pinRow?.pin_proof === "string" ? pinRow.pin_proof : "";
+  if (storedProof.length === 0) {
+    logWarn("ledger.void_pin_proof_unset", { tenantId });
+    throw new LedgerRouteError(
+      "PIN_PROOF_UNAVAILABLE: re-confirm your security PIN in Settings → " +
+        "Security, then void again. The edge verifies the PIN without ever " +
+        "seeing it. (10_Security.md §18.1, BR-SEC-04.)",
+      403,
+    );
+  }
+
+  const offered = typeof offeredProof === "string" ? offeredProof.trim() : "";
+  if (offered.length === 0) {
+    logWarn("ledger.void_pin_proof_missing", { tenantId });
+    throw new LedgerRouteError(
+      "PIN_PROOF_UNAVAILABLE: a PIN confirmation is required to void a " +
+        "receipt. (10_Security.md §18.1, BR-SEC-04.)",
+      403,
+    );
+  }
+
+  // Bound the input BEFORE the constant-time comparison. `constantTimeCompare`
+  // iterates the longer of the two operands, so an unbounded caller-supplied
+  // string would be walked character by character — a megabyte POST becomes a
+  // megabyte of pointless CPU on the ledger's correction path. The length
+  // check is also what keeps a wrong-length proof from being compared at all.
+  if (offered.length !== storedProof.length) {
+    logWarn("ledger.void_pin_proof_malformed", { tenantId });
+    throw new LedgerRouteError(
+      "PIN_PROOF_MISMATCH: that PIN confirmation was not accepted. Nothing " +
+        "was written. (BR-SEC-04.)",
+      401,
+    );
+  }
+  if (!constantTimeCompare(storedProof, offered)) {
+    logWarn("ledger.void_pin_proof_mismatch", { tenantId });
+    throw new LedgerRouteError(
+      "PIN_PROOF_MISMATCH: that PIN confirmation was not accepted. Nothing " +
+        "was written. (BR-SEC-04.)",
+      401,
+    );
+  }
 }
 
 export const handleLedger: RouteHandler = async (req, db, tenantId, path, method, url) => {
@@ -933,12 +1045,23 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
     const parsed = LedgerVoidSchema.safeParse({
       entryId: body.entryId ?? body.entryIdToVoid,
       reason: body.reason,
+      // The PIN proof, in either spelling: `pinProof` is the erase route's
+      // (and the contract's) name, `pin_proof` is the settings sync-apply
+      // route's — the same two-spelling affordance the contract already
+      // documents for that route.
+      pinProof: body.pinProof ?? body.pin_proof,
     });
     if (!parsed.success) return failZod(parsed.error);
     const entryId = parsed.data.entryId;
     const reason = parsed.data.reason;
 
     try {
+      // BR-SEC-04 — the PIN gate, BEFORE anything is written. It runs outside
+      // the write transaction so a refused void never takes the tenant's write
+      // lock, and it throws the route's typed error, so the refusal is a
+      // 401/403 with a dispatch code rather than a 500.
+      await assertVoidPinProof(db, tenantId, parsed.data.pinProof);
+
       const result = await withWriteTransaction(db, async (tx) => {
         const txOrm = createPrismaOrm(tx, tenantId);
 
@@ -998,6 +1121,9 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         await recordAudit(tx, tenantId, tenantId, "ledger.void", "ledger", entryId, {
           reason,
           original_type: entry.type,
+          // BR-SEC-08 — the audit row records that this sensitive action was
+          // RE-AUTHORISED, not merely that it happened.
+          pin_verified: true,
         });
 
         const tip = await loadChainTip(tx, tenantId, entry.studentId);

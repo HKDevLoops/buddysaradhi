@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { handleSettings } from "../routes/settings.ts";
 import type { DB } from "../lib/db.ts";
-import { createLedgerFixture, type LedgerFixture } from "./sqlite-db.ts";
+import { createLedgerFixture, TEST_PIN_HASH, type LedgerFixture } from "./sqlite-db.ts";
 
 interface ApiBody {
   success: boolean;
@@ -111,7 +111,12 @@ describe("no secret echo — settings GET/PATCH (10_Security.md §1/§3.4)", () 
     const res = await patchSettings(f, { pin_hash: "attacker-supplied" });
     expect(res.status).toBe(400);
     const row = f.db.query("SELECT pin_hash FROM settings WHERE tenant_id = ?", [f.tenantId])[0];
-    expect(row?.pin_hash).toBeNull();
+    // The allowlist strips the field, so the tenant's OWN hash is untouched
+    // and the attacker's value never lands. (The fixture tenant HAS a PIN —
+    // a BR-SEC-04 world assumes one — so the assertion is "unchanged", not
+    // "absent".)
+    expect(row?.pin_hash).toBe(TEST_PIN_HASH);
+    expect(row?.pin_hash).not.toBe("attacker-supplied");
   });
 
   it("typed errors carry no secret material, stacks, or SQL", async () => {

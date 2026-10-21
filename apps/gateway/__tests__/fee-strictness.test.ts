@@ -190,6 +190,7 @@ describe("void requires a reason + posts a reversing entry (Rule 1, BR-LED-04/05
     const res = await call(f, handleLedger, "/api/v1/ledger/void", "POST", {
       entryId,
       reason: "duplicate collection",
+      pinProof: f.pinProof,
     });
     expect(res.status).toBe(200);
     const audit = rows(f, "SELECT metadata FROM audit_log WHERE action = 'ledger.void'");

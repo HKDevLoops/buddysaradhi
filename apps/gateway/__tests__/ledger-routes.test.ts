@@ -123,7 +123,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
       f,
       "SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' ORDER BY rowid LIMIT 1",
     )[0]?.id as string;
-    const voided = await post(f, "/api/v1/ledger/void", { entryId, reason: "wrong amount" });
+    const voided = await post(f, "/api/v1/ledger/void", { entryId, reason: "wrong amount", pinProof: f.pinProof });
     expect(voided.status).toBe(200);
 
     const third = await post(f, "/api/v1/ledger/payment", {
@@ -170,6 +170,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     const voided = await post(f, "/api/v1/ledger/void", {
       entryId: paymentEntry.id,
       reason: "duplicate entry",
+      pinProof: f.pinProof,
     });
 
     expect(voided.status).toBe(200);
@@ -201,6 +202,7 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
     const voided = await post(f, "/api/v1/ledger/void", {
       entryId: chargeEntry,
       reason: "fee plan corrected",
+      pinProof: f.pinProof,
     });
 
     expect(voided.status).toBe(200);
@@ -221,17 +223,18 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
       "SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'",
     )[0]?.id as string;
 
-    const first = await post(f, "/api/v1/ledger/void", { entryId, reason: "first" });
+    const first = await post(f, "/api/v1/ledger/void", { entryId, reason: "first", pinProof: f.pinProof });
     expect(first.status).toBe(200);
     const voidId = dataOf<{ voidId: string }>(first.body).voidId;
 
-    const doubleVoid = await post(f, "/api/v1/ledger/void", { entryId, reason: "again" });
+    const doubleVoid = await post(f, "/api/v1/ledger/void", { entryId, reason: "again", pinProof: f.pinProof });
     expect(doubleVoid.status).toBe(409);
     expect(doubleVoid.body.error).toBe("entry_already_voided");
 
     const voidOfVoid = await post(f, "/api/v1/ledger/void", {
       entryId: voidId,
       reason: "recursively",
+      pinProof: f.pinProof,
     });
     expect(voidOfVoid.status).toBe(409);
     expect(voidOfVoid.body.error).toBe("cannot_void_a_void_entry");
@@ -248,7 +251,11 @@ describe("gateway ledger routes — audit G2/G3/G4/G8", () => {
       "SELECT id FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED'",
     )[0]?.id as string;
 
-    await post(f, "/api/v1/ledger/void", { entryId, reason: "Parent paid twice" });
+    await post(f, "/api/v1/ledger/void", {
+      entryId,
+      reason: "Parent paid twice",
+      pinProof: f.pinProof,
+    });
 
     const audit = rows(
       f,
