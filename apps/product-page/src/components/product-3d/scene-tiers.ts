@@ -107,21 +107,78 @@ export const FOV_PEAK = 75;
  * - Low-end (Save-Data, weak CPU/RAM, small viewport): `[0.75, 1]`.
  * - Full scene on a narrow screen: `[1, 1.5]` - the hero's long-standing cap,
  *   kept because a phone-width viewport gains nothing from more pixels.
- * - Full scene on a desktop-class viewport (>1280px, not low-end): `[1, 2]` -
- *   the spec's discrete tier. `<AdaptiveDpr>` still sheds load under pressure,
- *   so the wider cap only spends pixels the GPU has already proven it can
- *   afford.
+ * - Full scene on a desktop-class viewport (>1280px, not low-end): the
+ *   spec's discrete tier, `[1, 2]`, and only when the GPU really is discrete.
+ *   An INTEGRATED GPU gets `[0.75, 1.5]` (20_3D §3.1: "integrated GPU ->
+ *   DPR 0.75-1.5") and a SOFTWARE rasteriser gets `[0.75, 1]`.
+ *
+ * The GPU class is a new input because the ladder used to be blind to it: a
+ * software rasteriser and a discrete GPU were both served the desktop tier.
  */
-export function resolveDpr(lowEnd: boolean, wide: boolean): readonly [number, number] {
+export function resolveDpr(
+  lowEnd: boolean,
+  wide: boolean,
+  gpuClass: GpuClass = "integrated",
+): readonly [number, number] {
   if (lowEnd) return [0.75, 1];
-  if (wide) return [1, 2];
-  return [1, 1.5];
+  if (!wide) return [1, 1.5];
+  if (gpuClass === "discrete") return [1, 2];
+  if (gpuClass === "software") return [0.75, 1];
+  return [0.75, 1.5];
+}
+
+/**
+ * The floor the adaptive monitor may fall back to when the frame rate
+ * collapses (20_3D §3.1: "AdaptiveDpr drops to 0.75"). A discrete GPU keeps
+ * at least 1x: it has the pixels to spare, and the degradation is for the
+ * devices that do not.
+ */
+export function resolveAdaptiveDprFloor(gpuClass: GpuClass): number {
+  return gpuClass === "discrete" ? 1 : 0.75;
+}
+
+/**
+ * The GPU classes the degradation ladder knows (20_3D §3.1, §11.3).
+ *
+ * - `software`: a software rasteriser (SwiftShader, llvmpipe). It can draw,
+ *   but every pixel is paid for on the CPU.
+ * - `integrated`: the default. Shared memory, a real but modest fill rate.
+ * - `discrete`: a dedicated GPU. The only tier that gets the expensive
+ *   materials.
+ */
+export type GpuClass = "software" | "integrated" | "discrete";
+
+/** Renderer strings that mean "there is no GPU". */
+const SOFTWARE_RENDERERS = /swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic/i;
+
+/** Renderer strings that mean "there is a dedicated GPU". */
+const DISCRETE_RENDERERS = /nvidia|geforce|quadro|rtx|radeon rx|radeon pro|arc a[0-9]/i;
+
+/**
+ * Classify a WebGL renderer string into the ladder's GPU class.
+ *
+ * WHY A STRING AND NOT A BENCHMARK. The ladder needs ONE bit - "can this
+ * device afford the expensive materials?" - and the renderer's own name
+ * answers it without running a benchmark (which would cost the first second
+ * of the page) and without a new dependency. A browser that hides the
+ * renderer string (Firefox's `privacy.resistFingerprinting`, Safari's
+ * `RESISTED`) returns an empty string, and the conservative answer is
+ * `integrated`: the cheaper tier, never the expensive one.
+ */
+export function classifyGpu(renderer: string | null | undefined): GpuClass {
+  const value = (renderer ?? "").trim();
+  if (value.length === 0) return "integrated";
+  if (SOFTWARE_RENDERERS.test(value)) return "software";
+  if (DISCRETE_RENDERERS.test(value)) return "discrete";
+  return "integrated";
 }
 
 /** Transmission samples per 20_3D §7.1: the degradation lever on the card's
- *  `MeshTransmissionMaterial`. 1 on low-end, 4 on full scene. */
-export function resolveTransmissionSamples(lowEnd: boolean): 1 | 4 {
-  return lowEnd ? 1 : 4;
+ *  `MeshTransmissionMaterial`. 1 everywhere but on a discrete GPU, which is
+ *  the only tier the spec gives 4 samples to (20_3D §3.1). */
+export function resolveTransmissionSamples(gpuClass: GpuClass, lowEnd = false): 1 | 4 {
+  if (lowEnd) return 1;
+  return gpuClass === "discrete" ? 4 : 1;
 }
 
 /** Particle budget per 20_3D §3: 80 on low-end, 200 on full scene. */

@@ -9,8 +9,6 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "@/components/product-3d/Poster";
 import {
   useLowEnd,
@@ -138,41 +136,58 @@ export function TourExperience() {
   // Scrub proxy: section scroll → 0..1. Killed on unmount (FM-15). The beat in
   // the URL is replaced (not pushed) on scroll so the back button walks
   // explicit stop visits, not every scrub tick.
+  //
+  // GSAP is imported DYNAMICALLY, for the same reason as the hero: the
+  // poster path never creates a trigger, so it must never pay for the scrub
+  // library. See `ProductHero.tsx` for the full note.
   useLayoutEffect(() => {
     if (showPoster) return;
-    gsap.registerPlugin(ScrollTrigger);
-    const ctx = gsap.context(() => {
-      ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top top",
-        end: "bottom bottom",
-        scrub: 1,
-        onUpdate: (self) => {
-          progressRef.current.current = self.progress;
-          const b = resolveBeatIndex(self.progress, TOUR_STOPS.length);
-          if (b !== stopRef.current) {
-            stopRef.current = b;
-            setStop(b);
-            const url = `?beat=${beatIndexToId(b, TOUR_IDS)}`;
-            if (window.location.search !== url) window.history.replaceState(null, "", url);
-          }
-        },
-      });
-    }, sectionRef);
-    // FM-21: triggers measured before fonts and late assets settle land in the
-    // wrong place. Refresh after settle, and again when webfonts arrive.
-    // SAFETY: `document.fonts` is a real FontFaceSet API absent from this
-    // tsconfig's lib.dom - the widened read only ever calls `.ready.then`.
-    const refreshTimer = setTimeout(() => ScrollTrigger.refresh(), 600);
-    const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
-    if (fonts) {
-      fonts.ready.then(() => {
-        ScrollTrigger.refresh();
-      });
-    }
+    let cancelled = false;
+    let ctx: { revert: () => void } | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    void (async () => {
+      const [{ default: gsap }, { ScrollTrigger }] = await Promise.all([
+        import("gsap"),
+        import("gsap/ScrollTrigger"),
+      ]);
+      if (cancelled) return;
+      gsap.registerPlugin(ScrollTrigger);
+      ctx = gsap.context(() => {
+        ScrollTrigger.create({
+          trigger: sectionRef.current,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: 1,
+          onUpdate: (self) => {
+            progressRef.current.current = self.progress;
+            const b = resolveBeatIndex(self.progress, TOUR_STOPS.length);
+            if (b !== stopRef.current) {
+              stopRef.current = b;
+              setStop(b);
+              const url = `?beat=${beatIndexToId(b, TOUR_IDS)}`;
+              if (window.location.search !== url) window.history.replaceState(null, "", url);
+            }
+          },
+        });
+      }, sectionRef);
+      // FM-21: triggers measured before fonts and late assets settle land in
+      // the wrong place. Refresh after settle, and again when webfonts arrive.
+      // SAFETY: `document.fonts` is a real FontFaceSet API absent from this
+      // tsconfig's lib.dom - the widened read only ever calls `.ready.then`.
+      refreshTimer = setTimeout(() => ScrollTrigger.refresh(), 600);
+      const fonts = (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts;
+      if (fonts) {
+        fonts.ready.then(() => {
+          ScrollTrigger.refresh();
+        });
+      }
+    })();
+
     return () => {
+      cancelled = true;
       clearTimeout(refreshTimer);
-      ctx.revert();
+      ctx?.revert();
     };
   }, [showPoster]);
 

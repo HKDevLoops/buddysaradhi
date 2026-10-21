@@ -23,8 +23,6 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Poster } from "./Poster";
 import { useLowEnd, useReducedMotion, useSceneTokens, useWebGLAvailable, useWideDesktop } from "./hooks";
 import { HERO_RUNWAY_VH, resolveBeatIndex } from "./scene-tiers";
@@ -182,26 +180,49 @@ export function ProductHero() {
   const storyStyle = { height: storyHeightCss(stageMode, HERO_RUNWAY_VH) };
 
   // Scrub proxy: section scroll → 0..1. Killed on unmount (FM-15).
+  //
+  // GSAP IS IMPORTED DYNAMICALLY. The static import put 50.5 KB gzip of
+  // GSAP + ScrollTrigger in the INITIAL JavaScript of every visit - including
+  // the poster path, where the scrub never runs because there is no canvas to
+  // scrub. The dynamic import moves it into its own chunk, which the canvas
+  // path fetches after the first paint and the poster path never fetches at
+  // all. The cost is that the trigger is created a tick after mount instead
+  // of during it; ScrollTrigger recalculates its own start and end on
+  // creation, so a visitor who scrolls in that first tick still lands on the
+  // right beat.
   useLayoutEffect(() => {
     if (showPoster) return;
-    gsap.registerPlugin(ScrollTrigger);
-    const ctx = gsap.context(() => {
-      ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top top",
-        end: "bottom bottom",
-        scrub: 1,
-        onUpdate: (self) => {
-          progressRef.current.current = self.progress;
-          const b = resolveBeatIndex(self.progress, BEATS.length);
-          setBeat((prev) => (prev === b ? prev : b));
-        },
-      });
-    }, sectionRef);
-    const refreshTimer = setTimeout(() => ScrollTrigger.refresh(), 600);
+    let cancelled = false;
+    let ctx: { revert: () => void } | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    void (async () => {
+      const [{ default: gsap }, { ScrollTrigger }] = await Promise.all([
+        import("gsap"),
+        import("gsap/ScrollTrigger"),
+      ]);
+      if (cancelled) return;
+      gsap.registerPlugin(ScrollTrigger);
+      ctx = gsap.context(() => {
+        ScrollTrigger.create({
+          trigger: sectionRef.current,
+          start: "top top",
+          end: "bottom bottom",
+          scrub: 1,
+          onUpdate: (self) => {
+            progressRef.current.current = self.progress;
+            const b = resolveBeatIndex(self.progress, BEATS.length);
+            setBeat((prev) => (prev === b ? prev : b));
+          },
+        });
+      }, sectionRef);
+      refreshTimer = setTimeout(() => ScrollTrigger.refresh(), 600);
+    })();
+
     return () => {
+      cancelled = true;
       clearTimeout(refreshTimer);
-      ctx.revert();
+      ctx?.revert();
     };
   }, [showPoster]);
 

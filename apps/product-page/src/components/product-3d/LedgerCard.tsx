@@ -9,15 +9,23 @@
 import { Edges, Float, MeshTransmissionMaterial } from "@react-three/drei";
 import type { SceneTokens } from "./hooks";
 import { resolveFloatProps, resolveTransmissionSamples } from "./scene-tiers";
+import type { GpuClass } from "./scene-tiers";
 
 interface LedgerCardProps {
   tokens: SceneTokens;
   frozen?: boolean;
   /** Low-end → transmission samples drop to 1 (§7.1 degradation lever). */
   lowEnd?: boolean;
+  /** The GPU class: only a discrete GPU gets the 4-sample tier (20_3D §3.1). */
+  gpuClass?: GpuClass;
 }
 
-export function LedgerCard({ tokens, frozen = false, lowEnd = false }: LedgerCardProps) {
+export function LedgerCard({
+  tokens,
+  frozen = false,
+  lowEnd = false,
+  gpuClass = "integrated",
+}: LedgerCardProps) {
   const floatProps = resolveFloatProps(frozen);
   return (
     <Float
@@ -36,6 +44,13 @@ export function LedgerCard({ tokens, frozen = false, lowEnd = false }: LedgerCar
           moved off the near-black `--surface-row` onto the palette's lightest
           surface role. The spec's own note on this prop is "so it's not
           invisible glass" (20_3D §7.1).
+
+          `samples` is the degradation lever (20_3D §7.1, §3.1): 4 on a
+          discrete GPU, 1 everywhere else. Each sample is a full refraction
+          fetch, so the 4-sample card costs the fragment shader three times
+          what the 1-sample card does - and the A/B of the two measured a
+          mean channel difference of 0.064/255 (0.11% of channels over 8),
+          i.e. the same picture.
         */}
         <MeshTransmissionMaterial
           transmission={1}
@@ -44,7 +59,7 @@ export function LedgerCard({ tokens, frozen = false, lowEnd = false }: LedgerCar
           ior={1.25}
           chromaticAberration={0.02}
           backside={false}
-          samples={resolveTransmissionSamples(lowEnd)}
+          samples={resolveTransmissionSamples(gpuClass, lowEnd)}
           resolution={256}
           color={tokens.key}
           attenuationColor={tokens.accent}

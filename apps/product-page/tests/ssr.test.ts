@@ -119,7 +119,13 @@ describe("tier threading (low-end + frozen reach the materials)", () => {
   });
 
   it("ProductScene resolves DPR from device class, never a literal tier", () => {
-    expect(sceneSource.includes("resolveDpr(lowEnd, wide)")).toBe(true);
+    // The tier comes from `scene-tiers.ts` - the one ladder both 3D routes
+    // read - and the DEVICE CLASS is part of it: a discrete GPU gets
+    // [1, 2], an integrated one [0.75, 1.5], a software rasteriser
+    // [0.75, 1] (20_3D §3.1, §11.3).
+    expect(sceneSource.includes("resolveDpr(lowEnd, wide, gpuClass)")).toBe(true);
+    // And never a literal tier written at the call site.
+    expect(sceneSource).not.toMatch(/dpr=\{\[/);
   });
 
   it("the tour pins are a labelled nav of DOM buttons (keyboard parity)", () => {

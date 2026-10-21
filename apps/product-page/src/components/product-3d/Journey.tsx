@@ -14,6 +14,7 @@ import { LedgerCard } from "./LedgerCard";
 import { ParticleField } from "./ParticleField";
 import { World } from "./World";
 import { resolveParticleCount } from "./scene-tiers";
+import type { GpuClass } from "./scene-tiers";
 import type { SceneTokens } from "./hooks";
 
 export interface ProgressProxy {
@@ -25,6 +26,9 @@ interface JourneyProps {
   tokens: SceneTokens;
   frozen?: boolean;
   lowEnd?: boolean;
+  /** The GPU class, so the card's material matches what the device can afford
+   *  (20_3D §3.1: transmission at 4 samples only on a discrete GPU). */
+  gpuClass?: GpuClass;
 }
 
 // 5 waypoints. Hook, Exploration, Relief, Climax, Reveal.
@@ -44,7 +48,13 @@ const TARGETS: Array<[number, number, number]> = [
   [0, 0.6, -13],
 ];
 
-export function Journey({ progressRef, tokens, frozen = false, lowEnd = false }: JourneyProps) {
+export function Journey({
+  progressRef,
+  tokens,
+  frozen = false,
+  lowEnd = false,
+  gpuClass = "integrated",
+}: JourneyProps) {
   const curve = useMemo(
     () => new THREE.CatmullRomCurve3(WAYPOINTS.map((w) => new THREE.Vector3(...w))),
     [],
@@ -68,7 +78,12 @@ export function Journey({ progressRef, tokens, frozen = false, lowEnd = false }:
     <group>
       <AccentLights tokens={tokens} frozen={frozen} />
       <ParticleField tokens={tokens} count={resolveParticleCount(lowEnd)} frozen={frozen} />
-      <LedgerCard tokens={tokens} frozen={frozen} lowEnd={lowEnd} />
+      <LedgerCard
+        tokens={tokens}
+        frozen={frozen}
+        lowEnd={lowEnd}
+        gpuClass={gpuClass}
+      />
       <World tokens={tokens} lowEnd={lowEnd} />
     </group>
   );

@@ -95,6 +95,38 @@ const CASES = [
     test: "tests/procedural.test.ts",
     expect: "FAIL",
   },
+  {
+    id: "PERF-1  the contact shadow is rendered once, not once per frame",
+    file: "src/components/product-3d/World.tsx",
+    find: "frames={1}",
+    replace: "frames={Infinity}",
+    test: "tests/hero-perf.test.ts",
+    expect: "FAIL",
+  },
+  {
+    id: "PERF-2  the adaptive DPR is wired to a signal that moves",
+    file: "src/components/product-3d/ProductScene.tsx",
+    find: "onDecline={() => {",
+    replace: "onChange={() => {",
+    test: "tests/hero-perf.test.ts",
+    expect: "FAIL",
+  },
+  {
+    id: "PERF-3  the transmission card gets one sample unless the GPU is discrete",
+    file: "src/components/product-3d/LedgerCard.tsx",
+    find: "samples={resolveTransmissionSamples(gpuClass, lowEnd)}",
+    replace: "samples={4}",
+    test: "tests/hero-perf.test.ts",
+    expect: "FAIL",
+  },
+  {
+    id: "PERF-4  GSAP stays out of the initial JavaScript",
+    file: "src/components/product-3d/ProductHero.tsx",
+    find: 'import("gsap")',
+    replace: '"gsap"',
+    test: "tests/hero-perf.test.ts",
+    expect: "FAIL",
+  },
 ];
 
 const log = (m) => process.stdout.write(`${m}\n`);

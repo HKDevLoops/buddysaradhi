@@ -10,6 +10,8 @@ import {
   POSTER_ASPECT,
   beatIdToIndex,
   beatIndexToId,
+  classifyGpu,
+  resolveAdaptiveDprFloor,
   resolveBeatIndex,
   resolveCoverFov,
   resolveDpr,
@@ -31,14 +33,72 @@ describe("resolveDpr (20_3D §11.3)", () => {
   });
 
   it("opens the discrete [1, 2] tier only on wide, non-low-end screens", () => {
-    expect(resolveDpr(false, true)).toEqual([1, 2]);
+    expect(resolveDpr(false, true, "discrete")).toEqual([1, 2]);
+  });
+
+  it("gives a wide INTEGRATED gpu the spec's 0.75-1.5 tier, not the discrete one", () => {
+    // 20_3D §3.1: "integrated GPU -> ... DPR 0.75-1.5". Before the ladder
+    // learned the GPU class, a wide screen was served the discrete tier no
+    // matter what it was drawing on.
+    expect(resolveDpr(false, true, "integrated")).toEqual([0.75, 1.5]);
+  });
+
+  it("gives a software rasteriser the [0.75, 1] tier", () => {
+    expect(resolveDpr(false, true, "software")).toEqual([0.75, 1]);
+  });
+});
+
+describe("classifyGpu (the ladder has to know what it draws on)", () => {
+  it("recognises a software rasteriser", () => {
+    expect(classifyGpu("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)))")).toBe(
+      "software",
+    );
+    expect(classifyGpu("Mesa/X.org llvmpipe")).toBe("software");
+    expect(classifyGpu("Microsoft Basic Render Driver")).toBe("software");
+  });
+
+  it("recognises a dedicated gpu", () => {
+    expect(classifyGpu("ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0)")).toBe(
+      "discrete",
+    );
+    expect(classifyGpu("AMD Radeon RX 6800")).toBe("discrete");
+  });
+
+  it("treats an integrated gpu as integrated", () => {
+    expect(classifyGpu("ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, OpenGL 4.1)")).toBe(
+      "integrated",
+    );
+    expect(classifyGpu("Apple M2 Pro")).toBe("integrated");
+  });
+
+  it("falls back to the CHEAP tier when the browser hides the renderer", () => {
+    // Firefox with resistFingerprinting and Safari's RESISTED both hide it.
+    expect(classifyGpu("")).toBe("integrated");
+    expect(classifyGpu(null)).toBe("integrated");
+    expect(classifyGpu(undefined)).toBe("integrated");
+  });
+});
+
+describe("resolveAdaptiveDprFloor (20_3D §3.1: AdaptiveDpr drops to 0.75)", () => {
+  it("lets everything but a discrete gpu fall back to 0.75", () => {
+    expect(resolveAdaptiveDprFloor("integrated")).toBe(0.75);
+    expect(resolveAdaptiveDprFloor("software")).toBe(0.75);
+  });
+
+  it("keeps a discrete gpu at 1x - it has the pixels to spare", () => {
+    expect(resolveAdaptiveDprFloor("discrete")).toBe(1);
   });
 });
 
 describe("transmission samples + particles (20_3D §7.1, §3)", () => {
-  it("drops LedgerCard transmission to 1 sample on low-end, 4 otherwise", () => {
-    expect(resolveTransmissionSamples(true)).toBe(1);
-    expect(resolveTransmissionSamples(false)).toBe(4);
+  it("gives the 4-sample card only to a discrete gpu", () => {
+    expect(resolveTransmissionSamples("discrete")).toBe(4);
+    expect(resolveTransmissionSamples("integrated")).toBe(1);
+    expect(resolveTransmissionSamples("software")).toBe(1);
+  });
+
+  it("never spends 4 samples on a low-end device", () => {
+    expect(resolveTransmissionSamples("discrete", true)).toBe(1);
   });
 
   it("drops the particle field to 80 on low-end, 200 otherwise", () => {

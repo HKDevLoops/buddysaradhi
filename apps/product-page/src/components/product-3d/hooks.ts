@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { WIDE_DESKTOP_MIN_WIDTH } from "./scene-tiers";
+import { classifyGpu, type GpuClass } from "./scene-tiers";
 
 /** Tri-state WebGL gate: null = probing (render poster/veil), false = poster, true = canvas. */
 export function useWebGLAvailable(): boolean | null {
@@ -23,7 +24,47 @@ export function useWebGLAvailable(): boolean | null {
   return available;
 }
 
-/** prefers-reduced-motion → frozen scene (Rule 10, P15). */
+/**
+ * The GPU class, read from the WebGL renderer's own name.
+ *
+ * The degradation ladder (20_3D §3.1) is keyed on the GPU - a discrete GPU
+ * gets the expensive materials, a software rasteriser gets the cheap ones -
+ * and until now the ladder could not see the GPU at all, so a laptop with no
+ * discrete GPU and a machine with no GPU at all were served the same tier.
+ *
+ * The probe is one throwaway canvas and one string read: no benchmark, no
+ * network, no new dependency. A browser that refuses to name the renderer
+ * yields an empty string, and `classifyGpu` answers `integrated` for that -
+ * the cheaper tier, never the expensive one.
+ */
+export function useGpuClass(): GpuClass {
+  const [gpuClass, setGpuClass] = useState<GpuClass>("integrated");
+
+  useEffect(() => {
+    let renderer: string | null = null;
+    try {
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      if (!gl) {
+        setGpuClass("software");
+        return;
+      }
+      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+      renderer = debugInfo
+        ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL))
+        : String(gl.getParameter(gl.RENDERER));
+    } catch {
+      renderer = null;
+    }
+    setGpuClass(classifyGpu(renderer));
+  }, []);
+
+  return gpuClass;
+}
+
+/**
+ * prefers-reduced-motion → frozen scene (Rule 10, P15).
+ */
 export function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
