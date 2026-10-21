@@ -411,7 +411,14 @@ async function main(): Promise<void> {
       },
     };
     log("");
-    log(JSON.stringify(result, null, 2));
+    // The JSON IS the output in `--json` mode. `log` is suppressed there, so
+    // printing the result through it produced NOTHING - the mode was
+    // documented and broken. It goes straight to stdout instead.
+    if (asJson) {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      log(JSON.stringify(result, null, 2));
+    }
 
     if (gate) {
       const breaches: string[] = [];

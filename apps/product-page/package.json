@@ -11,6 +11,7 @@
     "start": "next start -p 3003",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "perf:payload": "node scripts/measure-payload.ts --gate",
     "test": "node --test src/app/admin/_lib/access-requests.test.ts src/app/admin/_lib/engine.test.ts"
   },
   "dependencies": {

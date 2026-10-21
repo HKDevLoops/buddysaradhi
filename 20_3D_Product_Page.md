@@ -191,10 +191,9 @@ needs: the card refracts the lit scene itself.
 | Time-to-interactive (canvas hydrate)                | < 3 s                                               | three.js is dynamically imported (`next/dynamic`, ssr:false); HDRI is `<Environment>` lazy            |
 | No-WebGL fallback                                   | instant                                             | `<Poster/>` is a static image, no JS                                                                  |
 | Lighthouse (Performance) on `/`                     | **≥ 90**                                            | the 3D scene is lazy + DPR-capped; below-the-fold marketing is RSC, zero client JS                    |
-| Bundle cost of the 3D stack                         | < 180 KB gzipped (three + fiber + drei tree-shaken) | dynamic import isolates it from the main chunk; users who never scroll to hero (rare) don't pay       |
+| **3D stack payload — a REGRESSION GUARD, not a ceiling** | **≤ 185,540 B gzip (the measured baseline 154,617 B + a 20 % allowance)** | measured from the production build by `scripts/measure-payload.ts`; growth inside the allowance needs no ceremony, growth past it is a DECISION recorded in §3.2 |
 
 ### 3.1 The Degradation Ladder
-
 ```
    device capability                  what renders
    ─────────────────                  ────────────
@@ -210,6 +209,72 @@ The ladder is checked in `useWebGLAvailable` + `useReducedMotion` + a
 `navigator.connection.saveData` read. No user toggles — it's automatic. The
 tutor on a ₹12,000 Android phone with 2 bars of 4G (the persona from
 `product/AGENTS.md`) gets the poster, fast.
+
+### 3.2 The 3D Stack's Payload — a REGRESSION GUARD (amended 2026-10-21)
+
+> **What changed, plainly.** This section used to budget the 3D stack at
+> **< 180 KB gzipped**. That number was never measured, and the plan that
+> escalated it (`docs/audit/REMEDIATION-PLAN-2026-10-21.md` row 7.11) claimed
+> the stack was **245.3 KB gzip** and that "three.js alone is ~165 KB gzip
+> before R3F and drei add a byte" — so that the budget sat *below* the cost of
+> the dependency the scene is built on and no change in this app could meet it.
+>
+> **That premise does not survive a measurement.** On the production build of
+> 2026-10-21 (`next build` in `apps/product-page`, the same build `next start`
+> serves), measured with Node's zlib:
+>
+> | What | Bytes | gzip |
+> |---|---|---|
+> | `three` 0.182's own module (`three/build/three.module.js`) | 631,039 B | **125,517 B** (122.6 KB) |
+> | the 3D stack's chunks in the build (three + fiber + drei) | — | **154,617 B** (151.0 KB) |
+> | the old ceiling, for comparison | — | 184,320 B (180 KB) |
+>
+> So the stack is **151.0 KB — UNDER the old 180 KB ceiling, with 16 % of
+> headroom**, and three.js's own module is 122.6 KB, not 165 KB. The 245.3 KB
+> figure does not reproduce on this build. The budget was not impossible to
+> meet; it was **unmeasured**, and a number nobody can check against is a
+> number nobody can act on.
+>
+> **The rule now.** The payload is a **regression guard against a measured
+> baseline**, not a ceiling on ambition:
+>
+> - **Baseline: 154,617 B gzip** — the 3D stack's chunks in the production
+>   build of 2026-10-21, measured by `apps/product-page/scripts/measure-payload.ts`
+>   (it reads `.next/static/chunks`, sums the gzip size of the chunks that
+>   carry the 3D runtime, and REFUSES to report if it cannot find them, so a
+>   measurement of zero is never mistaken for a measurement).
+> - **Allowance: +20 % → 185,540 B (181.2 KB).** Why 20 %: it is 30,923 B of
+>   gzip — roughly 60 KB of source. That is several times the cost of a scene
+>   change (the story site's own 3D work measures in the low single-digit KB
+>   of gzip) and one order of magnitude below the class of change the guard
+>   exists to catch: a second WebGL runtime or a heavy post-processing suite
+>   is 50–150 KB gzip (32–97 %), and the smallest of those trips a 20 %
+>   allowance. It is also, deliberately, **not tighter** than the ceiling it
+>   replaces: the old 180 KB sat 19.2 % above this baseline, and the new limit
+>   is within 0.7 % of it. The 0.9 % spread between Node's and Bun's zlib
+>   (the same file, two runtimes) is a reminder that the allowance has to be
+>   an order of magnitude above the measurement's own noise.
+> - **The rule: the payload must not grow beyond the baseline by more than 20 %
+>   without an explicit decision recorded in THIS section.** Growth *inside*
+>   the allowance needs no ceremony — the owner's instruction is that the 3D go
+>   as high as possible. Growth *past* it is not forbidden; it is a DECISION,
+>   and the decision is written down here (raise the baseline in this section
+>   AND in `scripts/measure-payload.ts` in the same commit).
+>
+> **Nothing else in this section moved.** The frame rate (≥ 50 fps on a
+> mid-tier laptop, ≥ 30 fps on an integrated GPU), the draw calls, the
+> triangle and texture counts, the DPR ladder, the antialias and transmission
+> sample counts, the FCP and TTI targets and the Lighthouse score are all
+> enforceable, all enforced by the product page's own harness
+> (`scripts/measure-hero-fps.ts --gate`), and none of them is negotiable.
+> "As high as possible" is about the BYTES a visitor downloads, not about the
+> frame rate the visitor's machine has to paint: a scene that costs 400 ms a
+> frame is a broken product at any byte count.
+>
+> **The gate.** `node scripts/measure-payload.ts --gate` measures the
+> production build and exits non-zero past the limit.
+> `apps/product-page/tests/payload-budget.test.ts` pins this section's
+> baseline to the script's, so the spec and the gate cannot drift apart.
 
 ---
 
