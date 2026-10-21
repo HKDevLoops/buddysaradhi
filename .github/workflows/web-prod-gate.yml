@@ -35,6 +35,10 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
       E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+      # Credential-gate flag for the AUTHENTICATED axe step below. `secrets`
+      # is not readable in a step-level `if:` (rejected at parse time), so the
+      # presence check is evaluated once here, where secrets ARE readable.
+      HAS_E2E_CREDENTIALS: ${{ secrets.E2E_EMAIL != '' && secrets.E2E_PASSWORD != '' }}
       # Report F-6: production must never receive write-e2e (stress/palette specs
       # write settings). Serve the build from this job locally — same recipe as
       # test.yml / scratch/fullpass.sh: build -> start :3300 -> readiness ->
@@ -105,12 +109,31 @@ jobs:
           exit 1
         timeout-minutes: 2
 
-      # Rule 10 (mirror test.yml): axe gate against the local server above —
-      # BLOCKING (no continue-on-error), separate from the soft e2e batch so
-      # an accessibility regression is never hidden inside continue-on-error.
-      - name: Accessibility tests (axe-core, blocking)
+      # Rule 10 / audit AUD-024: the CREDENTIAL-FREE axe gate. It runs
+      # against the local server above, needs no CI secrets, and therefore
+      # never skips — it fails when the server is unreachable, when a route
+      # did not render, and on a `critical` WCAG violation (the gate policy
+      # of 21_Automation_Testing.md §6). This is the blocking accessibility
+      # contract on the production-gate workflow.
+      - name: Accessibility gate (axe-core, credential-free — never skips)
+        run: bun scripts/a11y-gate.ts
+        env:
+          A11Y_BASE_URL: http://127.0.0.1:3300
+        timeout-minutes: 5
+
+      # Rule 10 (mirror test.yml): the FULL axe suite — all five product
+      # screens, authenticated as a QA tutor — against the local server above.
+      # It needs the CI QA account, so it runs only when the secrets exist;
+      # the credential-free gate above always runs and always blocks.
+      - name: Accessibility tests (axe-core, blocking when credentialed)
+        if: env.HAS_E2E_CREDENTIALS == 'true'
         run: bun run test:a11y
         timeout-minutes: 5
+
+      - name: Notice skipped authenticated axe gate (no E2E credentials configured)
+        if: env.HAS_E2E_CREDENTIALS != 'true'
+        run: |
+          echo '::notice::The authenticated axe gate (five product screens) is SKIPPED — E2E_EMAIL/E2E_PASSWORD secrets are not configured. Add a dedicated CI QA account to re-arm it. The credential-free accessibility gate above ran and is blocking.'
 
       - name: E2E Tests (Playwright)
         run: cd apps/web && bunx playwright test
