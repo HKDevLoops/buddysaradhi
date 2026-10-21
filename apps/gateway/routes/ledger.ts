@@ -19,7 +19,8 @@ import {
   ledgerEntryPayload,
   loadChainTip,
   loadTenantSecret,
-  nextCreatedAtIso,
+  nextChainCreatedAtIso,
+  verifyChainLinks,
 } from "../lib/ledger-chain.ts";
 import { withWriteTransaction } from "../lib/tx.ts";
 import {
@@ -622,7 +623,10 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
         paiseAdd(tip.balanceAfterPaise, input.debitPaise),
         input.creditPaise,
       );
-      const createdAt = nextCreatedAtIso();
+      // BR-LED-06: the per-chain logical clock — the new row's `created_at` is
+      // strictly greater than the TIP's, so the timestamp order and the link
+      // order are the same order and a same-millisecond tie cannot arise.
+      const createdAt = nextChainCreatedAtIso(tip.createdAt);
       const secret = await loadTenantSecret(tx, tenantId);
       const entryId = crypto.randomUUID();
       // W5: byte-identical payload + hash stream to core's buildEntryPayload /
@@ -1131,7 +1135,8 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         });
 
         const entryId = crypto.randomUUID();
-        const createdAt = nextCreatedAtIso();
+        // BR-LED-06: the per-chain logical clock (see `postEntry` above).
+        const createdAt = nextChainCreatedAtIso(tip.createdAt);
         const occurredOn = parsed.data.occurredOn ?? createdAt.slice(0, 10);
         const thisHash = computeChainHash(
           tip.prevHash,
@@ -1334,6 +1339,41 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         });
 
         const tip = await loadChainTip(tx, tenantId, entry.studentId);
+
+        // BR-LED-06 — a FORK is an integrity violation, and it is REPORTED.
+        //
+        // The chain of one student is a linked list, and the links are the
+        // order. Two rows claiming the same predecessor are not an ordering
+        // artefact to be broken by a tie-break: they are two histories, and
+        // extending one of them silently would make the books a guess. So the
+        // void path WALKS the links first and writes the violation to the
+        // audit log (10_Security.md §9.4, the same action the web's
+        // Diagnostics writes) — the finding is recorded, never resolved.
+        //
+        // The void still PROCEEDS. The ledger is append-only (Rule 1), so a
+        // void is the ONLY correction path a tutor has; refusing it over a
+        // structural finding would leave the books permanently wrong with no
+        // further correction available (BR-LED-09's own argument, inverted).
+        const chainReport = await verifyChainLinks(tx, tenantId, entry.studentId);
+        if (chainReport.fork !== null || chainReport.unreachable.length > 0) {
+          await recordAudit(
+            tx,
+            tenantId,
+            "system",
+            "ledger_integrity_violation",
+            "ledger_entries",
+            entry.studentId,
+            {
+              violation: chainReport.fork !== null ? "chain_fork" : "chain_unreachable_rows",
+              forked_predecessor: chainReport.fork?.prevHash ?? null,
+              forked_rows: chainReport.fork?.rowIds ?? [],
+              unreachable_rows: chainReport.unreachable,
+              timestamp_ties: chainReport.timestampTies,
+              rule: "BR-LED-06",
+            },
+          );
+        }
+
         // BR-LED-04 — mirror BOTH directions (equal amount, opposite sign),
         // so voiding a FEE_CHARGED reverses the debit instead of posting a
         // net-zero row that reports success (audit finding G4).
@@ -1346,7 +1386,8 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
 
         const tenantSecret = await loadTenantSecret(tx, tenantId);
         const voidEntryId = crypto.randomUUID();
-        const createdAt = nextCreatedAtIso();
+        // BR-LED-06: the per-chain logical clock (see `postEntry` above).
+        const createdAt = nextChainCreatedAtIso(tip.createdAt);
         // 07 §9.10: the reversing row is dated the day it is written.
         const occurredOn = createdAt.slice(0, 10);
         const thisHash = computeChainHash(

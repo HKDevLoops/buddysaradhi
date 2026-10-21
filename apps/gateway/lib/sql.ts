@@ -1114,12 +1114,43 @@ export function stmtSettingPinProof(tenantId: string): BuiltStatement {
   };
 }
 
+/**
+ * The chain's tip: the row a new entry extends (BR-LED-06).
+ *
+ * The order is `created_at DESC`, which is CORRECT because a writer gives its
+ * new row a `created_at` strictly greater than the tip's — the per-chain
+ * logical clock (`nextChainCreatedAtIso`, apps/gateway/lib/ledger-chain.ts) —
+ * so the timestamp order and the link order are the same order.
+ *
+ * `rowid DESC` remains ONLY as the legacy tie-break for rows written before
+ * that clock existed: within one millisecond the later-inserted row is the
+ * later link, so it names the same tip. A row written by the current writer
+ * can never tie, so the tie-break is unreachable for new rows.
+ */
 export function stmtChainTip(tenantId: string, studentId: string): BuiltStatement {
   return {
-    sql: `SELECT this_hash, balance_after_paise FROM ledger_entries
+    sql: `SELECT this_hash, balance_after_paise, created_at FROM ledger_entries
       WHERE tenant_id = ? AND student_id = ?
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1`,
+    args: [auditedTenant(tenantId), IdSchema.parse(studentId)],
+  };
+}
+
+/**
+ * One student's whole chain, for the LINK-WALK (BR-LED-06).
+ *
+ * The walk needs every row: the genesis row (the one with no predecessor),
+ * each row's `prev_hash` (the link it claims) and its `this_hash` (the link
+ * it offers). The columns are named explicitly — the walk is a structure
+ * check, not a row read, and a column it does not use is a column it cannot
+ * accidentally depend on.
+ */
+export function stmtChainRows(tenantId: string, studentId: string): BuiltStatement {
+  return {
+    sql: `SELECT id, prev_hash, this_hash, created_at, balance_after_paise
+      FROM ledger_entries
+      WHERE tenant_id = ? AND student_id = ?`,
     args: [auditedTenant(tenantId), IdSchema.parse(studentId)],
   };
 }
