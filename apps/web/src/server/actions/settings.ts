@@ -911,7 +911,12 @@ export async function updateSettingAction(field: string, value: unknown, opts?: 
             action: "settings.update",
             refType: "settings",
             refId: tenantId,
-            metadata: JSON.stringify({ field, value }),
+            // RFC-010 §4.3: audit metadata names the FIELD, never its value.
+            // `value` here can be instituteEmail/phone/address — writing it
+            // would put tutor PII in a table slated for admin exposure, and no
+            // reader consumes it (verified: only action names are asserted).
+            // Accountability needs who/when/which-setting, not the value.
+            metadata: JSON.stringify({ field }),
             createdAt: now,
           },
         });

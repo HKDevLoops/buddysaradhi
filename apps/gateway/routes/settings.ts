@@ -195,7 +195,16 @@ export const handleSettings: RouteHandler = async (req, db, tenantId, path, meth
         // allows only (insert, update, soft_delete), and the audit row below
         // already records this mutation as "settings.update".
         await recordOutbox(tx, tenantId, "settings", tenantId, "update", normalisedBody);
-        await recordAudit(tx, tenantId, tenantId, "settings.update", "settings", tenantId, normalisedBody);
+        // RFC-010 §4.3: the AUDIT row names the changed fields, never their
+        // values (`normalisedBody` carries institute name/address/phone/email).
+        // The OUTBOX row above keeps the full body on purpose: the future
+        // replica needs values to apply, and outbox reads are tenant-scoped.
+        // Audit reads are the ones slated for admin exposure, so audit rows
+        // must already be PII-free. Accountability needs who/when/which, not
+        // the values.
+        await recordAudit(tx, tenantId, tenantId, "settings.update", "settings", tenantId, {
+          fields: Object.keys(normalisedBody),
+        });
         // RFC-004 C1 — response bytes commit atomically with the upsert (see
         // routes/ledger.ts payment path). Never echo the stored row (it carries
         // pin_hash/tenant_secret): project first, same as the GET path.
