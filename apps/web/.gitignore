@@ -72,3 +72,9 @@ packages/graphify-out/
 
 .vercel
 .env*
+
+# A TEMPLATE carries no secret - it is the documented home of every key name
+# the app reads. Only the exact filename is un-ignored; every real env file
+# (.env.local, .env.production, ...) stays ignored. This negation must come
+# AFTER every .env* rule in this file - git takes the LAST matching pattern.
+!.env.example

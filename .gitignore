@@ -115,6 +115,13 @@ test-output.txt
 
 .vercel
 .env*
+# A TEMPLATE carries no secret — it is the documented home of every key name
+# the app reads. `apps/gateway/.env.example` was already tracked (force-added)
+# and `apps/web/.env.example` was not, which is exactly the inconsistency that
+# left `ALLOW_DEV_AUTH` documented nowhere a developer would look (audit
+# AUD-008). Only the exact filename is un-ignored: `.env.local`,
+# `.env.production` and every other real env file stay ignored.
+!.env.example
 
 testsprite_tests\tmp\config.json
 testsprite_tests/tmp/
