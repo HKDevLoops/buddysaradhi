@@ -1,5 +1,6 @@
 import { getTurso, type DB } from "./lib/db.ts";
 import { ensureSelfRepairingSchema } from "./lib/schema.ts";
+import type { SqlHandle } from "./lib/sql.ts";
 import { authenticateRequest, AuthError } from "./lib/auth.ts";
 import { ok, json, fail, securityFail, isTursoAuthFailure, corsHeadersForOrigin } from "./lib/errors.ts";
 import { logInfo, logError, logWarn } from "./lib/log.ts";
@@ -27,6 +28,8 @@ import {
   clearFailedAuth,
   isCredentialFailure,
 } from "./lib/security.ts";
+import { claimNonceOnce } from "./lib/replay.ts";
+import { checkDbUrl } from "./lib/db-url-policy.ts";
 
 import { handleStudents } from "./routes/students.ts";
 import { handleAttendance } from "./routes/attendance.ts";
@@ -251,17 +254,44 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
       return addSecurityHeaders(req, securityFail(pathCheck.status!, requestId), requestId);
     }
 
-    const dbUrl =
+    // The CALLER-SUPPLIED location only. The deployment's own configured
+    // database is never subject to this policy — a self-hosted gateway may
+    // legitimately point at a private Turso, and refusing the operator's own
+    // configuration would be the policy taking over the operator's job.
+    const callerDbUrl =
       req.headers.get("x-db-url") ||
       req.headers.get("X-Db-Url") ||
-      Deno.env.get("TURSO_DATABASE_URL") ||
       "";
+    const dbUrl = callerDbUrl || Deno.env.get("TURSO_DATABASE_URL") || "";
     const dbToken =
       req.headers.get("x-db-token") ||
       req.headers.get("X-Db-Token") ||
       Deno.env.get("TURSO_AUTH_TOKEN") ||
       Deno.env.get("TURSO_TOKEN") ||
       "";
+
+    // 10_Security.md §7 — the database location is caller-supplied, and the
+    // gateway DIALS it (`getTurso` → the hrana client, and `batchExecute` →
+    // `fetch(`${url}/v2/pipeline`)`). `resolveTursoUrl` (lib/sql.ts) allowlists
+    // the SCHEME but not the HOST, so without this gate a caller who can get a
+    // signature over an `x-db-url` makes the EDGE FUNCTION reach any host it
+    // names — including 169.254.169.254 (the cloud metadata service) and
+    // RFC1918 addresses — and can pin an isolate on an unreachable host
+    // (the libsql client has no connect timeout).
+    //
+    // Fail closed: a refused location is a typed 400 and NOTHING is dialed.
+    // See lib/db-url-policy.ts for the measured evidence and the operator
+    // allowlist (`DB_HOST_ALLOWLIST`).
+    const dbUrlCheck = checkDbUrl(callerDbUrl);
+    if (!dbUrlCheck.allowed) {
+      logWarn("security.db_url_rejected", { ...logCtx, reason: dbUrlCheck.reason });
+      return addSecurityHeaders(
+        req,
+        fail(`DB_URL_REJECTED: ${dbUrlCheck.reason}`, 400),
+        requestId,
+      );
+    }
+
     if (!dbUrl || !dbToken) return addSecurityHeaders(req, fail("DB_NOT_PROVISIONED: tenant database not provisioned", 401), requestId);
 
     // F-13: the 15-attempt lockout tracks AUTH FAILURES keyed by the
@@ -339,6 +369,37 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
     const db: DB = getTurso(dbUrl, dbToken);
     await ensureSelfRepairingSchema(db, tenantId, dbUrl, dbToken);
 
+    // ── DURABLE REPLAY CLAIM (lib/replay.ts) ─────────────────────────────────
+    //
+    // The in-memory nonce window above (`validateNonce`) lives in THIS
+    // isolate's memory. A deployment is many isolates, so a captured signed
+    // mutation replayed onto an isolate that has never seen the nonce was
+    // ACCEPTED — and because the signature does not bind the method, path,
+    // body or `Idempotency-Key`, the replay carried a NEW Idempotency-Key and
+    // therefore a fresh effect: the payment was charged twice.
+    //
+    // MEASURED (two gateway processes over one shared tenant DB):
+    //   isolate A -> 200 receipt RCP-000011
+    //   isolate B -> 200 receipt RCP-000012   (same ts+nonce+signature)
+    //   -> TWO `PAYMENT_RECEIVED` rows of 4242 paise for ONE captured request.
+    //
+    // The claim below is recorded in the TENANT'S OWN DATABASE, so the
+    // single-use property holds across every isolate serving that tenant.
+    // It runs BEFORE the idempotency precondition and before the handler, so
+    // a replay is refused before it can produce an effect.
+    if (MUTATION_METHODS.has(method)) {
+      const nonce = req.headers.get("x-nonce") || req.headers.get("X-Nonce") || "";
+      const claim = await claimNonceOnce(
+        db as unknown as SqlHandle,
+        tenantId,
+        nonce,
+      );
+      if (!claim.claimed) {
+        logWarn("security.nonce_replay_durable", { ...logCtx, tenantId });
+        return addSecurityHeaders(req, securityFail(409, requestId), requestId);
+      }
+    }
+
     // RFC-004 C1 (17_API_Gateway_System.md §3 stage 4→5 — contract validation
     // before SERVICE dispatch): every mutating REST route requires an
     // Idempotency-Key (fail-closed 400) and replays stored bytes on duplicate.
@@ -374,7 +435,19 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
         logWarn("security.invalid_body", { ...logCtx, tenantId });
         return addSecurityHeaders(req, securityFail(bodyCheck.status!, requestId), requestId);
       }
-      const result = await execLocal(body.query ?? "", body.variables ?? {}, { db, tenantId });
+      const result = await execLocalSafe(body.query ?? "", body.variables ?? {}, { db, tenantId });
+      if (result === null) {
+        // A resolver refused: a CLIENT error, not a server fault. It used to
+        // escape as an opaque 500 "INTERNAL: internal server error", which is
+        // both a lie (nothing internal failed) and a budget poisoner (every
+        // tenant-mismatch attempt looks like a gateway outage).
+        logWarn("graphql.tenant_mismatch", { ...logCtx, tenantId });
+        return addSecurityHeaders(
+          req,
+          fail("FORBIDDEN: tenant mismatch", 403),
+          requestId,
+        );
+      }
       const dt = performance.now() - t0;
       logInfo("gateway.request", { ...logCtx, status: 200, durationMs: dt });
       const resp = json(result);
@@ -490,4 +563,36 @@ function mergeHeaders(req: Request, extra?: Record<string, string>): Record<stri
     ...getCorsHeaders(req),
     ...extra,
   };
+}
+
+/**
+ * Run a GraphQL query, mapping a TENANT-REFUSAL to `null` and letting every
+ * other failure through untouched.
+ *
+ * `graphql/executor.ts` deliberately THROWS when a resolver refuses
+ * (`forbidden: tenant mismatch` — the resolver's own guard), and
+ * `__tests__/graphql.test.ts` pins that contract: a tenant mismatch must
+ * reject, not resolve to an empty payload. That contract is right, and it is
+ * the executor's, not the transport's.
+ *
+ * The transport's job is to turn a refusal into a TYPED status. Without this,
+ * index.ts's catch-all answered it 500 — a client error reported as a server
+ * fault (Rule 9: no silent failures means the status must tell the truth).
+ *
+ * Only the tenant-mismatch refusal is mapped. Every other error keeps
+ * propagating, so a genuine internal fault is still a 500 and the server-side
+ * log still carries the original message.
+ */
+async function execLocalSafe(
+  query: string,
+  variables: Record<string, unknown>,
+  ctx: { db: DB; tenantId: string | null },
+): Promise<Awaited<ReturnType<typeof execLocal>> | null> {
+  try {
+    return await execLocal(query, variables, ctx);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("forbidden: tenant mismatch")) return null;
+    throw err;
+  }
 }

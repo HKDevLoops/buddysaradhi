@@ -40,8 +40,13 @@ export class SqliteGatewayDb {
   /** Serialises write transactions the way a single-writer DB does. */
   private writeTail: Promise<void> = Promise.resolve();
 
-  constructor() {
-    this.raw = new DatabaseSync(":memory:");
+  /**
+   * @param path `:memory:` by default. A FILE path opens a shared database —
+   * which is how a test can model TWO EDGE ISOLATES talking to one tenant DB,
+   * the topology the durable replay guard exists for (see lib/replay.ts).
+   */
+  constructor(path = ":memory:") {
+    this.raw = new DatabaseSync(path);
     for (const ddl of CORE_DDL_STATEMENTS) {
       this.raw.exec(ddl);
     }

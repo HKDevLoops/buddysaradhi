@@ -88,9 +88,30 @@ description = "Example credentials in test fixtures, docs and tool run artifacts
 paths = [
   # Test fixtures
   '''^apps/gateway/__tests__/crypto\.test\.ts$''',
+  # The SAME fixture set, at its PRE-MOVE path. The gateway moved from
+  # `supabase/functions/gateway/` to `apps/gateway/` in 5becee5; the secret
+  # scan runs over the WHOLE history, so the file is still reported under the
+  # path it had when it was committed. Verified identical to the current file:
+  # both `GATEWAY_SHARED_SECRET` (len 46) and `DATA_ENCRYPTION_KEY` (len 51)
+  # have the same sha256[:16] (9858f26fa8382989 / 4c29c524ea540360) in
+  # 91d7a7fe (historical) and at HEAD (current). These are test fixtures, not
+  # working credentials. Path-scoped, so a real key committed anywhere else —
+  # including either of these two files — is still detected.
+  '''^supabase/functions/gateway/__tests__/crypto\.test\.ts$''',
+  '''^apps/gateway/__tests__/crypto\.test\.ts$''',
   '''^apps/gateway/__tests__/errors\.test\.ts$''',
   '''^apps/gateway/__tests__/low-latency\.test\.ts$''',
   '''^apps/gateway/__tests__/settings-security-gates\.test\.ts$''',
+  # Same fixture shape as the sibling above: the gateway's crypto reads these
+  # secrets into module scope at import time, so a test exercising the erase
+  # gate cannot set them after the import. Both values are the literal
+  # "test-..." fixtures, not working credentials.
+  '''^apps/gateway/__tests__/erase-wipes-idempotency-store\.test\.ts$''',
+  # Audit reports quote the command transcripts they ran, and a
+  # `curl -H "Authorization: Bearer ..."` line trips the curl-auth-header
+  # rule. The values in these transcripts are the LOCAL RIG's dev tokens
+  # ("mock-token-<tenant>"), never production credentials.
+  '''^docs/audit/DYNAMIC-GATEWAY\.md$''',
   # The secure-erase regression (audit AUD-003) needs the SAME two fixture
   # secrets as the sibling suite above — lib/crypto.ts reads them into module
   # scope at import time, so the erase gate's PIN proof cannot be computed
@@ -103,8 +124,6 @@ paths = [
   '''^11_Data_Model\.md$''',
   '''^session-buddy\.md$''',
   '''^claude-flow\.config\.json$''',
-  # CI workflows (example values in comments)
-  '''^\.github/workflows/(lint|test|web-prod-gate)\.yml$''',
   # Agent / skill documentation bundles
   '''^\.(agent|agents|claude)/''',
   # Third-party test-run artifacts committed to the repo
@@ -149,6 +168,69 @@ paths = [
 #      practical effect is that CI is red until the owner rotates — which is the
 #      correct state for a real exposure and not something an agent should
 #      quietly switch off.
+#
+# ── SECURITY FINDING 2 (owner action required — NOT auto-fixed) ─────────────
+# Added by the 2026-10-21 supply-chain audit (docs/audit/DYNAMIC-SUPPLYCHAIN.md,
+# SC-01). The audit found FOUR MORE live credentials in REACHABLE history that
+# this config was HIDING, and the repository is PUBLIC
+# (github.com/HKDevLoops/buddysaradhi — API returns HTTP 200 to an
+# unauthenticated request).
+#
+# WHAT WAS HIDDEN AND HOW
+#   The allowlist carried this entry:
+#       '''^\.github/workflows/(lint|test|web-prod-gate)\.yml$'''
+#   justified as "CI workflows (example values in comments)". A PATH allowlist
+#   silences the rule for the WHOLE FILE — the same argument this file already
+#   makes against `match`-scoped allowlists, applied to the file it was added
+#   to protect. Measured: with the entry present the history scan reports 12
+#   findings; with it removed it reports 18. The 6 extra findings are REAL.
+#
+# THE CREDENTIALS (all still in reachable history; none in HEAD)
+#   SUPABASE_SERVICE_ROLE_KEY  — a 219-char Supabase JWT, `role: service_role`,
+#     `exp: 2098152220` (year 2036, i.e. it does not expire on its own).
+#     Committed LITERALLY into `.github/workflows/lint.yml`,
+#     `.github/workflows/test.yml` and `.github/workflows/web-prod-gate.yml`
+#     across 17 commits, 2026-07-26 → 2026-07-31 (earliest d12ce01f, latest
+#     9e1623d2). The value is IDENTICAL to the one the app uses today
+#     (`apps/gateway/.env`, `supabase/functions/gateway/.env`).
+#     A `service_role` key bypasses Row Level Security by design, so it is
+#     read/write on every table in the project.
+#   GATEWAY_SHARED_SECRET — 54 chars, in `apps/product-page/src/app/admin/actions.ts`.
+#   DATABASE_URL — 56 chars, in `docs/superpowers/plans/2026-07-16-admin-dashboard.md`.
+#   GATEWAY_ADMIN_TOKEN — 18 chars, in `SUMMARY.md`.
+#
+# LIVENESS — measured, not assumed
+#   `GET https://gmqwdnvbfnwpzpctwvho.supabase.co/rest/v1/` with the exposed
+#   service_role key returns HTTP 200 and the full OpenAPI schema. A bogus key
+#   returns HTTP 401 (control). A COUNT-ONLY query (`Range: 0--1`, zero rows
+#   fetched) against `students` and `ledger_entries` returns 14 and 28 rows
+#   respectively. The key WORKS, and it reads real tutor data.
+#
+#   Separately: the same count-only query with the project's `anon` key
+#   returns the SAME 14 and 28. The anon key ships in the browser bundle
+#   (`NEXT_PUBLIC_*`), so Row Level Security is not restricting these two
+#   tables. That is a live data-exposure finding of its own and belongs to the
+#   database owner, not to this file — see the audit report, SC-01b.
+#
+# REQUIRED, and NOT something an agent can do:
+#   1. ROTATE the Supabase service_role key (Supabase Dashboard → API Keys →
+#      rotate) AND the gateway shared secret / admin token / database URL.
+#      Rotation is the only fix; the credentials were public the moment they
+#      were pushed.
+#   2. Enable Row Level Security on `students` and `ledger_entries`, or revoke
+#      the anon role's access to them.
+#   3. The `gitleaks git` gate stays RED until (1) is done. That is the correct
+#      state for a real exposure. The allowlist entry that hid these findings
+#      has been REMOVED rather than widened.
+#
+# The rules below are what make the detector catch the YAML-COLON form that the
+# removed allowlist had been covering by accident. The stock `jwt` rule does
+# fire on these values, but only because the value is a bare JWT; a non-JWT
+# secret in the same position (a Turso token, a blob token) is not covered by
+# the stock ruleset at all, and the custom `supabase-service-key` rule below
+# only matched the DOTENV form (`supabase_service_role_key = ...`), never the
+# YAML form (`SUPABASE_SERVICE_ROLE_KEY: ...`) that the workflow files used.
+# These rules close both gaps.
 
 [[rules]]
 id = "supabase-anon-key"
@@ -162,6 +244,29 @@ description = "Supabase Service Role Key"
 regex = '''(?i)supabase_service_role_key\s*=\s*['"]?[a-zA-Z0-9_\-\.]{100,}['"]?'''
 severity = "error"
 
+# YAML form — the form the CI workflow files actually used.
+[[rules]]
+id = "supabase-service-key-yaml"
+description = "Supabase Service Role Key in YAML/env form (KEY: value)"
+regex = '''(?im)^\s*(?:-\s*)?SUPABASE_SERVICE_ROLE_KEY\s*:\s*['"]?[a-zA-Z0-9_\-\.]{100,}['"]?\s*$'''
+severity = "error"
+
+[[rules]]
+id = "supabase-anon-key-yaml"
+description = "Supabase Anon/Public Key in YAML/env form (KEY: value)"
+regex = '''(?im)^\s*(?:-\s*)?(?:NEXT_PUBLIC_)?SUPABASE_ANON_KEY\s*:\s*['"]?[a-zA-Z0-9_\-\.]{100,}['"]?\s*$'''
+severity = "error"
+
+# Any JWT-shaped value assigned to a credential-looking key in YAML. The stock
+# `jwt` rule requires the secret to look like a JWT; this rule keys off the
+# NAME, so a Turso/blob/Gateway token in a YAML env block is caught even when
+# it is not a JWT.
+[[rules]]
+id = "jwt-in-yaml-credential-slot"
+description = "JWT-shaped credential assigned in a YAML env block"
+regex = '''(?im)^\s*(?:-\s*)?[A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)[A-Z0-9_]*\s*:\s*['"]?ey[A-Za-z0-9_\-\.]{20,}['"]?\s*$'''
+severity = "error"
+
 [[rules]]
 id = "turso-api-token"
 description = "Turso API Token"
@@ -169,7 +274,14 @@ regex = '''(?i)turso_api_token\s*=\s*['"]?ey[a-zA-Z0-9_\-\.]{50,}['"]?'''
 severity = "error"
 
 [[rules]]
+id = "turso-api-token-yaml"
+description = "Turso API Token in YAML/env form (KEY: value)"
+regex = '''(?im)^\s*(?:-\s*)?(?:TURSO_API_TOKEN|TURSO_AUTH_TOKEN)\s*:\s*['"]?ey[a-zA-Z0-9_\-\.]{50,}['"]?\s*$'''
+severity = "error"
+
+[[rules]]
 id = "generic-private-key"
 description = "Generic Private Key"
 regex = '''-----BEGIN[ A-Z0-9_-]+PRIVATE KEY-----'''
 severity = "error"
+

@@ -9,6 +9,7 @@ import {
   eraseTables,
   oneRow,
   run,
+  stmtDeleteWhere,
   stmtEraseTable,
   stmtSecurityAuditInsert,
   stmtSettingPinProof,
@@ -216,6 +217,21 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
         const stmt = stmtEraseTable(table as never, tenantId);
         await run(tx, stmt.sql, stmt.args);
       }
+
+      // 10_Security.md §18.1 step 4 — the idempotency store is part of the
+      // tenant's data and was NOT in `ERASE_TABLES` (lib/sql.ts), so the
+      // cascade left it behind. It is not metadata: every row holds the
+      // stored RESPONSE BODY of a mutation, which for this product is a
+      // receipt number, a balance and a ledger projection. A "secure" erase
+      // that leaves the tenant's financial responses in the database is not an
+      // erase (BR-SEC-04).
+      //
+      // It is deleted here rather than by adding a table to `ERASE_TABLES`
+      // because `idempotency_keys` is keyed (tenant_id, route, key) rather
+      // than by `id`, so it needs a tenant-scoped DELETE rather than the
+      // one-row-per-id shape the erase builder issues.
+      const idemWipe = stmtDeleteWhere("idempotency_keys", tenantId, {});
+      await run(tx, idemWipe.sql, idemWipe.args);
 
       // Put the append-only guards back before anything else can run.
       for (const ddl of stmtCreateAppendOnlyTriggers()) {
