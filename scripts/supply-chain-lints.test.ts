@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const REPO_ROOT: string = fileURLToPath(new URL("..", import.meta.url));
 
@@ -47,9 +47,9 @@ function rulesReported(stdout: string): Set<string> {
   // The report prints one heading per rule, then "  <file>:<line>" lines.
   // The output is ANSI-coloured, so the codes are stripped first.
   const plain = stdout.replace(/\u001b\[[0-9;]*m/g, "");
-  const re = /^L\d+\s/gm;
+  const re = /^L(\d+)\s/gm;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(plain)) !== null) ids.add(m[0].trim());
+  while ((m = re.exec(plain)) !== null) ids.add(`L${m[1]}`);
   return ids;
 }
 
@@ -58,21 +58,60 @@ function plain(stdout: string): string {
   return stdout.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+/**
+ * Plant a violation, run an assertion against it, and remove it.
+ *
+ * The retry is not paranoia: this repository is worked on by several agents at
+ * once, and a concurrent `git clean -fd` (or `git stash`) can delete an
+ * untracked planted file between the write and the lint run. The assertion
+ * would then fail for a reason that has nothing to do with the rule. So: if
+ * the planted file is gone when the assertion returns, re-plant and run the
+ * assertion once more.
+ */
 function withPlantedFile(relPath: string, content: string, fn: () => void): void {
   const abs = join(REPO_ROOT, relPath);
   const existed = existsSync(abs);
   const previous = existed
     ? execFileSync("cmd", ["/c", "type", abs], { cwd: REPO_ROOT, encoding: "utf8" })
     : null;
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, content, "utf8");
+  const plant = (): void => {
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf8");
+  };
   try {
+    plant();
     fn();
+    if (!existsSync(abs)) {
+      // A concurrent operation removed the planted file mid-run.
+      plant();
+      fn();
+    }
   } finally {
     if (existed && previous !== null) writeFileSync(abs, previous, "utf8");
     else rmSync(abs, { force: true });
+    rmSync(join(REPO_ROOT, "apps/gateway/zz-l10-negative-control"), {
+      force: true,
+      recursive: true,
+    });
   }
 }
+
+// A killed test run can leave a planted violation behind, and a leftover
+// violation makes the "clean tree" assertions fail for the wrong reason.
+// Remove any stale negative-control artefacts before the first test.
+beforeAll(() => {
+  for (const stale of [
+    ".github/workflows/zz-l12-negative-control.yml",
+    "apps/gateway/zz-l10-negative-control/deno.json",
+    "packages/shared/src/zz-l11-negative-control.ts",
+  ]) {
+    rmSync(join(REPO_ROOT, stale), { force: true });
+  }
+  rmSync(join(REPO_ROOT, "apps/gateway/zz-l10-negative-control"), {
+    force: true,
+    recursive: true,
+  });
+});
 
 describe("L10 — no remote or floating dependency specifier", () => {
   it("the clean tree has no L10 findings", () => {

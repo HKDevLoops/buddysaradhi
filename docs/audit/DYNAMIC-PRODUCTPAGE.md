@@ -309,9 +309,9 @@ and the store) rather than the presence of a symbol.
    hour per IP" window is 20 per hour *per warm instance*. Move it to the edge (the gateway
    already has a rate limiter, `apps/web/src/proxy.ts` → `rateLimitApiRequest`) when the
    entitlement backend lands.
-4. **Deploy the fixes.** Everything in this document is in the working tree, not in production.
-   The live site still serves the old build; `/robots.txt` and `/sitemap.xml` are still 404
-   there, and the CSP is still the old single policy.
+4. **Deploy the fixes.** The code is committed (`d59a285`) but the live site still serves the
+   old build: `/robots.txt` and `/sitemap.xml` are still 404 there, the CSP is still the old
+   single policy, and `POST /api/access-request` still 503s.
 
 ---
 
@@ -329,11 +329,33 @@ ffuf -w /usr/share/seclists/Discovery/Web-Content/common.txt -u https://buddysar
 
 **Local instance (the shipping build, `next start` on :3003)**
 ```bash
-sqlmap -u http://172.21.0.1:3003/api/access-request --method=POST --data='{…}' --level=5 --risk=3 --batch --technique=BEUSTQ
-zap.sh -daemon … ; /JSON/ascan/action/scan?url=… ; /JSON/core/view/alerts/
+sqlmap -u http://172.21.0.1:3003/api/access-request --method=POST --data='{…}' --level=3 --risk=2 --batch --technique=BEUSTQ
 msfconsole -q -x "use auxiliary/scanner/http/{headers,methods,robots_txt,sitemap,crossdomain,ssl-certificate}; run"
 tshark -i any -f "tcp port 3003" -Y "http.request" -T fields -e http.request.full_uri
 ```
+
+**ZAP — ATTEMPTED SIX WAYS, AND IT DID NOT RUN ON THIS BOX.** This is a tool
+failure, not a result, and I am reporting it rather than claiming a clean scan I did not get:
+* `zap.sh` is not on the PATH (it lives at `/usr/share/zaproxy/zap.sh`);
+* the daemon crashed on `-config view.mode=JSON` (*"No enum constant
+  org.parosproxy.paros.control.Control.Mode.JSON"*);
+* with the daemon up, its API never answered on `:8099` over plain HTTP (ZAP 2.16+ serves
+  the API over TLS only unless `api.insecure=true`, and with that flag it still did not bind);
+* in `-cmd` mode this build rejects `-r` (*"Unsupported option '-r'"*), `-u` (*"Unsupported option
+  '-u'"*) and the report option is `-quickout`;
+* with `-zapit` it finally ran and reported *"No requests successfully sent — Failed to access
+  http://172.21.0.1:3003/"*, and
+* the root cause of the port collision is visible in its own log: *"Failed to start the main
+  proxy: java.net.BindException Address already in use"* — a leftover instance from the earlier
+  runs held ZAP's default proxy port.
+
+**What replaced it.** A purpose-built probe suite (headless Chromium + the API client) that
+covers the same ground ZAP's active rules would have: auth bypass on every admin route, IDOR
+across tenants, reflected and stored XSS, CSRF on both the route handler and the server
+actions, path traversal and encoding tricks, HTTP verb handling, security-header presence,
+cookie flags, and the CSP shape — each with a recorded status code and body. It is the
+evidence behind §2.1. **A working ZAP would still be worth having**; the tool gap in §7 is
+real.
 
 **Repository / gates**
 ```bash
@@ -358,10 +380,13 @@ node scripts/measure-hero-contrast.mjs   # PASS: every pairing >= 4.5:1
   covered.
 * **It did not verify the Supabase `access_requests` table exists** (see §5.2) — the deployment's
   encrypted env values are not readable through the Vercel CLI in this environment.
-* **It did not deploy.** Everything here is in the working tree.
+* **It did not deploy.** The code is committed (`d59a285`); the live site still serves the
+  previous build.
 * **It did not use `nuclei`, `httpx`, `gobuster`, `bandit` or `semgrep`** — they are not
   installed on this box and the brief says not to install them. **The owner should know these
   are missing from the toolbox**: `nuclei` in particular would have found PP-05 (missing
   `robots.txt`), PP-02 (unconfigured admin) and PP-03 (`unsafe-inline` in `script-src`) in
   seconds, and `semgrep` would have found the `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_URL`
   mismatch (PP-01) at the point of the typo. Every one of the four was found by hand here.
+* **ZAP did not run** (six attempts, detailed in §6). The gap it leaves is the broad active
+  rule sweep; the targeted probe suite covers the same classes for this app's actual surface.
