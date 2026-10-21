@@ -516,20 +516,41 @@ FM-21; `gsap.context` + `ctx.revert()` + `io.disconnect()` per FM-15;
 4. **Climax `0.70-0.85`** — Staffroom cluster, every tutor on BuddySaradhi.
 5. **Reveal `0.85-1.00`** — zoom into 5 screens: Dashboard->Students->Attendance->Fees->Settings + optional `WASD/E` walk (Graffico).
 
-**The /story expansion (amended 2026-10-14, owner-authorized):** the five
-beats above remain the HERO's map (the / front door keeps them verbatim).
-They are joined by a second, longer telling at /story: FIFTY beats across
-five acts (The Hunt 1-9, The Chaos 10-20, The Turn 21-30, The Relief 31-40,
-The Five Screens 41-50), each beat owning its camera framing (mandatory look
-target, damped look-ahead, per-beat FOV/roll) and a seeker built from
-primitives with per-act pose keyframes. Contract: `docs/plans/
-ANIMATION_MODEL_BRIEF.md` (narrative + camera + character + budgets);
-implementation: `HKDevLoops/buddysaradhi-product` `src/components/story/`
-(beats/camera-rig/camera-math/character/act-directives/story-canvas/
-story-experience/scene-geometry) + `src/app/story/` + `tests/beats,
-camera-rig, performance` (25 tests, each with a verified negative control).
-This section does NOT replace the 5-beat map — it scopes it: 5 beats is the
-hero, 50 beats is the story.
+**The /story expansion (amended 2026-10-14, owner-authorized; implementation
+recorded 2026-10-21):** the five beats above remain the HERO's map (the /
+front door keeps them verbatim). They are joined by a second, longer telling at
+/story: FIFTY beats across five acts, each beat owning its camera framing
+(mandatory look target, damped look-ahead, per-beat FOV/roll) and a seeker
+built from primitives with per-act pose keyframes. This section does NOT
+replace the 5-beat map — it scopes it: **5 beats is the hero, 50 beats is the
+story.** The beat map was deliberately expanded because the hero's five beats
+can name the product but cannot make a visitor answer _what was wrong_ and
+_why is this trustworthy_; the fifty beats tell one evening twice, so the
+answers are lived rather than asserted.
+
+**The fifty-beat map (scroll ranges tile `0..1`, no gap, no overlap):**
+
+| Act                  | Beats | Scroll      | Camera language                                                        |
+| -------------------- | ----- | ----------- | ---------------------------------------------------------------------- |
+| 1 — The Hunt         | 1-9   | `0.00-0.15` | wide, high, distant, FOV 55; she is small in frame                     |
+| 2 — The Chaos        | 10-20 | `0.15-0.38` | low, closing, FOV widening to 70, dutch roll ≤ `0.08`, hand-held drift |
+| 3 — The Turn         | 21-30 | `0.38-0.58` | push in hard, then stop dead; FOV 38 at beat 21 and held               |
+| 4 — The Relief       | 31-40 | `0.58-0.78` | pull back, level, FOV 55, no roll; roll is exactly 0 from beat 38      |
+| 5 — The Five Screens | 41-50 | `0.78-1.00` | slow orbit around the ledger card, FOV 45, five screens in depth       |
+
+Contract: `docs/plans/ANIMATION_MODEL_BRIEF.md` (narrative + camera +
+character + budgets). Implementation, in THIS monorepo:
+`apps/product-page/src/components/story/` (`beats.ts`, `character.tsx`,
+`camera-rig.tsx`, `act-directives.ts`, `story-canvas.tsx`,
+`story-experience.tsx`) + `apps/product-page/src/app/story/page.tsx` +
+`apps/product-page/tests/{beats,camera-rig,performance}.test.ts`. The scene
+is built by ONE three.js factory so the budget can be COUNTED from the
+constructed scene rather than measured in a browser (§7): draw calls,
+triangles and textures are asserted per tier, and the budgets are never
+raised to fit a scene — a scene that misses them is simplified. Accessibility
+(§4, Rule 10): all fifty beats exist as static HTML in the server page, the
+canvas is `aria-hidden`, the poster veil covers it until the first frame,
+reduced motion freezes the scene, and the CTA is the keyboard target.
 
 **Assets:** code-first ONLY (amended 2026-10-04). `LedgerCard,
 AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls`-style

@@ -660,7 +660,13 @@ async function sumLiveCredits(
     invoiceId,
     voidOfId: null,
   };
-  if (type !== null) where.type = type;
+  // The libsql dialect's twin statement filters `type != 'VOID'` as well as
+  // `void_of_id IS NULL`. A VOID row always carries `void_of_id`, so the two
+  // agree on well-formed data — but on a row that somehow does not, the
+  // mirroring credit of a voided CHARGE would be counted as money received.
+  // The dialects must not differ on that, so the ORM one says it too.
+  if (type === null) where.type = { not: "VOID" };
+  else where.type = type;
   const credits = await tx.ledgerEntry.findMany({ where });
 
   const reversed = new Set<string>();
