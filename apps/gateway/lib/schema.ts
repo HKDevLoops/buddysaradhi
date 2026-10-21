@@ -362,25 +362,15 @@ export const CORE_DDL_STATEMENTS = [
 /**
  * The append-only guards on `ledger_entries`, as DROP and CREATE statements.
  *
- * WHY THEY EXIST AS A PAIR (audit AUD-003, P0): the secure-erase cascade
- * issues `DELETE FROM ledger_entries WHERE tenant_id = ?` — and
- * `trg_ledger_no_delete` aborts exactly that with
- * "P0 BUG: ledger_entries is append-only. DELETE forbidden." The whole erase
- * transaction therefore rolls back and **the tutor's right to erasure never
- * happens**: the endpoint 500s, nothing is deleted, and the tutor is told
- * nothing happened. The LEDGER-4 exception ("physical ledger deletion exists
- * only in the secure-erase flow") was written into the spec but had no
- * mechanism behind it.
- *
- * So the erase flow drops the guards, cascades, and re-creates them — all
- * inside ONE write transaction. If any step fails, the transaction rolls back
- * and the guards are still there (SQLite DDL is transactional), so a failed
- * erase can never leave the ledger unprotected.
+ * AUD-003: the erase cascade issues `DELETE FROM ledger_entries`, which
+ * `trg_ledger_no_delete` aborts - so the erase never committed and the
+ * tutor's right to erasure never happened. The erase flow drops the guards
+ * and re-creates them inside ONE transaction (SQLite DDL is transactional,
+ * so a failed erase restores them).
  *
  * The CREATE text is the SAME literal the self-heal installs, so the guards
- * cannot drift from the ones the tenant already has. These strings live HERE
- * because `apps/gateway/lib/schema.ts` is the audited DDL authority
- * (AGENTS.md §3.4 — no other module may execute DDL).
+ * cannot drift. This lives here because `lib/schema.ts` is the audited DDL
+ * authority (AGENTS.md 3.4).
  */
 export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   "trg_ledger_no_update",

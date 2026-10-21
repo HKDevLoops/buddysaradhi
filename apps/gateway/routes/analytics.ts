@@ -123,15 +123,11 @@ function paymentsByInvoice(entries: Row[], reversedIds: Set<string>): Map<string
  * when it has NOT been reversed; 14_Edge_Cases.md EC-F-05 requires the invoice
  * to revert on a void.
  *
- * The read is bounded by the candidate credits' own ids, so it cannot grow
- * with the tenant's history — but it is CHUNKED, because "bounded by the
- * candidates" is not the same as "fits in one statement". SQLite's
- * `SQLITE_MAX_VARIABLE_NUMBER` is 32,766 on the libsql build this product
- * ships on (measured, not assumed), and exceeding it is a HARD ERROR ("too
- * many SQL variables"), not a truncation: the dashboard would 500 on a
- * long-lived institute with enough open invoices. The chunk size sits well
- * inside the OLDEST SQLite ceiling too (999), so the same code is safe on
- * every SQLite the product can meet.
+ * The read is bounded by the candidates' own ids AND chunked: SQLite's
+ * `SQLITE_MAX_VARIABLE_NUMBER` is 32,766 on the shipped libsql build
+ * (measured) and exceeding it is a hard error, not a truncation - the dashboard
+ * would 500 on a long-lived institute. 500 also sits inside the oldest
+ * SQLite ceiling (999).
  */
 const MAX_SQL_VARIABLES_PER_STATEMENT = 500;
 

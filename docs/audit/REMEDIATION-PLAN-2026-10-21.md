@@ -68,18 +68,26 @@ The edge is the single chokepoint every platform transits.
 
 | # | Finding | Status |
 |---|---|---|
-| 2.1 | **P1** `cf-connecting-ip` was read BEFORE the peer check, so the caller chose its own rate-limit **and** auth-lockout bucket — the strict-mode design was short-circuited | FIXED (`6b85290`) |
-| 2.2 | **P1** `resolveTursoUrl`/`resolveToken` silently substituted a **different database and credential** than the HMAC signed, and accepted arbitrary `http://` hosts (SSRF sink) | OPEN — `lib/sql.ts` is in-flight; needs the RFC-005 WIP to land first |
-| 2.3 | **P1** The request signature does not bind the HTTP **method, path, body, or `Idempotency-Key`** — a captured signature authorises any route with any body, and the replay defence (idempotency dedup) can be side-stepped by changing a header the signature does not cover | OPEN — coordinated two-sided wire change; needs a v2 with dual acceptance for a safe rollout |
-| 2.4 | **P1** A GET with **no `X-Signature` at all** is accepted — a forged signature is rejected, an absent one is not | OPEN |
-| 2.5 | **P1** The void route has **no PIN** at the edge — the ledger's only correction path is unauthenticated (BR-SEC-04 [CRITICAL]) | OPEN — `routes/ledger.ts` is in-flight |
-| 2.6 | **P1** Replay nonces and every rate limiter are **per-isolate in-memory** | OPEN — needs the Durable Object / Upstash authority |
+| # | Finding | Status |
+|---|---|---|
+| 2.1 | **P1** `cf-connecting-ip` was read BEFORE the peer check, so the caller chose its own rate-limit **and** auth-lockout bucket - the strict-mode design was short-circuited | FIXED (`6b85290`) |
+| 2.2 | **P1** `resolveTursoUrl`/`resolveToken` silently substituted a **different database and credential** than the HMAC signed | PARTLY FIXED - `lib/db-url-policy.ts` now refuses any non-public destination, judged on the **parsed** host (userinfo tricks cannot mislead it); the *substitution* semantics remain and `lib/sql.ts` is in-flight. **GW-07** |
+| 2.3 | **P1** The request signature does not bind the HTTP **method, path, body, or `Idempotency-Key`** | REPORTED - **deliberately not changed**: the signed material is a published wire value (`apps/web/src/server/get-db.ts:270`), so re-binding it breaks every deployed web client. An RFC, not a unilateral edit. 2.13 removes the exploitability it created. |
+| 2.4 | **P1** A GET with **no `X-Signature` at all** is accepted - a forged signature is rejected, an absent one is not | REPORTED |
+| 2.5 | **P1** The void route has **no PIN** at the edge - the ledger's only correction path is unauthenticated (BR-SEC-04 [CRITICAL]) | OPEN - `routes/ledger.ts` is in-flight |
+| 2.6 | **P1** The rate limiter and the 15-attempt lockout are **per-isolate maps**, so the documented ceilings **do not bind** - measured live: 400 concurrent `GET /health` -> **400x200, 0x429**; 40 bad-bearer requests -> **40x401, 0x429** | REPORTED - a shared store is a new dependency AND a new outbound origin (both forbidden here), so the control is now documented as **not existing** in `.env.example`, with the measurement. **GW-04** |
 | 2.7 | **P2** The schema heal swallows its own failure and the request proceeds against an unhealed DB | OPEN |
 | 2.8 | **P2** `GATEWAY_ADMIN_TOKEN` is documented as the erase route's second factor and is read by **no** handler | OPEN |
-| 2.9 | **P2** `PIN_PEPPER` defaults to the request-signing HMAC key — a fleet-wide impersonation key that is also an offline PIN-cracking key | OPEN |
-| 2.10 | **P2** The gateway is a **public** Supabase Edge Function that dials a caller-supplied `X-Db-Url` | OPEN (with 2.2) |
-| 2.11 | **P2** The gateway's ledger outbox payloads for the invoice and void paths are minimal — a replica cannot rebuild the row | OPEN (in-flight file) |
-| 2.12 | **P3** `checkRateLimit` never increments on the reject path — the backoff cannot escalate | OPEN |
+| 2.9 | **P2** `PIN_PEPPER` defaults to the request-signing HMAC key - a fleet-wide impersonation key that is also an offline PIN-cracking key | OPEN |
+| 2.10 | **P2** The gateway is a **public** Supabase Edge Function that dials a caller-supplied `X-Db-Url` - loopback, `169.254.169.254`, RFC1918 - and a dead host **hangs** the request | **FIXED** - `lib/db-url-policy.ts`, enforced before anything is dialed. **GW-02** |
+| 2.11 | **P2** The gateway's ledger outbox payloads for the invoice and void paths are minimal - a replica cannot rebuild the row | OPEN (in-flight file) |
+| 2.12 | **P3** `checkRateLimit` never increments on the reject path - the backoff cannot escalate | OPEN |
+| 2.13 | **P0** A captured signed payment replayed onto a **second isolate** charged twice - two `PAYMENT_RECEIVED` rows of 4242 paise from one capture | **FIXED** - the nonce is now claimed durably in the tenant's own DB (`lib/replay.ts`). **GW-01** |
+| 2.14 | **P1** "Securely erase all tutor data" left the **idempotency store** behind - every row holds a stored mutation's response body (receipt number, balance) | **FIXED** - wiped in the same cascade transaction. **GW-03** |
+| 2.15 | **P2** A GraphQL tenant-mismatch refusal was reported as **500 INTERNAL** - a client error as a server fault | **FIXED** -> typed 403. **GW-05** |
+| 2.16 | **P2** The edge cache key `gw:<tenant>:<path>:<qs>` omits the **database identity**, so a request naming another DB is served the previous DB's cached rows | REPORTED. **GW-06** |
+| 2.17 | **P3** The SQL/XSS blocklist is bypassable (`<svg/onload=...>` stored verbatim). It is defence-in-depth, not the injection control - every value is `?`-bound | REPORTED. **GW-08** |
+| 2.18 | **P3** No connect timeout on the tenant-database dial - a dead host holds the request open | REPORTED. **GW-10** |
 
 **Verified correct (do not touch):** CVE-2025-29927 (Next.js middleware auth bypass) is **not**
 exploitable — Metasploit's `auxiliary/scanner/http/nextjs_middleware_auth_bypass` reports *"gated

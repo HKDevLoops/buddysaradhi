@@ -88,25 +88,11 @@ export async function getAuthenticatedDb(): Promise<{
   // Reached only when no Supabase user exists (the session branch above
   // always returns or throws) — the LOCAL-DEV identity, never a real tenant.
   //
-  // AUD-008 (P1): this branch used to hand back a USABLE handle with
-  // `tenantId = "local-dev"` and no gate at all. Two paths reached it:
-  //   - a SLOW (5 s timeout) or ERRORED Supabase auth read — the timeout
-  //     branch and the catch branch both return "no user";
-  //   - an UNAUTHENTICATED caller hitting a server action (server actions
-  //     are public HTTP endpoints; there is no session check on that path).
-  // Either way the tutor's payment, receipt, ledger rows and outbox rows
-  // were written with `tenant_id = 'local-dev'` — NOT into their books — and
-  // the tutor was told "Payment recorded - RCT-2026-000123". The money was
-  // not in their books and they believed it was. Where `TURSO_DATABASE_URL`
-  // was unset the rows landed in `file:./dev.db` on an ephemeral serverless
-  // filesystem.
-  //
-  // The gateway path already refuses exactly this: `getGatewayHeaders`
-  // throws AUTH_REQUIRED unless `ALLOW_DEV_AUTH === "true"`, and the dev-token
-  // signer does the same. The direct-DB path was the outlier. Now it is
-  // gated the same way — forgetting the flag must fail SAFE, not open a
-  // caller-trusting path. Local development sets the flag (see
-  // `apps/web/.env.example`).
+  // AUD-008 (P1): this branch used to hand back a USABLE handle with no
+  // gate, so a slow/erroring auth read - or an unauthenticated caller hitting a
+  // server action - wrote the tutor's payment to tenant_id 'local-dev' and
+  // reported it as recorded. The gateway path already refused this; now so
+  // does the direct-DB path.
   if (process.env.ALLOW_DEV_AUTH !== "true") {
     throw authError(
       "AUTH_REQUIRED",

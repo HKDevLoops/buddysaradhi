@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { updateSession } from './lib/supabase/middleware';
-import { rateLimitApiRequest } from './server/rate-limit';
+import { rateLimitApiRequest, rateLimitApiRequestGlobal } from './server/rate-limit';
+/**
+ * Client IP for the edge rate limiter (web/04_API_Routes.md §2). The ORDER of
+ * the sources is the security property — see `src/lib/client-ip.ts`.
+ */
+import { clientIpFromRequest as resolveClientIp } from './lib/client-ip';
 
 type Platform = 'macos' | 'windows' | 'android' | 'ios' | 'linux' | 'web';
 
@@ -94,20 +99,58 @@ function setPlatformHeader(res: NextResponse, platform: Platform): void {
 
 /**
  * Best-effort client IP for the edge rate limiter (web/04_API_Routes.md §2).
- * First entry of `x-forwarded-for`, else `x-real-ip`, else `"unknown"`.
- * Deliberately NOT Zod-parsed: the value is an opaque rate-bucket key, never
- * interpolated into SQL, HTML, or a URL, so there is no injection boundary —
- * only a Map key. (AGENTS.md §6.1: Zod at boundaries that parse.)
+ *
+ * The extraction lives in `src/lib/client-ip.ts` because the ORDER of the
+ * sources is the security property, not an implementation detail: a
+ * platform-overwritten header first (Vercel / Cloudflare), then
+ * `x-forwarded-for`, then `x-real-ip`. The first entry of `x-forwarded-for`
+ * is the CLIENT's to choose on a deployment that does not overwrite it, which
+ * let a spoofing client mint an unlimited number of 60-token buckets
+ * (docs/audit/DYNAMIC-WEB.md F-3).
+ *
+ * Deliberately NOT Zod-parsed here: the value is an opaque rate-bucket key,
+ * never interpolated into SQL, HTML, or a URL, so there is no injection
+ * boundary — only a Map key. (AGENTS.md §6.1: Zod at boundaries that parse.)
+ * The module DOES shape-check the value, because a value that is not an
+ * address must not be able to mint a bucket.
  */
-function clientIpFromRequest(req: NextRequest): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  const realIp = req.headers.get('x-real-ip')?.trim();
-  if (realIp) return realIp;
-  return 'unknown';
+
+/**
+ * The CSP for an HTML page, for a given nonce.
+ *
+ * WHY THIS IS A FUNCTION AND NOT AN INLINE TEMPLATE: the SAME string must
+ * travel on the REQUEST and on the RESPONSE.
+ *
+ * Next 16 reads the nonce from the REQUEST's CSP header while it renders
+ * (app-render.js:134 -> getScriptNonceFromHeader) and stamps it onto the
+ * `<script>` tags it emits; the RESPONSE header is the one the browser
+ * enforces. A PRERENDERED document cannot satisfy this at all - its tags were
+ * written at build time - which is why the (auth) pages must be server-rendered
+ * per request. See `buildPageCsp` and the (auth) page modules.
+ *
+ * Ref: 10_Security.md 6 (XSS-1), 23_Security_Harness_Plan.md 7.
+ */
+export function buildPageCsp(nonce: string): string {
+  const devConnect = process.env.NODE_ENV !== 'production'
+    ? ' ws://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3010 ws://localhost:3100'
+    : '';
+  // 'unsafe-eval' is explicitly excluded in production to prevent XSS via
+  // eval(); dev keeps it because the React dev overlay needs it.
+  const scriptCsp = process.env.NODE_ENV !== 'production'
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
+  return [
+    `default-src 'self'`,
+    scriptCsp,
+    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
+    `font-src 'self' https://fonts.gstatic.com`,
+    `img-src 'self' data: blob: https://*.supabase.co`,
+    `connect-src 'self' https://*.supabase.co https://*.turso.io https://*.turso.ai https://api.buddysaradhi.app${devConnect}`,
+    `frame-ancestors 'none'`,
+    `base-uri 'self'`,
+    `form-action 'self'`,
+    `upgrade-insecure-requests`,
+  ].join('; ');
 }
 
 /**
@@ -232,25 +275,35 @@ export default function proxy(req: NextRequest) {
     // of retrying blind (lib/retry-invoke.ts already honours Retry-After).
     if (pathname.startsWith('/api/v1/')) {
       const kind = req.method === 'GET' || req.method === 'HEAD' ? 'read' : 'write';
-      const decision = rateLimitApiRequest(clientIpFromRequest(req), kind);
+      const decision = rateLimitApiRequest(resolveClientIp(req.headers), kind);
+      // The per-INSTANCE ceiling runs in ADDITION to the per-IP bucket and is
+      // keyed on nothing the client can influence, so no amount of header
+      // forgery gets past it (docs/audit/DYNAMIC-WEB.md F-2).
+      const globalDecision = rateLimitApiRequestGlobal(kind);
+      const allowed = decision.allowed && globalDecision.allowed;
+      const retryAfterSeconds = decision.allowed
+        ? globalDecision.retryAfterSeconds
+        : decision.retryAfterSeconds;
       const rateHeaders: Record<string, string> = {
         'RateLimit-Limit': String(decision.limit),
         'RateLimit-Remaining': String(decision.remaining),
         'RateLimit-Reset': String(decision.resetAfterSeconds),
+        'RateLimit-Global-Limit': String(globalDecision.limit),
+        'RateLimit-Global-Remaining': String(globalDecision.remaining),
       };
-      if (!decision.allowed) {
+      if (!allowed) {
         return new NextResponse(
           JSON.stringify({
             success: false,
-            error: `RATE_LIMITED: Too many requests — retry in ${decision.retryAfterSeconds}s.`,
+            error: `RATE_LIMITED: Too many requests — retry in ${retryAfterSeconds}s.`,
             code: 'RATE_LIMITED',
-            retryAfter: decision.retryAfterSeconds,
+            retryAfter: retryAfterSeconds,
           }),
           {
             status: 429,
             headers: {
               'Content-Type': 'application/json',
-              'Retry-After': String(decision.retryAfterSeconds),
+              'Retry-After': String(retryAfterSeconds),
               ...corsHeaders,
               ...rateHeaders,
             },
@@ -323,9 +376,20 @@ export default function proxy(req: NextRequest) {
     return NextResponse.redirect(new URL('/', STORE_BASE_URL));
   }
 
-  const isHtmlPage = !pathname.startsWith('/api/') && 
-                     !pathname.startsWith('/_next/') && 
-                     !pathname.includes('.');
+  // Is this a request for a DOCUMENT (an HTML page the browser will render)?
+  //
+  // The old test was `!pathname.includes('.')`, which mis-classified dotted
+  // paths as non-documents — but `/nope.json` is answered with an HTML 404,
+  // and that document was served under the STATIC safety net from
+  // `next.config.ts` (`script-src 'self' 'unsafe-inline'`) while `/nope` got
+  // the strict nonce policy. Measured: the two 404s carried different CSPs.
+  //
+  // A path with a dot is a document unless it is a known non-document route
+  // (`/api/*` is JSON, `/robots.txt` is text/plain). The stricter policy on a
+  // non-document response is inert — CSP only governs documents.
+  // Ref: 10_Security.md §6, docs/audit/DYNAMIC-WEB.md F-3.
+  const isHtmlPage = !pathname.startsWith('/api/') &&
+                     !pathname.startsWith('/_next/');
 
   let res: NextResponse;
   let nonce = '';
@@ -335,6 +399,9 @@ export default function proxy(req: NextRequest) {
     crypto.getRandomValues(array);
     nonce = btoa(String.fromCharCode(...array));
     req.headers.set('x-nonce', nonce);
+    // The CSP also travels on the REQUEST, so the nonce reaches the renderer
+    // through an explicit mechanism rather than Next's internal header copy.
+    req.headers.set('Content-Security-Policy', buildPageCsp(nonce));
     res = NextResponse.next({
       request: {
         headers: req.headers,
@@ -348,27 +415,9 @@ export default function proxy(req: NextRequest) {
   setPlatformHeader(res, detectedPlatform);
 
   if (isHtmlPage && nonce) {
-    // CSP: nonce-based in dev; strict-dynamic without unsafe-eval in prod.
-    // 'unsafe-eval' is explicitly excluded to prevent XSS via eval().
-    // Ref: 10_Security.md §6 (XSS-1), 23_Security_Harness_Plan.md §7
-    const devConnect = process.env.NODE_ENV !== 'production'
-      ? ' ws://localhost:3000 ws://127.0.0.1:3000 ws://localhost:3010 ws://localhost:3100'
-      : '';
-    const scriptCsp = process.env.NODE_ENV !== 'production'
-      ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
-      : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
-    res.headers.set('Content-Security-Policy', [
-      `default-src 'self'`,
-      scriptCsp,
-      `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-      `font-src 'self' https://fonts.gstatic.com`,
-      `img-src 'self' data: blob: https://*.supabase.co`,
-      `connect-src 'self' https://*.supabase.co https://*.turso.io https://*.turso.ai https://api.buddysaradhi.app${devConnect}`,
-      `frame-ancestors 'none'`,
-      `base-uri 'self'`,
-      `form-action 'self'`,
-      `upgrade-insecure-requests`,
-    ].join('; '));
+    // The SAME string the request carried — byte-identical, so the nonce the
+    // browser enforces is the nonce the tags carry.
+    res.headers.set('Content-Security-Policy', buildPageCsp(nonce));
     res.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     res.headers.set('Cross-Origin-Resource-Policy', 'same-origin');

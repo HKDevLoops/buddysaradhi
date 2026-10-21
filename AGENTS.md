@@ -714,6 +714,29 @@ genuinely new, in which case you write the spec first per §0.1.
 
 ## 6. Code Style
 
+### 6.0 Readable, not minified — and comments that earn their place
+
+> **Owner directive, 2026-10-21.** No minified CSS or TypeScript, anywhere.
+> The code is read by people. **Minimal comments**: say *why* in a few lines,
+> not *what* in a paragraph.
+
+- **No minified or machine-collapsed source.** No single-line CSS rules, no
+  one-statement-per-line TypeScript, no generated-looking blobs, no
+  hand-collapsed `if (a) { b(); }` chains. Prettier formats; it does not
+  minify. A file that looks minified is a defect even if it parses.
+- **Comments are for the WHY, and they are short.** A comment that restates
+  the code is noise. A comment that explains a non-obvious invariant, a
+  measured number, or a decision that was *not* the obvious one is worth
+  keeping — in **one to three lines**, not a wall.
+  - Good: `// The nonce is claimed in the tenant's own DB so single-use holds across isolates.`
+  - Bad: a ten-line essay restating what the next line does.
+- **Cite the evidence, not the narrative.** When a number matters, give the
+  number and where it came from (`measured live: 400 concurrent /health ->
+  400x200, 0x429`), then stop.
+- **The exception:** a doc block that explains a whole module's contract (the
+  package header, a crypto envelope, a spec-mandated algorithm) is welcome —
+  it is a contract, not a comment. Everything else follows the rule above.
+
 ### 6.1 TypeScript
 
 - **Strict mode** (`"strict": true`, `"noUncheckedIndexedAccess": true`).

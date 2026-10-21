@@ -432,11 +432,9 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
       const creditIds = credits
         .map((c) => (c.id === null || c.id === undefined ? "" : String(c.id)))
         .filter((id) => id.length > 0);
-      // The `IN (...)` list is CHUNKED. SQLite's SQLITE_MAX_VARIABLE_NUMBER is
-      // 32,766 on modern builds and 999 on older ones, and a statement with
-      // more placeholders than the ceiling fails with "too many SQL variables"
-      // — a 500, not a truncation. A pathological invoice (hundreds of
-      // micro-payments) must not be able to take the whole payment path down.
+      // The `IN (...)` list is CHUNKED: SQLite's variable ceiling is
+      // 32,766 on the shipped build (measured) and exceeding it is a hard
+      // error, not a truncation.
       for (const chunk of chunkIds(creditIds, MAX_SQL_VARIABLES_PER_STATEMENT)) {
         const reversals = await tx.ledgerEntry.findMany({
           where: { tenantId, type: "VOID", voidOfId: { in: chunk } },

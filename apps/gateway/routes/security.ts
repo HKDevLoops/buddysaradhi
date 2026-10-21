@@ -187,23 +187,15 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
       );
       await run(tx, initiatedStmt.sql, initiatedStmt.args);
 
-      // 10_Security.md 18.1 step 4 — the cascade (lib/schema.ts table order is
-      // child-before-parent with foreign keys enabled).
-      // LEDGER-4's single audited exception: physical ledger deletion exists
-      // only in the secure-erase flow; every other path posts a void.
+      // 10_Security.md 18.1 step 4 - the cascade (lib/schema.ts table order is
+      // child-before-parent with foreign keys enabled). LEDGER-4's single audited
+      // exception: physical ledger deletion exists only in the secure-erase flow.
       //
-      // AUD-003 (P0): the cascade's FIRST statement is
-      // `DELETE FROM ledger_entries WHERE tenant_id = ?` — and
-      // `trg_ledger_no_delete` aborts exactly that with "P0 BUG:
-      // ledger_entries is append-only. DELETE forbidden." The whole
-      // transaction therefore rolled back and **the erase never happened**:
-      // the endpoint 500'd, nothing was deleted, and the tutor was told
-      // nothing. The LEDGER-4 exception had no mechanism behind it.
-      //
-      // So the guards are dropped for the duration of the cascade and
-      // re-created afterwards, ALL INSIDE THIS ONE TRANSACTION. SQLite's DDL
-      // is transactional: if any step fails, the rollback restores the guards
-      // too, so a failed erase can never leave the ledger unprotected.
+      // AUD-003: the cascade's first statement is `DELETE FROM ledger_entries`,
+      // which `trg_ledger_no_delete` aborts - so the erase never committed. The
+      // guards are dropped for the cascade and re-created after, all inside this
+      // one transaction; SQLite DDL is transactional, so a failed erase restores
+      // them and can never leave the ledger unprotected.
       for (const ddl of stmtDropAppendOnlyTriggers()) {
         await run(tx, ddl, []);
       }

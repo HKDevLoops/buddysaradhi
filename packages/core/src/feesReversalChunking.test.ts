@@ -1,29 +1,19 @@
-// Regression: the reversal lookup must not blow the SQLite variable ceiling.
+// The reversal lookup must not blow the SQLite variable ceiling.
 //
-// Implements: 12_Business_Rules.md BR-RPT-04 [CRITICAL] (a credit counts
-// only when it has NOT been reversed); AGENTS.md §3.5 (one money flow, two
-// dialects — this file exercises the ORM dialect's `creditedForInvoice`).
+// The AUD-001 fix excludes a credit by looking for a VOID row that points back
+// at it, and the ORM surface has no subquery - so it issued
+// `WHERE void_of_id IN (<every credit id>)`. SQLite's variable ceiling is
+// 32,766 on the shipped libsql build (MEASURED below), and exceeding it is a
+// HARD error, not a truncation - so one invoice with enough micro-payments
+// took the whole payment path down with a 500.
 //
-// THE DEFECT (audit AUD-043 follow-up / DYNAMIC-PERFORMANCE P1-10). The
-// AUD-001 fix excludes a credit by looking for a VOID row that points back at
-// it, and the ORM surface has no subquery — so it issued
-// `WHERE void_of_id IN (<every credit id>)`. SQLite's
-// `SQLITE_MAX_VARIABLE_NUMBER` is 32,766 on the libsql build this product
-// ships on (MEASURED, not assumed — see the probe in the commit message), and
-// exceeding it is a HARD ERROR ("too many SQL variables"), not a truncation.
-// One invoice with enough micro-payments therefore took the whole payment
-// path down with a 500.
-//
-// WHAT THIS PINS: an invoice with MORE credits than the ceiling can bind in
-// one statement still resolves its credited amount correctly.
-//
-// The fixture is deliberately one credit LARGER than the ceiling, so the
-// unchunked statement is not merely slow — it is impossible. That is the
+// The fixture is deliberately one credit MORE than the ceiling, so the
+// unchunked statement is not merely slow, it is IMPOSSIBLE. That is the
 // negative control: remove the chunking and this test fails with SQLite's own
 // error rather than with an assertion about shape.
 //
-// Real file-backed SQLite, the SHIPPED migration's schema (with its CHECK
-// constraints), the real writers. Nothing is mocked (AGENTS.md §7.3).
+// Real file-backed SQLite, the shipped migration's schema, the real writers.
+// Nothing is mocked (AGENTS.md 7.3).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
