@@ -17,6 +17,18 @@
 // `voidEntry` (ORM dialect, over the web's own ORM surface) and
 // `voidEntrySql` (libsql dialect). Nothing is mocked: a mocked DB cannot tell
 // you whether a refusal wrote anything.
+//
+// NEGATIVE CONTROL (verified, not asserted): this file fails 8 of its 9 tests
+// against the pre-fix code. `git stash push -- packages/core/src/ledger.ts
+// packages/core/src/ledgerSql.ts packages/core/src/feesPrisma.ts`, then
+// `bunx vitest run packages/core/src/ledgerVoidGuard.test.ts`:
+//   AssertionError: BR-LED-09: the void must be refused: expected true to be false
+//   AssertionError: expected -450000 to be +0
+//   AssertionError: expected null not to be null
+//   AssertionError: expected 'paid' to be 'unpaid'
+//   AssertionError: expected 'paid' to be 'partial'
+//   TypeError: voidEntrySql is not a function
+// With the fix restored: `Tests 9 passed (9)`.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "fs";
