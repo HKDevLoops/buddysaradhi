@@ -192,12 +192,13 @@ export function encodeOutboxPayload(
 
 /**
  * Strictly-monotonic `created_at` (BR-LED-06 + 07_Fees_and_Payments.md §9.6).
- * `reconcileLedger` walks rows `ORDER BY created_at ASC` and recomputes each
- * hash from its predecessor, so two rows sharing a millisecond timestamp can
- * reorder and break verification. This per-process clock never repeats or goes
- * backwards (a backwards system clock is nudged +1ms past the last issued
- * value). Cross-process/cross-device ties remain possible — the writer with
- * the newer rowid wins chain continuation (documented residual gap).
+ * `reconcileLedger` walks the chain's LINKS (BR-LED-06, amended 2026-10-21),
+ * so two rows sharing a millisecond can no longer be ordered wrongly - but the
+ * timestamp order and the link order are kept the SAME order so a human (and
+ * a `ORDER BY created_at` query) reads the ledger in the order it was written.
+ * This per-process clock never repeats or goes backwards (a backwards system
+ * clock is nudged +1ms past the last issued value). Cross-process ties are
+ * possible - `nextChainCreatedAtIso` is what closes them.
  */
 let lastCreatedAtIso = "";
 export function nextCreatedAtIso(): string {
@@ -208,6 +209,43 @@ export function nextCreatedAtIso(): string {
       : iso;
   lastCreatedAtIso = next;
   return next;
+}
+
+/**
+ * The chain's LOGICAL CLOCK (BR-LED-06, amended 2026-10-21).
+ *
+ * WHY THIS EXISTS. A student's chain is a linked list: each row's `prev_hash`
+ * names its predecessor, and the reader walks those links, so the ORDER is
+ * the links. But the writer's tip is found by `created_at`, and two writers
+ * in two processes can mint the SAME millisecond - three writers used to
+ * break that tie three different ways (the ORM dialect by whatever the
+ * database returned, the libsql dialect by whatever SQLite returned, the
+ * gateway by `rowid`). A reader that broke the tie by `id` then disagreed
+ * with the writer about which row came first, and the reconciler reported
+ * "CHAIN BROKEN" on a ledger nobody had touched.
+ *
+ * The fix is to make the tie IMPOSSIBLE rather than to argue about how to
+ * break it: a writer gives its new row a `created_at` strictly greater than
+ * the tip's, so the timestamp order and the link order are the same order
+ * and the tie never arises. The bump is one millisecond - invisible to a
+ * human reading the ledger, decisive to a machine ordering it.
+ *
+ * `tipCreatedAt` is the chain tip's timestamp; `null`/undefined means the
+ * chain is empty (the genesis row), and the wall clock is then the answer.
+ */
+export function nextChainCreatedAtIso(
+  tipCreatedAt: Date | string | null | undefined,
+): string {
+  const own = nextCreatedAtIso();
+  if (tipCreatedAt === null || tipCreatedAt === undefined) return own;
+  const tipMs =
+    tipCreatedAt instanceof Date
+      ? tipCreatedAt.getTime()
+      : Date.parse(String(tipCreatedAt));
+  if (Number.isNaN(tipMs)) return own;
+  const ownMs = Date.parse(own);
+  if (ownMs > tipMs) return own;
+  return new Date(tipMs + 1).toISOString();
 }
 
 /**
@@ -249,16 +287,18 @@ export async function postLedgerEntry(
   }
 
   const entryId = randomUUID();
-  const now = nextCreatedAtIso();
   const source = input.source || "manual";
 
   try {
     const executeLogic = async (tx: Prisma.TransactionClient) => {
-      // 1. Get previous hash and current balance for the student
+      // 1. Get previous hash and current balance for the student. The tip's
+      // `created_at` comes with it: the new row's timestamp is the chain's
+      // logical clock (BR-LED-06, amended 2026-10-21), so it is minted AFTER
+      // the tip is known and is strictly greater than the tip's.
       const lastEntry = await tx.ledgerEntry.findFirst({
         where: { tenantId: input.tenantId, studentId: input.studentId },
         orderBy: { createdAt: "desc" },
-        select: { balanceAfterPaise: true, thisHash: true },
+        select: { balanceAfterPaise: true, thisHash: true, createdAt: true },
       });
 
       let currentBalance = 0;
@@ -268,6 +308,8 @@ export async function postLedgerEntry(
         currentBalance = lastEntry.balanceAfterPaise;
         prevHash = lastEntry.thisHash;
       }
+
+      const now = nextChainCreatedAtIso(lastEntry?.createdAt);
 
       // 2. Calculate new balance
       // Rule 6 / BR-M-01: the SAME paise arithmetic the libsql dialect uses
@@ -876,43 +918,6 @@ export async function computeBalance(
 }
 
 /**
- * The total chain order, in one place.
- *
- * BR-LED-06: the chain is walked in a deterministic order, so a hash
- * mismatch means "the row was tampered with" and never "the rows came back
- * in a different order".
- *
- * TWO FACTS force this to be a JS sort rather than a database ORDER BY:
- *   1. The web ORM shim (`apps/web/src/lib/libsql-proxy.ts`) supports only a
- *      SINGLE-key `orderBy` — `buildOrderClause` reads `Object.keys(...)[0]`.
- *      An ARRAY `orderBy` became `ORDER BY "0" ASC` and the query THREW, so
- *      `reconcileLedger` could not run at all on the surface `apps/web`
- *      actually holds.
- *   2. `created_at` is millisecond-resolution, so two rows can share it. The
- *      tie-break must therefore be applied by us, not by the driver.
- *
- * The tie-break is `id` ASC. NOTE (design gap, reported in
- * docs/audit/DYNAMIC-MONEY.md): `id` is a UUID v4 from `randomUUID()`, NOT the
- * UUID v7 the schema claims, so this tie-break is deterministic but NOT
- * creation order. The writers chain onto `ORDER BY created_at DESC` alone
- * (libsql), `ORDER BY created_at DESC, rowid DESC` (the gateway) and
- * `createdAt desc` (the ORM shim) — three different tie-breaks. On a
- * same-millisecond tie the writer and this verifier can disagree, which is a
- * FALSE "chain broken" alarm. The honest fix is a monotonic sequence column
- * owned by the two schema authorities (a §8 stop-and-ask), not another
- * tie-break heuristic.
- */
-function chainOrderKey(value: unknown): number {
-  if (value instanceof Date) return value.getTime();
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-  return 0;
-}
-
-/**
  * `created_at` as the exact string the writer hashed. The generated Prisma
  * client hands back a `Date`; the web ORM shim hands back the raw TEXT. The
  * hash covers the ISO string, so the reader must reconstruct the SAME bytes —
@@ -928,15 +933,31 @@ function createdAtIso(value: unknown): string {
   return String(value ?? "");
 }
 
-function sortChainEntries<T extends { createdAt: unknown; id: unknown }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => {
-    const time = chainOrderKey(a.createdAt) - chainOrderKey(b.createdAt);
-    if (time !== 0) return time;
-    const idA = String(a.id ?? "");
-    const idB = String(b.id ?? "");
-    if (idA === idB) return 0;
-    return idA < idB ? -1 : 1;
-  });
+/**
+ * The chain, walked by its LINKS (BR-LED-06, amended 2026-10-21).
+ *
+ * WHY NOT BY TIMESTAMP. The chain of one student is a linked list: each row's
+ * `prev_hash` names its predecessor, so the LINKS are the order. Ordering by
+ * `created_at` instead means inventing an order for two rows that share a
+ * millisecond - and three writers invented three different ones, so a reader
+ * could disagree with a writer about which row came first and report "CHAIN
+ * BROKEN" on a ledger nobody had touched. The links cannot disagree: they are
+ * what the writer hashed.
+ *
+ * A FORK - two rows claiming the same predecessor - is not an ordering
+ * artefact and is not silently picked between: it is reported.
+ */
+interface ChainLink {
+  id: string;
+  prevHash: string | null;
+  thisHash: string;
+  studentId: string;
+  type: string;
+  debitPaise: number;
+  creditPaise: number;
+  balanceAfterPaise: number;
+  occurredOn: string;
+  createdAt: unknown;
 }
 
 /**
@@ -949,17 +970,12 @@ export async function reconcileLedger(
 ): Promise<Result<boolean>> {
   try {
     // A SINGLE-key `orderBy` so this runs on every model surface (the web
-    // ORM shim throws on an array `orderBy`); the TOTAL order is applied by
-    // `sortChainEntries` below.
-    const entries = sortChainEntries(
-      await db.ledgerEntry.findMany({
-        where: { tenantId, studentId },
-        orderBy: { createdAt: "asc" },
-      }),
-    );
-
-    let runningBalance = 0;
-    let prevHash: string | null = null;
+    // ORM shim throws on an array `orderBy`); the ORDER that matters is the
+    // chain's links, applied by the walk below.
+    const rows = (await db.ledgerEntry.findMany({
+      where: { tenantId, studentId },
+      orderBy: { createdAt: "asc" },
+    })) as unknown as ChainLink[];
 
     const setting = await db.setting.findUnique({
       where: { tenantId },
@@ -967,44 +983,110 @@ export async function reconcileLedger(
     });
     if (!setting) throw new Error("Tenant settings not found");
 
-    for (const entry of entries) {
-      runningBalance = runningBalance + entry.debitPaise - entry.creditPaise;
+    if (rows.length === 0) return { ok: true, value: true };
 
-      if (runningBalance !== entry.balanceAfterPaise) {
+    // Index the chain by the link each row claims.
+    const successors = new Map<string, ChainLink[]>();
+    const roots: ChainLink[] = [];
+    for (const row of rows) {
+      if (row.prevHash === null || row.prevHash === undefined) {
+        roots.push(row);
+        continue;
+      }
+      const list = successors.get(row.prevHash);
+      if (list) list.push(row);
+      else successors.set(row.prevHash, [row]);
+    }
+
+    if (roots.length === 0) {
+      return {
+        ok: false,
+        error: new Error(
+          `Chain broken: no genesis row. All ${rows.length} rows of student ${studentId} claim a predecessor that is not in this chain.`,
+        ),
+      };
+    }
+    if (roots.length > 1) {
+      return {
+        ok: false,
+        error: new Error(
+          `Chain fork: ${roots.length} rows of student ${studentId} claim to be the first row of the chain.`,
+        ),
+      };
+    }
+
+    let runningBalance = 0;
+    let prevHash: string | null = null;
+    const visited = new Set<string>();
+    let current: ChainLink | undefined = roots[0];
+
+    while (current) {
+      if (visited.has(current.id)) {
+        return {
+          ok: false,
+          error: new Error(`Chain broken: the chain loops at entry ${current.id}.`),
+        };
+      }
+      visited.add(current.id);
+
+      runningBalance = runningBalance + current.debitPaise - current.creditPaise;
+
+      if (runningBalance !== current.balanceAfterPaise) {
         return {
           ok: false,
           error: new Error(
-            `Balance mismatch at entry ${entry.id}. Expected ${runningBalance}, got ${entry.balanceAfterPaise}`,
+            `Balance mismatch at entry ${current.id}. Expected ${runningBalance}, got ${current.balanceAfterPaise}`,
           ),
         };
       }
 
       const payload = buildEntryPayload({
-        id: entry.id,
-        studentId: entry.studentId,
-        type: entry.type,
-        debitPaise: entry.debitPaise,
-        creditPaise: entry.creditPaise,
-        balanceAfterPaise: entry.balanceAfterPaise,
-        occurredOn: entry.occurredOn,
+        id: current.id,
+        studentId: current.studentId,
+        type: current.type,
+        debitPaise: current.debitPaise,
+        creditPaise: current.creditPaise,
+        balanceAfterPaise: current.balanceAfterPaise,
+        occurredOn: current.occurredOn,
       });
 
+      // The row's OWN `prev_hash` is hashed, not the walked predecessor's: a
+      // tampered link then fails the hash check as well as the walk.
       const expectedHash = computeHash(
-        prevHash,
+        current.prevHash ?? null,
         payload,
-        createdAtIso(entry.createdAt),
+        createdAtIso(current.createdAt),
         setting.tenantSecret,
       );
-      if (expectedHash !== entry.thisHash) {
+      if (expectedHash !== current.thisHash) {
         return {
           ok: false,
           error: new Error(
-            `Hash mismatch at entry ${entry.id}. Expected ${expectedHash}, got ${entry.thisHash}`,
+            `Hash mismatch at entry ${current.id}. Expected ${expectedHash}, got ${current.thisHash}`,
           ),
         };
       }
 
-      prevHash = entry.thisHash;
+      prevHash = current.thisHash;
+      const chainNext: ChainLink[] = successors.get(prevHash) ?? [];
+      if (chainNext.length > 1) {
+        return {
+          ok: false,
+          error: new Error(
+            `Chain fork: ${chainNext.length} rows of student ${studentId} claim entry ${current.id} as their predecessor.`,
+          ),
+        };
+      }
+      current = chainNext[0];
+    }
+
+    if (visited.size !== rows.length) {
+      return {
+        ok: false,
+        error: new Error(
+          `Chain broken: ${rows.length - visited.size} of ${rows.length} rows of student ${studentId} are not reachable from the genesis row.`,
+        ),
+      };
     }
 
     return { ok: true, value: true };

@@ -27,7 +27,7 @@ import { createClient, type Client } from "@libsql/client";
 import { PrismaClient } from "@prisma/client";
 import { createInvoiceSql, recordPaymentSql } from "./fees";
 import { createInvoicePrisma, recordPaymentPrisma } from "./feesPrisma";
-import { postLedgerEntry, reconcileLedger, voidEntry } from "./ledger";
+import { buildEntryPayload, computeHash, postLedgerEntry, reconcileLedger, voidEntry } from "./ledger";
 import { createLibsqlProxy } from "../../../apps/web/src/lib/libsql-proxy";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -825,34 +825,61 @@ describe("ATTACK 5 — hash chain and tamper evidence", () => {
     expect(res.ok, "reconcileLedger must run on the web's ORM handle").toBe(true);
   });
 
-  it.fails("ATK-5.3 [P1] two rows in the SAME millisecond produce an unordered chain → a FALSE 'chain broken' verdict", async () => {
-    const studentId = "student-adv";
+  it("ATK-5.3 [P1] two rows in the SAME millisecond, properly chained, are NOT a 'chain broken' verdict", async () => {
+    // The old fixture gave BOTH rows a NULL prev_hash, so it was a FORK, not a
+    // tie - it never tested what it claimed, and it "passed" as an expected
+    // failure for the wrong reason. A real writer CHAINS: the second row's
+    // prev_hash is the first row's this_hash. That is the fixture below, with
+    // the real hash algorithm (`computeHash` + `buildEntryPayload`) so the
+    // hashes are the ones a writer would have produced.
+    //
+    // BR-LED-06 (amended 2026-10-21): the chain's order IS its links, and a
+    // writer's per-chain logical clock makes the same-millisecond tie
+    // impossible. A verifier that walks the links cannot be fooled by a tie.
+    const studentId = "student-adv-tie";
     await seedStudent(studentId);
-    // Two writers in two "isolates" mint the same millisecond.
     const same = "2026-09-12T10:00:00.000Z";
-    const ids = [randomUUID(), randomUUID()];
-    for (const [i, id] of ids.entries()) {
+    const secret = "adv-secret";
+    let prevHash: string | null = null;
+    let balance = 0;
+    for (const [i, id] of [randomUUID(), randomUUID()].entries()) {
+      const debit = 1000 * (i + 1);
+      balance += debit;
+      const payload = buildEntryPayload({
+        id,
+        studentId,
+        type: "FEE_CHARGED",
+        debitPaise: debit,
+        creditPaise: 0,
+        balanceAfterPaise: balance,
+        occurredOn: "2026-09-12",
+      });
+      const thisHash = computeHash(prevHash, payload, same, secret);
       await rig.client.execute({
         sql: `INSERT INTO ledger_entries (id, tenant_id, student_id, type, debit_paise, credit_paise,
                 balance_after_paise, description, prev_hash, this_hash, occurred_on, source, created_at, updated_at)
-              VALUES (?, ?, ?, 'FEE_CHARGED', ?, 0, ?, 'x', NULL, ?, '2026-09-12', 'manual', ?, ?)`,
+              VALUES (?, ?, ?, 'FEE_CHARGED', ?, 0, ?, 'x', ?, ?, '2026-09-12', 'manual', ?, ?)`,
         args: [
           id,
           TENANT,
           studentId,
-          1000 * (i + 1),
-          1000 * (i + 1),
-          `hash-${i}`,
-          same,
+          debit,
+          balance,
+          prevHash,
+          thisHash,
           same,
           same,
         ],
       });
+      prevHash = thisHash;
     }
     const res = await reconcileLedger(rig.prisma as never, TENANT, studentId);
     // eslint-disable-next-line no-console
-    console.log("[ATK-5.3] reconcile verdict on a tie:", JSON.stringify(res));
-    expect(res.ok).toBe(true);
+    console.log("[ATK-5.3] reconcile verdict on a same-millisecond chain:", JSON.stringify(res));
+    expect(
+      res.ok,
+      "a same-millisecond chain is not tampering - a false 'chain broken' locks a tutor's books",
+    ).toBe(true);
   });
 
   it("ATK-5.4 [P0] a tampered row IS detected by reconcileLedger (good) — but nothing calls it", async () => {

@@ -752,7 +752,14 @@ Every enum column has a `CHECK` in DDL, mirrored to Zod. Transitions are enforce
 
 ### 8.1 Hash Chain Mechanics
 
-Each row's `this_hash = sha256(prev_hash || canonical_payload || created_at)`, where `canonical_payload` is deterministic JSON of `{id, student_id, type, debit_paise, credit_paise, balance_after_paise, occurred_on, tenant_secret}`. The pepper prevents offline recomputation by an attacker with only the DB file. Verification walks the chain in `created_at` order, recomputes each hash, aborts on first mismatch — surfacing "Tampered ledger at entry {id}" in Settings → Diagnostics (10_Security §14).
+Each row's `this_hash = sha256(prev_hash ‖ canonical_payload ‖ created_at ‖ tenant_secret)`, where `canonical_payload` is the canonical JSON of `{id, studentId, type, debitPaise, creditPaise, balanceAfterPaise, occurredOn}` — that exact field set and that exact key order is `buildEntryPayload()` in `packages/core/src/ledger.ts`, the ONE implementation that the libsql dialect and the gateway mirror byte-for-byte. `prev_hash` is OMITTED from the byte stream for the genesis row (not an empty string), and the pepper (`tenant_secret`) is appended LAST, after `created_at` — it is not inside the payload. The pepper prevents offline recomputation by an attacker with only the DB file.
+
+**The chain's order (BR-LED-06, amended 2026-10-21).** The chain of one student is a **linked list**, and the links ARE the order: each row's `prev_hash` names its predecessor, and a verifier walks them from the genesis row (`prev_hash IS NULL`). Two rules keep the order total:
+
+1. **A writer extends the chain at its tip and gives the new row a `created_at` strictly greater than the tip's** — the per-chain logical clock, `max(wall_clock, tip.created_at + 1 ms)` (`nextChainCreatedAtIso()`). `created_at` is millisecond-resolution, so two writers in two processes can mint the same millisecond; the clock makes the tie impossible, so the timestamp order and the link order are the same order.
+2. **A verifier walks the links, never `created_at`.** A reader that orders by timestamp must invent an order for a tie, and three writers used to break that tie three different ways (`created_at DESC` in the ORM dialect, `created_at DESC` alone in the libsql dialect, `created_at DESC, rowid DESC` in the gateway) while the reader broke it by `id` — a reader could therefore disagree with a writer about which row came first, and report "CHAIN BROKEN" on an untouched ledger. A **fork** — two rows claiming the same predecessor — is an integrity violation, not an ordering artefact, and is reported rather than silently resolved.
+
+The verification recomputes each hash from its predecessor and aborts on the first mismatch — surfacing "Tampered ledger at entry {id}" in Settings → Diagnostics (10_Security §9.4).
 
 ### 8.2 `balance_after_paise` Invariant
 

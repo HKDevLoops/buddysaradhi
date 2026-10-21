@@ -23,7 +23,7 @@ import {
   buildEntryPayload,
   computeHash,
   encodeOutboxPayload,
-  nextCreatedAtIso,
+  nextChainCreatedAtIso,
   voidLedgerFlow,
   type VoidTx,
 } from "./ledger";
@@ -163,15 +163,17 @@ export async function postLedgerEntrySql(
   }
 
   const entryId = randomUUID();
-  const now = nextCreatedAtIso();
   const source = input.source || "manual";
 
   try {
     // 1. Chain tail (prev balance + prev hash) — read inside the caller's
     // transaction so concurrent writers cannot interleave between read and
     // insert (07 §9.6; the gateway's stale-`balance_paise` race class).
+    // The tip's `created_at` comes with it: the new row's timestamp is the
+    // chain's logical clock (BR-LED-06, amended 2026-10-21), so it is minted
+    // AFTER the tip is known and is strictly greater than the tip's.
     const lastRes = await tx.execute({
-      sql: `SELECT balance_after_paise, this_hash FROM ledger_entries
+      sql: `SELECT balance_after_paise, this_hash, created_at FROM ledger_entries
             WHERE tenant_id = ? AND student_id = ?
             ORDER BY created_at DESC LIMIT 1`,
       args: [input.tenantId, input.studentId],
@@ -179,6 +181,9 @@ export async function postLedgerEntrySql(
     const lastRow = lastRes.rows[0];
     const prevBalance = lastRow ? Number(lastRow.balance_after_paise) : 0;
     const prevHash = lastRow ? String(lastRow.this_hash) : null;
+    const now = nextChainCreatedAtIso(
+      lastRow ? String(lastRow.created_at) : null,
+    );
 
     // 2. Hash pepper — fail-closed (F1: never hash under a guessable key).
     const secret = await requireTenantSecretTx(tx, input.tenantId);
