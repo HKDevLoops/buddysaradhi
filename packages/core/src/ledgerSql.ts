@@ -24,6 +24,8 @@ import {
   computeHash,
   encodeOutboxPayload,
   nextCreatedAtIso,
+  voidLedgerFlow,
+  type VoidTx,
 } from "./ledger";
 import { paiseAdd, paiseSub } from "./money";
 
@@ -319,4 +321,246 @@ export async function requireTenantSecretTx(
     throw new Error("SECURITY_VIOLATION: tenant secret is not initialised");
   }
   return secret;
+}
+
+// ---------------------------------------------------------------------------
+// The void path — the libsql dialect.
+//
+// Implements: 12_Business_Rules.md BR-LED-04/05/09, BR-RPT-04;
+// 14_Edge_Cases.md EC-F-05; 07_Fees_and_Payments.md §9.10; AGENTS.md §2 Rule 1
+// (the ledger is INSERT-only), Rule 7 (outbox in the same transaction).
+//
+// The DECISION is `voidLedgerFlow` in `ledger.ts` — this file is only the
+// statement set under it, the twin of the ORM dialect in the same file
+// (AGENTS.md §3.5: one money flow, two I/O dialects). The statements here are
+// the core's own audited set; `apps/gateway/lib/sql.ts` holds the gateway's,
+// and neither file borrows from the other.
+// ---------------------------------------------------------------------------
+
+/** Rule 7 / BR-SYN-01 — one replication row per mutated row, same transaction. */
+async function insertOutboxRow(
+  tx: SqlExecutor,
+  o: {
+    tenantId: string;
+    tableName: string;
+    rowId: string;
+    op: "insert" | "update";
+    payload: string;
+    now: string;
+  },
+): Promise<void> {
+  await tx.execute({
+    sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [randomUUID(), o.tenantId, o.tableName, o.rowId, o.op, o.payload, o.now],
+  });
+}
+
+/** BR-SEC-03 — the audit row, written fail-closed inside the same transaction. */
+async function insertAuditRow(
+  tx: SqlExecutor,
+  a: {
+    tenantId: string;
+    actor: string;
+    action: string;
+    refType: string;
+    refId: string;
+    metadata: string;
+    now: string;
+  },
+): Promise<void> {
+  await tx.execute({
+    sql: `INSERT INTO audit_log (id, tenant_id, actor, action, ref_type, ref_id, metadata, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      randomUUID(),
+      a.tenantId,
+      a.actor,
+      a.action,
+      a.refType,
+      a.refId,
+      a.metadata,
+      a.now,
+    ],
+  });
+}
+
+/**
+ * The libsql dialect of the void port. Every statement is parameterised and
+ * tenant-scoped; the ORM twin lives in `ledger.ts`.
+ */
+export function sqlVoidTx(tx: SqlExecutor): VoidTx {
+  return {
+    async findEntry(tenantId, entryId) {
+      const res = await tx.execute({
+        sql: `SELECT id, student_id, invoice_id, type, debit_paise, credit_paise
+              FROM ledger_entries WHERE tenant_id = ? AND id = ? LIMIT 1`,
+        args: [tenantId, entryId],
+      });
+      const row = res.rows[0];
+      if (!row) return null;
+      return {
+        id: String(row.id),
+        studentId: String(row.student_id),
+        invoiceId: row.invoice_id === null || row.invoice_id === undefined ? null : String(row.invoice_id),
+        type: String(row.type),
+        debitPaise: Number(row.debit_paise),
+        creditPaise: Number(row.credit_paise),
+      };
+    },
+
+    async findReversal(tenantId, entryId) {
+      const res = await tx.execute({
+        sql: `SELECT id FROM ledger_entries
+              WHERE tenant_id = ? AND type = 'VOID' AND void_of_id = ? LIMIT 1`,
+        args: [tenantId, entryId],
+      });
+      const row = res.rows[0];
+      return row ? { id: String(row.id) } : null;
+    },
+
+    // BR-RPT-04 [CRITICAL] + BR-LED-09: a credit counts only while it has NOT
+    // been reversed, and "reversed" is a reverse lookup — the original row
+    // carries no `reverses_entry_id`, so the reversal is the LATER row that
+    // points back at it. `void_of_id IS NULL` on the row itself would keep
+    // counting a voided original (AUD-001).
+    async livePaymentCredits(tenantId, invoiceId) {
+      const res = await tx.execute({
+        sql: `SELECT COALESCE(SUM(e.credit_paise), 0) AS paid FROM ledger_entries e
+              WHERE e.tenant_id = ? AND e.invoice_id = ? AND e.type = 'PAYMENT_RECEIVED'
+                AND e.void_of_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM ledger_entries v
+                  WHERE v.tenant_id = e.tenant_id AND v.void_of_id = e.id AND v.type = 'VOID'
+                )`,
+        args: [tenantId, invoiceId],
+      });
+      return Number(res.rows[0]?.paid ?? 0);
+    },
+
+    async liveCreditedForInvoice(tenantId, invoiceId) {
+      const res = await tx.execute({
+        sql: `SELECT COALESCE(SUM(e.credit_paise), 0) AS paid FROM ledger_entries e
+              WHERE e.tenant_id = ? AND e.invoice_id = ?
+                AND e.type != 'VOID' AND e.void_of_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM ledger_entries v
+                  WHERE v.tenant_id = e.tenant_id AND v.void_of_id = e.id AND v.type = 'VOID'
+                )`,
+        args: [tenantId, invoiceId],
+      });
+      return Number(res.rows[0]?.paid ?? 0);
+    },
+
+    async invoiceTotal(tenantId, invoiceId) {
+      const res = await tx.execute({
+        sql: `SELECT total FROM invoices WHERE tenant_id = ? AND id = ? LIMIT 1`,
+        args: [tenantId, invoiceId],
+      });
+      const row = res.rows[0];
+      return row ? Number(row.total) : null;
+    },
+
+    async postVoid(entry) {
+      const res = await postLedgerEntrySql(tx, {
+        tenantId: entry.tenantId,
+        studentId: entry.studentId,
+        type: "VOID",
+        debitPaise: entry.debitPaise,
+        creditPaise: entry.creditPaise,
+        description: entry.description,
+        voidOfId: entry.voidOfId,
+        invoiceId: entry.invoiceId,
+        occurredOn: entry.occurredOn,
+        source: "manual",
+      });
+      if (!res.ok) throw res.error;
+      return res.value;
+    },
+
+    // EC-F-05 — the receipt is marked voided in the SAME transaction. It is
+    // found by its canonical link (`receipts.ledger_entry_id`); the retired
+    // denormalised `receipt_no` on the ledger row is not consulted.
+    async voidReceipt(tenantId, ledgerEntryId, now) {
+      const found = await tx.execute({
+        sql: `SELECT id FROM receipts
+              WHERE tenant_id = ? AND ledger_entry_id = ? AND voided_at IS NULL LIMIT 1`,
+        args: [tenantId, ledgerEntryId],
+      });
+      const row = found.rows[0];
+      if (!row) return null;
+      const receiptId = String(row.id);
+      const updated = await tx.execute({
+        sql: `UPDATE receipts SET voided_at = ?, updated_at = ?
+              WHERE tenant_id = ? AND id = ? AND voided_at IS NULL`,
+        args: [now, now, tenantId, receiptId],
+      });
+      if (updated.rowsAffected === 0) return null;
+      await insertOutboxRow(tx, {
+        tenantId,
+        tableName: "receipts",
+        rowId: receiptId,
+        op: "update",
+        payload: encodeOutboxPayload("receipts", "update", {
+          id: receiptId,
+          tenant_id: tenantId,
+          voided_at: now,
+          updated_at: now,
+        }).payload,
+        now,
+      });
+      return receiptId;
+    },
+
+    async setInvoiceStatus(tenantId, invoiceId, status, now) {
+      await tx.execute({
+        sql: `UPDATE invoices SET status = ?, updated_at = ? WHERE id = ? AND tenant_id = ?`,
+        args: [status, now, invoiceId, tenantId],
+      });
+      await insertOutboxRow(tx, {
+        tenantId,
+        tableName: "invoices",
+        rowId: invoiceId,
+        op: "update",
+        payload: encodeOutboxPayload("invoices", "update", {
+          id: invoiceId,
+          status,
+          updated_at: now,
+        }).payload,
+        now,
+      });
+    },
+
+    async writeAudit(a) {
+      await insertAuditRow(tx, a);
+    },
+  };
+}
+
+export interface VoidEntrySqlInput {
+  tenantId: string;
+  entryToVoidId: string;
+  reason: string;
+  occurredOn: string;
+  actor: string;
+}
+
+/**
+ * Void one ledger entry, libsql dialect.
+ *
+ * The same decision as `voidEntry` (ORM dialect): BR-LED-04's reversing row,
+ * BR-LED-05's refusal to void a void, BR-LED-09's refusal to void a charge
+ * that live payments credit, and EC-F-05's receipt-voided + invoice-revert
+ * in the SAME transaction. Rule 7: the outbox rows for the receipt and the
+ * invoice go out with them.
+ *
+ * Returns `Result<string>` (the reversing row's id) — a refusal is `Err`,
+ * never a silent no-op (Rule 9).
+ */
+export async function voidEntrySql(
+  db: SqlWriteClient,
+  input: VoidEntrySqlInput,
+): Promise<Result<string>> {
+  const res = await withWriteTx(db, (tx) => voidLedgerFlow(sqlVoidTx(tx), input));
+  return res.ok ? { ok: true, value: res.value } : { ok: false, error: res.error };
 }
