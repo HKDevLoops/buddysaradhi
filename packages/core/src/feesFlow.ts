@@ -123,8 +123,20 @@ export interface RecordPaymentResult {
   entryIds: string[];
   /** How the payment was attributed, invoice by invoice. */
   applied: AppliedInvoice[];
-  autoInvoiceId: string | null;
-  autoInvoiceNumber: string | null;
+  /**
+   * The overpayment surplus, and the receipt that carries it.
+   *
+   * BR-FEE-04 / BR-FEE-15 / EC-F-02: the unmatched paise of a payment that
+   * exceeds the open invoices is an ADVANCE - money the tutor holds that is not
+   * owed - not a bill. It is a PAYMENT_RECEIVED with no invoice, tagged
+   * `[ADVANCE]`, with its own receipt number.
+   *
+   * It used to be an auto-invoice: a synthetic invoice for the surplus, marked
+   * paid. That reads as "this student owes you Rs 500" to the tutor, which is
+   * the opposite of what happened.
+   */
+  advancePaise: number;
+  advanceReceiptNumber: string | null;
   /**
    * The receipt issued for this payment — 07 §9.6 step 4/7, BR-RC-01. This used
    * to be absent from the port entirely: a web-recorded payment created NO
@@ -174,7 +186,12 @@ export interface EntryInput {
   debitPaise: number;
   creditPaise: number;
   description: string;
-  invoiceId: string;
+  /**
+   * The invoice this entry belongs to, or null for an entry that belongs to
+   * none - an ADVANCE (BR-FEE-04). The column is nullable in the DDL
+   * (`invoice_id TEXT`), so the type was stricter than the data.
+   */
+  invoiceId: string | null;
   occurredOn: string;
 }
 
@@ -461,37 +478,56 @@ export async function recordPaymentFlow(
   // the rows.
   const receiptSecret = await tx.requireTenantSecret(input.tenantId); // F1
   const receiptSeq = await tx.takeReceiptNumber(input.tenantId, now);
-  const receiptId = randomUUID();
   const receiptNo = receiptSeq.number;
-  const receiptTamperHash = computeReceiptTamperHash(
-    {
-      number: receiptNo,
-      studentId: input.studentId,
-      amountPaise: input.amountPaise,
-      receivedOn: input.receivedOn,
-    },
-    receiptSecret,
-  );
+  // The receipt id of the SETTLED part. The advance gets its own id, because
+  // it is a different receipt with a different number.
+  let receiptId = randomUUID();
   let receiptWritten = false;
   // §9.6 step 4: `receipts.ledger_entry_id` is NOT NULL, so the row lands right
   // after the FIRST ledger entry — still before any invoice UPDATE, still
   // inside the one transaction. `invoiceId` names the invoice the payment
   // principally settled, or null for a pure advance.
-  const writeReceiptFor = async (ledgerEntryId: string, invoiceId: string | null) => {
-    if (receiptWritten) return;
+  // §9.6 step 4: a receipt names the ledger entry it was written for
+  // (`ledger_entry_id` is NOT NULL). The rows are written AFTER the payment is
+  // partitioned, because a payment over the open invoices is two things at
+  // once (BR-FEE-15): the part that settled invoices, and the ADVANCE.
+  //
+  //   - the settled part gets `receiptNo` - the number taken up front - and
+  //     covers only what it settled;
+  //   - the advance gets its OWN receipt number (EC-F-02), because a tutor
+  //     handed a receipt for a bill they did not bill.
+  //
+  // The two amounts partition the payment, so the receipts sum to the payment
+  // exactly - never more.
+  const writeReceipt = async (args: {
+    receiptId: string;
+    number: string;
+    seq: TakenNumber;
+    ledgerEntryId: string;
+    invoiceId: string | null;
+    amountPaise: number;
+  }): Promise<void> => {
     receiptWritten = true;
     await tx.insertReceipt({
-      receiptId,
+      receiptId: args.receiptId,
       tenantId: input.tenantId,
-      number: receiptNo,
-      ledgerEntryId,
+      number: args.number,
+      ledgerEntryId: args.ledgerEntryId,
       studentId: input.studentId,
-      invoiceId,
-      amountPaise: input.amountPaise,
+      invoiceId: args.invoiceId,
+      amountPaise: args.amountPaise,
       paymentMethod: input.method ?? "manual",
       paymentRef: input.reference ?? "",
       receivedOn: input.receivedOn,
-      tamperHash: receiptTamperHash,
+      tamperHash: computeReceiptTamperHash(
+        {
+          number: args.number,
+          studentId: input.studentId,
+          amountPaise: args.amountPaise,
+          receivedOn: input.receivedOn,
+        },
+        receiptSecret,
+      ),
       now,
     });
     await tx.writeSettingsOutbox({
@@ -501,8 +537,8 @@ export async function recordPaymentFlow(
       // Writing it into `invoice_prefix`/`next_invoice_seq` is what made a
       // replica re-issue live invoice numbers.
       kind: "receipt",
-      prefix: receiptSeq.prefix,
-      seq: receiptSeq.nextSeq,
+      prefix: args.seq.prefix,
+      seq: args.seq.nextSeq,
       now,
     });
   };
@@ -515,6 +551,10 @@ export async function recordPaymentFlow(
   const entryIds: string[] = [];
   const applied: AppliedInvoice[] = [];
   let remaining = input.amountPaise;
+  // The first entry the payment settled an invoice with - the receipt for the
+  // settled part names it (§9.6 step 4).
+  let firstAppliedEntryId: string | null = null;
+  let firstAppliedInvoiceId: string | null = null;
 
   for (const invoice of open) {
     if (remaining <= 0) break;
@@ -552,7 +592,10 @@ export async function recordPaymentFlow(
       occurredOn: input.receivedOn,
     });
     entryIds.push(entryId);
-    await writeReceiptFor(entryId, invoice.id);
+    if (firstAppliedEntryId === null) {
+      firstAppliedEntryId = entryId;
+      firstAppliedInvoiceId = invoice.id;
+    }
 
     // §9.6 step 5 status recompute: paid ≥ total → 'paid', paid > 0 → 'partial'.
     const paidAfter = paiseAdd(alreadyPaid, paise);
@@ -568,78 +611,79 @@ export async function recordPaymentFlow(
     remaining = paiseSub(remaining, paise);
   }
 
-  // Remainder (or no open invoices): auto-invoice the unmatched paise, paid by
-  // this same payment — FEE_CHARGED debit + PAYMENT_RECEIVED credit both linked
-  // to it, so the books net to zero exactly, under a monotonic number (F3) and
-  // with no unattributed remainder (F9).
-  let autoInvoiceId: string | null = null;
-  let autoInvoiceNumber: string | null = null;
+  // Remainder (or no open invoices): the surplus is an ADVANCE, not a bill.
+  //
+  // BR-FEE-04 / BR-FEE-15 / EC-F-02: the unmatched paise of a payment that
+  // exceeds the open invoices becomes a second PAYMENT_RECEIVED tagged
+  // `[ADVANCE]`, with its OWN receipt number. It carries no invoice, because a
+  // tutor who takes Rs 5,000 against a Rs 4,500 bill has Rs 500 in hand - not
+  // a student who owes Rs 500.
+  //
+  // It used to auto-invoice the surplus: a synthetic invoice marked paid. That
+  // told the tutor the student owed money they had already handed over.
+  //
+  // The advance is visible on the student's balance (credits without an
+  // invoice push it negative), which is how an advance reads in a ledger: the
+  // student is in credit to the tutor. Consuming it on the next charge is
+  // BR-FEE-15's auto-apply and is tracked separately - the flow does not
+  // silently net it here, because netting a charge against an advance without
+  // the tutor seeing it is the same class of surprise.
+  let advancePaise = 0;
+  let advanceReceiptNumber: string | null = null;
+  let advanceEntryId: string | null = null;
   if (remaining > 0) {
-    const secret = await tx.requireTenantSecret(input.tenantId); // F1
-    const { number, prefix, nextSeq } = await tx.takeInvoiceNumber(input.tenantId, now); // F3
-    autoInvoiceId = randomUUID();
-    autoInvoiceNumber = number;
-
-    const tamperHash = computeInvoiceTamperHash(
-      {
-        number,
-        studentId: input.studentId,
-        totalPaise: remaining,
-        issueDate: input.receivedOn,
-      },
-      secret,
-    );
-    await tx.insertInvoice({
-      invoiceId: autoInvoiceId,
+    const advanceRowId = await tx.postEntry({
       tenantId: input.tenantId,
       studentId: input.studentId,
-      number,
-      issueDate: input.receivedOn,
-      dueDate: input.receivedOn,
-      subtotalPaise: remaining,
-      discountPaise: 0,
-      totalPaise: remaining,
-      status: "paid",
-      tamperHash,
-      now,
-    });
-    await tx.writeSettingsOutbox({
-      tenantId: input.tenantId,
-      kind: "invoice",
-      prefix,
-      seq: nextSeq,
-      now,
-    });
-
-    const autoChargeEntryId = await tx.postEntry({
-      tenantId: input.tenantId,
-      studentId: input.studentId,
-      type: "FEE_CHARGED",
-      debitPaise: remaining,
-      creditPaise: 0,
-      description: `Auto-invoice for payment: ${input.description}`,
-      invoiceId: autoInvoiceId,
+      type: "PAYMENT_RECEIVED",
+      debitPaise: 0,
+      creditPaise: remaining,
+      description: `[ADVANCE] ${input.description}`,
+      invoiceId: null,
       occurredOn: input.receivedOn,
     });
-    entryIds.push(autoChargeEntryId);
-    // A pure advance (no open invoice) lands its receipt against the
-    // auto-invoice's FEE_CHARGED row — §9.6 still gets a receipt for every
-    // payment, and the row is inside the same transaction.
-    await writeReceiptFor(autoChargeEntryId, autoInvoiceId);
-    entryIds.push(
-      await tx.postEntry({
-        tenantId: input.tenantId,
-        studentId: input.studentId,
-        type: "PAYMENT_RECEIVED",
-        debitPaise: 0,
-        creditPaise: remaining,
-        description: input.description,
-        invoiceId: autoInvoiceId,
-        occurredOn: input.receivedOn,
-      }),
-    );
-    applied.push({ invoiceId: autoInvoiceId, number, paise: remaining, status: "paid" });
+    entryIds.push(advanceRowId);
+    advanceEntryId = advanceRowId;
+    advancePaise = remaining;
     remaining = 0;
+  }
+
+  // §9.6 step 4 - the receipts, written once the payment is partitioned.
+  //
+  // The settled part and the advance are two different things a tutor gave
+  // money for, so they are two receipts. The amounts partition the payment,
+  // so the receipts sum to it exactly.
+  const appliedPaise = applied.reduce((sum, a) => paiseAdd(sum, a.paise), 0);
+  if (appliedPaise > 0 && firstAppliedEntryId !== null) {
+    await writeReceipt({
+      receiptId,
+      number: receiptNo,
+      seq: receiptSeq,
+      ledgerEntryId: firstAppliedEntryId,
+      invoiceId: firstAppliedInvoiceId,
+      amountPaise: appliedPaise,
+    });
+  }
+  if (advancePaise > 0 && advanceEntryId !== null) {
+    // Its OWN receipt number (EC-F-02). When the payment settled nothing, the
+    // number taken up front has no other claimant and the advance uses it;
+    // otherwise the advance takes a second number, and the gap between them
+    // is intentional (BR-RC-01 tolerates gaps).
+    const advanceSeq =
+      appliedPaise > 0 ? await tx.takeReceiptNumber(input.tenantId, now) : receiptSeq;
+    const advanceReceiptId = randomUUID();
+    await writeReceipt({
+      receiptId: advanceReceiptId,
+      number: advanceSeq.number,
+      seq: advanceSeq,
+      ledgerEntryId: advanceEntryId,
+      invoiceId: null,
+      amountPaise: advancePaise,
+    });
+    // The payment's own receipt is the one a caller will quote. When the
+    // payment settled nothing, the advance IS that receipt.
+    if (appliedPaise === 0) receiptId = advanceReceiptId;
+    advanceReceiptNumber = advanceSeq.number;
   }
 
   // Fail-closed invariant (Rule 9): attribution must exactly cover the payment
@@ -647,7 +691,11 @@ export async function recordPaymentFlow(
   // part of that same guarantee: an amount can never post without one, because
   // the two writes share a transaction and the sequence increment is rolled
   // back with them.
-  const creditedPaise = applied.reduce((sum, a) => paiseAdd(sum, a.paise), 0);
+  // Every paise is attributed SOMEWHERE: to an invoice, or to the advance.
+  const creditedPaise = paiseAdd(
+    applied.reduce((sum, a) => paiseAdd(sum, a.paise), 0),
+    advancePaise,
+  );
   if (creditedPaise !== input.amountPaise) {
     throw new Error(
       `PAYMENT_ATTRIBUTION_BUG: credited ${creditedPaise} of ${input.amountPaise} paise`,
@@ -663,8 +711,8 @@ export async function recordPaymentFlow(
   return {
     entryIds,
     applied,
-    autoInvoiceId,
-    autoInvoiceNumber,
+    advancePaise,
+    advanceReceiptNumber,
     receiptId,
     receiptNo,
     creditedPaise,

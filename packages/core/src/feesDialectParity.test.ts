@@ -284,7 +284,7 @@ type CreateInvoiceOutcome = {
 };
 type RecordPaymentOutcome = {
   ok: boolean;
-  value?: { creditedPaise: number; autoInvoiceNumber: string | null };
+  value?: { creditedPaise: number; advancePaise: number; advanceReceiptNumber: string | null };
   error?: Error;
 };
 
@@ -345,39 +345,41 @@ describe("dialect parity — the same money from either writer", () => {
     expect(results[1]).toEqual(results[0]);
   });
 
-  it("recordPayment attributes identically across invoices and auto-invoices the surplus", async () => {
-    const results: unknown[] = [];
-    for (const dialect of DIALECTS) {
-      const db = await openDb();
-      const studentId = "student-parity";
-      await seedStudent(db, studentId, 0);
-      // Two open invoices (100000 + 60000) and a 180000 payment: the flow must
-      // settle both and auto-invoice the 20000 surplus, which takes INV-000001
-      // on this fresh database (BR-LED-03: the sequence starts at 1).
-      await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
-      await seedInvoice(db, "invoice-b", studentId, "INV-000002", 60000, "2026-09-10");
-      await db.execute(`UPDATE settings SET next_invoice_seq = 3 WHERE tenant_id = ?`, [TENANT]);
+    it("recordPayment attributes identically and posts the surplus as an ADVANCE", async () => {
+      const results: unknown[] = [];
+      for (const dialect of DIALECTS) {
+        const db = await openDb();
+        const studentId = "student-parity";
+        await seedStudent(db, studentId, 0);
+        // Two open invoices (100000 + 60000) and a 180000 payment: the flow must
+        // settle both and post the 20000 surplus as an ADVANCE (BR-FEE-15 /
+        // EC-F-02) - not as a third invoice. The surplus takes NO invoice
+        // number, so the invoice sequence comes back untouched.
+        await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
+        await seedInvoice(db, "invoice-b", studentId, "INV-000002", 60000, "2026-09-10");
+        await db.execute(`UPDATE settings SET next_invoice_seq = 3 WHERE tenant_id = ?`, [TENANT]);
 
-      const res = await dialect.recordPayment(handleFor(dialect, db), {
-        tenantId: TENANT,
-        studentId,
-        amountPaise: 180000,
-        description: "Cash",
-        receivedOn: "2026-09-12",
-      });
-      expect(res.ok, `${dialect.name} failed: ${res.error?.message}`).toBe(true);
-      expect(res.value?.creditedPaise).toBe(180000);
-      expect(res.value?.autoInvoiceNumber).toBe("INV-000003");
+        const res = await dialect.recordPayment(handleFor(dialect, db), {
+          tenantId: TENANT,
+          studentId,
+          amountPaise: 180000,
+          description: "Cash",
+          receivedOn: "2026-09-12",
+        });
+        expect(res.ok, `${dialect.name} failed: ${res.error?.message}`).toBe(true);
+        expect(res.value?.creditedPaise).toBe(180000);
+        expect(res.value?.advancePaise).toBe(20000);
+        expect(res.value?.advanceReceiptNumber).not.toBeNull();
 
-      const footprint = await moneyFootprint(db);
-      const statuses = (footprint.invoices as { number: string; status: string }[])
-        .map((row) => `${row.number}:${row.status}`)
-        .sort();
-      expect(statuses).toEqual(["INV-000001:paid", "INV-000002:paid", "INV-000003:paid"]);
-      results.push(footprint);
-    }
-    expect(results[1]).toEqual(results[0]);
-  });
+        const footprint = await moneyFootprint(db);
+        const statuses = (footprint.invoices as { number: string; status: string }[])
+          .map((row) => `${row.number}:${row.status}`)
+          .sort();
+        expect(statuses).toEqual(["INV-000001:paid", "INV-000002:paid"]);
+        results.push(footprint);
+      }
+      expect(results[1]).toEqual(results[0]);
+    });
 
   it("AUD-001: a VOIDED payment stops counting as credited — in BOTH dialects", async () => {
     // THE DEFECT (P0). The "has this credit been reversed?" test was

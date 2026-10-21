@@ -296,13 +296,17 @@ export function RecordPaymentSheet({ studentId, studentName, balanceDuePaise }: 
       return;
     }
 
-    const { applied, autoInvoiceNumber, receiptNo } = confirmation.data;
-    const detail =
-      applied.length > 0
-        ? `Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`
-        : autoInvoiceNumber
-          ? `Held as advance against new invoice ${autoInvoiceNumber}`
-          : "Held as advance — no unpaid invoice to apply it to";
+    const { applied, advancePaise, receiptNo } = confirmation.data;
+    // EC-F-02: the surplus is an ADVANCE - money the tutor holds that is not
+    // owed. It is never dressed as a bill, so the toast says so plainly.
+    const detailParts: string[] = [];
+    if (applied.length > 0) {
+      detailParts.push(`Applied to ${applied.map((a) => `${a.number} (${a.status})`).join(", ")}`);
+    }
+    if (advancePaise > 0) {
+      detailParts.push(`Held as advance — ${formatINR(advancePaise)}`);
+    }
+    const detail = detailParts.length > 0 ? detailParts.join(" · ") : "Recorded";
     // 07 §9.6 step 3/7 + BR-RC-01: the number exists, is monotonic, and is
     // never reused — so it is the ONE fact the tutor must be handed, because
     // it is the handle they quote when they later void this payment. The

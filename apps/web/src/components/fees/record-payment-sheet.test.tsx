@@ -138,8 +138,8 @@ describe("RecordPaymentSheet — refusals are stated in words (07 §6.4, Rule 9)
       data: {
         entryIds: ["e1"],
         applied: [{ invoiceId: "i1", number: "INV-000001", paise: 100, status: "partial" }],
-        autoInvoiceId: null,
-        autoInvoiceNumber: null,
+        advancePaise: 0,
+        advanceReceiptNumber: null,
         receiptId: "r1",
         receiptNo: "REC-000007",
         creditedPaise: 100,

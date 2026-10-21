@@ -300,7 +300,7 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
     expect(await countRows(client, "audit_log")).toBe(0);
   });
 
-  it("splits acknowledged overpayment per EC-F-02 (exact + auto-invoice remainder)", async () => {
+  it("splits acknowledged overpayment per EC-F-02 (exact + [ADVANCE] remainder)", async () => {
     const studentId = randomUUID();
     const invoiceId = randomUUID();
     ({ client, dir } = await createTestDb());
@@ -323,9 +323,12 @@ describe("recordPaymentAction — Rule 7 outbox+audit (real core, real DB)", () 
 
     expect(res.success).toBe(true);
     if (!res.success) return;
-    // Every paise attributed somewhere (core invariant), surplus auto-invoiced.
+    // Every paise attributed somewhere (core invariant); the surplus is an
+    // ADVANCE, not a third invoice.
     expect(res.data.creditedPaise).toBe(500000);
-    expect(res.data.autoInvoiceNumber).not.toBeNull();
+    expect(res.data.advancePaise).toBe(200000);
+    expect(res.data.advanceReceiptNumber).not.toBeNull();
+    expect(res.data.applied).toHaveLength(1);
     const first = res.data.applied[0];
     expect(first?.paise).toBe(300000);
     expect(first?.status).toBe("paid");

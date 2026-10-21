@@ -407,7 +407,7 @@ const PAYMENT_INTENT_ACTION = "payment_intent_spent";
 const PAYMENT_INTENT_REF_TYPE = "payment_intent";
 
 /** Bumped only if the stored envelope's SHAPE changes (never its money). */
-const PAYMENT_INTENT_VERSION = 1;
+const PAYMENT_INTENT_VERSION = 2;
 
 /** Separator between the tenant and the key in the claim's primary key. */
 const INTENT_CLAIM_SEPARATOR = ":";
@@ -437,8 +437,8 @@ const StoredPaymentDataSchema = z.object({
       status: z.enum(["unpaid", "partial", "paid"]),
     }),
   ),
-  autoInvoiceId: z.string().nullable(),
-  autoInvoiceNumber: z.string().nullable(),
+  advancePaise: z.number().int(),
+  advanceReceiptNumber: z.string().nullable(),
   receiptId: z.string().min(1),
   receiptNo: z.string().min(1),
   creditedPaise: z.number().int(),

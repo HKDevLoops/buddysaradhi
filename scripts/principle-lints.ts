@@ -733,7 +733,7 @@ function lintAdHocSurfaceWrappers(findings: Finding[]): void {
         if (rule.sanctioned.some((t: string) => tokens.has(t))) continue;
         if (!rule.recipe.every((t: string) => tokens.has(t))) continue;
         findings.push({
-          rule: "L13",
+          rule: "L12",
           file,
           line: found.line,
           msg:
@@ -1367,7 +1367,7 @@ function lintNoRunInterpolation(findings: Finding[]): void {
     }
     const report = (line: number, body: string): void => {
       findings.push({
-        rule: "L13",
+        rule: "L12",
         file,
         line,
         msg:

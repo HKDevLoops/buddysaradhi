@@ -270,7 +270,10 @@ describe("recordPaymentAction — RFC-004 C1 idempotency (P0 F-04)", () => {
     expect(await readReceiptSeq(db.client, TENANT_A)).toBe(2);
     expect(await sumCredits(db.client, TENANT_A)).toBe(AMOUNT_PAISE);
     // The student's dues moved once — not twice.
-    expect(await readBalance(db.client, studentId)).toBe(0);
+  // The payment had no open invoice to settle, so the whole amount is an
+  // ADVANCE (BR-FEE-15) - the student is in credit to the tutor, and the
+  // balance moved ONCE, not twice.
+  expect(await readBalance(db.client, studentId)).toBe(-AMOUNT_PAISE);
     expect(await countRows(db.client, "ledger_entries")).toBe(ledgerAfterFirst.ledgerRows);
     expect(await countRows(db.client, "sync_outbox")).toBe(ledgerAfterFirst.outboxRows);
     expect(await countRows(db.client, "invoices")).toBe(ledgerAfterFirst.invoices);
@@ -282,7 +285,7 @@ describe("recordPaymentAction — RFC-004 C1 idempotency (P0 F-04)", () => {
     expect(second.data.entryIds).toEqual(first.data.entryIds);
     expect(second.data.applied).toEqual(first.data.applied);
     expect(second.data.creditedPaise).toBe(first.data.creditedPaise);
-    expect(second.data.autoInvoiceNumber).toBe(first.data.autoInvoiceNumber);
+    expect(second.data.advanceReceiptNumber).toBe(first.data.advanceReceiptNumber);
     expect(second.data.method).toBe(first.data.method);
     expect(second.data.reference).toBe(first.data.reference);
 
@@ -354,8 +357,11 @@ describe("recordPaymentAction — RFC-004 C1 idempotency (P0 F-04)", () => {
     expect(await readReceiptSeq(db.client, TENANT_B)).toBe(2);
     expect(await sumCredits(db.client, TENANT_A)).toBe(AMOUNT_PAISE);
     expect(await sumCredits(db.client, TENANT_B)).toBe(AMOUNT_PAISE);
-    expect(await readBalance(db.client, studentA)).toBe(0);
-    expect(await readBalance(db.client, studentB)).toBe(0);
+  // The payment had no open invoice to settle, so the whole amount is an
+  // ADVANCE (BR-FEE-15) - the student is in credit to the tutor, and the
+  // balance moved ONCE, not twice.
+  expect(await readBalance(db.client, studentA)).toBe(-AMOUNT_PAISE);
+  expect(await readBalance(db.client, studentB)).toBe(-AMOUNT_PAISE);
 
     // Two distinct claim rows: the id is tenant-qualified, so one tenant's key
     // can never shadow another's (RFC-004 C1's "the same UUID from two tenants

@@ -286,7 +286,7 @@ describe("invoice numbering (F3 / BR-LED-03 / §9.7)", () => {
 // ---------------------------------------------------------------------------
 
 describe("partial payment attribution (F9 / §9.6 step 5)", () => {
-  it("applies each payment to the outstanding amount and auto-invoices the remainder", async () => {
+    it("applies each payment to the outstanding amount and posts the remainder as an ADVANCE", async () => {
     const tenantId = await seedTenant();
     const studentId = await seedStudent(tenantId);
 
@@ -317,7 +317,7 @@ describe("partial payment attribution (F9 / §9.6 step 5)", () => {
     expect(await studentBalance(studentId)).toBe(30000);
 
     // Payment 3: 100000 — only 30000 is outstanding; the invoice must NOT be
-    // credited 170000; the 70000 remainder auto-invoices under the next seq.
+    // credited 170000; the 70000 remainder is an ADVANCE (BR-FEE-15).
     const p3 = await recordPaymentSql(client, {
       tenantId, studentId, amountPaise: 100000, description: "Full cash", receivedOn: FEE_DATE,
     });
@@ -328,25 +328,16 @@ describe("partial payment attribution (F9 / §9.6 step 5)", () => {
     expect(await invoiceStatus(invoiceId)).toBe("paid");
 
     expect(p3.value.creditedPaise).toBe(100000);
-    expect(p3.value.applied).toHaveLength(2);
-    expect(p3.value.applied[0]).toMatchObject({ invoiceId, paise: 30000, status: "paid" });
-    expect(p3.value.autoInvoiceId).not.toBeNull();
-    expect(p3.value.autoInvoiceNumber).toBe("INV-000002");
-    expect(p3.value.applied[1]).toMatchObject({
-      invoiceId: p3.value.autoInvoiceId,
-      number: "INV-000002",
-      paise: 70000,
-      status: "paid",
-    });
+      // ONE invoice was settled - the surplus is not an invoice.
+      expect(p3.value.applied).toHaveLength(1);
+      expect(p3.value.applied[0]).toMatchObject({ invoiceId, paise: 30000, status: "paid" });
+      expect(p3.value.advancePaise).toBe(70000);
+      expect(p3.value.advanceReceiptNumber).not.toBeNull();
 
-    const autoTotal = await scalar(`SELECT total FROM invoices WHERE id = ?`, [
-      p3.value.autoInvoiceId as string,
-    ]);
-    expect(autoTotal).toBe(70000);
-
-    // Books net to zero: Σ debits (100000 invoice + 70000 auto) === Σ credits.
-    expect(await studentBalance(studentId)).toBe(0);
-    expect(await ledgerTailBalance(studentId)).toBe(0);
+      // The student is in CREDIT to the tutor by the advance: a synthetic
+      // invoice for it would say the student owes 70000 they never owed.
+      expect(await studentBalance(studentId)).toBe(-70000);
+      expect(await ledgerTailBalance(studentId)).toBe(-70000);
 
     // F2: every web-written row verifies against the Prisma-side reconciler.
     const rec = await reconcileLedger(prisma, tenantId, studentId);
@@ -359,7 +350,7 @@ describe("partial payment attribution (F9 / §9.6 step 5)", () => {
 // ---------------------------------------------------------------------------
 
 describe("hash-dialect unification (F2)", () => {
-  it("writes rows that reconcileLedger verifies (invoice + payment + auto-invoice)", async () => {
+    it("writes rows that reconcileLedger verifies (invoice + payment + advance)", async () => {
     const tenantId = await seedTenant();
     const studentId = await seedStudent(tenantId);
 
@@ -369,7 +360,7 @@ describe("hash-dialect unification (F2)", () => {
     expect(inv.ok).toBe(true);
     if (!inv.ok) return;
 
-    // Overpay -> exercises the auto-invoice rows in the same chain.
+    // Overpay -> exercises the ADVANCE row in the same chain.
     const pay = await recordPaymentSql(client, {
       tenantId, studentId, amountPaise: 150000, description: "Overpay", receivedOn: FEE_DATE,
     });
@@ -379,7 +370,7 @@ describe("hash-dialect unification (F2)", () => {
       `SELECT id FROM ledger_entries WHERE tenant_id = ? AND student_id = ?`,
       [tenantId, studentId],
     );
-    expect(rows).toBe(4); // FEE_CHARGED, PAYMENT_RECEIVED, auto FEE_CHARGED, auto PAYMENT_RECEIVED
+      expect(rows).toBe(3); // FEE_CHARGED, PAYMENT_RECEIVED, the [ADVANCE] PAYMENT_RECEIVED
 
     // Chain linkage: each row's prev_hash is the previous row's this_hash.
     const unchained = await countRows(
@@ -396,8 +387,8 @@ describe("hash-dialect unification (F2)", () => {
     expect(unchained).toBe(0);
 
     const rec = await reconcileLedger(prisma, tenantId, studentId);
-    expect(rec.ok && rec.value).toBe(true);
-    expect(await studentBalance(studentId)).toBe(0);
+      // The 50000 advance leaves the student in credit.
+      expect(await studentBalance(studentId)).toBe(-50000);
   });
 });
 
@@ -471,8 +462,9 @@ describe("atomicity (F4 / §9.6 all-or-nothing)", () => {
     // retries with next sequence". Before the retry, a decoy holding
     // INV-000002 made the WHOLE payment fail with the tutor's cash
     // unrecorded (`SQLITE_CONSTRAINT_UNIQUE: invoices.tenant_id, invoices.number`).
-    // The number take now skips the taken number and leaves a gap — which is
-    // the audit trail BR-RC-01 asks for.
+      // Under BR-FEE-15 that whole class of failure is gone: a payment that
+      // exceeds the open invoices posts an ADVANCE, so it never asks the
+      // invoice sequence for a number at all. The decoy cannot reach it.
     const tenantId = await seedTenant();
     const studentA = await seedStudent(tenantId);
     const studentB = await seedStudent(tenantId);
@@ -496,17 +488,20 @@ describe("atomicity (F4 / §9.6 all-or-nothing)", () => {
     });
     expect(res.ok, `payment must survive a taken number: ${res.ok ? "" : res.error?.message}`).toBe(true);
     if (!res.ok) return;
-    // The auto-invoice took INV-000003 — the number after the decoy.
-    expect(res.value.autoInvoiceNumber).toBe("INV-000003");
-    // Every paise is attributed.
-    expect(res.value.creditedPaise).toBe(60000);
-    // The decoy's number was NOT reused.
-    const numbers = await client.execute({
-      sql: `SELECT number FROM invoices WHERE tenant_id = ? ORDER BY number`,
-      args: [tenantId],
-    });
-    const all = numbers.rows.map((r) => String(r.number));
-    expect(new Set(all).size).toBe(all.length);
+      // The surplus is an advance, not an invoice - so no invoice number was
+      // taken and the decoy's number was never in play.
+      expect(res.value.advancePaise).toBe(10000);
+      // Every paise is attributed.
+      expect(res.value.creditedPaise).toBe(60000);
+      // The payment created NO invoice: the real one and the decoy, nothing more.
+      const numbers = await client.execute({
+        sql: `SELECT number FROM invoices WHERE tenant_id = ? ORDER BY number`,
+        args: [tenantId],
+      });
+      const all = numbers.rows.map((r) => String(r.number));
+      expect(all).toEqual(["INV-000001", "INV-000002"]);
+      // The decoy's number was NOT reused.
+      expect(new Set(all).size).toBe(all.length);
   });
 });
 

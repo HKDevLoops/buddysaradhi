@@ -605,6 +605,18 @@ describe("ATTACK 4 — invoice / receipt numbering", () => {
     it(`[${writer.name}] a settings outbox row must name the RIGHT sequence column and the NEXT value`, async () => {
       const studentId = "student-adv";
       await seedStudent(studentId);
+      // An invoice, so the payment below settles it. Under BR-FEE-15 a
+      // payment that exceeds the open invoices no longer creates an invoice of
+      // its own - the surplus is an ADVANCE - so the INVOICE sequence row has
+      // to come from a real invoice.
+      const inv = await writer.invoice({
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 100000,
+        description: "Monthly fee",
+        issueDate: "2026-09-01",
+      });
+      expect(inv.ok).toBe(true);
       const res = await writer.payment({
         tenantId: TENANT,
         studentId,
@@ -641,6 +653,51 @@ describe("ATTACK 4 — invoice / receipt numbering", () => {
         );
         expect(p.next_invoice_seq, "a receipt payload must not carry the invoice sequence").toBeUndefined();
       }
+    });
+
+    it(`[${writer.name}] an overpayment becomes an ADVANCE, not a synthetic bill (EC-F-02)`, async () => {
+      const studentId = "student-adv";
+      await seedStudent(studentId);
+      // Rs 4,500 owed.
+      const inv = await writer.invoice({
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 450000,
+        description: "Monthly fee",
+        issueDate: "2026-09-01",
+      });
+      expect(inv.ok).toBe(true);
+      // Rs 5,000 received.
+      const res = await writer.payment({
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 500000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      expect(res.ok).toBe(true);
+      const value = res.value;
+      expect(value?.advancePaise).toBe(50000);
+      expect(value?.advanceReceiptNumber).not.toBeNull();
+
+      const books = await dumpBooks(rig.client);
+      // ONE invoice - the one the tutor billed. A synthetic invoice for the
+      // surplus told the tutor the student owed money they had handed over.
+      expect(books.invoices.length).toBe(1);
+      const advanceRows = books.ledger.filter((l) => l.description?.includes("[ADVANCE]"));
+      expect(advanceRows.length).toBe(1);
+      expect(advanceRows[0]?.credit).toBe(50000);
+      expect(advanceRows[0]?.invoice).toBeNull();
+      // The receipts partition the payment exactly - never more.
+      const receiptTotal = books.receipts.reduce((sum, r) => sum + r.amount, 0);
+      expect(receiptTotal).toBe(500000);
+      // The advance's receipt is its OWN number and names no invoice.
+      const advanceReceipt = books.receipts.find((r) => r.number === value?.advanceReceiptNumber);
+      expect(advanceReceipt).toBeDefined();
+      expect(advanceReceipt?.amount).toBe(50000);
+      expect(advanceReceipt?.invoice).toBeNull();
+      // The student is in credit to the tutor.
+      expect(books.balancePaise).toBe(-50000);
     });
 
     it(`[${writer.name}] concurrent invoice creation yields DISTINCT numbers`, async () => {

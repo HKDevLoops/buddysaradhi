@@ -65,7 +65,7 @@ Severity guides test priority: every **P0** case must have an automated test; **
 
 ### EC-F-02 — Overpayment beyond outstanding
 **Trigger:** Student owes ₹4,500; tutor records ₹5,000.
-**Behaviour:** `ledgerEngine.splitIfOverpayment` splits into two `PAYMENT_RECEIVED` rows (`BR-FEE-04`): ₹4,500 (exact, credits the invoice) + ₹500 (`[ADVANCE]`, tagged separately). Advance auto-applied to next `FEE_CHARGED` via `BR-FEE-15`. UI shows "Advance: ₹500" emerald chip on the student row. The advance row has its own receipt number.
+**Behaviour:** `ledgerEngine.splitIfOverpayment` splits into two `PAYMENT_RECEIVED` rows (`BR-FEE-04`), and NO invoice is created for the surplus: ₹4,500 (exact, credits the invoice) + ₹500 (`[ADVANCE]`, tagged separately, no invoice). Advance auto-applied to next `FEE_CHARGED` via `BR-FEE-15`. UI shows "Advance: ₹500" emerald chip on the student row. The advance row has its own receipt number, and the receipts partition the payment: the receipt for the settled part covers only what it settled, the advance's receipt covers the surplus, and the two sum to the payment exactly.
 **Recovery:** Advance auto-consumed on next charge; tutor may also refund via `REFUND_ISSUED` (see EC-F-04).
 **Governing:** `BR-FEE-04`, `BR-FEE-15`. **P1**
 
