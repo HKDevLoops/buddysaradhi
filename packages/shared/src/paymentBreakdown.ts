@@ -8,7 +8,8 @@
 // Before this module the shape existed in three places and they disagreed:
 //
 //   apps/gateway/routes/analytics.ts   3 keys  { paid, partial, unpaid }
-//   apps/services/report-svc/src/…     4 keys  { paid, partial, unpaid, noDues }
+//   (the dead report-svc, since deleted) 4 keys { paid, partial, unpaid, noDues }
+
 //   apps/web/…/dashboard-analytics.ts  3 keys, TWICE (two Zod literals + a
 //                                     hand-written TS interface, three copies)
 //

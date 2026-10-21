@@ -6,7 +6,12 @@
 // pattern as `vendor/format.ts`, `vendor/outboxPayload.ts`, `vendor/redact.ts`.
 //
 // WHY THIS FILE EXISTS: RPT-SHAPE-08. The C6 `paymentBreakdown` contract had no
-// single owner — the gateway emitted three keys, `apps/services/report-svc`
+// single owner - the gateway emitted three keys, the dead report-svc
+
+// (since deleted) emitted four, and the two web consumers each carried
+
+// their own Zod literal.
+
 // emitted four, and the two web consumers each carried their own Zod literal.
 // Nothing failed when they diverged; a tutor just saw a wrong number.
 //

@@ -14,9 +14,8 @@ import type { DB } from "../lib/db.ts";
 
 /** A DB whose every statement fails - the shape of an unhealable tenant. */
 function brokenDb(): DB {
-  const fail = async () => {
-    throw new Error("no such table: ledger_entries");
-  };
+  const fail = (): Promise<never> =>
+    Promise.reject(new Error("no such table: ledger_entries"));
   return {
     execute: fail,
     batch: fail,

@@ -151,6 +151,15 @@ describe("Parallel query execution", () => {
     const results: number[] = [];
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+    // THE BASELINE, measured in the SAME run: one delay on its own. The
+    // assertion used to be an absolute "< 100 ms", which is a budget about
+    // the RUNNER - audit AUD-066 measured 164 ms against that very budget on
+    // a healthy machine. A comparative assertion cannot fail for that
+    // reason: both arms are wall-clock costs taken here, now.
+    const baselineStart = Date.now();
+    await delay(10);
+    const baseline = Date.now() - baselineStart;
+
     const start = Date.now();
     await Promise.all([
       delay(10).then(() => results.push(1)),
@@ -160,16 +169,20 @@ describe("Parallel query execution", () => {
     const elapsed = Date.now() - start;
 
     expect(results).toEqual([1, 2, 3]);
-    // threshold accommodates loaded CI/Node26 jitter; behavior asserted via result ordering
+    // Three delays in parallel cost about ONE delay; run them serially and
+    // they would cost three. The factor of two sits between the two, so a
+    // regression to serial execution trips it and a loaded runner does not.
     expect(elapsed).toBeGreaterThanOrEqual(5);
-    expect(elapsed).toBeLessThan(100);
+    expect(elapsed).toBeLessThan(baseline * 2);
   });
 });
 
-// The budgets, in stick units (see `./perf-stick.ts`).
-const CACHE_HIT_UNITS = 40;
-const PRE_SERIALISED_UNITS = 200;
-const INVALIDATION_UNITS = 6000;
+// The budgets, in stick units (see `./perf-stick.ts`). Twice the worst
+// observed ratio - the rule and its reasoning are in `low-latency.test.ts`.
+const CACHE_HIT_UNITS = 1;
+const SINGLE_LOOKUP_UNITS = 5;
+const PRE_SERIALISED_UNITS = 130;
+const INVALIDATION_UNITS = 4000;
 
 describe("Cache performance", () => {
   it("cache hit is faster than cache miss", () => {
@@ -226,25 +239,20 @@ describe("LRU gateway cache latency benchmarks", () => {
     expect(JSON.parse(await resp!.text())).toEqual({ success: true, data: { rows: [] } });
   });
 
-  it("single cache lookup is sub-millisecond (p95 < 1ms target)", () => {
+  it("single cache lookup is within its share of the stick", () => {
     // Seed 500 entries
     for (let i = 0; i < 500; i++) {
       setCache(`bench:tenant-b:entry-${i}`, { id: i, data: `x`.repeat(200) }, 60_000);
     }
 
-    const samples: number[] = [];
-    for (let i = 0; i < 500; i++) {
-      const start = performance.now();
-      getCached(`bench:tenant-b:entry-${i}`);
-      samples.push(performance.now() - start);
-    }
-
-    // Sort and take p95 (95th percentile)
-    samples.sort((a, b) => a - b);
-    const p95 = samples[Math.floor(samples.length * 0.95)];
-
-    // p95 of a single cache lookup should be under 1ms
-    expect(p95).toBeLessThan(1.0);
+    // In stick units, not milliseconds: a millisecond budget measures the
+    // runner (see `./perf-stick.ts` for the whole argument). The keys cycle so
+    // every call is a HIT - a miss would be a different, slower path.
+    let i = 0;
+    const units = costInStickUnits(() => {
+      getCached(`bench:tenant-b:entry-${i++ % 500}`);
+    });
+    expect(units).toBeLessThanOrEqual(SINGLE_LOOKUP_UNITS);
   });
 
   it("pre-serialized Response path is sub-millisecond", () => {
@@ -281,6 +289,7 @@ describe("LRU gateway cache latency benchmarks", () => {
     const start = performance.now();
     invalidateTenant("tenant-b");
     const elapsed = performance.now() - start;
+
 
     // In stick units, not milliseconds - the same reason as the gate above.
     expect(elapsed / fastestStickPerOp()).toBeLessThanOrEqual(INVALIDATION_UNITS);

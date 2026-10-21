@@ -36,7 +36,12 @@ export const BATCHES = 20;
 const STICK_KEYS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const STICK_MAP = new Map(STICK_KEYS.map((k, i) => [k, i]));
 
-let stickSink = 0;
+/**
+ * The sink. Exported so it is visibly USED (an unused local would be
+ * deleted, and with it the work the stick is supposed to measure) and so
+ * the optimiser cannot eliminate the loop.
+ */
+export let stickSink = 0;
 
 export function stick(): void {
   let acc = 0;

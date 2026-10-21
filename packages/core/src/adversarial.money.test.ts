@@ -34,6 +34,11 @@ const __dirname = dirname(__filename);
 const REPO = resolve(__dirname, "../../../");
 const MIGRATION = resolve(REPO, "migrations/0001_init.sql");
 
+// The students' money columns (balance_paise, base_fee_paise) arrived in
+// the forward-only 0004. The rig used to patch `balance_paise` in by hand,
+// which meant this suite tested a schema the product does not ship.
+const MIGRATION_0004 = resolve(REPO, "migrations/0004_student_money_columns.sql");
+
 const TENANT = "tenant_adv";
 
 // ---------------------------------------------------------------------------
@@ -56,15 +61,9 @@ async function openRig(): Promise<Rig> {
   const file = join(dir, "adv.db").replace(/\\/g, "/");
   const client = createClient({ url: `file:${file}` });
   await client.executeMultiple(readFileSync(MIGRATION, "utf-8"));
-  try {
-    await client.execute({
-      sql: `ALTER TABLE students ADD COLUMN balance_paise INTEGER NOT NULL DEFAULT 0`,
-      args: [],
-    });
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (!/duplicate column name/i.test(msg)) throw error;
-  }
+    // The canonical schema is 0001 + 0004 - the shipped chain, not a hand-
+    // patched approximation of it.
+    await client.executeMultiple(readFileSync(MIGRATION_0004, "utf-8"));
   const prisma = new PrismaClient({ datasources: { db: { url: `file:${file}` } } });
   await prisma.$connect();
   return { client, prisma, dir, file };
@@ -1205,30 +1204,55 @@ describe("ATTACK 8 — structural gaps", () => {
     expect(production.length, "reconcileLedger must be invoked by production code").toBeGreaterThan(0);
   });
 
-  it.fails("ATK-8.2 [P1] the gateway's vendored copy of the money flow is STALE after a core change", async () => {
+  it("ATK-8.2 [P1] the gateway's vendored money flow is regenerated from core, and the check can tell", async () => {
     // `apps/gateway/lib/vendor/feesFlow.ts` is a MECHANICAL copy of
     // `packages/core/src/feesFlow.ts` (AGENTS.md §3.5: one money flow, one
-    // copy per runtime). The sync script's own header says "Staleness is a
-    // TEST failure" — but `apps/gateway/__tests__/vendor-freshness.test.ts`
-    // and `apps/gateway/__tests__/ledger-payment-convergence.test.ts` DO NOT
-    // EXIST, so nothing fails when the copy goes stale.
+    // copy per runtime), and `scripts/sync-vendor-feesflow.ts --check` is the
+    // gate that says so.
+    //
+    // The defect this pins: the copy went stale silently - the sync script's
+    // own header says "Staleness is a TEST failure", but the two tests its
+    // header cites DID NOT EXIST, so nothing failed when the copy drifted and
+    // the gateway kept running a money flow the web did not.
+    //
+    // The tripwire used to assert the CURRENT state was stale (`it.fails`),
+    // which was a statement about the DEFECT, not about the GATE. The gate
+    // exists now, and the copy is fresh, so the test states the PROPERTY
+    // instead: perturb the copy and the check must FAIL; restore it and the
+    // check must PASS. A gate that cannot fail is not a gate.
     const { execFileSync } = await import("child_process");
-    let output = "";
-    let code = 0;
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const vendorPath = join(REPO, "apps/gateway/lib/vendor/feesFlow.ts");
+
+    const runCheck = (): number => {
+      try {
+        execFileSync("bun", ["scripts/sync-vendor-feesflow.ts", "--check"], {
+          cwd: REPO,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        return 0;
+      } catch (error) {
+        const err = error as { status?: number };
+        return err.status ?? 1;
+      }
+    };
+
+    // The copy as committed must be fresh.
+    expect(runCheck(), "the vendored money flow must be regenerated from core").toBe(0);
+
+    // And the check must be able to see a stale copy.
+    const original = readFileSync(vendorPath, "utf8");
     try {
-      output = execFileSync("bun", ["scripts/sync-vendor-feesflow.ts", "--check"], {
-        cwd: REPO,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch (error) {
-      const err = error as { status?: number; stdout?: string; stderr?: string };
-      code = err.status ?? 1;
-      output = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+      writeFileSync(vendorPath, `${original}\n// stale-copy probe\n`, "utf8");
+      expect(runCheck(), "the freshness check must fail on a stale copy").not.toBe(0);
+    } finally {
+      writeFileSync(vendorPath, original, "utf8");
     }
-    // eslint-disable-next-line no-console
-    console.log("[ATK-8.2] vendor freshness:", code === 0 ? "FRESH" : output.trim());
-    expect(code, "the vendored money flow must be regenerated from core").toBe(0);
+
+    // And the check must pass again once the copy is restored.
+    expect(runCheck(), "the restored copy must be fresh again").toBe(0);
   });
 });
 

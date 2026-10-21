@@ -459,7 +459,10 @@ export async function voidEntry(
       // apps/web/src/components/fees/void-sequence.test.ts:431 —
       //   "KNOWN P0: voiding an already-voided payment is NOT refused by
       //    voidEntry — it double-corrects"
-      // Latent while nothing called it; apps/services/ledger-svc/src/index.ts
+      // Latent while nothing called it. The gateway's void route and the web's
+
+      // void action both call voidEntry, so it is reachable.
+
       // calls voidEntry, so it is now reachable.
       //
       // The gateway's own void route already implements both guards correctly

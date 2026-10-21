@@ -472,7 +472,7 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
         logInfo("gateway.request", { ...logCtx, status: res.status, durationMs: dt });
 
         if (method === "GET" && res.status === 200 && isCacheablePath(path)) {
-          const cKey = cacheKey(req, path, tenantId);
+          const cKey = cacheKey(req, path, tenantId, dbUrl);
           if (cKey) {
             const body = await res.text();
             setCacheResponse(
