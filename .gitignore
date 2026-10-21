@@ -65,7 +65,15 @@ supabase/.temp/
 # .env - DATABASE_URL, GATEWAY_SHARED_SECRET, SUPABASE_SERVICE_ROLE_KEY - that was
 # never committed but was NOT ignored, so one git add -A would have committed
 # production secrets. Audit AUD-069.
-supabase/
+#
+# ANCHORED to the repo root on purpose. An unanchored `supabase/` matches a
+# directory named `supabase` at ANY depth - including
+# `apps/web/src/lib/supabase/`, which is tracked, live web code. A new file
+# written there was silently UNTRACKED and ignored: `git add` refused it with
+# "ignored by one of your .gitignore files" while the file sat in the working
+# tree looking perfectly version-controlled. The mirror is at the root, so
+# root it.
+/supabase/
 
 # Playwright
 playwright-report/
