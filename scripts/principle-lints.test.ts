@@ -38,6 +38,9 @@ const ALLOW: Set<string> = new Set([
   // this file requires both lists to change together, which is why this entry
   // exists rather than the file being converted.
   "scripts/cache-clean.mjs",
+  "apps/product-page/scripts/generate-poster.mjs",
+  "apps/product-page/scripts/measure-hero-contrast.mjs",
+  "apps/product-page/scripts/negative-controls.mjs",
 ]);
 
 function listLintFiles(): string[] {
