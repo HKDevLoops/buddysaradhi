@@ -4,6 +4,7 @@ import { invalidateTenant } from "../lib/cache.ts";
 import { logWarn } from "../lib/log.ts";
 import { checkRateLimit, constantTimeCompare } from "../lib/crypto.ts";
 import { withWriteTransaction } from "../lib/tx.ts";
+import { stmtCreateAppendOnlyTriggers, stmtDropAppendOnlyTriggers } from "../lib/schema.ts";
 import {
   eraseTables,
   oneRow,
@@ -189,6 +190,23 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
       // child-before-parent with foreign keys enabled).
       // LEDGER-4's single audited exception: physical ledger deletion exists
       // only in the secure-erase flow; every other path posts a void.
+      //
+      // AUD-003 (P0): the cascade's FIRST statement is
+      // `DELETE FROM ledger_entries WHERE tenant_id = ?` — and
+      // `trg_ledger_no_delete` aborts exactly that with "P0 BUG:
+      // ledger_entries is append-only. DELETE forbidden." The whole
+      // transaction therefore rolled back and **the erase never happened**:
+      // the endpoint 500'd, nothing was deleted, and the tutor was told
+      // nothing. The LEDGER-4 exception had no mechanism behind it.
+      //
+      // So the guards are dropped for the duration of the cascade and
+      // re-created afterwards, ALL INSIDE THIS ONE TRANSACTION. SQLite's DDL
+      // is transactional: if any step fails, the rollback restores the guards
+      // too, so a failed erase can never leave the ledger unprotected.
+      for (const ddl of stmtDropAppendOnlyTriggers()) {
+        await run(tx, ddl, []);
+      }
+
       for (const table of tables) {
         // SAFETY: `tables` comes from `eraseTables()` (audited allowlist in
         // lib/sql.ts) — every element is a valid erase-table union member; and
@@ -197,6 +215,11 @@ export const handleSecurity: RouteHandler = async (req, db, tenantId, path, meth
         // dependency-free `SqlHandle` transport).
         const stmt = stmtEraseTable(table as never, tenantId);
         await run(tx, stmt.sql, stmt.args);
+      }
+
+      // Put the append-only guards back before anything else can run.
+      for (const ddl of stmtCreateAppendOnlyTriggers()) {
+        await run(tx, ddl, []);
       }
 
       // 18.1 step 7: erase_complete recorded in the SAME commit — it and

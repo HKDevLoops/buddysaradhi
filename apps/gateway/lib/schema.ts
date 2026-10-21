@@ -11,6 +11,26 @@ import { withWriteTransaction, type TransactionalDb } from "./tx.ts";
 const HEALED_TENANTS_MAX = 10_000;
 const healedTenants = new Set<string>();
 
+/**
+ * The exact `CREATE TRIGGER` text the self-heal installs, by trigger name.
+ *
+ * Defined BEFORE `CORE_DDL_STATEMENTS` so the self-heal and the secure-erase
+ * re-create path install BYTE-IDENTICAL guards — they cannot drift, because
+ * there is only one copy of the text.
+ */
+const APPEND_ONLY_TRIGGER_DDL: Record<string, string> = {
+  trg_ledger_no_update: `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_update
+   BEFORE UPDATE ON ledger_entries
+   BEGIN
+      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. UPDATE forbidden.');
+    END`,
+  trg_ledger_no_delete: `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_delete
+   BEFORE DELETE ON ledger_entries
+   BEGIN
+      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. DELETE forbidden.');
+    END`,
+};
+
 /** The complete gateway schema, including the append-only ledger triggers
  * (`trg_ledger_no_update` / `trg_ledger_no_delete`). Idempotent
  * `CREATE ... IF NOT EXISTS` — the only DDL the gateway is allowed to run
@@ -318,17 +338,8 @@ export const CORE_DDL_STATEMENTS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_records_session_student ON attendance_records(session_id, student_id)`,
   `CREATE INDEX IF NOT EXISTS att_rec_student ON attendance_records (student_id, session_id)`,
 
-  `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_update
-   BEFORE UPDATE ON ledger_entries
-   BEGIN
-      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. UPDATE forbidden.');
-    END`,
-
-  `CREATE TRIGGER IF NOT EXISTS trg_ledger_no_delete
-   BEFORE DELETE ON ledger_entries
-   BEGIN
-      SELECT RAISE(ABORT, 'P0 BUG: ledger_entries is append-only. DELETE forbidden.');
-    END`,
+  APPEND_ONLY_TRIGGER_DDL.trg_ledger_no_update,
+  APPEND_ONLY_TRIGGER_DDL.trg_ledger_no_delete,
 
   // RFC-004 C1 — the idempotency store. Composite PRIMARY KEY enforces the
   // contract scope tenant+route+key: the same UUID on two routes (or two
@@ -347,6 +358,48 @@ export const CORE_DDL_STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_idempotency_ttl ON idempotency_keys(tenant_id, created_at)`,
 ];
+
+/**
+ * The append-only guards on `ledger_entries`, as DROP and CREATE statements.
+ *
+ * WHY THEY EXIST AS A PAIR (audit AUD-003, P0): the secure-erase cascade
+ * issues `DELETE FROM ledger_entries WHERE tenant_id = ?` — and
+ * `trg_ledger_no_delete` aborts exactly that with
+ * "P0 BUG: ledger_entries is append-only. DELETE forbidden." The whole erase
+ * transaction therefore rolls back and **the tutor's right to erasure never
+ * happens**: the endpoint 500s, nothing is deleted, and the tutor is told
+ * nothing happened. The LEDGER-4 exception ("physical ledger deletion exists
+ * only in the secure-erase flow") was written into the spec but had no
+ * mechanism behind it.
+ *
+ * So the erase flow drops the guards, cascades, and re-creates them — all
+ * inside ONE write transaction. If any step fails, the transaction rolls back
+ * and the guards are still there (SQLite DDL is transactional), so a failed
+ * erase can never leave the ledger unprotected.
+ *
+ * The CREATE text is the SAME literal the self-heal installs, so the guards
+ * cannot drift from the ones the tenant already has. These strings live HERE
+ * because `apps/gateway/lib/schema.ts` is the audited DDL authority
+ * (AGENTS.md §3.4 — no other module may execute DDL).
+ */
+export const APPEND_ONLY_TRIGGERS: readonly string[] = [
+  "trg_ledger_no_update",
+  "trg_ledger_no_delete",
+];
+
+/**
+ * Drop the append-only guards — ONLY for the audited secure-erase exception
+ * (10_Security.md §18.1 LEDGER-4). The caller MUST re-create them in the
+ * same transaction.
+ */
+export function stmtDropAppendOnlyTriggers(): string[] {
+  return APPEND_ONLY_TRIGGERS.map((name) => `DROP TRIGGER IF EXISTS ${name}`);
+}
+
+/** Re-create the append-only guards after the audited secure-erase cascade. */
+export function stmtCreateAppendOnlyTriggers(): string[] {
+  return APPEND_ONLY_TRIGGERS.map((name) => APPEND_ONLY_TRIGGER_DDL[name] ?? "");
+}
 
 export function ensureSelfRepairingSchema(
   _db: DB,

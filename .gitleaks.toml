@@ -91,6 +91,13 @@ paths = [
   '''^apps/gateway/__tests__/errors\.test\.ts$''',
   '''^apps/gateway/__tests__/low-latency\.test\.ts$''',
   '''^apps/gateway/__tests__/settings-security-gates\.test\.ts$''',
+  # The secure-erase regression (audit AUD-003) needs the SAME two fixture
+  # secrets as the sibling suite above — lib/crypto.ts reads them into module
+  # scope at import time, so the erase gate's PIN proof cannot be computed
+  # without them. Both values are the literal "test-..." fixtures already
+  # allowlisted above; neither is a working credential. Path-scoped, so a real
+  # key committed anywhere else is still detected.
+  '''^apps/gateway/__tests__/erase-cascade-completes\.test\.ts$''',
   '''^apps/web/src/lib/app-errors\.test\.ts$''',
   # Spec prose and session transcripts
   '''^11_Data_Model\.md$''',

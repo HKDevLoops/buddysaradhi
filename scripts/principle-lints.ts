@@ -176,6 +176,12 @@ const L1_ALLOW: AllowEntry[] = [
       "negative assertion — verifies the student delete does NOT touch the ledger",
   },
   {
+    file: "apps/gateway/__tests__/erase-cascade-completes.test.ts",
+    re: /DELETE\s+FROM\s+ledger_entries/,
+    reason:
+      "§7.2 trigger-fire test — the secure-erase regression must prove the append-only guard is STILL INSTALLED after the audited cascade (audit AUD-003), so the test issues a DELETE that is expected to be ABORTED. Nothing is destroyed: the trigger raises and the statement rolls back.",
+  },
+  {
     file: "apps/services/auth-svc/src/index.ts",
     re: /(DROP\s+TRIGGER\s+IF\s+EXISTS\s+trg_ledger|DELETE\s+FROM\s+ledger_entries)/,
     reason:
