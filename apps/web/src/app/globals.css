@@ -95,6 +95,11 @@
   --radius-xl: 20px;
   --radius-2xl: 28px;
   --radius-full: 9999px;
+  /* The control radius (13_UI_Guidelines.md §6.1): the neumorphic recipes are
+     solved for a 12px radius, and the ±6px dual-shadow distance is paired to
+     it. A control is not a pill — `--radius-full` there turned every
+     neumorphic control in the app into a capsule. */
+  --radius-control: 12px;
 }
 
 /* ============================================================================
@@ -145,6 +150,23 @@
 
   /* shadcn/ui radius compat */
   --radius: 0.875rem;
+
+  /* The neumorphic extrusion pair (13_UI_Guidelines.md §6.1-§6.3): a dark shadow
+     bottom-right and a light one top-left, both derived from the palette's own
+     roles — the deepest surface and the lightest text tone. Never a literal:
+     a hardcoded white inset is invisible on the ten light palettes, which is
+     how the previous recipe stopped being a material at all. */
+  --neumo-shadow-dark: color-mix(in srgb, var(--surface-sunken) 70%, transparent);
+  --neumo-shadow-light: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+/* On a light palette there is nothing lighter than the control's own fill, so a
+   white light-source edge would be invisible — and a near-black one would read
+   as a smudge rather than a highlight. The edge falls back to the fill, which
+   keeps the control a card with a drop shadow instead of a dirty bevel
+   (13_UI_Guidelines.md §6.5: neumorphism is dark-only by construction). */
+[data-theme="light"] {
+  --neumo-shadow-light: color-mix(in srgb, var(--surface-raised) 60%, transparent);
 }
 } /* close tokens @layer base */
 
@@ -172,7 +194,7 @@
 
   /* Theme-driven cosmic canvas - tinted by each palette's accents */
   [data-theme="dark"] body {
-    background: radial-gradient(ellipse at top, var(--canvas), color-mix(in srgb, var(--canvas) 65%, #000) 70%, #04040c 100%);
+    background: radial-gradient(ellipse at top, var(--canvas), color-mix(in srgb, var(--canvas) 65%, var(--text-inverse)) 70%, var(--text-inverse) 100%);
     background-attachment: fixed;
     position: relative;
   }
@@ -182,10 +204,16 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
+    /* The aurora is the backdrop the glass tiers composite over, so its strength
+       is bounded by the palette's solved surface stack: at 10% the accent stop
+       lifted the canvas above `--surface-raised`, and `--text-muted` measured
+       4.25:1 on a `.glass` panel sitting over it. At 6% the glow survives and
+       every text role keeps its solved ratio on the panel
+       (13_UI_Guidelines.md §2.1, §5.1; AGENTS.md §2 Rule 10). */
     background:
-      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 42%),
-      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 8%, transparent), transparent 42%),
-      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--info) 8%, transparent), transparent 42%);
+      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 42%),
+      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 6%, transparent), transparent 42%),
+      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--info) 6%, transparent), transparent 42%);
   }
   [data-theme="light"] body {
     background: var(--canvas);
@@ -254,46 +282,60 @@
    UTILITY CLASSES
    ============================================================================ */
 @layer utilities {
-  /* ---- Glass Tiers ---- */
+  /* ---- Glass Tiers (13_UI_Guidelines.md §5.1, §5.2) ----
+     The three tiers keep the contract opacities — faint 2%, glass 5%, strong 8%
+     — so the fill is genuinely TRANSLUCENT and the backdrop-filter below is
+     finally observable. It was not: with an alpha-1 fill a backdrop-filter is
+     mathematically unobservable, so the 24px blur was compositing cost with no
+     visible effect (audit UI-010).
+
+     The tier COLOUR is `--surface-raised` — the panel's own surface role — and
+     not a literal `rgba(255,255,255,0.05)`. Two reasons. Rule 5: there is no
+     hand-picked colour in this product. And contrast: the white veil lifts the
+     panel's effective backdrop above the palette's solved surface stack, and
+     `--text-muted` measured 3.57:1 on it across all 20 palettes. Tinting with
+     the panel's own tone keeps the composite INSIDE the stack, so the aurora
+     still shows through the blur and every text role keeps its solved ratio on
+     the panel. */
   .glass-faint {
-    background: var(--surface-row);
-    backdrop-filter: blur(18px) saturate(150%);
-    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    background: color-mix(in srgb, var(--surface-raised) 2%, transparent);
+    backdrop-filter: blur(8px) saturate(120%);
+    -webkit-backdrop-filter: blur(8px) saturate(120%);
     border: 1px solid var(--border-default);
   }
   .glass {
-    background: var(--surface-raised);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent);
   }
   .glass-strong {
-    background: var(--surface-overlay);
-    backdrop-filter: blur(28px) saturate(170%);
-    -webkit-backdrop-filter: blur(28px) saturate(170%);
+    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-strong);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 10%, transparent);
   }
 
   /* Glass card (full component) */
   .glass-card {
-    background: var(--surface-raised);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
     padding: var(--space-6);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.08),
-      0 4px 16px rgba(0,0,0,0.22);
+      inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent),
+      var(--shadow-overlay);
     transition: transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
   }
   .glass-card:hover {
     transform: translateY(-2px);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.12),
-      0 10px 28px rgba(0,0,0,0.28);
+      inset 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent),
+      var(--shadow-sheet);
   }
   /* Gradient 1px accent edge — used for active/selected state */
   .glass-card-accent-edge::before {
@@ -303,6 +345,8 @@
     border-radius: inherit;
     padding: 1px;
     background: linear-gradient(135deg, var(--accent-primary), transparent 40%);
+    /* The `#000` here is a MASK STENCIL, not a colour — a mask only reads the
+       alpha channel, and the canvas is painted by the gradient above it. */
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -310,32 +354,33 @@
     z-index: 1;
   }
   .glass-card-strong {
-    background: var(--surface-overlay);
-    backdrop-filter: blur(28px) saturate(170%);
-    -webkit-backdrop-filter: blur(28px) saturate(170%);
+    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
     padding: var(--space-6);
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.10),
-      0 12px 32px rgba(0,0,0,0.28);
+      inset 0 1px 0 color-mix(in srgb, var(--text-primary) 10%, transparent),
+      var(--shadow-overlay);
   }
 
   /* Alias for existing code that uses glass-panel */
   .glass-panel {
-    background: var(--surface-raised);
-    backdrop-filter: blur(24px) saturate(160%);
-    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-lg);
   }
 
-  /* ---- Glass Input (form fields) ---- */
-  /* Applied to all raw <input>, <select>, <textarea> elements to maintain uniformity */
+  /* ---- Glass Input (form fields) ----
+     A form field is one of the surfaces §2.2 keeps OPAQUE, so the well is solid
+     and carries no backdrop-filter: an opaque fill made the old 8px blur
+     unobservable, and paying for an invisible blur is the same defect the
+     glass tiers had. */
   .glass-input {
-    background: var(--surface-row, rgba(255,255,255,0.03));
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: var(--surface-row);
     border: 1px solid var(--border-default);
     border-radius: var(--radius-md);
     color: var(--text-primary);
@@ -355,7 +400,7 @@
     border-color: var(--accent-primary);
     box-shadow:
       0 0 8px color-mix(in srgb, var(--accent-primary) 20%, transparent),
-      inset 0 1px 2px rgba(255,255,255,0.05);
+      inset 0 1px 2px color-mix(in srgb, var(--text-primary) 5%, transparent);
   }
   .glass-input:disabled {
     opacity: 0.4;
@@ -365,7 +410,7 @@
     border-color: var(--danger);
   }
   .glass-input[aria-invalid="true"]:focus {
-    box-shadow: 0 0 0 2px rgba(255,94,0,0.2);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent);
   }
 
   /* Solid surface card (light palettes) */
@@ -382,23 +427,39 @@
     box-shadow: 0 4px 12px var(--shadow-overlay), 0 2px 4px var(--shadow-overlay);
   }
 
-  /* ---- Neumorphic Recipes ---- */
+  /* ---- Neumorphic Recipes (13_UI_Guidelines.md §6.1-§6.3) ----
+     Controls are neumorphic; surfaces are glass. Never invert, never mix (§6.6).
+     The radius is the control radius (§6.1 solves the raised recipe for 12px)
+     and the dual shadow is paired to it at ±6px — `--radius-full` applied the
+     ±4px/8px pairing to a 9999px capsule, so every neumorphic control in the
+     app was a pill. */
   .neumo-raised {
     background: var(--surface-raised);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-control);
     box-shadow:
-      4px 4px 8px rgba(0,0,0,0.3),
-      -4px -4px 8px rgba(255,255,255,0.05);
+      6px 6px 12px var(--neumo-shadow-dark),
+      -6px -6px 12px var(--neumo-shadow-light);
   }
   .neumo-inset {
     background: var(--surface-inset);
     border-radius: var(--radius-md);
     box-shadow:
-      inset 3px 3px 6px rgba(0,0,0,0.25),
-      inset -3px -3px 6px rgba(255,255,255,0.04);
+      inset 3px 3px 6px var(--neumo-shadow-dark),
+      inset -3px -3px 6px var(--neumo-shadow-light);
+  }
+  /* The pressed state of a raised control is the inset recipe at half the
+     shadow distance (§6.3). It used to live only in `.neumo-pressed:active`,
+     so a raised button that was held showed no press at all. */
+  .neumo-raised:active,
+  .neumo-inset:active {
+    box-shadow:
+      inset 3px 3px 6px var(--neumo-shadow-dark),
+      inset -3px -3px 6px var(--neumo-shadow-light);
   }
   .neumo-pressed:active {
-    box-shadow: inset 2px 2px 4px rgba(0,0,0,0.4);
+    box-shadow:
+      inset 3px 3px 6px var(--neumo-shadow-dark),
+      inset -3px -3px 6px var(--neumo-shadow-light);
     transform: translateY(1px);
   }
 
@@ -463,12 +524,15 @@
   .data-table tbody tr:hover { background: var(--surface-row); }
   .data-table .money, .data-table .num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 
-  /* ---- Sidebar ---- */
+  /* ---- Sidebar ----
+     Persistent chrome is `glass-strong` (§5.5), so it carries the strong tier:
+     a translucent fill with a blur the fill no longer hides. */
   .sidebar {
     width: 240px;
     flex-shrink: 0;
-    background: var(--surface-raised);
-    backdrop-filter: blur(20px);
+    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     border-right: 1px solid var(--border-default);
     padding: var(--space-6) var(--space-4);
     display: flex;
@@ -500,15 +564,17 @@
     border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent);
   }
 
-  /* ---- Topbar ---- */
+  /* ---- Topbar ----
+     Persistent chrome is `glass-strong` (§5.5) — same tier as the sidebar. */
   .topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: var(--space-4) var(--space-6);
     border-bottom: 1px solid var(--border-default);
-    background: var(--surface-raised);
-    backdrop-filter: blur(20px);
+    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -538,14 +604,18 @@
   .tab-active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
 
   /* ---- Buttons ---- */
+  /* `.btn-glass` is the PRESS layer of a control, not a glass surface: a control
+     is neumorphic (§6.6), so this class owns motion and nothing else. The
+     pressed SHADOW belongs to the neumorphic recipe (§6.3) — the two used to
+     fight over `box-shadow`, and the raised control lost its dual shadow on
+     every press in favour of a hand-rolled glass inset. */
   .btn-glass {
     transition: all var(--motion-fast) var(--ease-out);
     position: relative;
     overflow: hidden;
   }
   .btn-glass:active {
-    transform: scale(0.98) translateY(1px);
-    box-shadow: inset 2px 2px 6px rgba(0,0,0,0.3);
+    transform: translateY(1px);
     filter: brightness(0.9);
   }
 
@@ -579,8 +649,12 @@
   .no-scrollbar::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
   .no-scrollbar::-webkit-scrollbar-track { background: transparent; }
 
-  /* ---- Badge count ---- */
-  .badge-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--danger); color: #FFFFFF; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* ---- Badge count ----
+     The label sits on the danger fill, so it needs the role that is SOLVED
+     against that fill. `#FFFFFF` measured 3.71:1 — below the 4.5:1 floor for
+     10px text — and `--text-inverse` measures 5.31:1 as the worst of the 20
+     palettes (13_UI_Guidelines.md §2.1; AGENTS.md §2 Rule 10). */
+  .badge-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-full); background: var(--danger); color: var(--text-inverse); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* ---- Divider ---- */
   .divider { height: 1px; background: var(--border-default); margin: var(--space-4) 0; }
@@ -656,6 +730,127 @@ html[data-reduced-motion="1"] .animate-pulse {
   opacity: 0.65;
 }
 } /* close reduced-motion @layer base */
+
+/* ============================================================================
+   ACCESSIBILITY FALLBACKS (13_UI_Guidelines.md §2.2)
+
+   The design system emits the TOKEN-level half of two of these
+   (`prefers-reduced-transparency` and `prefers-contrast: more`) into
+   `tokens.css`, which this file imports. What was missing is the SURFACE-level
+   half: the three glass tiers, the app chrome and the neumorphic recipes are
+   declared here, so they have to honour the same preferences here — plus
+   `forced-colors` and the `@supports` fallback, which nothing shipped at all.
+   ============================================================================ */
+@layer utilities {
+
+/* ---- FALLBACK 1: the runtime cannot composite a backdrop filter. The tiers
+   fall back to their opaque twins, which is what they shipped before they
+   became translucent. ---- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-faint {
+    background: var(--surface-row);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass,
+  .glass-card,
+  .glass-panel {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass-strong,
+  .glass-card-strong,
+  .sidebar,
+  .topbar {
+    background: var(--surface-overlay-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ---- FALLBACK 2: the device asked for less transparency. Same solid twins —
+   a tutor who asks for less transparency gets the opaque product, not a
+   half-transparent one. ---- */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-faint {
+    background: var(--surface-row);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass,
+  .glass-card,
+  .glass-panel {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass-strong,
+  .glass-card-strong,
+  .sidebar,
+  .topbar {
+    background: var(--surface-overlay-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ---- FALLBACK 3: forced colours (Windows High Contrast). The effects the
+   runtime cannot render there are dropped, and the SYSTEM palette is allowed
+   to paint the surfaces — the app deliberately does NOT opt out with
+   `forced-color-adjust: none`, because a panel that keeps its own colour while
+   the text is forced to the system colour is how black-on-black happens. ---- */
+@media (forced-colors: active) {
+  .glass,
+  .glass-strong,
+  .glass-faint,
+  .glass-card,
+  .glass-card-strong,
+  .glass-panel,
+  .glass-input,
+  .sidebar,
+  .topbar,
+  .neumo-raised,
+  .neumo-inset,
+  .neumo-pressed,
+  .btn-glass {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+/* ---- FALLBACK 4: the user wants more contrast than the palette gives. The
+   token roles strengthen themselves in `tokens.css`; the surfaces have to
+   follow, because a translucent tier over the aurora is exactly where a muted
+   hint stops being readable. ---- */
+@media (prefers-contrast: more) {
+  .glass-faint {
+    background: var(--surface-row);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border-strong);
+  }
+  .glass,
+  .glass-card,
+  .glass-panel {
+    background: var(--surface-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border-strong);
+  }
+  .glass-strong,
+  .glass-card-strong,
+  .sidebar,
+  .topbar {
+    background: var(--surface-overlay-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-color: var(--border-strong);
+  }
+}
+
+} /* close accessibility fallbacks @layer utilities */
 
 /* ============================================================================
    LIQUID GLASS BACKGROUND BLOB ANIMATIONS — DELETED

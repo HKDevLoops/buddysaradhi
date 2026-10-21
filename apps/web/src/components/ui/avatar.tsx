@@ -182,9 +182,10 @@ export function Avatar({
   const style: CSSProperties = {
     background: `color-mix(in srgb, var(--${accent}) ${ACCENT_SURFACE_ALPHA}, var(--surface-raised))`,
     // NOT the bare accent — see INITIALS_ACCENT_MIX for the measured failure this
-    // fixes. The ring below still uses the accent at full strength, because a
-    // decorative border is held to 3:1, not 4.5:1, and the ring is not the thing
-    // carrying the identity to a low-vision tutor.
+    // fixes. The ring below still uses the accent at full strength: WCAG 1.4.11
+    // EXEMPTS a purely decorative element from the 3:1 non-text floor, so the
+    // ring is not held to it — and it is not the thing carrying the identity to
+    // a low-vision tutor either.
     color: `color-mix(in srgb, var(--${accent}) ${INITIALS_ACCENT_MIX}, var(--text-primary))`,
     border: `${scale.ring} solid color-mix(in srgb, var(--${accent}) ${ACCENT_RING_ALPHA}, transparent)`,
     fontWeight: scale.fontWeight,
