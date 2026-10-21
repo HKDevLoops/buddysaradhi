@@ -47,6 +47,8 @@ import { computeInvoiceTamperHash } from "../lib/vendor/tamper.ts";
 // drift failing ledger-payment-convergence.test.ts (AGENTS.md §3.5).
 import {
   recordPaymentFlow,
+  ADVANCE_APPLIED_TAG,
+  ADVANCE_TAG,
   type FeeTx,
 } from "../lib/vendor/feesFlow.ts";
 
@@ -132,7 +134,11 @@ const LedgerInvoiceSchema = z.object({
 // wrong place. The gate itself is `assertVoidPinProof` below.
 const LedgerVoidSchema = z.object({
   entryId: uuidSchema,
-  reason: z.string().trim().min(1, "reason is required").max(500, "must be 500 characters or fewer"),
+  reason: z
+    .string()
+    .trim()
+    .min(1, "reason is required")
+    .max(500, "must be 500 characters or fewer"),
   pinProof: z.string().trim().max(200, "must be 200 characters or fewer").optional(),
 });
 
@@ -189,9 +195,10 @@ async function takeSequence(
   tenantSecret: string;
 }> {
   const now = new Date().toISOString();
-  const [seqCol, prefixCol, defaultPrefix] = kind === "receipt"
-    ? ["next_receipt_seq", "receipt_prefix", "RCP-"]
-    : ["next_invoice_seq", "invoice_prefix", "INV-"];
+  const [seqCol, prefixCol, defaultPrefix] =
+    kind === "receipt"
+      ? ["next_receipt_seq", "receipt_prefix", "RCP-"]
+      : ["next_invoice_seq", "invoice_prefix", "INV-"];
 
   // Same fail-closed helper the void path uses (10_Security.md §10): it throws
   // when the row is absent or `tenant_secret` is missing/empty, so the key is
@@ -210,26 +217,28 @@ async function takeSequence(
     // Rule 9 — `loadTenantSecret` above proved the row existed, so a missing
     // RETURNING row means it vanished mid-transaction (or the statement never
     // ran). Abort rather than invent a number.
-    throw new LedgerRouteError(
-      `could not consume ${kind} sequence for tenant ${tenantId}`,
-      500,
-    );
+    throw new LedgerRouteError(`could not consume ${kind} sequence for tenant ${tenantId}`, 500);
   }
   const rawPrefix = row[prefixCol];
-  const prefix = typeof rawPrefix === "string" && rawPrefix.length > 0
-    ? rawPrefix
-    : defaultPrefix;
+  const prefix = typeof rawPrefix === "string" && rawPrefix.length > 0 ? rawPrefix : defaultPrefix;
   const nextSeq = Number(row[seqCol]);
   // Rule 7 / BR-SYN-01 — `settings.next_<x>_seq` was just mutated, so the
   // sequence bump replays like every other write. Without this row a lost
   // bump resurfaces as a REUSED receipt/invoice number on the replica
   // (BR-RC-01 / BR-LED-03). Payload via the canonical shared codec
   // (`packages/shared/src/outboxPayload.ts` — P3-11).
-  await recordOutbox(tx, tenantId, "settings", tenantId, "update", encodeOutboxPayload("settings", "update", {
-    tenant_id: tenantId,
-    [seqCol]: nextSeq,
-    updated_at: now,
-  }).payload);
+  await recordOutbox(
+    tx,
+    tenantId,
+    "settings",
+    tenantId,
+    "update",
+    encodeOutboxPayload("settings", "update", {
+      tenant_id: tenantId,
+      [seqCol]: nextSeq,
+      updated_at: now,
+    }).payload,
+  );
   return {
     usedSeq: nextSeq - 1,
     nextSeq,
@@ -261,12 +270,19 @@ async function syncStudentBalance(
   // NOT a substitute: a replica that received only the ledger row would show a
   // stale `balance_due` on Students/Attendance until its own recompute ran.
   // Payload via the canonical shared codec (P3-11).
-  await recordOutbox(tx, tenantId, "students", studentId, "update", encodeOutboxPayload("students", "update", {
-    id: studentId,
-    tenant_id: tenantId,
-    balance_paise: balancePaise,
-    updated_at: now,
-  }).payload);
+  await recordOutbox(
+    tx,
+    tenantId,
+    "students",
+    studentId,
+    "update",
+    encodeOutboxPayload("students", "update", {
+      id: studentId,
+      tenant_id: tenantId,
+      balance_paise: balancePaise,
+      updated_at: now,
+    }).payload,
+  );
 }
 
 // ── Live credits: the reversal graph (BR-RPT-04 [CRITICAL], BR-LED-09) ──────
@@ -331,9 +347,7 @@ async function liveCreditPaise(
   if (type === null) where.type = { not: "VOID" };
   else where.type = type;
   const credits = await orm.ledgerEntry.findMany({ where });
-  const creditIds = credits
-    .map((c) => String(c.id ?? ""))
-    .filter((id) => id.length > 0);
+  const creditIds = credits.map((c) => String(c.id ?? "")).filter((id) => id.length > 0);
   const reversed = await reversedCreditIds(orm, creditIds);
   // Rule 6 / BR-M-01 — every addend is a safe integer checked by `paiseAdd`,
   // so a corrupt credit can never become NaN money (EC-F-01).
@@ -433,21 +447,28 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       // Read back off the INSERTED row (not re-derived): the envelope is a
       // truthful mirror of what committed, byte-shape-identical to core's
       // insertReceiptRow outbox.
-      await recordOutbox(tx, tenantId, "receipts", String(created.id), "insert", encodeOutboxPayload("receipts", "insert", {
-        id: String(created.id),
-        tenant_id: tenantId,
-        number: row.number,
-        ledger_entry_id: row.ledgerEntryId,
-        student_id: row.studentId,
-        invoice_id: row.invoiceId,
-        amount: row.amountPaise,
-        payment_method: row.paymentMethod,
-        payment_ref: row.paymentRef,
-        received_on: row.receivedOn,
-        tamper_hash: row.tamperHash,
-        created_at: String(created.createdAt),
-        updated_at: String(created.updatedAt),
-      }).payload);
+      await recordOutbox(
+        tx,
+        tenantId,
+        "receipts",
+        String(created.id),
+        "insert",
+        encodeOutboxPayload("receipts", "insert", {
+          id: String(created.id),
+          tenant_id: tenantId,
+          number: row.number,
+          ledger_entry_id: row.ledgerEntryId,
+          student_id: row.studentId,
+          invoice_id: row.invoiceId,
+          amount: row.amountPaise,
+          payment_method: row.paymentMethod,
+          payment_ref: row.paymentRef,
+          received_on: row.receivedOn,
+          tamper_hash: row.tamperHash,
+          created_at: String(created.createdAt),
+          updated_at: String(created.updatedAt),
+        }).payload,
+      );
     },
 
     async insertInvoice(row) {
@@ -470,22 +491,29 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
           tamperHash: row.tamperHash,
         },
       });
-      await recordOutbox(tx, tenantId, "invoices", row.invoiceId, "insert", encodeOutboxPayload("invoices", "insert", {
-        id: row.invoiceId,
-        tenant_id: tenantId,
-        number: row.number,
-        student_id: row.studentId,
-        issue_date: row.issueDate,
-        due_date: row.dueDate,
-        subtotal: row.totalPaise,
-        discount: 0,
-        extra_charges: 0,
-        total: row.totalPaise,
-        status: row.status,
-        tamper_hash: row.tamperHash,
-        created_at: row.now,
-        updated_at: row.now,
-      }).payload);
+      await recordOutbox(
+        tx,
+        tenantId,
+        "invoices",
+        row.invoiceId,
+        "insert",
+        encodeOutboxPayload("invoices", "insert", {
+          id: row.invoiceId,
+          tenant_id: tenantId,
+          number: row.number,
+          student_id: row.studentId,
+          issue_date: row.issueDate,
+          due_date: row.dueDate,
+          subtotal: row.totalPaise,
+          discount: 0,
+          extra_charges: 0,
+          total: row.totalPaise,
+          status: row.status,
+          tamper_hash: row.tamperHash,
+          created_at: row.now,
+          updated_at: row.now,
+        }).payload,
+      );
     },
 
     async setInvoiceStatus({ invoiceId, status, now }) {
@@ -493,11 +521,18 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
         where: { id: invoiceId },
         data: { status, updatedAt: now },
       });
-      await recordOutbox(tx, tenantId, "invoices", invoiceId, "update", encodeOutboxPayload("invoices", "update", {
-        id: invoiceId,
-        status,
-        updated_at: now,
-      }).payload);
+      await recordOutbox(
+        tx,
+        tenantId,
+        "invoices",
+        invoiceId,
+        "update",
+        encodeOutboxPayload("invoices", "update", {
+          id: invoiceId,
+          status,
+          updated_at: now,
+        }).payload,
+      );
     },
 
     async openInvoices(_tid, studentId) {
@@ -543,13 +578,50 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       return liveCreditPaise(txOrm, invoiceId, null);
     },
 
+    async advanceBalance(_tid, studentId) {
+      // BR-FEE-15 / 07 §9.1: the advance wallet is DERIVED from the ledger's
+      // tags — the credits tagged `[ADVANCE]` minus the debits tagged
+      // `[ADVANCE_APPLIED]`. It is not a column and it is not a second opinion
+      // about money: this is the row-level sum the flow asks for, and it is
+      // the SAME arithmetic as core's two dialects (AGENTS.md §3.5 — a third
+      // dialect that disagreed here would give a gateway-recorded charge a
+      // different advance than the same charge recorded on the web).
+      //
+      // The tags are matched as PREFIXES (BR-FEE-04) and a VOIDED row does not
+      // count (BR-RPT-04), so a voided advance returns to the wallet and a
+      // voided application is un-applied. Summed in JS with paiseAdd/paiseSub
+      // (not a SQL SUM) so an overflow or NaN aborts fail-closed.
+      const rows = (await txOrm.ledgerEntry.findMany({
+        where: { studentId, type: { not: "VOID" }, voidOfId: null },
+      })) as Record<string, unknown>[];
+      const rowIds = rows.map((row) => String(row.id ?? "")).filter((id) => id.length > 0);
+      const reversed = await reversedCreditIds(txOrm, rowIds);
+      let advance = 0;
+      for (const row of rows) {
+        const id = String(row.id ?? "");
+        if (id.length > 0 && reversed.has(id)) continue;
+        const description =
+          row.description === null || row.description === undefined ? "" : String(row.description);
+        if (description.startsWith(ADVANCE_TAG)) {
+          advance = paiseAdd(advance, Number(row.creditPaise ?? 0));
+        }
+        if (description.startsWith(ADVANCE_APPLIED_TAG)) {
+          advance = paiseSub(advance, Number(row.debitPaise ?? 0));
+        }
+      }
+      return advance;
+    },
+
     async postEntry(input) {
       // Balance formula matches core exactly: (prev + debit) - credit,
       // paise-guarded (throws on unsafe/NaN) where core uses plain arithmetic
       // on already-validated inputs — identical results on valid money,
       // fail-closed on corrupt chain tips (G8).
       const tip = await loadChainTip(tx, tenantId, input.studentId);
-      const newBalance = paiseSub(paiseAdd(tip.balanceAfterPaise, input.debitPaise), input.creditPaise);
+      const newBalance = paiseSub(
+        paiseAdd(tip.balanceAfterPaise, input.debitPaise),
+        input.creditPaise,
+      );
       const createdAt = nextCreatedAtIso();
       const secret = await loadTenantSecret(tx, tenantId);
       const entryId = crypto.randomUUID();
@@ -592,14 +664,29 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       // {type, receiptNo} shape, from which no replica could rebuild the
       // row). No replay reader exists yet, so this converges the shape before
       // one is built rather than after.
-      await recordOutbox(tx, tenantId, "ledger_entries", String(le.id), "insert", encodeOutboxPayload("ledger_entries", "insert", {
-        ...(le as unknown as Record<string, unknown>),
-      }).payload);
+      await recordOutbox(
+        tx,
+        tenantId,
+        "ledger_entries",
+        String(le.id),
+        "insert",
+        encodeOutboxPayload("ledger_entries", "insert", {
+          ...(le as unknown as Record<string, unknown>),
+        }).payload,
+      );
       return String(le.id);
     },
 
     async writeAudit(args) {
-      await recordAudit(tx, tenantId, "tutor", args.action, args.refType, args.refId, args.metadata);
+      await recordAudit(
+        tx,
+        tenantId,
+        "tutor",
+        args.action,
+        args.refType,
+        args.refId,
+        args.metadata,
+      );
     },
 
     async writeSettingsOutbox() {
@@ -854,10 +941,7 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
     const search = (sp.get("search") ?? "").toLowerCase();
     const paged = sp.has("page") || sp.has("pageSize");
     const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
-    const pageSize = Math.min(
-      200,
-      Math.max(1, parseInt(sp.get("pageSize") ?? "200", 10) || 200),
-    );
+    const pageSize = Math.min(200, Math.max(1, parseInt(sp.get("pageSize") ?? "200", 10) || 200));
     const from = (page - 1) * pageSize;
 
     const where = { status: "active", archivedAt: null };
@@ -926,9 +1010,8 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
     const studentId = parsed.data.studentId;
     const credit = parsed.data.amount;
     const paymentMethod = parsed.data.method ?? "upi";
-    const occurredOn =
-      parsed.data.occurredOn ?? new Date().toISOString().slice(0, 10);
-        const description = parsed.data.description ?? "Payment received";
+    const occurredOn = parsed.data.occurredOn ?? new Date().toISOString().slice(0, 10);
+    const description = parsed.data.description ?? "Payment received";
     const reference = parsed.data.reference ?? "";
 
     // F-08: the student-existence check moved INSIDE the flow
@@ -1085,28 +1168,42 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
 
         await syncStudentBalance(tx, tenantId, studentId, newBalance);
 
-        await recordOutbox(tx, tenantId, "ledger_entries", le.id, "create", encodeOutboxPayload("ledger_entries", "create", {
-          type: "invoice",
-          invoiceNo: invNo,
-        }).payload);
+        await recordOutbox(
+          tx,
+          tenantId,
+          "ledger_entries",
+          le.id,
+          "create",
+          encodeOutboxPayload("ledger_entries", "create", {
+            type: "invoice",
+            invoiceNo: invNo,
+          }).payload,
+        );
         // Rule 7 / BR-SYN-01 — `invoices` is a distinct mutated table; its
         // outbox row carries the spec §4.12 columns (including the tamper
         // evidence) so the replica's Fees screen can render the invoice
         // without re-deriving it from the ledger.
-        await recordOutbox(tx, tenantId, "invoices", inv.id, "create", encodeOutboxPayload("invoices", "create", {
-          id: inv.id,
-          tenant_id: tenantId,
-          number: invNo,
-          student_id: studentId,
-          issue_date: issueDate,
-          due_date: parsed.data.dueDate ?? null,
-          subtotal: amount,
-          discount: 0,
-          extra_charges: 0,
-          total: amount,
-          status: "unpaid",
-          tamper_hash: tamperHash,
-        }).payload);
+        await recordOutbox(
+          tx,
+          tenantId,
+          "invoices",
+          inv.id,
+          "create",
+          encodeOutboxPayload("invoices", "create", {
+            id: inv.id,
+            tenant_id: tenantId,
+            number: invNo,
+            student_id: studentId,
+            issue_date: issueDate,
+            due_date: parsed.data.dueDate ?? null,
+            subtotal: amount,
+            discount: 0,
+            extra_charges: 0,
+            total: amount,
+            status: "unpaid",
+            tamper_hash: tamperHash,
+          }).payload,
+        );
         await recordAudit(tx, tenantId, tenantId, "ledger.invoice", "student", studentId, {
           amount,
           invoiceNo: invNo,
@@ -1206,7 +1303,11 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
         //
         // An ad-hoc charge with no invoice has no credit set to protect, so
         // there is nothing to check and the void proceeds.
-        if (entry.type === "FEE_CHARGED" && typeof entry.invoiceId === "string" && entry.invoiceId.length > 0) {
+        if (
+          entry.type === "FEE_CHARGED" &&
+          typeof entry.invoiceId === "string" &&
+          entry.invoiceId.length > 0
+        ) {
           const livePayments = await liveCreditPaise(txOrm, entry.invoiceId, "PAYMENT_RECEIVED");
           if (livePayments > 0) {
             // The engine's wording is the reference (packages/core/src/ledger.ts
@@ -1309,19 +1410,33 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
             // Rule 7 / BR-SYN-01 - the EC-F-05 `voided_at` UPDATE above must
             // replicate too, or a reconnected replica shows a receipt as live
             // that the ledger already reversed.
-            await recordOutbox(tx, tenantId, "receipts", String(receipt.id), "update", encodeOutboxPayload("receipts", "update", {
-              id: receipt.id,
-              tenant_id: tenantId,
-              receipt_no: entry.receiptNo ?? null,
-              voided_at: createdAt,
-              updated_at: createdAt,
-            }).payload);
+            await recordOutbox(
+              tx,
+              tenantId,
+              "receipts",
+              String(receipt.id),
+              "update",
+              encodeOutboxPayload("receipts", "update", {
+                id: receipt.id,
+                tenant_id: tenantId,
+                receipt_no: entry.receiptNo ?? null,
+                voided_at: createdAt,
+                updated_at: createdAt,
+              }).payload,
+            );
           }
         }
 
-        await recordOutbox(tx, tenantId, "ledger_entries", voidRow.id, "create", encodeOutboxPayload("ledger_entries", "create", {
-          void_of: entryId,
-        }).payload);
+        await recordOutbox(
+          tx,
+          tenantId,
+          "ledger_entries",
+          voidRow.id,
+          "create",
+          encodeOutboxPayload("ledger_entries", "create", {
+            void_of: entryId,
+          }).payload,
+        );
         // RFC-004 C1 — response bytes commit atomically with the void (see the
         // payment path). Business rejections above (404/409) abort WITHOUT
         // storing, so a retry with the same key re-executes.

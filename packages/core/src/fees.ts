@@ -20,6 +20,8 @@ import { computeInvoiceTamperHash } from "./tamper";
 import {
   createInvoiceFlow,
   recordPaymentFlow,
+  ADVANCE_APPLIED_TAG,
+  ADVANCE_TAG,
   FEE_AUDIT_ACTOR,
   type AppliedInvoice,
   type AuditArgs,
@@ -57,6 +59,12 @@ export type {
   RecordPaymentInput,
   RecordPaymentResult,
 };
+
+// The advance tags are part of the MONEY contract, not an implementation
+// detail: a reader that shows "Advance: ₹500" must recognise the same rows
+// the engine wrote (BR-FEE-04, BR-FEE-15). Re-exported from here because
+// `@buddysaradhi/core/fees` is the public entry for the money contracts.
+export { ADVANCE_TAG, ADVANCE_APPLIED_TAG };
 
 /** Rule 7 / BR-SYN-01 — queue a replication row in the caller's transaction. */
 async function insertOutbox(
@@ -398,6 +406,36 @@ export function sqlFeeTx(tx: SqlExecutor): FeeTx {
         args: [tenantId, invoiceId],
       });
       return Number(res.rows[0]?.paid ?? 0);
+    },
+
+    async advanceBalance(tenantId, studentId) {
+      // BR-FEE-15 / 07 §9.1: the advance wallet is DERIVED from the ledger's
+      // tags — the credits tagged `[ADVANCE]` minus the debits tagged
+      // `[ADVANCE_APPLIED]`. It is not a column and it is not a second copy of
+      // the money logic: this is the row-level sum the flow asks for.
+      //
+      // The tags are matched as PREFIXES (BR-FEE-04: "the literal `[ADVANCE]`
+      // prefix on the row's description"), and the reversal predicate is the
+      // same one `creditedForInvoice` uses (BR-RPT-04: a VOIDED row does not
+      // count) — so a voided advance returns to the wallet and a voided
+      // application is un-applied.
+      const res = await tx.execute({
+        sql: `SELECT
+                COALESCE(SUM(CASE WHEN substr(e.description, 1, 9) = '[ADVANCE]'
+                                  THEN e.credit_paise ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN substr(e.description, 1, 17) = '[ADVANCE_APPLIED]'
+                                  THEN e.debit_paise ELSE 0 END), 0)
+                AS advance
+              FROM ledger_entries e
+              WHERE e.tenant_id = ? AND e.student_id = ?
+                AND e.type != 'VOID' AND e.void_of_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM ledger_entries v
+                  WHERE v.tenant_id = e.tenant_id AND v.void_of_id = e.id AND v.type = 'VOID'
+                )`,
+        args: [tenantId, studentId],
+      });
+      return Number(res.rows[0]?.advance ?? 0);
     },
 
     async postEntry(input: EntryInput) {

@@ -25,10 +25,12 @@
 import { randomUUID } from "crypto";
 import { encodeOutboxPayload, nextCreatedAtIso, postLedgerEntry, type Result } from "./ledger";
 import { chunkIds, MAX_SQL_VARIABLES_PER_STATEMENT } from "./sqlVars";
-import { paiseAdd } from "./money";
+import { paiseAdd, paiseSub } from "./money";
 import {
   createInvoiceFlow,
   recordPaymentFlow,
+  ADVANCE_APPLIED_TAG,
+  ADVANCE_TAG,
   FEE_AUDIT_ACTOR,
   type CreateInvoiceInput,
   type CreateInvoiceResult,
@@ -75,9 +77,7 @@ export interface OrmTx {
     findFirst(args?: RowArgs): Promise<Row | null>;
   };
   invoice: {
-    findMany(
-      args: RowArgs & { orderBy?: Record<string, unknown>; take?: number },
-    ): Promise<Row[]>;
+    findMany(args: RowArgs & { orderBy?: Record<string, unknown>; take?: number }): Promise<Row[]>;
     create(args: DataArgs): Promise<Row>;
     updateMany(args: RowArgs & DataArgs): Promise<{ count: number }>;
   };
@@ -448,12 +448,71 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
       for (const c of credits) {
         const id = c.id === null || c.id === undefined ? "" : String(c.id);
         if (id.length > 0 && reversed.has(id)) continue;
-        const credit = c.creditPaise === null || c.creditPaise === undefined
-          ? 0
-          : Number(c.creditPaise);
+        const credit =
+          c.creditPaise === null || c.creditPaise === undefined ? 0 : Number(c.creditPaise);
         sum = paiseAdd(sum, credit);
       }
       return sum;
+    },
+
+    async advanceBalance(tenantId, studentId) {
+      // BR-FEE-15 / 07 §9.1: the advance wallet is DERIVED from the ledger's
+      // tags — the credits tagged `[ADVANCE]` minus the debits tagged
+      // `[ADVANCE_APPLIED]`.
+      //
+      // The rows are fetched and reduced in TS (not a conditional SQL SUM)
+      // because the ORM surface has no conditional aggregate — and because
+      // the web shim honours only `=`, `!=`, `IS NULL` and `IN` filters, so a
+      // `contains`/`startsWith` filter would be silently dropped by the shim
+      // and honoured by the generated client: two dialects, two wallets. The
+      // tag test is therefore done here, identically, in both.
+      //
+      // The reversal predicate is the same one `creditedForInvoice` uses
+      // (BR-RPT-04: a VOIDED row does not count): a voided advance returns to
+      // the wallet, and a voided application is un-applied.
+      const rows = await tx.ledgerEntry.findMany({
+        where: {
+          tenantId,
+          studentId,
+          type: { not: "VOID" },
+          voidOfId: null,
+        },
+      });
+
+      const rowIds = rows
+        .map((row) => (row.id === null || row.id === undefined ? "" : String(row.id)))
+        .filter((id) => id.length > 0);
+      const reversed = new Set<string>();
+      for (const chunk of chunkIds(rowIds, MAX_SQL_VARIABLES_PER_STATEMENT)) {
+        const reversals = await tx.ledgerEntry.findMany({
+          where: { tenantId, type: "VOID", voidOfId: { in: chunk } },
+        });
+        for (const reversal of reversals) {
+          const target = reversal.voidOfId;
+          if (target !== null && target !== undefined && String(target).length > 0) {
+            reversed.add(String(target));
+          }
+        }
+      }
+
+      let advance = 0;
+      for (const row of rows) {
+        const id = row.id === null || row.id === undefined ? "" : String(row.id);
+        if (id.length > 0 && reversed.has(id)) continue;
+        const description =
+          row.description === null || row.description === undefined ? "" : String(row.description);
+        const credit =
+          row.creditPaise === null || row.creditPaise === undefined ? 0 : Number(row.creditPaise);
+        const debit =
+          row.debitPaise === null || row.debitPaise === undefined ? 0 : Number(row.debitPaise);
+        if (description.startsWith(ADVANCE_TAG)) {
+          advance = paiseAdd(advance, credit);
+        }
+        if (description.startsWith(ADVANCE_APPLIED_TAG)) {
+          advance = paiseSub(advance, debit);
+        }
+      }
+      return advance;
     },
 
     async postEntry(input: EntryInput) {

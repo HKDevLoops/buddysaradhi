@@ -93,10 +93,12 @@ async function moneyFootprint(db: Client): Promise<Record<string, unknown>> {
   const audit = await db.execute({
     sql: `SELECT action, ref_type FROM audit_log ORDER BY created_at, action`,
   });
-  const balance = await one<{ balance_paise: number }>(db,
+  const balance = await one<{ balance_paise: number }>(
+    db,
     `SELECT balance_paise FROM students LIMIT 1`,
   );
-  const seq = await one<{ next_invoice_seq: number; next_receipt_seq: number }>(db,
+  const seq = await one<{ next_invoice_seq: number; next_receipt_seq: number }>(
+    db,
     `SELECT next_invoice_seq, next_receipt_seq FROM settings WHERE tenant_id = ?`,
     [TENANT],
   );
@@ -282,7 +284,7 @@ type RecordPaymentInputLike = {
 };
 type CreateInvoiceOutcome = {
   ok: boolean;
-  value?: { number: string };
+  value?: { number: string; advanceAppliedPaise?: number };
   error?: Error;
 };
 type RecordPaymentOutcome = {
@@ -365,41 +367,201 @@ describe("dialect parity — the same money from either writer", () => {
     expect(results[1]).toEqual(results[0]);
   });
 
-    it("recordPayment attributes identically and posts the surplus as an ADVANCE", async () => {
-      const results: unknown[] = [];
-      for (const dialect of DIALECTS) {
-        const db = await openDb();
-        const studentId = "student-parity";
-        await seedStudent(db, studentId, 0);
-        // Two open invoices (100000 + 60000) and a 180000 payment: the flow must
-        // settle both and post the 20000 surplus as an ADVANCE (BR-FEE-15 /
-        // EC-F-02) - not as a third invoice. The surplus takes NO invoice
-        // number, so the invoice sequence comes back untouched.
-        await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
-        await seedInvoice(db, "invoice-b", studentId, "INV-000002", 60000, "2026-09-10");
-        await db.execute(`UPDATE settings SET next_invoice_seq = 3 WHERE tenant_id = ?`, [TENANT]);
+  it("recordPayment attributes identically and posts the surplus as an ADVANCE", async () => {
+    const results: unknown[] = [];
+    for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+      // Two open invoices (100000 + 60000) and a 180000 payment: the flow must
+      // settle both and post the 20000 surplus as an ADVANCE (BR-FEE-15 /
+      // EC-F-02) - not as a third invoice. The surplus takes NO invoice
+      // number, so the invoice sequence comes back untouched.
+      await seedInvoice(db, "invoice-a", studentId, "INV-000001", 100000, "2026-09-05");
+      await seedInvoice(db, "invoice-b", studentId, "INV-000002", 60000, "2026-09-10");
+      await db.execute(`UPDATE settings SET next_invoice_seq = 3 WHERE tenant_id = ?`, [TENANT]);
 
-        const res = await dialect.recordPayment(handleFor(dialect, db), {
-          tenantId: TENANT,
-          studentId,
-          amountPaise: 180000,
-          description: "Cash",
-          receivedOn: "2026-09-12",
-        });
-        expect(res.ok, `${dialect.name} failed: ${res.error?.message}`).toBe(true);
-        expect(res.value?.creditedPaise).toBe(180000);
-        expect(res.value?.advancePaise).toBe(20000);
-        expect(res.value?.advanceReceiptNumber).not.toBeNull();
+      const res = await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 180000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      expect(res.ok, `${dialect.name} failed: ${res.error?.message}`).toBe(true);
+      expect(res.value?.creditedPaise).toBe(180000);
+      expect(res.value?.advancePaise).toBe(20000);
+      expect(res.value?.advanceReceiptNumber).not.toBeNull();
 
-        const footprint = await moneyFootprint(db);
-        const statuses = (footprint.invoices as { number: string; status: string }[])
-          .map((row) => `${row.number}:${row.status}`)
-          .sort();
-        expect(statuses).toEqual(["INV-000001:paid", "INV-000002:paid"]);
-        results.push(footprint);
+      const footprint = await moneyFootprint(db);
+      const statuses = (footprint.invoices as { number: string; status: string }[])
+        .map((row) => `${row.number}:${row.status}`)
+        .sort();
+      expect(statuses).toEqual(["INV-000001:paid", "INV-000002:paid"]);
+      results.push(footprint);
+    }
+    expect(results[1]).toEqual(results[0]);
+  });
+
+  it("BR-FEE-15: an advance is CONSUMED by the next charge — identically in both dialects", async () => {
+    // The SECOND half of BR-FEE-15: the surplus of an overpayment is an
+    // ADVANCE (BR-FEE-04), and the next CHARGE consumes it for
+    // `min(advance_balance, charge_amount)` (EC-18: only the charge is applied;
+    // the rest of the wallet stays).
+    //
+    // THE MONEY FACTS this pins — each one is a way a double-count would show:
+    //   1. the invoice demands `charge − applied`;
+    //   2. the student's balance moves by exactly the CHARGE — the advance
+    //      money is counted ONCE (it was a credit when it arrived), so the
+    //      balance is never inflated by the application;
+    //   3. the wallet drops by exactly `applied` and never below zero;
+    //   4. a charge with an empty wallet changes NOTHING (no double-apply);
+    //   5. `balance_due = invoice_outstanding − wallet` (the identity a
+    //      credit-shaped application row would break).
+    const results: unknown[] = [];
+    for (const dialect of DIALECTS) {
+      const db = await openDb();
+      const studentId = "student-parity";
+      await seedStudent(db, studentId, 0);
+
+      // 1. A payment with nothing open is an ADVANCE in full (BR-FEE-04).
+      const paid = await dialect.recordPayment(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 180000,
+        description: "Cash",
+        receivedOn: "2026-09-12",
+      });
+      expect(paid.ok, `${dialect.name} payment failed: ${paid.error?.message}`).toBe(true);
+      expect(paid.value?.advancePaise).toBe(180000);
+      // The advance is a CREDIT: the student is in credit to the tutor
+      // (BR-M-04, BR-CALC-11 — the sign is information).
+      expect(await scalar(db, `SELECT balance_paise AS c FROM students LIMIT 1`)).toBe(-180000);
+
+      // The wallet the flow reads back through the PORT (one operation, both
+      // dialects — the same comparison the gate exists for).
+      const walletBefore = await dialect
+        .feeTx(handleFor(dialect, db))
+        .advanceBalance(TENANT, studentId);
+      expect(walletBefore, `${dialect.name} wallet`).toBe(180000);
+
+      // 2. A charge SMALLER than the advance: only the CHARGE is applied
+      //    (EC-18) and the rest of the wallet stays in it.
+      const small = await dialect.createInvoice(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 50000,
+        description: "September tuition",
+        issueDate: "2026-09-01",
+      });
+      expect(small.ok, `${dialect.name} invoice failed: ${small.error?.message}`).toBe(true);
+      expect(small.value?.advanceAppliedPaise, `${dialect.name} applied`).toBe(50000);
+      // (1) the invoice is fully covered: it demands nothing and is born paid
+      //     (EC-F-03's zero-total rule).
+      expect(await scalar(db, `SELECT total AS c FROM invoices WHERE number = 'INV-000001'`)).toBe(
+        0,
+      );
+      expect(
+        await scalar(db, `SELECT status = 'paid' AS c FROM invoices WHERE number = 'INV-000001'`),
+      ).toBe(1);
+      // (2) the balance moved by exactly the charge: -180000 + 50000.
+      expect(await scalar(db, `SELECT balance_paise AS c FROM students LIMIT 1`)).toBe(-130000);
+      // (3) the wallet keeps the remainder: 180000 - 50000.
+      const walletMid = await dialect
+        .feeTx(handleFor(dialect, db))
+        .advanceBalance(TENANT, studentId);
+      expect(walletMid, `${dialect.name} wallet after the small charge`).toBe(130000);
+
+      // 3. A charge BIGGER than what is left: the wallet is emptied and the
+      //    invoice still demands the difference.
+      const big = await dialect.createInvoice(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 250000,
+        description: "October tuition",
+        issueDate: "2026-10-01",
+      });
+      expect(big.ok, `${dialect.name} invoice failed: ${big.error?.message}`).toBe(true);
+      expect(big.value?.advanceAppliedPaise, `${dialect.name} applied`).toBe(130000);
+      // (1) the invoice demands what is left.
+      expect(await scalar(db, `SELECT total AS c FROM invoices WHERE number = 'INV-000002'`)).toBe(
+        120000,
+      );
+      expect(
+        await scalar(db, `SELECT status = 'unpaid' AS c FROM invoices WHERE number = 'INV-000002'`),
+      ).toBe(1);
+      // (2) the balance moved by exactly the charge: -130000 + 250000.
+      expect(await scalar(db, `SELECT balance_paise AS c FROM students LIMIT 1`)).toBe(120000);
+      // (3) the wallet is exhausted — and NOT below zero.
+      const walletAfter = await dialect
+        .feeTx(handleFor(dialect, db))
+        .advanceBalance(TENANT, studentId);
+      expect(walletAfter, `${dialect.name} wallet after`).toBe(0);
+      // The application rows: DEBITS (the advance money was already counted as
+      // a credit when it arrived, so consuming it must remove it once), tagged,
+      // and carrying no invoice (the invoice's own ledger net must equal its
+      // total — BR-RPT-04).
+      const applications = await db.execute({
+        sql: `SELECT debit_paise, credit_paise, type, invoice_id IS NOT NULL AS linked
+                FROM ledger_entries WHERE description LIKE '[ADVANCE_APPLIED]%'
+                ORDER BY created_at`,
+      });
+      expect(applications.rows).toHaveLength(2);
+      expect(applications.rows[0]?.debit_paise).toBe(50000);
+      expect(applications.rows[1]?.debit_paise).toBe(130000);
+      for (const row of applications.rows) {
+        expect(row.credit_paise).toBe(0);
+        expect(row.type).toBe("ADJUSTMENT");
+        expect(row.linked).toBe(0);
       }
-      expect(results[1]).toEqual(results[0]);
-    });
+      // The charge is posted for what the invoice still demands — and the
+      // gross charge is still visible across the two rows.
+      expect(
+        await scalar(
+          db,
+          `SELECT COALESCE(SUM(debit_paise), 0) AS c FROM ledger_entries WHERE type = 'FEE_CHARGED'`,
+        ),
+      ).toBe(120000);
+      expect(
+        await scalar(db, `SELECT COALESCE(SUM(debit_paise), 0) AS c FROM ledger_entries`),
+      ).toBe(300000);
+
+      // 4. A charge with an EMPTY wallet changes nothing (no double-apply).
+      const last = await dialect.createInvoice(handleFor(dialect, db), {
+        tenantId: TENANT,
+        studentId,
+        amountPaise: 50000,
+        description: "November tuition",
+        issueDate: "2026-11-01",
+      });
+      expect(last.ok, `${dialect.name} invoice failed: ${last.error?.message}`).toBe(true);
+      expect(last.value?.advanceAppliedPaise, `${dialect.name} applied`).toBe(0);
+      expect(await scalar(db, `SELECT total AS c FROM invoices WHERE number = 'INV-000003'`)).toBe(
+        50000,
+      );
+      expect(await scalar(db, `SELECT balance_paise AS c FROM students LIMIT 1`)).toBe(170000);
+      // Exactly TWO application rows — the advance was consumed once per
+      // charge that had one to consume, and never twice.
+      expect(
+        await scalar(
+          db,
+          `SELECT COUNT(*) AS c FROM ledger_entries WHERE description LIKE '[ADVANCE_APPLIED]%'`,
+        ),
+      ).toBe(2);
+      // (5) the identity: balance = the invoice still owed − the wallet.
+      const outstanding = await scalar(
+        db,
+        `SELECT COALESCE(SUM(i.total), 0) - COALESCE((SELECT SUM(e.credit_paise) FROM ledger_entries e
+             WHERE e.invoice_id IS NOT NULL AND e.type != 'VOID' AND e.void_of_id IS NULL), 0) AS c
+           FROM invoices i WHERE i.status IN ('unpaid','partial','overdue')`,
+      );
+      expect(outstanding).toBe(170000);
+      expect(outstanding).toBe(await scalar(db, `SELECT balance_paise AS c FROM students LIMIT 1`));
+
+      results.push(await moneyFootprint(db));
+    }
+    expect(results[1]).toEqual(results[0]);
+  });
 
   it("AUD-001: a VOIDED payment stops counting as credited — in BOTH dialects", async () => {
     // THE DEFECT (P0). The "has this credit been reversed?" test was
@@ -518,7 +680,8 @@ describe("dialect parity — the same money from either writer", () => {
     }
   });
 
-  it("every paise is attributed — the invariant that aborts the transaction", async () => {    for (const dialect of DIALECTS) {
+  it("every paise is attributed — the invariant that aborts the transaction", async () => {
+    for (const dialect of DIALECTS) {
       const db = await openDb();
       const studentId = "student-parity";
       await seedStudent(db, studentId, 0);

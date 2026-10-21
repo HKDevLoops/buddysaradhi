@@ -828,15 +828,15 @@ const rows = await db.ledgerEntry.findMany({
 const balance_due_minor = rows.reduce((acc, le) =>
   acc + (le.direction === 'charge' ? le.amount : -le.amount), 0);
 const advance_balance_minor = rows.reduce((acc, le) => {
-  if (le.direction === 'credit' && le.type === 'PAYMENT_RECEIVED' && le.description.includes('[ADVANCE]'))
+  if (le.direction === 'credit' && le.type === 'PAYMENT_RECEIVED' && le.description.startsWith('[ADVANCE]'))
     return acc + le.amount;
-  if (le.direction === 'charge' && le.description.includes('[ADVANCE_APPLY]'))
+  if (le.direction === 'charge' && le.description.startsWith('[ADVANCE_APPLIED]'))
     return acc - le.amount;
   return acc;
 }, 0);
 ```
 
-The double guard (`type <> 'VOID'` AND `reverses_entry_id IS NULL`) per BR-LED-02. The advance wallet is derived similarly — credits tagged `[ADVANCE]` minus charges tagged `[ADVANCE_APPLY]`.
+The double guard (`type <> 'VOID'` AND `reverses_entry_id IS NULL`) per BR-LED-02. The advance wallet is derived similarly — credits tagged `[ADVANCE]` minus charges tagged `[ADVANCE_APPLIED]` (AMENDED 2026-10-21: the tag is `[ADVANCE_APPLIED]`, matching BR-FEE-15, and both tags are matched as PREFIXES, which is how the engine writes them).
 
 ### 9.2 Status classification (BR-CALC-02)
 
@@ -1133,12 +1133,14 @@ Per BR-LED-06, the `[ADVANCE]` tag in description is the marker. Auto-apply on n
 // On next FEE_CHARGED for this student, the app layer checks advance_balance_minor.
 // If > 0, it inserts an additional ADJUSTMENT entry:
 await tx.ledgerEntry.create({ data: {
-  ..., type: 'ADJUSTMENT', amount: advance_to_apply, direction: 'credit',
-  description: `[ADVANCE_APPLY] auto-applied to invoice ${invoiceNumber}`,
+  ..., type: 'ADJUSTMENT', amount: advance_to_apply, direction: 'charge',
+  description: `[ADVANCE_APPLIED] auto-applied to invoice ${invoiceNumber}`,
   ...,
 } });
 // This zeroes the advance wallet and reduces the new invoice's balance.
 ```
+
+AMENDED 2026-10-21 (the auto-apply landed — `packages/core/src/feesFlow.ts`, `createInvoiceFlow`): the application row is a CHARGE-direction `ADJUSTMENT` tagged `[ADVANCE_APPLIED]`, and the invoice's own `FEE_CHARGED` is posted for `gross − advance_to_apply` (its `total` is reduced by the same amount). The direction matters: the advance money was ALREADY counted as a credit when it arrived, so consuming it must remove it from the credit side exactly once — a credit-shaped application would count the same money twice (the balance would show the student as owed an advance they have already spent, and the wallet would never drain), and a ledger row cannot carry both a debit and a credit (`11_Data_Model.md` §4.13). The application row carries NO `invoice_id`: the invoice's own ledger net must equal its total (BR-RPT-04), and its total is already reduced.
 
 ---
 
@@ -1161,7 +1163,7 @@ This screen is the primary enforcer of the fee, ledger, receipt, reminder, and c
 - **BR-LED-03 — Voiding a payment.** Walk-through: tutor opens `ReceiptPreview` → taps "Void receipt (PIN)" → `PinPrompt` → enters PIN → confirm dialog with reason input → on confirm, the §9.10 transaction fires → the VOID row appears in the ledger with flare styling, the original `PAYMENT_RECEIVED` row gets a strike-through and a "↺ voided by VOID entry xxx" link → the linked invoice reverts to `unpaid` or `partial` → the receipt's PDF is re-rendered with a "VOID" watermark → audit log entry written.
 - **BR-LED-04 — Voiding a fee charge.** The `InvoiceDetail` "Void invoice" action is gated: if any `PAYMENT_RECEIVED` credits the invoice, the action is disabled with helper text "Cannot void an invoice with credited payments. Void those receipts first." The helper lists the receipts to void.
 - **BR-LED-05 — Re-opening a locked period.** The `DatePicker` in `RecordPaymentSheet` checks `occurred_on` against the most recent locked `attendance_sessions.session_date`. If earlier, the amber warning shows and submit requires a fresh PIN (within 30s). The audit log entry is `action='backdated_ledger'` with metadata `{ occurred_on, locked_session_date, reason }`.
-- **BR-LED-06 — Advance payments.** Walk-through: tutor records ₹5,000 against a ₹3,000 balance, toggles "Mark as advance" → live preview shows "₹3,000 → invoice, ₹2,000 → advance wallet" → on submit, two `PAYMENT_RECEIVED` rows are inserted (exact + `[ADVANCE]`-tagged) inside one transaction → the receipt PDF itemises both → the student header card in Ledger mode now shows "Advance Wallet: ₹ 2,000" in violet → on the next `FEE_CHARGED`, an `ADJUSTMENT` entry auto-applies the advance (BR-LED-06 auto-apply).
+- **BR-LED-06 — Advance payments.** Walk-through: tutor records ₹5,000 against a ₹3,000 balance, toggles "Mark as advance" → live preview shows "₹3,000 → invoice, ₹2,000 → advance wallet" → on submit, two `PAYMENT_RECEIVED` rows are inserted (exact + `[ADVANCE]`-tagged) inside one transaction → the receipt PDF itemises both → the student header card in Ledger mode now shows "Advance Wallet: ₹ 2,000" in violet → on the next `FEE_CHARGED`, an `ADJUSTMENT` entry tagged `[ADVANCE_APPLIED]` auto-applies the advance (BR-FEE-15 auto-apply): it is a CHARGE-direction row of `min(advance, charge)`, the invoice's total and its `FEE_CHARGED` are reduced by the same amount, and the advance wallet drops by exactly that much.
 
 ### 10.3 Fee model rules (BR-FEE-01..F08)
 
@@ -1312,7 +1314,7 @@ Same as 10.7.3 — there is no separate "overpayment" concept. Any payment excee
 | EC-15 | Tutor attempts to record a payment with a future date | Blocked by validation §14. The `DatePicker` disables future dates. |
 | EC-16 | 500+ students in a single batch | Matrix virtualises (TanStack Virtual); only visible rows render. KPI queries are O(students) but cached. Performance target < 400ms render (§17). |
 | EC-17 | Receipt tamper hash mismatch on view | The `ReceiptPreview` shows a red `✕ TAMPERED` banner; the audit log gets `receipt_tamper_detected`; a flare toast "This receipt appears tampered — do not honour" fires. The tutor is offered "Restore from last backup" via the Security flow. |
-| EC-18 | Advance auto-apply would over-apply | If `advance_balance_minor > new_invoice.total`, only `total` is applied; the remainder stays in the advance wallet. The `ADJUSTMENT` entry amount = min(advance, total). |
+| EC-18 | Advance auto-apply would over-apply | If `advance_balance_minor > new_invoice.total`, only `total` is applied; the remainder stays in the advance wallet. The `ADJUSTMENT` entry amount = min(advance, total). The entry is a CHARGE-direction `ADJUSTMENT` tagged `[ADVANCE_APPLIED]` (AMENDED 2026-10-21 — the wallet is `credits tagged [ADVANCE] − debits tagged [ADVANCE_APPLIED]`, so the application must be a debit), and the invoice's `total` and its `FEE_CHARGED` are reduced by the same amount. |
 | EC-19 | Tutor changes invoice_prefix mid-stream | Allowed (Settings). Existing invoice numbers retain their old prefix; new invoices use the new prefix. The `next_invoice_seq` continues incrementing (no reset). The matrix sorts by `created_at`, not `number`, so ordering is stable. |
 | EC-20 | Student has only VOID entries (all charges voided) | `charge_count = 0` after the void filter → status = `no_dues`. The student appears in the "No dues" tab. The ledger still shows the historical VOID entries for audit. |
 
