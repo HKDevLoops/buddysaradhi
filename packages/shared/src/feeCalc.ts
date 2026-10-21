@@ -1,5 +1,10 @@
 // Implements: 12_Business_Rules.md BR-CALC-09/10/11 (pure calc layer of 02_Core_Logic.md
 // §6.9.3, 11_Data_Model.md §15.4, 07_Fees_and_Payments.md §6.2 period toggle).
+// AMENDED 2026-10-21: BR-CALC-11 gained its ADVANCE term — a period's arrears
+// subtract the advances APPLIED in that period (BR-FEE-15's auto-apply, tagged
+// `[ADVANCE_APPLIED]`), so a month an advance covered reads the invoice's
+// outstanding and not the full fee. BR-FEE-04's wallet is tag-derived, so the
+// tag is the only marker there is (07 §9.1).
 // Principle: P4 (money exactness). Rules: Rule 6 (integer paise, sums/subtractions
 // only — no division, no rounding), Rule 9 (Zod-parse every input, typed throws).
 //
@@ -67,6 +72,19 @@ export const FeeLedgerTypeSchema = z.enum([
   "VOID",
 ]);
 
+// BR-FEE-15: the tag that marks the row that CONSUMES an advance — the literal
+// `[ADVANCE_APPLIED]` PREFIX on the row's description (BR-FEE-04's prefix rule).
+// Its sibling, the `[ADVANCE]` tag that CREATES the wallet row, lives in the
+// engine and not here: this layer never creates an advance, it only reads what
+// was applied.
+//
+// THE TWIN: `packages/core/src/feesFlow.ts` writes the same literal
+// (`ADVANCE_APPLIED_TAG`) and derives the wallet from it (BR-FEE-04).
+// `packages/core` does not depend on `@buddysaradhi/shared`, so the literal is
+// spelled here too — the feeCalc tests pin it against the literal itself, so a
+// rename on either side turns the suite RED.
+const ADVANCE_APPLIED_TAG = "[ADVANCE_APPLIED]";
+
 export const FeeLedgerRowSchema = z
   .object({
     student_id: z.string().uuid(),
@@ -74,6 +92,11 @@ export const FeeLedgerRowSchema = z
     debit_paise: z.number().int().nonnegative(),
     credit_paise: z.number().int().nonnegative(),
     occurred_on: IsoDateSchema,
+    // The row's DESCRIPTION — where the advance tags live (BR-FEE-04, BR-FEE-15).
+    // OPTIONAL and NULLABLE: a row that carries no description (or a null one)
+    // carries NO tag, and a caller that does not project descriptions keeps
+    // working unchanged (the widening is backward compatible).
+    description: z.string().nullable().optional(),
     // Prescribed void flag. NOTE (spec gap G2): ledger_entries DDL has no
     // voided_at column — canonical void state is type='VOID' + void_of_id
     // (11_Data_Model.md §4.13). Callers MUST project a voided original
@@ -186,6 +209,59 @@ export function isEnrolmentActiveForMonth(
 function isVoided(entry: FeeLedgerRow): boolean {
   if (entry.type === "VOID") return true;
   return entry.voided_at !== null && entry.voided_at !== undefined;
+}
+
+/**
+ * True when the row's description carries `tag` as a PREFIX.
+ *
+ * BR-FEE-04: the tag is "the literal `[ADVANCE]` prefix on the row's
+ * description"; 07 §9.1: "both tags are matched as PREFIXES, which is how the
+ * engine writes them". The engine's dialects match the same way
+ * (`packages/core/src/fees.ts` `substr(description, 1, n) = …`,
+ * `packages/core/src/feesPrisma.ts` `startsWith(…)`), so the shared layer
+ * matches the same way — one rule, two implementations.
+ */
+function carriesTag(entry: FeeLedgerRow, tag: string): boolean {
+  const description = entry.description;
+  if (description === null || description === undefined) return false;
+  return description.startsWith(tag);
+}
+
+/**
+ * BR-CALC-11's advance term: `Σ(debit_paise where the description carries the
+ * `[ADVANCE_APPLIED]` tag)` over the period.
+ *
+ * WHY A DEBIT (BR-FEE-15): the advance was counted as a CREDIT when it
+ * arrived, so consuming it must remove it from the credit side exactly once.
+ * This term removes it from the PERIOD's arrears — the advance covered THIS
+ * period's charge, so this period's arrears fall by exactly the amount
+ * applied.
+ *
+ * WHY NO PAISE IS CLAIMED TWICE: the credit that created the advance was
+ * counted by `collectedForPeriod` in ITS OWN period (the period's rows are
+ * selected by `occurred_on`), and this term counts only the DEBIT that
+ * consumed it — a different row, in a different period. The two terms never
+ * touch the same paise inside one period.
+ *
+ * A VOIDED application is un-applied (the engine's reversal rule: a voided row
+ * does not count), so it does not reduce the arrears — the advance it consumed
+ * returns to the wallet.
+ */
+function advanceAppliedInPeriod(
+  entries: FeeLedgerRow[],
+  studentId: string,
+  from: string,
+  to: string,
+): number {
+  let applied = 0;
+  for (const entry of entries) {
+    if (entry.student_id !== studentId) continue;
+    if (isVoided(entry)) continue;
+    if (entry.occurred_on < from || entry.occurred_on > to) continue;
+    if (!carriesTag(entry, ADVANCE_APPLIED_TAG)) continue;
+    applied = paiseAdd(applied, entry.debit_paise);
+  }
+  return applied;
 }
 
 // ── EXPECTED (BR-CALC-09) ──
@@ -337,7 +413,13 @@ export function arrearsForPeriod(
     if (entry.occurred_on < rangeFrom || entry.occurred_on > endBounds.last) continue;
     if (entry.type === "DISCOUNT_GRANTED") discounts = paiseAdd(discounts, entry.credit_paise);
   }
-  return paiseSub(paiseSub(expected, collected), discounts);
+  // BR-CALC-11 (amended 2026-10-21): the advance term is subtracted LAST, and
+  // it is a DEBIT term — the advance it consumed was counted as collected in
+  // the period the money arrived, so this period's arrears fall by exactly
+  // the amount applied (BR-FEE-15). Without it, a month an advance covered
+  // would show the FULL fee as arrears while its invoice reads `paid`.
+  const applied = advanceAppliedInPeriod(ledger, id, rangeFrom, endBounds.last);
+  return paiseSub(paiseSub(paiseSub(expected, collected), discounts), applied);
 }
 
 export function arrearsForMonth(

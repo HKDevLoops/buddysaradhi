@@ -1,5 +1,6 @@
 // Implements: 12_Business_Rules.md BR-CALC-09/10/11, BR-FEE-20/21/23/24/25
 // (via 02_Core_Logic.md §6.9.3, 11_Data_Model.md §15.4, 14_Edge_Cases.md EC-F-18/21).
+// AMENDED 2026-10-21: BR-CALC-11's advance term (BR-FEE-15's auto-apply).
 // Principle: P4 (money exactness). Rules: Rule 6 (integer paise), Rule 9 (no any,
 // no console, typed throws).
 import { describe, it, expect } from "vitest";
@@ -47,7 +48,12 @@ function ledger(
   studentId: string,
   type: FeeLedgerRow["type"],
   occurredOn: string,
-  opts: { credit?: number; debit?: number; voidedAt?: string | null } = {},
+  opts: {
+    credit?: number;
+    debit?: number;
+    voidedAt?: string | null;
+    description?: string | null;
+  } = {},
 ): FeeLedgerRow {
   return {
     student_id: studentId,
@@ -55,6 +61,7 @@ function ledger(
     debit_paise: opts.debit ?? 0,
     credit_paise: opts.credit ?? 0,
     occurred_on: occurredOn,
+    description: opts.description ?? null,
     voided_at: opts.voidedAt ?? null,
   };
 }
@@ -294,6 +301,125 @@ describe("arrearsForPeriod (BR-CALC-11, BR-M-04)", () => {
     expect(arrearsForPeriod(rates, active, entries, RIYA, { from: "2025-07", to: "2025-08" })).toBe(60000);
     expect(arrearsForQuarter(rates, active, entries, RIYA, 2025, 3)).toBe(60000 + 180000);
     expect(arrearsForYear(rates, active, entries, RIYA, 2025)).toBe(2160000 - 280000 - 20000);
+  });
+});
+
+// ── BR-CALC-11 (AMENDED 2026-10-21): the ADVANCE term ──
+//
+// BR-FEE-15's auto-apply: the surplus of an overpayment is an `[ADVANCE]`
+// credit, and the next charge consumes it with a charge-direction `ADJUSTMENT`
+// DEBIT tagged `[ADVANCE_APPLIED]`. The period's arrears subtract that debit,
+// so a month an advance covered reads the invoice's outstanding — not the full
+// fee (BR-CALC-11 as amended: "Without the term, a month that an advance
+// covered would show the full fee as arrears while its invoice reads `paid`").
+
+describe("arrearsForPeriod — the advance term (BR-CALC-11 amended, BR-FEE-15)", () => {
+  const rates = [rate(RIYA, 180000, "2025-01-01", null)];
+  const active = [enrolment(RIYA, "2025-01-01")];
+
+  // The engine's own fixture shape (packages/core/src/feesFlow.ts):
+  //  - Aug 1: August's fee is charged (180000).
+  //  - Aug 5: the payment settles that invoice (180000) and the surplus
+  //    (20000) becomes an `[ADVANCE]` credit with no invoice (BR-FEE-04).
+  //  - Sep 1: the September charge is reduced by the advance — the invoice
+  //    demands 160000, and the ledger posts FEE_CHARGED 160000 + ADJUSTMENT
+  //    (ADVANCE_APPLIED) 20000 (BR-FEE-15).
+  const entries = [
+    ledger(RIYA, "FEE_CHARGED", "2025-08-01", { debit: 180000 }),
+    ledger(RIYA, "PAYMENT_RECEIVED", "2025-08-05", { credit: 180000 }),
+    ledger(RIYA, "PAYMENT_RECEIVED", "2025-08-05", {
+      credit: 20000,
+      description: "[ADVANCE] surplus of an overpayment",
+    }),
+    ledger(RIYA, "FEE_CHARGED", "2025-09-01", { debit: 160000 }),
+    ledger(RIYA, "ADJUSTMENT", "2025-09-01", {
+      debit: 20000,
+      description: "[ADVANCE_APPLIED] auto-applied to invoice INV-000002",
+    }),
+  ];
+
+  it("the month the advance ARRIVED reads the wallet as a credit, not as arrears", () => {
+    // 180000 expected − 200000 collected = −20000 (the advance; BR-M-04).
+    expect(arrearsForMonth(rates, active, entries, RIYA, "2025-08")).toBe(-20000);
+  });
+
+  it("the month the advance COVERED reads the invoice's outstanding, not the full fee", () => {
+    // 180000 expected − 0 collected − 20000 applied = 160000 — exactly what the
+    // September invoice demands (its total is 180000 − 20000).
+    expect(arrearsForMonth(rates, active, entries, RIYA, "2025-09")).toBe(160000);
+  });
+
+  it("the applied debit is claimed ONCE — the advance credit is not counted again", () => {
+    // The advance credit (20000) was collected in AUGUST; the application
+    // (20000) is subtracted in SEPTEMBER. Inside a period no paise is claimed
+    // twice: September's collected is 0 — the credit is out of its range.
+    expect(collectedForMonth(entries, RIYA, "2025-08")).toBe(200000);
+    expect(collectedForMonth(entries, RIYA, "2025-09")).toBe(0);
+  });
+
+  it("an application in ANOTHER period does not touch this period's arrears", () => {
+    const withOctober = [
+      ...entries,
+      ledger(RIYA, "ADJUSTMENT", "2025-10-01", {
+        debit: 50000,
+        description: "[ADVANCE_APPLIED] auto-applied to invoice INV-000003",
+      }),
+    ];
+    expect(arrearsForMonth(rates, active, withOctober, RIYA, "2025-09")).toBe(160000);
+  });
+
+  it("a row with NO description carries no tag (the widening is backward compatible)", () => {
+    const untagged = [ledger(RIYA, "ADJUSTMENT", "2025-09-01", { debit: 20000 })];
+    expect(arrearsForMonth(rates, active, untagged, RIYA, "2025-09")).toBe(180000);
+    const nullDescribed = [
+      ledger(RIYA, "ADJUSTMENT", "2025-09-01", { debit: 20000, description: null }),
+    ];
+    expect(arrearsForMonth(rates, active, nullDescribed, RIYA, "2025-09")).toBe(180000);
+  });
+
+  it("a VOIDED application is un-applied — the advance it consumed returns", () => {
+    const voided = [
+      ...entries.filter((e) => e.type !== "ADJUSTMENT"),
+      ledger(RIYA, "ADJUSTMENT", "2025-09-01", {
+        debit: 20000,
+        description: "[ADVANCE_APPLIED] auto-applied to invoice INV-000002",
+        voidedAt: "2025-09-02T10:00:00Z",
+      }),
+    ];
+    expect(arrearsForMonth(rates, active, voided, RIYA, "2025-09")).toBe(180000);
+  });
+
+  it("a VOIDED advance credit does not count as collected (the wallet returns)", () => {
+    const voidedAdvance = [
+      ledger(RIYA, "FEE_CHARGED", "2025-08-01", { debit: 180000 }),
+      ledger(RIYA, "PAYMENT_RECEIVED", "2025-08-05", { credit: 180000 }),
+      ledger(RIYA, "PAYMENT_RECEIVED", "2025-08-05", {
+        credit: 20000,
+        description: "[ADVANCE] surplus of an overpayment",
+        voidedAt: "2025-08-06T10:00:00Z",
+      }),
+    ];
+    // 180000 expected − 180000 collected = 0 — the voided surplus is gone.
+    expect(arrearsForMonth(rates, active, voidedAdvance, RIYA, "2025-08")).toBe(0);
+  });
+
+  it("the tag is a PREFIX (BR-FEE-04: 'the literal [ADVANCE] prefix')", () => {
+    const mentioned = [
+      ledger(RIYA, "ADJUSTMENT", "2025-09-01", {
+        debit: 20000,
+        description: "auto-applied [ADVANCE_APPLIED] by the engine",
+      }),
+    ];
+    expect(arrearsForMonth(rates, active, mentioned, RIYA, "2025-09")).toBe(180000);
+  });
+
+  it("the period/quarter/year wrappers carry the advance term", () => {
+    // Aug + Sep: expected 360000, collected 200000, applied 20000 → 140000.
+    expect(arrearsForPeriod(rates, active, entries, RIYA, { from: "2025-08", to: "2025-09" })).toBe(
+      140000,
+    );
+    // Q3 adds July's untouched fee: expected 540000 − 200000 − 20000 = 320000.
+    expect(arrearsForQuarter(rates, active, entries, RIYA, 2025, 3)).toBe(320000);
   });
 });
 
