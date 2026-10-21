@@ -56,6 +56,7 @@
 // A deployment that knows its tenant database hostnames (e.g. `.turso.io`)
 // should set it. When it is unset, the denylist applies.
 import { z } from "zod";
+import { resolveTursoUrl, resolveToken } from "./sql.ts";
 
 /** The schemes the gateway will dial. Mirrors `resolveTursoUrl`'s accepted
  *  set (lib/sql.ts) plus `libsql:` — the Turso scheme. `file:` and every other
@@ -202,4 +203,158 @@ export function checkDbUrl(rawUrl: string | null | undefined): DbUrlDecision {
     };
   }
   return { allowed: true };
+}
+
+// ── The target the request SIGNED (GW-07 / AUD-005) ───────────────────────────
+//
+// WHAT THE HOST POLICY DOES NOT COVER. `checkDbUrl` above judges WHERE the
+// gateway may dial. This section judges WHETHER the thing it is about to dial
+// is the thing the request asked for.
+//
+// `resolveTursoUrl` (lib/sql.ts) does not merely validate its argument: when
+// the argument is one it does not accept — a `supabase.co` host, the local
+// project ref, a scheme outside its list — it returns the DEPLOYMENT's own
+// `TURSO_DATABASE_URL` instead. `resolveToken` does the same with the
+// credential: a presented token of 20 characters or fewer is replaced by the
+// deployment's `TURSO_AUTH_TOKEN`.
+//
+// So a request could SIGN one target and RUN against another, and the audit
+// proved it: with `TURSO_DATABASE_URL=libsql://SHARED-ENV-DB.turso.io`, a
+// `x-db-url` containing `supabase.co` resolved to the shared deployment
+// database, and the schema heal would have installed the append-only ledger
+// triggers on it (AUD-005).
+//
+// The rule here is the fail-closed one: the resolution is TOTAL and
+// NON-SUBSTITUTING. The target the request named is used verbatim, or the
+// request is refused. There is no third outcome in which the gateway runs
+// against a database the request never named.
+
+/**
+ * A refusal of a tenant-database target.
+ *
+ * It carries the NAMES of the variables involved and never their values
+ * (10_Security.md §8 — a log line may name a variable; it may never carry a
+ * database URL or a credential).
+ */
+export interface TenantTargetRefusal {
+  reason: string;
+  /** The variable the REQUEST supplied (e.g. `x-db-url`). */
+  requestedVariable: string;
+  /** The variable the resolver would have substituted (e.g. `TURSO_DATABASE_URL`). */
+  resolvedVariable: string;
+}
+
+export type TenantTargetDecision =
+  | { allowed: true; url: string; token: string }
+  | { allowed: false; refusal: TenantTargetRefusal };
+
+/**
+ * True when two URLs name the SAME database.
+ *
+ * A Turso database IS its host (`db-name.turso.io`), so the host is the
+ * identity — comparing the whole string would refuse a deployment whose
+ * environment URL and the caller's URL differ only in scheme (`libsql://`
+ * against `https://`) or in a trailing slash, which are the same database.
+ */
+function sameDatabase(a: string, b: string): boolean {
+  if (a === b) return true;
+  const hostOf = (value: string): string | null => {
+    try {
+      return new URL(value).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+  const hostA = hostOf(a);
+  const hostB = hostOf(b);
+  return hostA !== null && hostB !== null && hostA === hostB;
+}
+
+/**
+ * Resolve the tenant database the request named — and refuse anything that is
+ * not the one the request's signature covered.
+ *
+ * Three refusals, each fail-closed:
+ *
+ *   1. THE DATABASE WAS SUBSTITUTED. `resolveTursoUrl` returned something
+ *      other than the URL the request named — the deployment's own database.
+ *   2. THE CREDENTIAL WAS SUBSTITUTED. `resolveToken` returned something other
+ *      than the credential the request named — the deployment's own.
+ *   3. THE DEPLOYMENT'S CREDENTIAL, AGAINST A DATABASE THE REQUEST NAMED.
+ *      `index.ts` fills a MISSING `x-db-token` from the environment before
+ *      the request reaches here, so the resolver's own substitution check
+ *      cannot see this case — but the consequence is identical: the
+ *      deployment's shared credential would be presented to a host the
+ *      request chose, and the request's signature never covered that
+ *      credential.
+ */
+export function resolveTenantTarget(
+  requestedUrl: string,
+  requestedToken: string,
+): TenantTargetDecision {
+  let url: string;
+  try {
+    url = resolveTursoUrl(requestedUrl);
+  } catch {
+    return {
+      allowed: false,
+      refusal: {
+        reason: "the database location the request named is not one the gateway can use",
+        requestedVariable: "x-db-url",
+        resolvedVariable: "TURSO_DATABASE_URL",
+      },
+    };
+  }
+  if (url !== requestedUrl) {
+    return {
+      allowed: false,
+      refusal: {
+        reason: "the database location was substituted with the deployment's own",
+        requestedVariable: "x-db-url",
+        resolvedVariable: "TURSO_DATABASE_URL",
+      },
+    };
+  }
+
+  let token: string;
+  try {
+    token = resolveToken(requestedToken);
+  } catch {
+    return {
+      allowed: false,
+      refusal: {
+        reason: "the credential the request named is not one the gateway can use",
+        requestedVariable: "x-db-token",
+        resolvedVariable: "TURSO_AUTH_TOKEN",
+      },
+    };
+  }
+  if (token !== requestedToken) {
+    return {
+      allowed: false,
+      refusal: {
+        reason: "the credential was substituted with the deployment's own",
+        requestedVariable: "x-db-token",
+        resolvedVariable: "TURSO_AUTH_TOKEN",
+      },
+    };
+  }
+
+  const envToken = readEnv("TURSO_AUTH_TOKEN") || readEnv("TURSO_TOKEN") || "";
+  const envUrl = readEnv("TURSO_DATABASE_URL") || "";
+  if (
+    envToken.length > 0 && token === envToken && !sameDatabase(envUrl, url)
+  ) {
+    return {
+      allowed: false,
+      refusal: {
+        reason:
+          "the deployment's shared credential would be presented to a database the request named",
+        requestedVariable: "x-db-token",
+        resolvedVariable: "TURSO_AUTH_TOKEN",
+      },
+    };
+  }
+
+  return { allowed: true, url, token };
 }

@@ -3,7 +3,9 @@
 // callers (`lib/orm.ts` historically, `lib/schema.ts`, `graphql/resolvers.ts`)
 // keep one import site.
 import { createClient as createLibsql } from "@libsql/client/web";
-import { resolveTursoUrl, resolveToken } from "./sql.ts";
+import { resolveTenantTarget } from "./db-url-policy.ts";
+import { AuthError } from "./auth.ts";
+import { logWarn } from "./log.ts";
 
 export { allRows, batchExecute, oneRow, run } from "./sql.ts";
 export type { SqlHandle } from "./sql.ts";
@@ -46,8 +48,33 @@ function fingerprint(token: string): string {
 }
 
 export function getTurso(dbUrl: string, dbToken: string): DB {
-  const targetUrl = resolveTursoUrl(dbUrl);
-  const token = resolveToken(dbToken);
+  // GW-07 (AUD-005): the resolution is TOTAL and NON-SUBSTITUTING. The target
+  // the request signed is the target the gateway runs against; if the two
+  // differ, the request is refused rather than executed against a database
+  // (or with a credential) the signature never covered.
+  //
+  // The refusal is an `AuthError` so `index.ts` renders it as a TYPED 4xx with
+  // the `DB_TARGET_MISMATCH` code instead of a generic 500 (Rule 9 — the
+  // status must tell the truth: this is a client-side target the gateway
+  // will not execute, not an internal fault).
+  const decision = resolveTenantTarget(dbUrl, dbToken);
+  if (!decision.allowed) {
+    // 10_Security.md §8: the log names the VARIABLES, never their values.
+    logWarn("security.db_target_refused", {
+      requestedVariable: decision.refusal.requestedVariable,
+      resolvedVariable: decision.refusal.resolvedVariable,
+      reason: decision.refusal.reason,
+    });
+    throw new AuthError(
+      "DB_TARGET_MISMATCH: the database this request named is not the one it " +
+        "signed, so the gateway refuses to run it. Nothing was read or written.",
+      400,
+      "DB_TARGET_MISMATCH",
+    );
+  }
+
+  const targetUrl = decision.url;
+  const token = decision.token;
   const print = fingerprint(token);
 
   const existing = tursoCache.get(targetUrl);
