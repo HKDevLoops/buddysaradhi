@@ -175,6 +175,31 @@ AND on an idle one.
 
 ---
 
+---
+
+## Phase 7 — The 3D story site (the owner's narrative, built)
+
+The product site's `/story` route: a **fifty-beat scroll narrative across five
+acts** — *one evening in a tutor's life going wrong, and the same evening going
+right*. The contract is `docs/plans/ANIMATION_MODEL_BRIEF.md`; the plan is
+`docs/plans/3D-STORY-SITE-PLAN-2026-10-21.md`; the governing spec is
+`20_3D_Product_Page.md` §12 (which the brief requires amending, in the same
+commit as the code, because the spec is the contract).
+
+| # | Item | Status |
+|---|---|---|
+| 7.1 | The narrative: `beats.ts` — 50 beats, five acts, contiguous scroll ranges that tile `0..1`, the copy that has to answer the brief's four questions | IN FLIGHT |
+| 7.2 | The camera rig: a mandatory target per beat, damped look-ahead, per-beat FOV, Act II roll ≤ 0.08 and exactly 0 by beat 38 | IN FLIGHT |
+| 7.3 | The character: the seeker from primitives, one material, the per-act pose rig, the phone as the only light she carries | IN FLIGHT |
+| 7.4 | The act directives: `SceneDirective` → scene mutations, per act | IN FLIGHT |
+| 7.5 | The wiring: `story-canvas.tsx`, `story-experience.tsx`, and the server page that renders all fifty beats as a static `<ol>` for no-JS and for crawlers | IN FLIGHT |
+| 7.6 | The budgets enforced, not aspirational: draw calls / triangles / textures per tier, counted FROM THE CONSTRUCTED SCENE | IN FLIGHT |
+| 7.7 | The accessibility contract: the static `<ol>`, `aria-hidden` canvas, the Poster veil, a frozen scene under `prefers-reduced-motion`, the CTA as the keyboard target, skip-to-content, 44px targets | IN FLIGHT |
+| 7.8 | The spec amendment to `20_3D_Product_Page.md` §12, in the same commit as the code (brief §9) | IN FLIGHT |
+| 7.9 | The three new tests, each with a verified-red negative control: `beats.test.ts`, `camera-rig.test.ts`, `performance.test.ts` | IN FLIGHT |
+| 7.10 | The browser verification: no beat skipped or double-entered, the camera never cuts, `renderer.info` inside budget while scrolling, reduced motion frozen, the `<ol>` readable with the canvas hidden | PENDING |
+| 7.11 | **OWNER DECISION** — the 3D stack is 245.3 KB gzip against `20_3D` §3's 180 KB budget, and three.js alone is ~165 KB gzip before R3F and drei add a byte. The budget is BELOW the cost of the dependency the scene is built on, so no change in this app can meet it | OWNER — amend the spec, or keep a permanently red number |
+
 ## Ownership map (one owner per file — no shared-module overlap)
 
 | Lane | Owns |
