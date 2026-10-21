@@ -3,6 +3,7 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import { randomUUID, createHash } from "crypto";
 import { z } from "zod";
 import { paiseAdd, paiseSub } from "./money";
+import { chunkIds } from "./sqlVars";
 
 export const LEDGER_ENTRY_TYPES = [
   "FEE_CHARGED",
@@ -420,9 +421,412 @@ export async function postLedgerEntry(
   }
 }
 
+// ---------------------------------------------------------------------------
+// The void path — 12_Business_Rules.md BR-LED-04 (a void is a NEW reversing
+// row), BR-LED-05 (a VOID cannot be voided), BR-LED-09 (a charge that live
+// payments credit cannot be voided), BR-RPT-04 (the credited sum);
+// 14_Edge_Cases.md EC-F-05 (the receipt is marked voided AND the invoice
+// status reverts, in the SAME transaction); 07_Fees_and_Payments.md §9.10
+// steps 1-5.
+//
+// ONE decision, TWO dialects (AGENTS.md §3.5): the flow below IS the decision,
+// and each dialect supplies only row-level I/O — the ORM one in this file,
+// the libsql one in `ledgerSql.ts`. A dialect that decided differently would
+// hand a tutor two sets of books.
+//
+// Rule 1 (append-only): a void is a NEW row. Nothing here UPDATEs or DELETEs
+// a `ledger_entries` row; the receipt and the invoice are ordinary mutable
+// rows, and both are written inside the void's own transaction.
+// ---------------------------------------------------------------------------
+
+/** A ledger row the void decision reads — the six fields, nothing else. */
+export interface VoidableEntry {
+  id: string;
+  studentId: string;
+  invoiceId: string | null;
+  type: string;
+  debitPaise: number;
+  creditPaise: number;
+}
+
+/** The three invoice statuses a recompute can produce (07 §9.6 step 5). */
+export type VoidInvoiceStatus = "unpaid" | "partial" | "paid";
+
+/** The reversing row the flow asks a dialect to append. */
+export interface VoidPostInput {
+  tenantId: string;
+  studentId: string;
+  debitPaise: number;
+  creditPaise: number;
+  description: string;
+  voidOfId: string;
+  invoiceId: string | null;
+  occurredOn: string;
+}
+
+/** The audit row the flow asks a dialect to write (BR-SEC-03). */
+export interface VoidAuditInput {
+  tenantId: string;
+  actor: string;
+  action: string;
+  refType: string;
+  refId: string;
+  metadata: string;
+  now: string;
+}
+
+/**
+ * The narrow port the void flow needs. Every method is ONE row-level
+ * operation, so no dialect can smuggle in a second opinion about the money
+ * (AGENTS.md §3.5 — the same shape as `FeeTx` in `feesFlow.ts`).
+ */
+export interface VoidTx {
+  /** The row being voided, tenant-scoped, or null. */
+  findEntry(tenantId: string, entryId: string): Promise<VoidableEntry | null>;
+  /** An existing VOID row that reverses this entry (BR-LED-04). */
+  findReversal(tenantId: string, entryId: string): Promise<{ id: string } | null>;
+  /**
+   * Σ LIVE `PAYMENT_RECEIVED` credits on the invoice (BR-LED-09).
+   *
+   * "Live" means NOT reversed: a payment the tutor has ALREADY voided must
+   * not keep blocking the charge's void, or the correction path closes on an
+   * append-only ledger that has no other way back (docs/audit/AUDIT-2026-10-21.md
+   * AUD-014 — "void the credits first, then the charge").
+   */
+  livePaymentCredits(tenantId: string, invoiceId: string): Promise<number>;
+  /** Σ LIVE credits on the invoice (BR-RPT-04) — the status recompute. */
+  liveCreditedForInvoice(tenantId: string, invoiceId: string): Promise<number>;
+  /** The invoice's total, or null when the invoice does not exist. */
+  invoiceTotal(tenantId: string, invoiceId: string): Promise<number | null>;
+  /** Append the reversing row (Rule 1: INSERT only). Returns the new row's id. */
+  postVoid(entry: VoidPostInput): Promise<string>;
+  /**
+   * Mark the receipt linked to this ledger entry voided (EC-F-05), and queue
+   * its replication row (Rule 7). Returns the receipt id, or null when the
+   * entry carries no live receipt.
+   */
+  voidReceipt(tenantId: string, ledgerEntryId: string, now: string): Promise<string | null>;
+  /** Write the invoice's recomputed status and queue its replication row. */
+  setInvoiceStatus(
+    tenantId: string,
+    invoiceId: string,
+    status: VoidInvoiceStatus,
+    now: string,
+  ): Promise<void>;
+  /** The audit row (BR-SEC-03). */
+  writeAudit(args: VoidAuditInput): Promise<void>;
+}
+
+export interface VoidFlowInput {
+  tenantId: string;
+  entryToVoidId: string;
+  reason: string;
+  occurredOn: string;
+  actor: string;
+}
+
+/**
+ * The void, decided once. Throws a typed error on every refusal — the
+ * dialect entry points catch it and turn it into `Err`, so a refusal is
+ * never a silent no-op (Rule 9) and never a partial write (the refusal
+ * happens BEFORE any write, and the throw rolls the transaction back).
+ */
+export async function voidLedgerFlow(tx: VoidTx, input: VoidFlowInput): Promise<string> {
+  const { tenantId, entryToVoidId, reason, occurredOn, actor } = input;
+
+  // 1. The row being voided. The lookup is tenant-scoped, so a tutor can
+  //    never void another tenant's row.
+  const original = await tx.findEntry(tenantId, entryToVoidId);
+  if (!original) {
+    throw new Error(`ENTRY_NOT_FOUND: ledger entry ${entryToVoidId} not found for this tenant.`);
+  }
+
+  // 2. BR-LED-05 — a VOID entry cannot itself be voided.
+  if (original.type === "VOID") {
+    throw new Error("Cannot void a void entry (CANNOT_VOID_A_VOID, BR-LED-05).");
+  }
+
+  // 3. BR-LED-04 — a double void is a conflict, not a second reversing row.
+  //    Read INSIDE the caller's transaction, so it cannot race a concurrent
+  //    void of the same entry.
+  const reversal = await tx.findReversal(tenantId, entryToVoidId);
+  if (reversal) {
+    throw new Error(
+      `ENTRY_ALREADY_VOIDED: entry ${entryToVoidId} has already been voided (by ${reversal.id}) (BR-LED-04).`,
+    );
+  }
+
+  // 4. BR-LED-09 — "Voiding a FEE_CHARGED is permitted only if no
+  //    PAYMENT_RECEIVED credits it."
+  //
+  //    What it prevents: reversing a charge that ₹4,500 of payments already
+  //    settle. The reversal restores the balance (it mirrors the debit), but
+  //    those credits have nothing left to credit — the invoice still reads
+  //    `paid` while the credited total no longer covers its total, and the
+  //    student's balance reads −₹4,500, i.e. the tutor owes the student.
+  //    The ledger is append-only (Rule 1), so a void is the ONLY correction
+  //    path: a refused void that slips through leaves the books permanently
+  //    wrong with no further correction available.
+  //
+  //    EC-F-06 gives the rule's UI half: "This fee has payments against it.
+  //    Void those receipts first."
+  if (original.type === "FEE_CHARGED" && original.invoiceId) {
+    const livePayments = await tx.livePaymentCredits(tenantId, original.invoiceId);
+    if (livePayments > 0) {
+      throw new Error(
+        `CHARGE_HAS_CREDITS: this fee has ${livePayments} paise of live payments against it — void those receipts first, then void the fee (BR-LED-09).`,
+      );
+    }
+  }
+
+  const now = new Date().toISOString();
+
+  // 5. The reversing row: a NEW ledger row, mirroring the original in the
+  //    opposite direction (BR-LED-04). `invoiceId` is carried onto it so the
+  //    invoice's credited total can be recomputed from the same rows the
+  //    payment path sums.
+  const voidEntryId = await tx.postVoid({
+    tenantId,
+    studentId: original.studentId,
+    debitPaise: original.creditPaise,
+    creditPaise: original.debitPaise,
+    description: `VOID: ${reason}`,
+    voidOfId: entryToVoidId,
+    invoiceId: original.invoiceId ?? null,
+    occurredOn,
+  });
+
+  // 6. EC-F-05 — the receipt is marked voided in the SAME transaction, so a
+  //    tutor can never hand out a receipt for money they just reversed. The
+  //    receipt is found by its canonical link (`receipts.ledger_entry_id`).
+  const receiptId = await tx.voidReceipt(tenantId, entryToVoidId, now);
+
+  // 7. EC-F-05 — the invoice status is recomputed from what is STILL
+  //    credited, exactly as §9.6 step 5 does on the payment path. A voided
+  //    payment leaves the invoice `unpaid` (nothing credited) or `partial`
+  //    (something else still credited) — never `paid`.
+  if (original.invoiceId) {
+    const credited = await tx.liveCreditedForInvoice(tenantId, original.invoiceId);
+    const total = await tx.invoiceTotal(tenantId, original.invoiceId);
+    if (total !== null) {
+      const status: VoidInvoiceStatus =
+        credited >= total ? "paid" : credited > 0 ? "partial" : "unpaid";
+      await tx.setInvoiceStatus(tenantId, original.invoiceId, status, now);
+    }
+  }
+
+  // 8. The audit row (BR-SEC-03) — the void is a money-reversing operation
+  //    and must be auditable forever.
+  await tx.writeAudit({
+    tenantId,
+    actor,
+    action: "ledger_void",
+    refType: "ledger_entries",
+    refId: entryToVoidId,
+    metadata: JSON.stringify({
+      reason,
+      original_type: original.type,
+      void_entry_id: voidEntryId,
+      receipt_id: receiptId,
+    }),
+    now,
+  });
+
+  return voidEntryId;
+}
+
+/**
+ * Σ live credits on one invoice, over the ORM surface.
+ *
+ * BR-RPT-04 [CRITICAL]: a credit counts only while it has NOT been reversed.
+ * The original row carries no `reverses_entry_id` column, so "has been
+ * reversed" is a REVERSE LOOKUP — some OTHER row carries its id in
+ * `void_of_id`. The filter `void_of_id IS NULL` on the row itself reads
+ * "this row is not a reversal", which a voided ORIGINAL also satisfies — so
+ * it kept counting (docs/audit/AUDIT-2026-10-21.md AUD-001, the same defect
+ * class this lookup exists to fix).
+ *
+ * `type` narrows the sum to one entry type (BR-LED-09 asks about
+ * `PAYMENT_RECEIVED` credits; the invoice status asks about every credit).
+ */
+async function sumLiveCredits(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  invoiceId: string,
+  type: string | null,
+): Promise<number> {
+  const where: Prisma.LedgerEntryWhereInput = {
+    tenantId,
+    invoiceId,
+    voidOfId: null,
+  };
+  if (type !== null) where.type = type;
+  const credits = await tx.ledgerEntry.findMany({ where });
+
+  const reversed = new Set<string>();
+  const creditIds = credits.map((c) => c.id).filter((id) => id.length > 0);
+  // The `IN (...)` list is CHUNKED: SQLite's variable ceiling is 32,766 on
+  // the shipped build (measured) and 999 on older ones, and exceeding it is a
+  // hard error, not a truncation.
+  for (const chunk of chunkIds(creditIds)) {
+    const reversals = await tx.ledgerEntry.findMany({
+      where: { tenantId, type: "VOID", voidOfId: { in: chunk } },
+    });
+    for (const r of reversals) {
+      if (r.voidOfId) reversed.add(r.voidOfId);
+    }
+  }
+
+  // Rule 6 / BR-M-01: every addend is a safe integer checked by `paiseAdd`,
+  // so a corrupt credit can never become NaN money (EC-F-01).
+  let sum = 0;
+  for (const c of credits) {
+    if (reversed.has(c.id)) continue;
+    sum = paiseAdd(sum, c.creditPaise);
+  }
+  return sum;
+}
+
+/**
+ * The ORM dialect of the void port. The web's own ORM surface
+ * (`apps/web/src/lib/libsql-proxy.ts`) and the generated Prisma client both
+ * satisfy it, which is why the void behaves the same on either.
+ */
+function ormVoidTx(tx: Prisma.TransactionClient): VoidTx {
+  return {
+    async findEntry(tenantId, entryId) {
+      const row = await tx.ledgerEntry.findFirst({ where: { id: entryId, tenantId } });
+      if (!row) return null;
+      return {
+        id: row.id,
+        studentId: row.studentId,
+        invoiceId: row.invoiceId ?? null,
+        type: row.type,
+        debitPaise: row.debitPaise,
+        creditPaise: row.creditPaise,
+      };
+    },
+
+    async findReversal(tenantId, entryId) {
+      const row = await tx.ledgerEntry.findFirst({
+        where: { tenantId, type: "VOID", voidOfId: entryId },
+      });
+      return row ? { id: row.id } : null;
+    },
+
+    async livePaymentCredits(tenantId, invoiceId) {
+      return sumLiveCredits(tx, tenantId, invoiceId, "PAYMENT_RECEIVED");
+    },
+
+    async liveCreditedForInvoice(tenantId, invoiceId) {
+      return sumLiveCredits(tx, tenantId, invoiceId, null);
+    },
+
+    async invoiceTotal(tenantId, invoiceId) {
+      const row = await tx.invoice.findFirst({
+        where: { tenantId, id: invoiceId },
+        select: { total: true },
+      });
+      return row ? row.total : null;
+    },
+
+    async postVoid(entry) {
+      const res = await postLedgerEntry(tx, {
+        tenantId: entry.tenantId,
+        studentId: entry.studentId,
+        type: "VOID",
+        debitPaise: entry.debitPaise,
+        creditPaise: entry.creditPaise,
+        description: entry.description,
+        voidOfId: entry.voidOfId,
+        invoiceId: entry.invoiceId,
+        occurredOn: entry.occurredOn,
+        source: "manual",
+      });
+      if (!res.ok) throw res.error;
+      return res.value;
+    },
+
+    async voidReceipt(tenantId, ledgerEntryId, now) {
+      const receipt = await tx.receipt.findFirst({
+        where: { tenantId, ledgerEntryId, voidedAt: null },
+      });
+      if (!receipt) return null;
+      const written = await tx.receipt.updateMany({
+        where: { tenantId, id: receipt.id, voidedAt: null },
+        data: { voidedAt: now, updatedAt: now },
+      });
+      if (written.count === 0) return null;
+      // Rule 7 / BR-SYN-01 — the receipt's voided state replicates too, or a
+      // reconnected replica shows a receipt as live that the ledger reversed.
+      await tx.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          tableName: "receipts",
+          rowId: receipt.id,
+          op: "update",
+          payload: encodeOutboxPayload("receipts", "update", {
+            id: receipt.id,
+            tenant_id: tenantId,
+            voided_at: now,
+            updated_at: now,
+          }).payload,
+          status: "pending",
+          createdAt: new Date(now),
+        },
+      });
+      return receipt.id;
+    },
+
+    async setInvoiceStatus(tenantId, invoiceId, status, now) {
+      await tx.invoice.updateMany({
+        where: { tenantId, id: invoiceId },
+        data: { status, updatedAt: now },
+      });
+      await tx.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId,
+          tableName: "invoices",
+          rowId: invoiceId,
+          op: "update",
+          payload: encodeOutboxPayload("invoices", "update", {
+            id: invoiceId,
+            status,
+            updated_at: now,
+          }).payload,
+          status: "pending",
+          createdAt: new Date(now),
+        },
+      });
+    },
+
+    async writeAudit(a) {
+      await tx.auditLog.create({
+        data: {
+          id: randomUUID(),
+          tenantId: a.tenantId,
+          actor: a.actor,
+          action: a.action,
+          refType: a.refType,
+          refId: a.refId,
+          metadata: a.metadata,
+          createdAt: new Date(a.now),
+        },
+      });
+    },
+  };
+}
+
 /**
  * BR-LED-04: Voiding requires a new VOID row mirroring the original
  * BR-LED-05: A VOID entry cannot itself be voided
+ * BR-LED-09: A FEE_CHARGED that live payments credit cannot be voided
+ * EC-F-05:  the receipt is marked voided and the invoice status reverts, in
+ *           the SAME transaction as the reversing row
+ *
+ * The decision lives in `voidLedgerFlow`; this is the ORM dialect of it.
  */
 export async function voidEntry(
   db: PrismaClient,
@@ -433,95 +837,15 @@ export async function voidEntry(
   actor: string,
 ): Promise<Result<string>> {
   try {
-    return await db.$transaction(async (tx: any) => {
-      // 1. Fetch the entry to void
-      const original = await tx.ledgerEntry.findUnique({
-        where: { id: entryToVoidId, tenantId: tenantId },
-      });
-
-      if (!original) {
-        throw new Error(`Entry ${entryToVoidId} not found.`);
-      }
-
-      if (original.type === "VOID") {
-        throw new Error("Cannot void a void entry.");
-      }
-
-      // ── F-07: DOUBLE-VOID GUARD (BR-LED-04) ──────────────────────────────
-      // The check above only refuses voiding something that is ALREADY a VOID.
-      // It does NOT refuse voiding a payment that has already been voided:
-      // `original.type` is still PAYMENT_RECEIVED on the second attempt, so the
-      // guard passes and a SECOND mirroring row is posted. The books then read
-      // as though the money were owed to the tutor — original credit plus two
-      // debits of the same amount.
-      //
-      // Already known in-repo, as a test NAME with no assertion behind it:
-      // apps/web/src/components/fees/void-sequence.test.ts:431 —
-      //   "KNOWN P0: voiding an already-voided payment is NOT refused by
-      //    voidEntry — it double-corrects"
-      // Latent while nothing called it. The gateway's void route and the web's
-
-      // void action both call voidEntry, so it is reachable.
-
-      // calls voidEntry, so it is now reachable.
-      //
-      // The gateway's own void route already implements both guards correctly
-      // and inside the same transaction (apps/gateway/routes/ledger.ts:748
-      // VOID-of-VOID, :752-758 double-void). This is that second guard, ported
-      // — not re-invented. Read INSIDE the transaction opened above, so it
-      // cannot race a concurrent void of the same entry: two simultaneous
-      // voids would both read "not voided yet" and the guard would be useless.
-      const existingVoid = await tx.ledgerEntry.findFirst({
-        where: { tenantId: tenantId, voidOfId: entryToVoidId },
-      });
-      if (existingVoid) {
-        throw new Error(
-          `Entry ${entryToVoidId} has already been voided (by ${existingVoid.id}).`,
-        );
-      }
-
-      // 2. Post reversing entry
-      const postResult = await postLedgerEntry(tx, {
+    return await db.$transaction(async (tx) => {
+      const voidEntryId = await voidLedgerFlow(ormVoidTx(tx), {
         tenantId,
-        studentId: original.studentId,
-        type: "VOID",
-        debitPaise: original.creditPaise,
-        creditPaise: original.debitPaise,
-        description: `VOID: ${reason}`,
-        voidOfId: entryToVoidId,
-        // ── F-07, second half: CARRY `invoiceId` ONTO THE REVERSING ROW ────
-        // Every `creditedForInvoice` implementation filters over rows MATCHED
-        // ON `invoice_id` (`feesFlow.ts:412`, `fees.ts:323-331`,
-        // `feesPrisma.ts:346-367`), and a core-written payment DOES carry an
-        // invoiceId. Voiding it without copying the link left the invoice's
-        // credited total unchanged — so the invoice still read `paid` and the
-        // Dashboard still counted the voided credit, while the student's
-        // balance had already moved. Two panels disagreeing about the same
-        // payment is worse than either being wrong alone.
-        invoiceId: original.invoiceId ?? null,
-        occurredOn: occurredOn,
-        source: "manual",
+        entryToVoidId,
+        reason,
+        occurredOn,
+        actor,
       });
-
-      if (!postResult.ok) {
-        throw postResult.error;
-      }
-
-      // 3. Add audit log
-      await tx.auditLog.create({
-        data: {
-          id: randomUUID(),
-          tenantId: tenantId,
-          actor: actor,
-          action: "ledger_void",
-          refType: "ledger_entries",
-          refId: entryToVoidId,
-          metadata: JSON.stringify({ reason }),
-          createdAt: new Date(),
-        },
-      });
-
-      return { ok: true, value: (postResult as any).value } as Result<string>;
+      return { ok: true, value: voidEntryId } as Result<string>;
     });
   } catch (error) {
     return { ok: false, error: error as Error };
