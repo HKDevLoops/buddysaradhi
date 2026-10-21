@@ -1175,10 +1175,15 @@ describe("ATTACK 7 — voiding a charge that a payment already credits", () => {
 // ===========================================================================
 
 describe("ATTACK 8 — structural gaps", () => {
-  it.fails("ATK-8.1 [P1] `reconcileLedger` has NO production call site", async () => {
-    // The function that would catch a corrupted ledger is never invoked by a
-    // route, a command, a job or an engine. `grep` over the whole repo
-    // finds it only in comments, specs, docs and tests.
+  it("ATK-8.1 [P1] `reconcileLedger` HAS a production call site", async () => {
+    // The function that would catch a tampered or drifted ledger was never
+    // invoked by a route, a command, a job or an engine — so a divergence
+    // between the web's books and the gateway's books was found by nobody.
+    //
+    // The call site now exists: Settings -> Diagnostics -> "Check my books"
+    // (`apps/web/src/server/actions/diagnostics.ts`) runs the reconciler over
+    // the authenticated tenant's books on demand (08 §6.2.12, and BR-LED-06's
+    // own enforcement column: "Red 'CHAIN BROKEN at entry X' in Diagnostics").
     const { execFileSync } = await import("child_process");
     let out = "";
     try {
