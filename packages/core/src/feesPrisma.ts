@@ -51,6 +51,26 @@ type DataArgs = { data: Record<string, unknown> };
  * (not function properties) keeps parameter checking bivariant, which is what
  * lets the web shim's `LibsqlProxy` and the generated client both satisfy it.
  */
+/**
+ * The most bound parameters one statement may carry.
+ *
+ * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` is 32,766 on modern builds but only
+ * 999 on older ones, and exceeding it is a hard error ("too many SQL
+ * variables"), not a truncation. 500 sits comfortably inside both ceilings, so
+ * a chunked `IN (...)` list works on every SQLite the product can meet.
+ */
+export const MAX_SQL_VARIABLES_PER_STATEMENT = 500;
+
+/** Split a list into chunks of at most `size` entries. */
+export function chunkIds(ids: string[], size: number = MAX_SQL_VARIABLES_PER_STATEMENT): string[][] {
+  if (ids.length === 0) return [];
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    out.push(ids.slice(i, i + size));
+  }
+  return out;
+}
+
 export interface OrmTx {
   setting: {
     findFirst(args?: RowArgs): Promise<Row | null>;
@@ -412,9 +432,14 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
       const creditIds = credits
         .map((c) => (c.id === null || c.id === undefined ? "" : String(c.id)))
         .filter((id) => id.length > 0);
-      if (creditIds.length > 0) {
+      // The `IN (...)` list is CHUNKED. SQLite's SQLITE_MAX_VARIABLE_NUMBER is
+      // 32,766 on modern builds and 999 on older ones, and a statement with
+      // more placeholders than the ceiling fails with "too many SQL variables"
+      // — a 500, not a truncation. A pathological invoice (hundreds of
+      // micro-payments) must not be able to take the whole payment path down.
+      for (const chunk of chunkIds(creditIds, MAX_SQL_VARIABLES_PER_STATEMENT)) {
         const reversals = await tx.ledgerEntry.findMany({
-          where: { tenantId, type: "VOID", voidOfId: { in: creditIds } },
+          where: { tenantId, type: "VOID", voidOfId: { in: chunk } },
         });
         for (const r of reversals) {
           const target = r.voidOfId;

@@ -124,21 +124,33 @@ function paymentsByInvoice(entries: Row[], reversedIds: Set<string>): Map<string
  * to revert on a void.
  *
  * The read is bounded by the candidate credits' own ids, so it cannot grow
- * with the tenant's history.
+ * with the tenant's history — but it is CHUNKED, because "bounded by the
+ * candidates" is not the same as "fits in one statement". SQLite's
+ * `SQLITE_MAX_VARIABLE_NUMBER` is 32,766 on the libsql build this product
+ * ships on (measured, not assumed), and exceeding it is a HARD ERROR ("too
+ * many SQL variables"), not a truncation: the dashboard would 500 on a
+ * long-lived institute with enough open invoices. The chunk size sits well
+ * inside the OLDEST SQLite ceiling too (999), so the same code is safe on
+ * every SQLite the product can meet.
  */
+const MAX_SQL_VARIABLES_PER_STATEMENT = 500;
+
 async function reversedCreditIds(
   orm: { ledgerEntry: { findMany(args: unknown): Promise<Row[]> } },
   creditIds: string[],
 ): Promise<Set<string>> {
   const reversed = new Set<string>();
   if (creditIds.length === 0) return reversed;
-  const reversals = await orm.ledgerEntry.findMany({
-    where: { type: "VOID", voidOfId: { in: creditIds } },
-  });
-  for (const r of reversals) {
-    const target = r.voidOfId;
-    if (target !== null && target !== undefined && String(target).length > 0) {
-      reversed.add(String(target));
+  for (let i = 0; i < creditIds.length; i += MAX_SQL_VARIABLES_PER_STATEMENT) {
+    const chunk = creditIds.slice(i, i + MAX_SQL_VARIABLES_PER_STATEMENT);
+    const reversals = await orm.ledgerEntry.findMany({
+      where: { type: "VOID", voidOfId: { in: chunk } },
+    });
+    for (const r of reversals) {
+      const target = r.voidOfId;
+      if (target !== null && target !== undefined && String(target).length > 0) {
+        reversed.add(String(target));
+      }
     }
   }
   return reversed;
