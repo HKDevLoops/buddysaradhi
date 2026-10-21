@@ -266,6 +266,24 @@ describe("setPinAction: setup + change", () => {
     expect(String(storedRow.pin_proof)).toBe(payload.pin_proof);
     expect(typeof payload.pin_hash).toBe("string");
     expect(String(storedRow.pin_hash)).toBe(payload.pin_hash);
+
+    // AUD-002 (P0) — the replication payload must NEVER carry the PIN itself.
+    //
+    // A `sync_outbox` row is DURABLE, REPLICATED (it is the sync channel's
+    // own queue) and BACKED UP. A plaintext PIN in one is recoverable in
+    // cleartext from the tenant DB, from any backup of it, and from any
+    // replica that drained the outbox — which is exactly what BR-SEC-07
+    // [CRITICAL] forbids ("No plaintext secret ever written to the DB. PIN
+    // stored as `argon2id(pin)`").
+    //
+    // The proof and the hash that DO ride along are derived values, not
+    // secrets: the hash is the prescribed storage form and the proof is an
+    // HMAC under a pepper the client never sees. Neither can be turned back
+    // into the PIN.
+    const raw = String((rows.rows[0] as Record<string, unknown>).payload);
+    expect(raw).not.toContain("135790");
+    expect(Object.keys(payload)).not.toContain("pin");
+    expect(Object.keys(payload).sort()).toEqual(["pin_hash", "pin_proof", "pin_updated_at"]);
   });
 });
 
@@ -297,13 +315,25 @@ describe("setPinAction: sync-apply push (N1 follow-up)", () => {
       Record<string, string>,
     ];
     expect(path).toBe("/api/v1/settings/sync-apply");
-    // The pushed body is byte-identical to the outbox replica row: proof and
-    // hash can never diverge across the sync channel.
-    expect(body).toEqual(await outboxPayload());
+    // The pushed body carries the SAME DERIVED values as the outbox replica
+    // row — proof and hash can never diverge across the sync channel — plus
+    // the PIN itself, which rides the LIVE, TRANSIENT request only.
+    //
+    // AUD-002 (P0): the PIN must never reach the DURABLE outbox row. That row
+    // is replicated and backed up, so a plaintext PIN in it is recoverable in
+    // cleartext from the tenant DB, from any backup of it, and from any
+    // replica that drained the outbox — BR-SEC-07 [CRITICAL] forbids it. The
+    // body is not persisted anywhere: the edge consumes it with one HMAC and
+    // stores only its own derived proof and the argon2id hash.
+    const outbox = await outboxPayload();
+    expect(body.pin_proof).toBe(outbox.pin_proof);
+    expect(body.pin_hash).toBe(outbox.pin_hash);
+    expect(body.pin_updated_at).toBe(outbox.pin_updated_at);
+    expect(Object.keys(outbox)).not.toContain("pin");
     expect(body["pin_proof"]).toBe(await pinProof(TENANT, "135790"));
-    // F-03: the PIN rides the payload so the EDGE derives the proof rather than
-    // believing the caller's. A proof the edge cannot check is the self-issued
-    // erase credential that let two requests destroy a tenant.
+    // F-03: the PIN rides the LIVE payload so the EDGE derives the proof
+    // rather than believing the caller's. A proof the edge cannot check is
+    // the self-issued erase credential that let two requests destroy a tenant.
     expect(body["pin"]).toBe("135790");
     // RFC-004 C1: the route is fail-closed without an Idempotency-Key.
     expect(headers["Idempotency-Key"]).toMatch(UUID_SHAPE);

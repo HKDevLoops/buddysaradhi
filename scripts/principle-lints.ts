@@ -479,8 +479,80 @@ const L8_ALLOW: AllowEntry[] = [
   },
 ];
 
-const RULES: Rule[] = [
-  {
+// L9 — no plaintext PIN in a replication payload (audit AUD-002, P0).
+//
+// BR-SEC-07 [CRITICAL]: "No plaintext secret ever written to the DB. PIN stored
+// as `argon2id(pin)`." A `sync_outbox` row is DURABLE, REPLICATED (it is the
+// sync channel's own queue) and BACKED UP — so a plaintext PIN in one is
+// recoverable in cleartext from the tenant DB, from any backup of it, and from
+// any replica that drained the outbox.
+//
+// The `pin_proof` and `pin_hash` that legitimately ride the same payload are
+// DERIVED values, not secrets: the hash is the prescribed storage form
+// (BR-SEC-07 stores `argon2id(pin)`) and the proof is an HMAC under a pepper
+// the client never sees. Neither can be turned back into the PIN. Only a
+// literal `pin` key carrying the digits is forbidden.
+//
+// The scope is deliberately narrow: a `pin` key inside a `syncOutbox.create`
+// / `sync_outbox` write. A PIN on a transient request body (the live push to
+// the edge, which the edge consumes with one HMAC and never stores) is
+// ALLOWED — that is the F-03 fix and it is not a persistence surface.
+const L9_PREFIXES: string[] = ["apps/web/src/", "apps/gateway/routes/", "apps/gateway/lib/"];
+
+/** A `pin` key at the start of an object-literal line. */
+const L9_PIN_KEY = /^\s*["']?pin["']?\s*:/;
+
+function lintPlaintextPin(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!L9_PREFIXES.some((p: string) => file.startsWith(p))) continue;
+    if (!hasExt(file, CODE_EXTS)) continue;
+    if (/\.test\.tsx?$/.test(file) || /\.spec\.tsx?$/.test(file)) continue;
+    let text: string;
+    try {
+      text = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    const lines = text.split("\n");
+    // Track whether the current line is inside a replication write. The window
+    // is the `syncOutbox.create({ ... })` call and the object literal under it.
+    // A depth counter is used rather than a line window so a payload written
+    // across many lines is still covered, and a `pin` key far away from the
+    // write is not.
+    let inReplicationWrite = false;
+    let depth = 0;
+    lines.forEach((line: string, i: number) => {
+      const code = stripComments(line, path.extname(file), { inBlock: false });
+      if (!code) return;
+      if (!inReplicationWrite) {
+        if (/syncOutbox\.create|sync_outbox/.test(code)) {
+          inReplicationWrite = true;
+          depth = 0;
+        } else {
+          return;
+        }
+      }
+      if (L9_PIN_KEY.test(code)) {
+        findings.push({
+          rule: "L9",
+          file,
+          line: i + 1,
+          msg:
+            "plaintext PIN in a replication payload — BR-SEC-07 [CRITICAL]: a sync_outbox row is durable, replicated and backed up. Send the PIN on the transient request body only; carry `pin_proof` + `pin_hash` (derived values) here.",
+          text: line.trim(),
+        });
+      }
+      // Brace depth inside the write, so the scan ends when the call closes.
+      for (const ch of code) {
+        if (ch === "{" || ch === "(" || ch === "[") depth += 1;
+        else if (ch === "}" || ch === ")" || ch === "]") depth -= 1;
+      }
+      if (depth <= 0) inReplicationWrite = false;
+    });
+  }
+}
+
+const RULES: Rule[] = [  {
     id: "L1",
     name: "no-ledger-mutation",
     spec: "AGENTS.md §2 Rule 1 · 12_Business_Rules.md BR-LED-01 · 10_Security.md §9",
@@ -552,6 +624,16 @@ const RULES: Rule[] = [
     patterns: [], // arg-count scan handled by lintTenantBinding
     allow: L8_ALLOW,
     extra: lintTenantBinding,
+  },
+  {
+    id: "L9",
+    name: "no-plaintext-pin-in-replication",
+    spec: "AGENTS.md §2 Rule 7 · 12_Business_Rules.md BR-SEC-07 [CRITICAL] · 10_Security.md §3.4",
+    exts: CODE_EXTS,
+    prefixes: L9_PREFIXES,
+    patterns: [], // key scan handled by lintPlaintextPin
+    allow: [],
+    extra: lintPlaintextPin,
   },
 ];
 

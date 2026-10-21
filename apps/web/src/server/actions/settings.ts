@@ -1318,21 +1318,36 @@ export async function setPinAction(newPin: string, currentPin?: string) {
           // argon2 at the edge), never returned, never logged. Applied at
           // `apps/gateway/routes/settings.ts` POST /api/v1/settings/sync-apply.
           //
-          // F-03: `pin` rides along so the EDGE can re-derive the proof and
-          // check the one above is genuine. Without it the edge stored the
-          // caller's word, which made the erase credential self-issued: any
-          // authenticated session could post a constant 64-hex proof and offer
-          // the same constant at erase, and the constant-time comparison passed
-          // because the caller chose both sides. The PIN is write-only here —
-          // consumed by one HMAC at the edge, never stored, never logged, never
-          // echoed — and BR-SEC-07 is preserved because what crosses the wire
-          // remains the proof; the PIN rides only inside this already
-          // authenticated, already-audited replica payload.
+          // AUD-002 (P0) — WHAT IS **NOT** IN THIS PAYLOAD: the PIN itself.
+          //
+          // It used to be here (`pin: newPin`), and the comment above claimed
+          // the opposite ("the PIN is write-only here — consumed by one HMAC at
+          // the edge, never stored"). Both halves were false: this row is
+          // DURABLE, REPLICATED (it is the sync channel's own queue) and
+          // BACKED UP, so a plaintext PIN here was recoverable in cleartext
+          // from the tenant DB, from any backup of it, and from any replica
+          // that drained the outbox. BR-SEC-07 [CRITICAL] — "No plaintext
+          // secret ever written to the DB" — was violated by the very code
+          // that fixed F-03.
+          //
+          // The proof and the argon2id hash are DERIVED values, not secrets:
+          // the hash is the prescribed storage form (BR-SEC-07 stores
+          // `argon2id(pin)`) and the proof is an HMAC under a pepper the client
+          // never sees. Neither is the PIN, and neither can be turned back
+          // into it. The PIN rides ONLY the live, transient push below —
+          // write-only, consumed by one HMAC at the edge, never stored there.
+          //
+          // The cost, stated plainly: a PIN change can no longer be replayed
+          // from the outbox to an edge that missed the live push. That is a
+          // DEGRADED-BUT-SAFE direction — the edge's erase gate fails CLOSED
+          // (its stored proof is stale) until the PIN is set again, and the
+          // tutor is told the push failed (`pin.sync_push_failed`). Replicating
+          // the PIN instead would trade a [CRITICAL] rule violation for a
+          // convenience, which is the wrong trade.
           payload: JSON.stringify({
             pin_updated_at: now,
             pin_proof: newProof,
             pin_hash: newHash,
-            pin: newPin,
           }),
           createdAt: now,
         },
@@ -1369,10 +1384,18 @@ export async function setPinAction(newPin: string, currentPin?: string) {
     try {
       const pushRes = await gatewayPost<unknown>(
         "/api/v1/settings/sync-apply",
-        // F-03: `pin` rides here too, matching the outbox row byte-for-byte
-      // (asserted by settings-pin.test.ts). The edge DERIVES the proof from it
-      // and stores its own value; without it the stored credential would be
-      // self-issued. Write-only, never logged, never persisted.
+        // F-03: `pin` rides HERE — on the live, transient push only — so the
+      // EDGE can re-derive the proof and check the one offered is genuine.
+      // Without it the edge stored the caller's word, which made the erase
+      // credential self-issued: any authenticated session could post a
+      // constant 64-hex proof and offer the same constant at erase, and the
+      // constant-time comparison passed because the caller chose both sides.
+      //
+      // AUD-002 (P0): this body is NOT persisted anywhere — it is a request
+      // body, consumed by one HMAC at the edge, which stores only its own
+      // derived `expectedProof` and the argon2id hash. The PIN does NOT ride
+      // the outbox row (the durable, replicated, backed-up one) — see the
+      // comment on that payload.
       { pin_proof: newProof, pin_hash: newHash, pin_updated_at: now, pin: newPin },
         { "Idempotency-Key": crypto.randomUUID() },
       );
