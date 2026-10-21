@@ -24,22 +24,52 @@
 //     3.3x stronger in the open canvas, and every measured text ratio on the
 //     panel is identical to the 6 % baseline, because the panel still sees the
 //     same aurora it saw before.
+//   · The MATERIAL MODES' overlay had the same hole and the same cure. The
+//     overlay is 15 % (Acrylic) / 34 % (Liquid Glass) opaque, so it composited
+//     straight over the 20 % aurora: `--text-primary` measured 8.38:1 on
+//     `honey-opal` against its 10:1 floor. It now carries the same base, so
+//     the floating chrome and the panels read the SAME backdrop.
 //   · `.neumo-raised` was `border-radius: var(--radius-full)`: every neumorphic
 //     control in the app was a pill.
 //
-// Four negative controls live inside this file: the old `#FFFFFF` badge label,
-// the old white veil, the old 10 %-aurora with no base, and the SHIPPED aurora
-// with the legibility base removed. All four are measured and asserted to FAIL,
-// so the test cannot pass by accident if the tokens change underneath it.
+// Five negative controls live inside this file: the old `#FFFFFF` badge label,
+// the old white veil, the old 10 %-aurora with no base, the SHIPPED aurora
+// with the legibility base removed, and the overlay with its base removed. All
+// five are measured and asserted to FAIL, so the test cannot pass by accident
+// if the tokens change underneath it.
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SCHEMES, buildPalette, contrastRatio, hexToRgb, type PaletteTokens } from "@buddysaradhi/design-system";
+import {
+  MATERIALS,
+  OVERLAY_LEGIBILITY_BASE,
+  SCHEMES,
+  TEXT_TARGETS,
+  buildMaterial,
+  buildPalette,
+  compositeOverBase,
+  contrastRatio,
+  hexToRgb,
+  rgbToHex,
+  type MaterialId,
+  type PaletteTokens,
+} from "@buddysaradhi/design-system";
 
 /** Vitest runs with the app directory as its working directory. */
 const globalsCssPath = join(process.cwd(), "src", "app", "globals.css");
 const globalsCss = readFileSync(globalsCssPath, "utf8");
+
+/**
+ * The design system's SHIPPED CSS, resolved through the package's own export
+ * map. The overlay lives in that file, not in the app's stylesheet, so the
+ * harness has to read the token the app actually paints - not a model of it.
+ */
+const designSystemCss = readFileSync(
+  createRequire(import.meta.url).resolve("@buddysaradhi/design-system/tokens.css"),
+  "utf8",
+);
 
 /* ------------------------------------------------------------------ *
  * CSS reading — small, deliberately literal
@@ -117,9 +147,9 @@ type SolvedSurface = (typeof SOLVED_SURFACES)[number];
 
 /** The role a palette solves, and the floor it was solved for (§2.1). */
 const TEXT_ROLES = [
-  { token: "textPrimary", floor: 10 },
-  { token: "textSecondary", floor: 7 },
-  { token: "textMuted", floor: 4.5 },
+  { token: "textPrimary", floor: TEXT_TARGETS.primary },
+  { token: "textSecondary", floor: TEXT_TARGETS.secondary },
+  { token: "textMuted", floor: TEXT_TARGETS.muted },
 ] as const;
 
 /* ------------------------------------------------------------------ *
@@ -316,6 +346,50 @@ function auroraStops(theme: "dark" | "light"): AuroraStop[] {
   }));
 }
 
+/**
+ * The distance from an aurora stop to the farthest corner of the viewport —
+ * the radius the browser's `transparent 42%` falloff is measured against.
+ */
+function farthestCorner(x: number, y: number, aspect: number): number {
+  const width = aspect;
+  const height = 1;
+  let farthest = 0;
+  for (const [cx, cy] of [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ]) {
+    const distance = Math.hypot(cx - x * width, cy - y * height);
+    if (distance > farthest) farthest = distance;
+  }
+  return farthest;
+}
+
+/** The backdrop the browser paints at one point of the viewport. */
+function paintedBackdrop(
+  stops: AuroraStop[],
+  tokens: PaletteTokens,
+  x: number,
+  y: number,
+  aspect: number,
+): string {
+  let colour = tokens.canvas;
+  // The stops are listed top-first; the browser composites bottom-up.
+  for (let index = stops.length - 1; index >= 0; index -= 1) {
+    const stop = stops[index];
+    if (stop === undefined) continue;
+    const ray = farthestCorner(stop.x, stop.y, aspect);
+    const distance = Math.hypot((x - stop.x) * aspect, y - stop.y);
+    const reach = stop.radius * ray;
+    if (distance >= reach) continue;
+    const hex = paletteToken(tokens, stop.token);
+    if (hex === undefined) continue;
+    colour = over(hex, colour, stop.alpha * (1 - distance / reach));
+  }
+  return colour;
+}
+
 /** The base every tier composites over: the role, and the strength. */
 function legibilityBase(): { token: string; alpha: number } {
   const declared = (rule(":root")["--glass-legibility-base"] ?? "").trim();
@@ -461,46 +535,6 @@ describe("the aurora is strong enough to read as a glow, and the model is faithf
    * optimistic: the worst pixel the browser can produce is never worse than the
    * single stop the model measures.
    */
-  function farthestCorner(x: number, y: number, aspect: number): number {
-    const width = aspect;
-    const height = 1;
-    let farthest = 0;
-    for (const [cx, cy] of [
-      [0, 0],
-      [width, 0],
-      [0, height],
-      [width, height],
-    ]) {
-      const distance = Math.hypot(cx - x * width, cy - y * height);
-      if (distance > farthest) farthest = distance;
-    }
-    return farthest;
-  }
-
-  /** The backdrop the browser paints at one point of the viewport. */
-  function paintedBackdrop(
-    stops: AuroraStop[],
-    tokens: PaletteTokens,
-    x: number,
-    y: number,
-    aspect: number,
-  ): string {
-    let colour = tokens.canvas;
-    // The stops are listed top-first; the browser composites bottom-up.
-    for (let index = stops.length - 1; index >= 0; index -= 1) {
-      const stop = stops[index];
-      if (stop === undefined) continue;
-      const ray = farthestCorner(stop.x, stop.y, aspect);
-      const distance = Math.hypot((x - stop.x) * aspect, y - stop.y);
-      const reach = stop.radius * ray;
-      if (distance >= reach) continue;
-      const hex = paletteToken(tokens, stop.token);
-      if (hex === undefined) continue;
-      colour = over(hex, colour, stop.alpha * (1 - distance / reach));
-    }
-    return colour;
-  }
-
   it.each(["dark", "light"] as const)("the %s aurora is not dialled back to a tint", (theme) => {
     for (const stop of auroraStops(theme)) {
       expect(stop.alpha, `${theme} · ${stop.token}`).toBeGreaterThanOrEqual(0.15);
@@ -556,6 +590,248 @@ describe("the aurora is strong enough to read as a glow, and the model is faithf
       expect(painted.margin, painted.where).toBeGreaterThanOrEqual(model.margin - 0.05);
     },
   );
+});
+
+/* ------------------------------------------------------------------ *
+ * 4.9 — the material modes' translucent overlay
+ *
+ * The glass tiers got a legibility base; the material modes' overlay did
+ * not. `GlassCard variant="strong"` paints `var(--surface-overlay)`, which
+ * in Acrylic is 15 % opaque and in Liquid Glass 34 %, so it composited
+ * straight over the 20 % aurora: `--text-primary` measured 8.38 : 1 on
+ * `honey-opal` against its 10 : 1 floor. The overlay now composites over
+ * the SAME base the tiers use, so the floating chrome and the panels read
+ * the same backdrop — the overlay's floor is the tiers' floor, because
+ * `surfaceOverlaySolid` IS `surfaceRaised`, the surface the roles were
+ * solved against.
+ * ------------------------------------------------------------------ */
+
+const MATERIAL_IDS = ["minimal", "acrylic", "liquid-glass"] as const;
+
+/** A painted colour: the hex and the alpha it is mixed at. */
+interface Painted {
+  hex: string;
+  alpha: number;
+}
+
+/** The value of a material role, read out of the design system's CSS. */
+function shippedMaterialValue(paletteId: string, mode: MaterialId, role: string): string {
+  const marker = `[data-palette="${paletteId}"][data-material="${mode}"] {`;
+  const start = designSystemCss.indexOf(marker);
+  if (start === -1) throw new Error(`MATERIAL_BLOCK_NOT_FOUND: ${paletteId} · ${mode}`);
+  const open = designSystemCss.indexOf("{", start);
+  const end = designSystemCss.indexOf("}", open);
+  const match = new RegExp(`--${role}:\\s*([^;]+);`).exec(designSystemCss.slice(open + 1, end));
+  const value = match?.[1]?.trim();
+  if (value === undefined) {
+    throw new Error(`MATERIAL_ROLE_NOT_FOUND: ${role} · ${paletteId} · ${mode}`);
+  }
+  return value;
+}
+
+/** A shipped colour token: `rgb(r g b / a)` or a plain hex. */
+function parseColourToken(value: string): Painted {
+  if (value.startsWith("#")) return { hex: value.toUpperCase(), alpha: 1 };
+  const match = /^rgb\(\s*(\d+)\s+(\d+)\s+(\d+)\s*\/\s*([\d.]+)\s*\)$/.exec(value);
+  if (match === null) throw new Error(`UNREADABLE_COLOUR_TOKEN: ${value}`);
+  const hex = (v: string): string => Number(v).toString(16).padStart(2, "0").toUpperCase();
+  return {
+    hex: `#${hex(match[1] ?? "0")}${hex(match[2] ?? "0")}${hex(match[3] ?? "0")}`,
+    alpha: Number(match[4] ?? 1),
+  };
+}
+
+/**
+ * The overlay as the design system builds it: the material's tint over the
+ * legibility base. `baseAlpha` of 0 removes the base — the negative control.
+ */
+function overlayModel(
+  tokens: PaletteTokens,
+  mode: MaterialId,
+  baseAlpha: number,
+): Painted {
+  const tintAlpha = Number(MATERIALS[mode].overlayAlpha);
+  const composite = compositeOverBase(
+    tokens.surfaceOverlaySolid,
+    tokens.canvas,
+    tintAlpha,
+    baseAlpha,
+  );
+  return { hex: rgbToHex(composite.rgb), alpha: composite.alpha };
+}
+
+/** The worst text role over the overlay, over every palette and every pixel. */
+function worstOnOverlay(opts: {
+  theme: "dark" | "light";
+  stops: AuroraStop[];
+  mode: MaterialId;
+  baseAlpha: number;
+  geometry: boolean;
+}): Measurement {
+  const worst: Measurement = { ...NO_MEASUREMENT };
+  for (const scheme of SCHEMES) {
+    if (scheme.tier !== opts.theme) continue;
+    const tokens = buildPalette(scheme).tokens;
+    const overlay = overlayModel(tokens, opts.mode, opts.baseAlpha);
+    const backdrops: string[] = [];
+    if (opts.geometry) {
+      for (const aspect of [16 / 9, 4 / 3, 3 / 4]) {
+        for (let gx = 0; gx <= 16; gx += 1) {
+          for (let gy = 0; gy <= 10; gy += 1) {
+            backdrops.push(paintedBackdrop(opts.stops, tokens, gx / 16, gy / 10, aspect));
+          }
+        }
+      }
+    } else {
+      for (const stop of opts.stops) {
+        const stopHex = paletteToken(tokens, stop.token);
+        if (stopHex === undefined) continue;
+        backdrops.push(over(stopHex, tokens.canvas, stop.alpha));
+      }
+    }
+    for (const backdrop of backdrops) {
+      const composite = over(overlay.hex, backdrop, overlay.alpha);
+      for (const role of TEXT_ROLES) {
+        const colour = tokens[role.token];
+        const required = Math.min(
+          ...SOLVED_SURFACES.map((surface) => ratio(colour, tokens[surface as SolvedSurface])),
+        );
+        const needed = Math.min(required, role.floor);
+        const measured = ratio(colour, composite);
+        if (measured - needed < worst.margin) {
+          worst.role = role.token;
+          worst.margin = measured - needed;
+          worst.measured = measured;
+          worst.required = needed;
+          worst.where = `${scheme.id} · ${role.token}`;
+        }
+      }
+    }
+  }
+  return worst;
+}
+
+describe("the material modes' translucent overlay holds the same floors the panels do", () => {
+  it.each(MATERIAL_IDS)("ships the %s overlay as the design system builds it", (mode) => {
+    for (const scheme of SCHEMES) {
+      const tokens = buildPalette(scheme).tokens;
+      const shipped = shippedMaterialValue(scheme.id, mode, "surface-overlay");
+      const model = buildMaterial(buildPalette(scheme), MATERIALS[mode])["surface-overlay"];
+      expect(shipped, `${scheme.id} · ${mode}`).toBe(model);
+      if (mode === "minimal") {
+        // Minimal is opaque: the base would be invisible under it.
+        expect(shipped, `${scheme.id} · ${mode}`).toBe(tokens.surfaceOverlaySolid);
+      }
+    }
+  });
+
+  it.each(MATERIAL_IDS)("the %s overlay carries the legibility base", (mode) => {
+    const tintAlpha = Number(MATERIALS[mode].overlayAlpha);
+    if (tintAlpha >= 1) return; // Minimal is opaque; a base would be invisible.
+    for (const scheme of SCHEMES) {
+      const tokens = buildPalette(scheme).tokens;
+      const shipped = parseColourToken(shippedMaterialValue(scheme.id, mode, "surface-overlay"));
+      const expected = tintAlpha + (1 - tintAlpha) * OVERLAY_LEGIBILITY_BASE;
+      expect(shipped.alpha, `${scheme.id} · ${mode}`).toBeCloseTo(expected, 3);
+    }
+  });
+
+  it.each(MATERIAL_IDS)(
+    "every text role over the %s overlay holds its floor",
+    (mode) => {
+      for (const theme of ["dark", "light"] as const) {
+        const worst = worstOnOverlay({
+          theme,
+          stops: auroraStops(theme),
+          mode,
+          baseAlpha: OVERLAY_LEGIBILITY_BASE,
+          geometry: false,
+        });
+        expect(
+          worst.margin,
+          `${theme} · ${mode} · ${worst.role} over ${worst.where} (${worst.measured.toFixed(2)} / ${worst.required.toFixed(1)})`,
+        ).toBeGreaterThanOrEqual(-0.02);
+      }
+    },
+  );
+
+  it.each(MATERIAL_IDS)(
+    "the painted geometry never paints a worse overlay than the model measures",
+    (mode) => {
+      for (const theme of ["dark", "light"] as const) {
+        const stops = auroraStops(theme);
+        const model = worstOnOverlay({
+          theme,
+          stops,
+          mode,
+          baseAlpha: OVERLAY_LEGIBILITY_BASE,
+          geometry: false,
+        });
+        const painted: Measurement = { ...NO_MEASUREMENT };
+        for (const aspect of [16 / 9, 4 / 3, 3 / 4]) {
+          for (const scheme of SCHEMES) {
+            if (scheme.tier !== theme) continue;
+            const tokens = buildPalette(scheme).tokens;
+            const overlay = overlayModel(tokens, mode, OVERLAY_LEGIBILITY_BASE);
+            for (let gx = 0; gx <= 16; gx += 1) {
+              for (let gy = 0; gy <= 10; gy += 1) {
+                const backdrop = paintedBackdrop(stops, tokens, gx / 16, gy / 10, aspect);
+                const composite = over(overlay.hex, backdrop, overlay.alpha);
+                for (const role of TEXT_ROLES) {
+                  const colour = tokens[role.token];
+                  const required = Math.min(
+                    ...SOLVED_SURFACES.map((surface) =>
+                      ratio(colour, tokens[surface as SolvedSurface]),
+                    ),
+                  );
+                  const needed = Math.min(required, role.floor);
+                  const measured = ratio(colour, composite);
+                  if (measured - needed < painted.margin) {
+                    painted.role = role.token;
+                    painted.margin = measured - needed;
+                    painted.measured = measured;
+                    painted.required = needed;
+                    painted.where = `${scheme.id} · ${role.token} at (${gx}/16, ${gy}/10) aspect ${aspect.toFixed(2)}`;
+                  }
+                }
+              }
+            }
+          }
+        }
+        expect(painted.margin, painted.where).toBeGreaterThanOrEqual(-0.02);
+        expect(painted.margin, painted.where).toBeGreaterThanOrEqual(model.margin - 0.05);
+      }
+    },
+  );
+
+  it("NEGATIVE CONTROL: the overlay with the legibility base REMOVED does NOT hold the floor", () => {
+    // Break the change on purpose: the overlay is 15 % (Acrylic) / 34 %
+    // (Liquid Glass) opaque, so without the base it composites straight over
+    // the 20 % aurora and the text loses its floor.
+    for (const mode of ["acrylic", "liquid-glass"] as const) {
+      const worst = worstOnOverlay({
+        theme: "dark",
+        stops: auroraStops("dark"),
+        mode,
+        baseAlpha: 0,
+        geometry: false,
+      });
+      expect(worst.margin, `${mode} · ${worst.role} over ${worst.where}`).toBeLessThan(0);
+    }
+  });
+
+  it("NEGATIVE CONTROL: the OLD 10 % aurora with no base does NOT hold the floor", () => {
+    // The configuration the strong aurora replaced, on the overlay.
+    const stops = auroraStops("dark").map((stop) => ({ ...stop, alpha: 0.1 }));
+    const worst = worstOnOverlay({
+      theme: "dark",
+      stops,
+      mode: "acrylic",
+      baseAlpha: 0,
+      geometry: false,
+    });
+    expect(worst.margin).toBeLessThan(0);
+  });
 });
 
 /* ------------------------------------------------------------------ *
