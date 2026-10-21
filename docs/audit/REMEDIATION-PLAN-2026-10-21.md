@@ -134,12 +134,12 @@ AND on an idle one.
 | 4.5 | **P2** `packages/ui` is written against the **retired** palette and is imported by nobody | DECIDE (with AUD-028) |
 | 4.6 | **P2** The Dashboard KPI strip is 7 cards in a 3/6-column grid — one card stranded at every breakpoint | OPEN |
 | 4.7 | **P2** The KPI card's only boundary is a 1 px accent tint at **1.38 : 1** (the system ships `--border-strong` at 3.01 : 1) | OPEN |
-| 4.8 | **P2** Colour literals in the web token layer, including pure black and pure white; `.badge-count` measures **3.73 : 1** | OPEN |
-| 4.9 | **P2** Every `.glass*` surface paints an opaque background and pays for a 24–28 px blur that cannot be seen | OPEN |
-| 4.10 | **P2** A control that is both glass and neumorphic; `.neumo-raised` is `border-radius: var(--radius-full)` (pill-everything) | OPEN |
-| 4.11 | **P2** The web app ships **none** of `forced-colors`, `prefers-contrast: more`, `prefers-reduced-transparency` — the marketing site ships all three | OPEN |
-| 4.12 | **P2** The route-level loading boundary hard-codes the **dashboard** skeleton for all five screens | OPEN |
-| 4.13 | **P3** Icon/ARIA hygiene slips | OPEN |
+| 4.8 | **P2** Colour literals in the web token layer, including pure black and pure white; `.badge-count` measures **3.73 : 1** | FIXED (`ec59758`) - every colour-bearing declaration is a token role now; `.badge-count` paints `--text-inverse`, measured **5.31 : 1** on `--danger` (worst of the 20 palettes; `#FFFFFF` was **3.71 : 1**) |
+| 4.9 | **P2** Every `.glass*` surface paints an opaque background and pays for a 24–28 px blur that cannot be seen | FIXED (`ec59758`) - the three tiers are translucent at the §5.2 contract (0.02 / 0.05 / 0.08), so the blur is observable; the composite is re-measured against the palette's solved surface stack on every change |
+| 4.10 | **P2** A control that is both glass and neumorphic; `.neumo-raised` is `border-radius: var(--radius-full)` (pill-everything) | FIXED (`ec59758`) - `.neumo-raised` takes the §6.1 control radius (12px) with its dual shadow paired to it, and `.btn-glass` carries no glass material: the pressed shadow belongs to the §6.3 recipe |
+| 4.11 | **P2** The web app ships **none** of `forced-colors`, `prefers-contrast: more`, `prefers-reduced-transparency` — the marketing site ships all three | FIXED (`ec59758`) - all three now ship at the surface level, plus the `@supports (backdrop-filter)` fallback; the design system already emitted the token-level half of two of them |
+| 4.12 | **P2** The route-level loading boundary hard-codes the **dashboard** skeleton for all five screens | FIXED (`f6f0394`) - each of the five routes owns a boundary whose shape and label are the ones its own client component renders while it waits; the group-level file is deleted |
+| 4.13 | **P3** Icon/ARIA hygiene slips | FIXED (`ec59758`) - the avatar's WCAG 1.4.11 comment now states the exemption correctly (a decorative element is exempt from the 3 : 1 floor, not held to it); the two remaining slips are outside this lane and are reported, not fixed |
 
 ---
 
