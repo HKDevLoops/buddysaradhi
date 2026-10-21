@@ -48,9 +48,11 @@ import { computeInvoiceTamperHash } from "../lib/vendor/tamper.ts";
 // drift failing ledger-payment-convergence.test.ts (AGENTS.md §3.5).
 import {
   recordPaymentFlow,
+  revertInvoiceStatusFlow,
   ADVANCE_APPLIED_TAG,
   ADVANCE_TAG,
   type FeeTx,
+  type InvoiceStatusTx,
 } from "../lib/vendor/feesFlow.ts";
 
 // AGENTS.md §6.1 (Zod for all input validation) + Rule 6
@@ -394,7 +396,12 @@ async function liveCreditPaise(
 // Exported for ledger-payment-convergence.test.ts: the test runs THIS factory
 // (not a re-implementation) against the vendored flow, so convergence is
 // asserted on the shipping adapter rather than a test double of it.
-export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
+//
+// The factory satisfies BOTH ports: `FeeTx` (the payment flow) and
+// `InvoiceStatusTx` (the void path's invoice-status revert, EC-F-05) — the
+// two share `creditedForInvoice` and `setInvoiceStatus`, and the void path
+// adds one operation, `invoiceTotal`.
+export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx & InvoiceStatusTx {
   const txOrm = createPrismaOrm(tx, tenantId);
   return {
     async requireStudent(_tid, studentId) {
@@ -577,6 +584,25 @@ export function gatewayFeeTx(tx: SqlHandle, tenantId: string): FeeTx {
       // audited builder for one aggregate.
       // Non-async deliberately (deno require-await): returning the promise.
       return liveCreditPaise(txOrm, invoiceId, null);
+    },
+
+    async invoiceTotal(_tid, invoiceId) {
+      // The invoice's own total, for the void path's status recompute
+      // (EC-F-05). A row read, not a money decision: the DECISION — what the
+      // status IS — lives in core (`invoiceStatusFor`, the vendored flow).
+      // Null when the invoice does not exist, so the caller can leave the
+      // status alone instead of writing a status for a row that is not there.
+      const row = await txOrm.invoice.findFirst({ where: { id: invoiceId } });
+      if (!row) return null;
+      const total = Number(row.total);
+      if (!Number.isSafeInteger(total)) {
+        // Rule 6 / BR-M-01 — a corrupt money column aborts fail-closed
+        // instead of becoming a status.
+        throw new Error(
+          `invoices.total is not integer paise for invoice ${invoiceId} (BR-M-01)`,
+        );
+      }
+      return total;
     },
 
     async advanceBalance(_tid, studentId) {
@@ -1410,6 +1436,16 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
           data: {
             id: voidEntryId,
             studentId: entry.studentId,
+            // The invoice the reversed row belonged to, carried onto the
+            // reversing row exactly as core's `postVoid` does
+            // (packages/core/src/ledger.ts `voidLedgerFlow`): the invoice's
+            // ledger rows then show the reversal, and the two dialects write
+            // the same row. A VOID row is excluded from every credited sum
+            // (`type <> 'VOID'`), so carrying it changes no figure.
+            invoiceId:
+              typeof entry.invoiceId === "string" && entry.invoiceId.length > 0
+                ? entry.invoiceId
+                : null,
             type: "VOID",
             debitPaise: debit,
             creditPaise: credit,
@@ -1466,6 +1502,30 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
               }).payload,
             );
           }
+        }
+
+        // EC-F-05 — the invoice's status is recomputed from what is STILL
+        // credited, in the SAME transaction as the reversing row.
+        //
+        // This write was MISSING: the receipt was stamped `voided_at` and the
+        // balance restored, but `invoices.status` still read `paid`. So the
+        // tutor's screen said the invoice was settled while nothing was
+        // credited against it — and the NEXT payment could not settle it,
+        // because the payment flow only offers the OPEN invoices
+        // (`unpaid|partial|overdue`, §9.5): the money was swallowed as an
+        // advance instead.
+        //
+        // The DECISION lives in core (`revertInvoiceStatusFlow` in the
+        // vendored `feesFlow.ts`, the same rule as the payment path's
+        // `invoiceStatusFor`), and this route supplies only the row-level
+        // operations through the port — so the gateway and the web cannot
+        // disagree about what a voided invoice reads (AGENTS.md §3.5).
+        if (typeof entry.invoiceId === "string" && entry.invoiceId.length > 0) {
+          await revertInvoiceStatusFlow(gatewayFeeTx(tx, tenantId), {
+            tenantId,
+            invoiceId: entry.invoiceId,
+            now: createdAt,
+          });
         }
 
         await recordOutbox(
