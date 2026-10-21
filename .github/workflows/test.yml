@@ -46,6 +46,16 @@ jobs:
         run: bun install --frozen-lockfile
         timeout-minutes: 5
 
+      # The root `typecheck` chain now includes the gateway's real
+      # `deno check --config deno.json index.ts` (audit AUD-020/AUD-021 — the
+      # gateway's own lint/typecheck scripts used to be `echo` stubs that
+      # linted nothing and always exited 0). Deno must therefore be on PATH
+      # before the Typecheck step below.
+      - name: Setup Deno (for the gateway typecheck)
+        uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d  # v1
+        with:
+          deno-version: v2.x
+
       - name: Typecheck
         run: bun run typecheck
         timeout-minutes: 5

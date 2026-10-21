@@ -7,6 +7,7 @@
     "build": "tsc",
     "dev": "tsc -w",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "generate:sdk": "openapi -i ../../contracts/openapi.yaml -o ./sdk -c fetch --name BuddysaradhiSDK",
     "generate:zod": "openapi-zod-client ../../contracts/openapi.yaml -o ./zod/index.ts",
     "generate": "bun run generate:sdk && bun run generate:zod"

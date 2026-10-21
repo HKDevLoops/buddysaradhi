@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "deno run --config deno.json --allow-net --allow-env --allow-read index.ts",
     "start": "deno run --config deno.json --allow-net --allow-env --allow-read index.ts",
-    "lint": "echo 'Deno lint — run via: deno lint apps/gateway/'",
-    "typecheck": "echo 'Deno check — run via: deno check apps/gateway/index.ts'",
+    "lint": "deno lint --config deno.json .",
+    "typecheck": "deno check --config deno.json index.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest watch --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"

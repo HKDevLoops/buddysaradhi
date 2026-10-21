@@ -35,7 +35,7 @@
     "lint:oxlint:fix": "oxlint --config oxlint.json --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "bun --filter @buddysaradhi/design-system build && bun --filter web typecheck && bun --filter @buddysaradhi/core typecheck",
+    "typecheck": "bun --filter @buddysaradhi/design-system build && bun --filter web typecheck && bun --filter @buddysaradhi/core typecheck && bun --filter @buddysaradhi/shared typecheck && bun --filter @buddysaradhi/security typecheck && bun --filter product-page typecheck && bun --filter @buddysaradhi/gateway typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "test:a11y": "bun --filter web test:a11y",
