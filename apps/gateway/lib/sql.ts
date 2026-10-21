@@ -90,13 +90,74 @@ function isInteractiveTransaction(db: SqlHandle): boolean {
   );
 }
 
+/**
+ * Budget for ONE statement against the tenant database (GW-10).
+ *
+ * WHY A BUDGET. The tenant database's location is caller-supplied
+ * (`x-db-url`), so a host that accepts the connection and then never answers
+ * held the request open until the platform's own limit — the audit measured a
+ * dial to an unreachable host that never returned. `@libsql/client`'s only
+ * timeout option is documented as a busy timeout for LOCAL `file:` databases
+ * ("remote clients ignore it"), so there is no client-side knob to turn: the
+ * bound has to live in the gateway's own statement layer.
+ *
+ * 8 s matches the budget `batchExecute` already applies to the schema heal's
+ * pipeline POST, and it sits inside the web client's own 12 s abort, so a
+ * refused statement still answers before the caller gives up.
+ */
+export const STATEMENT_TIMEOUT_MS = 8000;
+
+/**
+ * Typed error for a statement that did not answer inside the budget.
+ *
+ * The message carries a dispatch code so the server-side log is greppable
+ * (10_Security.md §8). It says what happened and nothing about the database,
+ * the tenant or the statement's values.
+ */
+export class StatementTimeoutError extends Error {
+  readonly timeoutMs: number;
+  constructor(timeoutMs: number) {
+    super(
+      `TENANT_DB_TIMEOUT: the tenant database did not answer a statement within ${timeoutMs}ms`,
+    );
+    this.name = "StatementTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * Stop WAITING for a statement that outruns its budget.
+ *
+ * WHAT THIS DOES AND DOES NOT DO. The request stops waiting and the caller
+ * gets a typed error; the statement itself is NOT cancelled — the database may
+ * still be executing it, and the abandoned promise settles later. That is the
+ * honest limit of a bound placed above the driver: the gateway can refuse to
+ * hang, it cannot un-send a statement.
+ *
+ * The abandoned promise keeps a rejection handler attached (Promise.race
+ * subscribes to it), so a late failure is not an unhandled rejection.
+ */
+function withStatementBudget<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new StatementTimeoutError(timeoutMs)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([work, budget]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 export async function run(
   db: SqlHandle,
   sql: string,
-  args: unknown[] = []
+  args: unknown[] = [],
+  timeoutMs: number = STATEMENT_TIMEOUT_MS,
 ): Promise<{ rows: Record<string, unknown>[]; rowsAffected?: number }> {
   try {
-    const res = await db.execute({ sql, args });
+    const res = await withStatementBudget(db.execute({ sql, args }), timeoutMs);
     return { rows: res.rows ?? [], rowsAffected: res.rowsAffected };
   } catch (err) {
     if (isInteractiveTransaction(db)) {
