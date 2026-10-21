@@ -77,6 +77,16 @@ jobs:
         run: cd apps/web && bunx vitest run
         timeout-minutes: 5
 
+      # The perf gates are the only tests whose result depends on how fast the
+      # machine is, so they run in a LANE OF THEIR OWN: one worker, nothing
+      # else competing for the CPU they are timing. They are excluded from the
+      # parallel suites (the root, integration and gateway configs) for exactly
+      # that reason - a perf measurement taken while fifty other files burn the
+      # CPU is not a measurement of anything.
+      - name: Perf gates (own serial lane)
+        run: bunx vitest run --config apps/gateway/vitest.perf.config.ts
+        timeout-minutes: 5
+
       # Product-page node:test suites (admin access-requests + engine) run
       # outside vitest by design — root vitest.config.ts excludes them.
       - name: Product-page contract tests (node:test)
