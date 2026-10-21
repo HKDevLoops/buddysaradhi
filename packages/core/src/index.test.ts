@@ -20,6 +20,7 @@ describe("package barrel (./index)", () => {
     "LEDGER_ENTRY_TYPES",
     // ledgerSql.ts (libsql dialect)
     "postLedgerEntrySql",
+    "voidEntrySql",
     "withWriteTx",
     "requireTenantSecretTx",
     // fees.ts (atomic invoice + payment flows)
