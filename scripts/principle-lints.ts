@@ -573,6 +573,179 @@ function lintPlaintextPin(findings: Finding[]): void {
 const L10_MANIFEST_FILES: string[] = ["package.json", "deno.json", "deno.jsonc"];
 const L10_ALLOW: AllowEntry[] = [];
 
+// L12 — the 13_UI_Guidelines.md 20.3 consistency contract, as a machine gate.
+//
+// THE DEFECT THIS REPLACES: section 20 used to mandate a `pro-*` layer that
+// was never built, so the "consistency contract" pointed at classes that did
+// not exist and nothing could enforce it. Section 20 was amended (2026-10-21)
+// to describe the vocabulary that actually ships, and this rule enforces it.
+//
+// A rule row is: the pattern, the class (or component) that must be present,
+// and the class combination that signals a hand-rolled wrapper. The wrapper is
+// forbidden UNLESS the required class is present — so the sanctioned class
+// L13 - the 13_UI_Guidelines.md 20.3 consistency contract, as a machine gate.
+//
+// THE DEFECT THIS REPLACES: section 20 used to mandate a `pro-*` layer that
+// was never built, so the "consistency contract" pointed at classes that did
+// not exist and nothing could enforce it. Section 20 was amended (2026-10-21)
+// to describe the vocabulary that actually ships, and this rule enforces it.
+//
+// A rule fires when the class list contains the hand-rolled RECIPE (the
+// combination of tokens that means "someone re-typed the surface") AND none
+// of the sanctioned classes. A sanctioned class always wins, so a legitimate
+// `glass-strong rounded-2xl` is not a finding.
+//
+// L13 - the 13_UI_Guidelines.md 20.3 consistency contract, as a machine gate.
+//
+// THE DEFECT THIS REPLACES: section 20 used to mandate a `pro-*` layer that
+// was never built, so the "consistency contract" pointed at classes that did
+// not exist and nothing could enforce it. Section 20 was amended (2026-10-21)
+// to describe the vocabulary that actually ships, and this rule enforces it.
+//
+// PRECISION: a rule fires only when the className belongs to the element the
+// rule is about - the opening tag is on the SAME line - and the class list
+// carries the hand-rolled recipe while carrying none of the sanctioned
+// classes. A coarser rule flagged every input and every callout, which is
+// worse than no rule: a noisy gate trains people to bypass it.
+//
+// L13 - the 13_UI_Guidelines.md 20.3 consistency contract, as a machine gate.
+//
+// THE DEFECT THIS REPLACES: section 20 used to mandate a `pro-*` layer that
+// was never built, so the "consistency contract" pointed at classes that did
+// not exist and nothing could enforce it. Section 20 was amended (2026-10-21)
+// to describe the vocabulary that actually ships, and this rule enforces it.
+//
+// PRECISION, and why it is done this way:
+// - A rule fires only for the element it is about. A coarser rule flagged every
+//   input and every callout, which is worse than no rule: a noisy gate trains
+//   people to bypass it.
+// - The className is resolved from the OPENING TAG BLOCK, not the line. This
+//   codebase writes JSX across many lines, so "the tag and the className are on
+//   the same line" is false almost everywhere and a line-based rule would
+//   never fire.
+// - Token matching is EXACT: `glass-strong` is not `glass`.
+interface L13Rule {
+  label: string;
+  /** The opening tag this rule is about. */
+  tag: string;
+  /** Any one of these being present makes the wrapper legitimate. */
+  sanctioned: string[];
+  /** ALL of these together mean the recipe was re-typed. */
+  recipe: string[];
+}
+
+const L13_RULES: L13Rule[] = [
+  {
+    label: "button surface",
+    tag: "<button",
+    sanctioned: ["btn-glass", "neumo-raised", "neumo-inset", "neumo-pressed"],
+    recipe: ["border", "rounded-lg"],
+  },
+  {
+    label: "text input",
+    tag: "<input",
+    sanctioned: ["glass-input"],
+    recipe: ["border", "rounded-lg"],
+  },
+  {
+    label: "KPI figure card",
+    tag: "<div",
+    sanctioned: ["kpi-card"],
+    recipe: ["border-l-2", "rounded-2xl"],
+  },
+  {
+    label: "compact status pill",
+    tag: "<span",
+    sanctioned: ["chip"],
+    recipe: ["rounded-full", "text-[9px]"],
+  },
+  {
+    label: "empty state",
+    tag: "<div",
+    sanctioned: ["ScreenState", "screen-state"],
+    recipe: ["border-dashed", "rounded-xl"],
+  },
+];
+
+const L13_PREFIXES: string[] = ["apps/web/src/"];
+
+/** The class tokens in one className string. */
+function classTokens(cls: string): Set<string> {
+  return new Set(
+    cls
+      .split(/\s+/)
+      .map((t: string) => t.trim())
+      .filter((t: string) => t.length > 0),
+  );
+}
+
+/**
+ * The className of every opening tag of `tag` in `code`, with the line it
+ * starts on. The opening tag is read as the text from the tag to its closing
+ * `>`, so a multi-line JSX element is handled.
+ */
+function openingTagClassNames(code: string, tag: string): Array<{ cls: string; line: number }> {
+  const out: Array<{ cls: string; line: number }> = [];
+  let idx = code.indexOf(tag);
+  while (idx !== -1) {
+    let end = -1;
+    for (let i = idx + tag.length; i < code.length; i++) {
+      if (code[i] === ">") {
+        end = i;
+        break;
+      }
+    }
+    if (end === -1) break;
+    const block = code.slice(idx, end);
+    const m = /className=(?:"([^"]*)"|\{`([^`]*)`\})/.exec(block);
+    if (m) {
+      const cls = m[1] ?? m[2] ?? "";
+      out.push({ cls, line: code.slice(0, idx).split("\n").length });
+    }
+    idx = code.indexOf(tag, end);
+  }
+  return out;
+}
+
+function lintAdHocSurfaceWrappers(findings: Finding[]): void {
+  for (const file of ALL_FILES) {
+    if (!L13_PREFIXES.some((p: string) => file.startsWith(p))) continue;
+    if (!hasExt(file, [".tsx", ".ts"])) continue;
+    if (/\.test\.tsx?$/.test(file) || /\.spec\.tsx?$/.test(file)) continue;
+    let text: string;
+    try {
+      text = readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue;
+    }
+    // Strip comments for the WHOLE file first, so a className inside a
+    // commented-out block is never reported.
+    const st: BlockState = { inBlock: false };
+    const code = text
+      .split("\n")
+      .map((l: string) => stripComments(l, path.extname(file), st))
+      .join("\n");
+
+    for (const rule of L13_RULES) {
+      for (const found of openingTagClassNames(code, rule.tag)) {
+        if (!found.cls.trim()) continue;
+        const tokens = classTokens(found.cls);
+        if (rule.sanctioned.some((t: string) => tokens.has(t))) continue;
+        if (!rule.recipe.every((t: string) => tokens.has(t))) continue;
+        findings.push({
+          rule: "L13",
+          file,
+          line: found.line,
+          msg:
+            `ad-hoc ${rule.label} wrapper - 13_UI_Guidelines.md 20.3: use ` +
+            `${rule.sanctioned.join(" / ")} and override only the accent (20.4)`,
+          text: found.cls.trim().slice(0, 150),
+        });
+      }
+    }
+  }
+}
+
 const L11_PREFIXES: string[] = ["apps/web/src/", "apps/gateway/", "packages/"];
 const L11_CREDENTIAL_NAME: RegExp =
   /(?:^|_)(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|KEY|PRIVATE_KEY|API_KEY|AUTH_KEY)(?:_|$)/i;
@@ -715,6 +888,16 @@ const RULES: Rule[] = [  {
     patterns: [], // workflow scan handled by lintNoRunInterpolation
     allow: [],
     extra: lintNoRunInterpolation,
+  },
+  {
+    id: "L13",
+    name: "no-ad-hoc-surface-wrapper",
+    spec: "13_UI_Guidelines.md 20.3 (the surface consistency contract)",
+    exts: CODE_EXTS,
+    prefixes: L13_PREFIXES,
+    patterns: [], // className scan handled by lintAdHocSurfaceWrappers
+    allow: [],
+    extra: lintAdHocSurfaceWrappers,
   },
   {
     id: "L11",
@@ -1184,7 +1367,7 @@ function lintNoRunInterpolation(findings: Finding[]): void {
     }
     const report = (line: number, body: string): void => {
       findings.push({
-        rule: "L12",
+        rule: "L13",
         file,
         line,
         msg:

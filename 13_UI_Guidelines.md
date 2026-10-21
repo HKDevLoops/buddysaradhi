@@ -1245,177 +1245,147 @@ The commercial surface is not a separate design system — it is the same design
 
 ---
 
-## 20. The Professional Polish Layer — `pro-*` Component Utilities
+## 20. The Surface Vocabulary — the classes and components every surface uses
 
-> The `pro-*` utilities are the **refinement layer** of the Vibrant Glass & Neumorphism system — not a replacement for it. They encode the exact glass tier (§5), neumorphic control recipe (§6), and motion token (§7) for each recurring component pattern into a single class name, so that every KPI card, every primary CTA, every avatar, every list row across the app renders identically. They live in `globals.css` lines 1050+ (the "Professional Polish Layer" block, added in Task 15-UI-OVERHAUL) and are the **default surface for every new component**. Ad-hoc `glass rounded-2xl border …` wrappers are a regression — file it.
+> **Amended 2026-10-21.** This section used to mandate a `pro-*` "Professional
+> Polish Layer" — a catalogue of ~18 utilities that **were never built**. The
+> product shipped a different vocabulary (the §5 glass tiers, the §6 neumorphic
+> controls, and the §8 component recipes), and the audit found the gap: the
+> consistency contract pointed at classes that did not exist, so it could not
+> have been enforced by anything.
+>
+> The contract is now written against **what exists**, and §20.7 makes it
+> mechanical (principle-lint **L12**). The intent is unchanged: one recurring
+> pattern gets ONE definition, so a token change propagates instead of being
+> re-typed into 20 className strings.
 
-### 20.1 Why a Polish Layer
+### 20.1 Why a shared vocabulary
 
-Without a utility layer, the same KPI card gets re-implemented 20 times across 6 prototype components, each with slightly different blur, opacity, radius, and shadow values. After Task 15 audited and consolidated these, 159 `pro-*` instances now render the dashboard, students, fees-ledger, attendance, settings, and backup prototypes from one shared definition. A token change (e.g. KPI accent bar color) now propagates to all KPIs by editing one CSS rule, not 20 className strings.
+Without one, the same KPI card gets re-implemented twenty times across six
+surfaces, each with slightly different blur, opacity, radius and shadow. With
+one, a token change (say the KPI accent bar colour) propagates by editing one
+CSS rule, not twenty className strings.
 
-### 20.2 The `pro-*` Utility Catalogue
+### 20.2 The catalogue
 
-| Utility | Replaces | Surface (refines) | When to use |
-|---|---|---|---|
-| `.tutoros-cosmic-bg-pro` | `.tutoros-cosmic-bg` | §2.2 root bg + 48px grid + 3 aurora radials | **App root wrapper** — every screen. Deep navy gradient with subtle grid pattern and emerald/cyan/violet aurora glows. |
-| `.pro-card` | ad-hoc `glass rounded-2xl …` | §5.1 `.glass` (5% white, 20px blur, 16px radius, soft shadow) | **Default content card** — section panels, detail cards, form groupings. Hover lifts border-color + shadow. |
-| `.pro-card-elevated` | ad-hoc `glass-strong …` | §5.1 `.glass-strong` (gradient bg, 14px radius, translateY(-2px) hover) | **Featured/elevated card** — device frames, hero blocks, the one card-per-screen that deserves lift. |
-| `.pro-kpi` | ad-hoc `glass rounded-2xl border-l-2 …` | §5.4 glass + accent left-border (3px `::before` bar via `--kpi-accent`) | **Every KPI figure card**. Set `style={{ '--kpi-accent': '#00FF9D' }}` per card (emerald/cyan/violet/amber/flare). Hover lifts 2px. |
-| `.pro-btn-primary` | ad-hoc gradient CTA buttons | §6.1 neumo-raised + emerald→cyan gradient + glow | **Primary CTA** — the one button per screen that confirms/creates/records. Dark text on bright gradient. |
-| `.pro-btn-secondary` | ad-hoc `glass border …` buttons | §6.1 neumo-raised + glass outline | **Secondary action** — Filter, Cancel, Open, Export. Glass outline, white text. Accepts `!border-{accent}/30 !bg-{accent}/10 !text-{accent}` overrides for accent-tinted variants. |
-| `.pro-btn-ghost` | ad-hoc transparent text buttons | transparent + `--text-secondary` | **Tertiary/text action** — "Read more", "Cancel", footer links. Transparent, subtle hover wash. |
-| `.pro-tab-strip` + `.pro-tab` | ad-hoc pill tab implementations | §8.6 tab bar (pill variant) | **In-content tab strip** (not the app's main nav). Active tab = emerald→cyan gradient pill via `data-active="true"`. |
-| `.pro-avatar` | ad-hoc `flex h-N w-N rounded-{lg,2xl} bg-gradient …` | §8.15 avatar (circular, gradient bg, initials, inset ring) | **Every avatar** — students, tutor profile, ledger contacts. Pair with `h-N w-N` sizing + a gradient bg utility. |
-| `.pro-status-pill` | ad-hoc `rounded-full border px-2 py-0.5 text-[9px] …` | §8.3 chip (compact uppercase variant) | **Compact status indicator** — Fee Model, Sync State, Encrypted badge, scope tag. Uppercase 11px, 999px radius. |
-| `.pro-list-row` | ad-hoc `flex items-center gap-3 rounded-xl border border-white/5 …` | §8.4 list row (glass-faint band + hover wash) | **Every list row** — student roster, ledger entries, backup history, settings rows. Hover washes bg + border. |
-| `.pro-empty` | ad-hoc `rounded-xl border border-dashed … px-4 py-10` | §8.19 empty state (dashed border, centered) | **Empty/zero-state container** — empty ledger, empty filter result, import drop zone, "no student selected". |
-| `.pro-section-eyebrow` + `.pro-section-title` + `.pro-section-sub` | ad-hoc eyebrow + headline + sub | §3.2 type ramp (caption / display / body) | **Section heading kit** — the eyebrow pill + clamp-sized headline + muted sub that opens every major section. |
-| `.pro-divider` | ad-hoc `<hr>` or `border-t` | flat gradient hairline | **Inline section divider** — transparent → 10% white → transparent. |
-| `.pro-sticky-footer-shell` + `.pro-sticky-footer-content` + `.pro-sticky-footer` | ad-hoc `min-h-screen flex flex-col … mt-auto flex-shrink-0` | §13 sticky-footer mandate | **Footer layout helpers** — shell = `min-h-screen flex flex-col`, content = `flex-1 0 auto`, footer = `flex-shrink-0`. Use together (§13). |
+Two kinds of entry, and the distinction matters:
+
+- a **class** — a CSS rule in `apps/web/src/app/globals.css`. Use the class
+  name; do not re-type its recipe.
+- a **component** — a React component. **Stronger than a class**: a component
+  cannot drift, because it carries the markup with it. Prefer it wherever one
+  exists.
+
+| Pattern | Use | Not this |
+|---|---|---|
+| Default content card | `.glass-panel` (§5.1 tier 2) | ad-hoc `glass rounded-2xl …` |
+| Featured / elevated card | `.glass-card-strong` | ad-hoc `glass-strong rounded-3xl …` |
+| Card with an accent edge | `.glass-card-accent-edge` | ad-hoc accent border on a plain card |
+| Dense card | `.glass-card` | ad-hoc `glass` + hand-padded radius |
+| KPI figure card | `.kpi-card` | ad-hoc `glass rounded-2xl border-l-2 ${color}` |
+| Table / ledger row band | `.glass-faint` (§5.2) | ad-hoc `flex items-center gap-3 rounded-xl border border-white/5 …` |
+| Primary CTA (confirm / create / record) | `.neumo-raised` + `.btn-glass` | ad-hoc `bg-gradient-to-br from-… to-… glow-…` |
+| Secondary button (filter / cancel / export) | `.btn-glass` | ad-hoc `glass border border-white/10 …` |
+| Destructive button | `.btn-glass` + the accent override (§20.4) | ad-hoc accent button |
+| Tertiary / text button | transparent text button, no surface class | ad-hoc `text-white/60 hover:text-white` |
+| Compact status pill (fee model, sync state, badge) | `.chip` (§8.3) | ad-hoc `rounded-full border px-2 py-0.5 text-[9px] …` |
+| Avatar (student, tutor, contact) | the `Avatar` component (`components/ui/avatar.tsx`) + `.avatar` / `.avatar-sm` / `.avatar-lg` | ad-hoc `flex h-N w-N rounded-2xl bg-gradient …` |
+| Card (reusable) | the `GlassCard` component (`components/ui/glass-card.tsx`) | re-typing the card recipe |
+| Empty / zero state | the `ScreenState` component (`components/ui/screen-state.tsx`) | ad-hoc `rounded-xl border border-dashed …` |
+| Text input | `.glass-input` | ad-hoc `bg-white/5 border border-white/10 …` |
+| Count badge | `.badge-count` | ad-hoc count badge |
+| Section heading (eyebrow + title + sub) | the §3.2 type ramp (`caption` / `display` / `body`) | ad-hoc eyebrow + headline + sub |
+| Inline divider | `border-t` | a custom gradient hairline |
+| Footer layout | `min-h-screen flex flex-col` + `flex-1 0 auto` + `mt-auto flex-shrink-0` (§13) | ad-hoc `min-h-screen flex flex-col …` |
+| App root background | the root background in `globals.css` | an ad-hoc gradient |
 
 ### 20.3 The Consistency Contract (Non-Negotiable)
 
-Every recurring component pattern uses its `pro-*` utility. There are no exceptions for "this one's slightly different" — the override pattern (§20.4) handles accent variation without abandoning the utility.
+Every recurring pattern uses its class or its component from §20.2. There are no
+exceptions for "this one's slightly different" — the override pattern (§20.4)
+handles accent variation without abandoning the utility.
 
-| Pattern | Required utility | Forbidden |
-|---|---|---|
-| KPI figure card | `.pro-kpi` + `--kpi-accent` | `glass rounded-2xl border-l-2 ${color}` |
-| Primary CTA (confirm/create/record) | `.pro-btn-primary` | ad-hoc `bg-gradient-to-br from-… to-… glow-…` |
-| Secondary button (filter/cancel/export) | `.pro-btn-secondary` | ad-hoc `glass border border-white/10 …` |
-| Tertiary text button | `.pro-btn-ghost` | ad-hoc `text-white/60 hover:text-white` |
-| Avatar (student/tutor/contact) | `.pro-avatar` + size + gradient bg | ad-hoc `flex h-N w-N rounded-{lg,2xl} bg-gradient …` |
-| Compact status pill | `.pro-status-pill` + accent override | ad-hoc `rounded-full border px-2 py-0.5 text-[9px] …` |
-| List row (roster/ledger/settings) | `.pro-list-row` | ad-hoc `flex items-center gap-3 rounded-xl border border-white/5 …` |
-| In-content tab strip | `.pro-tab-strip` + `.pro-tab[data-active]` | ad-hoc pill tab implementations |
-| Empty/zero state | `.pro-empty` | ad-hoc `rounded-xl border border-dashed …` |
-| Default content card | `.pro-card` | ad-hoc `glass rounded-2xl …` |
-| Featured/elevated card / device frame | `.pro-card-elevated` | ad-hoc `glass-strong rounded-3xl …` |
-| App root background | `.tutoros-cosmic-bg-pro` | `.tutoros-cosmic-bg` (legacy) or ad-hoc gradient |
-| Footer layout | `.pro-sticky-footer-shell` + content + `.pro-sticky-footer` | ad-hoc `min-h-screen flex flex-col …` |
+This contract is **machine-enforced**: principle-lint **L12**
+(`no-ad-hoc-surface-wrapper`) rejects an ad-hoc surface wrapper that should have
+been one of the §20.2 classes. A PR that hand-rolls a card, a button, a pill, a
+list row, an avatar or an empty state fails the lint.
 
 ### 20.4 The Override Pattern (Accent Variation, Not Structure Abandonment)
 
-When a `pro-*` component needs an accent variation (e.g. a secondary button tinted flare for a destructive action, or an amber-accented KPI), **keep the utility class and override only the accent** with Tailwind `!important` (`!`) utilities:
+When a surface needs an accent variation (a flare-tinted destructive button, an
+amber-accented KPI), **keep the utility and override only the accent** with
+Tailwind `!important` (`!`) utilities:
 
 ```tsx
-// ✅ Correct: keep pro-btn-secondary, override accent only
-<button className="pro-btn-secondary !border-[#FF5E00]/40 !bg-[#FF5E00]/10 !text-[#FF5E00]">
+// ? Correct: keep the utility, override the accent only
+<button className="btn-glass !border-[var(--danger)]/40 !bg-[var(--danger)]/10 !text-[var(--danger)]">
   Erase all data
 </button>
 
-// ✅ Correct: keep pro-kpi, set accent via CSS variable
-<div className="pro-kpi" style={{ '--kpi-accent': '#FFB300' }}>
+// ? Correct: keep the utility, set the accent via a CSS variable
+<div className="kpi-card" style={{ "--kpi-accent": "var(--warning)" }}>
   <span className="caption">Due Today</span>
-  <span className="kpi-figure">₹ 48,000</span>
+  <span className="kpi-figure">48,000</span>
 </div>
 
-// ❌ Forbidden: abandon the utility, hand-roll the whole thing
-<button className="inline-flex items-center gap-2 rounded-lg border border-[#FF5E00]/40
-                   bg-[#FF5E00]/10 px-3 py-1.5 text-xs font-semibold text-[#FF5E00]">
+// ? Forbidden: abandon the utility, hand-roll the whole thing
+<button className="inline-flex items-center gap-2 rounded-lg border border-[var(--danger)]/40
+                     bg-[var(--danger)]/10 px-3 py-1.5 text-xs font-semibold">
   Erase all data
 </button>
 ```
 
-The override pattern preserves the structural contract (radius, padding, blur, shadow, hover behavior) while allowing the accent to vary. Sizing overrides (`!px-3 !py-1.5 !text-xs`) for compact/dense contexts are also permitted — they override spacing, not structure.
+The override pattern preserves the structural contract (radius, padding, blur,
+shadow, hover behaviour) while letting the accent vary. Sizing overrides
+(`!px-3 !py-1.5 !text-xs`) are also permitted — they override spacing, not
+structure.
+
+**Note:** the accent override takes a **token role** (`--danger`, `--warning`),
+never a hand-picked hex. AGENTS.md §2 Rule 5 and §13 §1.3 both forbid literals;
+the old `pro-*` examples in this section used raw hex and were themselves a
+violation.
 
 ### 20.5 Relationship to §5 (Glass) and §6 (Neumorphism)
 
-The `pro-*` layer does **not** replace the glass/neumorphism system — it is a refinement of it:
+The vocabulary **is** the glass/neumorphism system — it is not a layer above it:
 
-- `.pro-card` / `.pro-card-elevated` / `.pro-kpi` → refine `.glass` / `.glass-strong` / glass+accent-border (§5.1, §5.4). Same opacity/blur tier, tightened radius (14–16px) and shadow elevation.
-- `.pro-btn-primary` / `.pro-btn-secondary` → refine `.neumo-raised` buttons (§6.1, §8.2). The primary keeps the emerald→cyan gradient + glow; the secondary replaces the dual-shadow extrusion with a cleaner glass outline (a deliberate Task-15 refinement — the dual-shadow read as heavy at button scale).
-- `.pro-avatar`, `.pro-status-pill`, `.pro-list-row`, `.pro-empty`, `.pro-tab-strip` → refine their §8 counterparts (§8.3, §8.4, §8.6, §8.15, §8.19) into a single class name.
+- `.glass-panel` / `.glass-card-strong` / `.glass-faint` / `.glass-input` are the
+  §5 tiers (§5.1, §5.2).
+- `.neumo-raised` / `.neumo-inset` / `.neumo-pressed` are the §6 control
+  recipes (§6.1).
+- `.kpi-card` is §5.4 (glass + the accent left-border).
+- `.chip` is §8.3, the avatar is §8.15, the empty state is §8.19.
 
-The foundational recipes in §5 and §6 remain the source of truth for **why** each surface looks the way it does; the `pro-*` utilities are the **what to type** to get them.
+§5 and §6 remain the source of truth for **why** each surface looks the way it
+does; §20 is the **what to type** to get it.
 
 ### 20.6 Reduced-Motion Handling
 
-All `pro-*` utilities with `transition` or `transform` hover effects are neutralized under `@media (prefers-reduced-motion: reduce)` (globals.css line 1230):
-
-```css
-@media (prefers-reduced-motion: reduce) {
-  .pro-card, .pro-card-elevated, .pro-kpi, .pro-btn-primary,
-  .hero-stat-card, .pro-tab { transition: none !important; }
-  .pro-card-elevated:hover, .pro-kpi:hover, .pro-btn-primary:hover { transform: none !important; }
-}
-```
-
-This complements the §7.2 reduced-motion override — the `pro-*` hover lifts and gradient hovers freeze alongside the aurora and count-ups.
+Every class with a `transition` or `transform` hover effect is neutralized
+under `@media (prefers-reduced-motion: reduce)` in `globals.css`. This
+complements the §7.2 reduced-motion override — the hover lifts freeze alongside
+the aurora and the count-ups.
 
 ### 20.7 Audit & Drift Prevention
 
-A `pro-*` audit runs as part of the visual-regression baseline (see `21_Automation_Testing.md` §5). The baseline encodes the 159 `pro-*` instances on the `/` route; a PR that removes a `pro-*` class or adds an ad-hoc wrapper will fail the visual diff until either (a) the change is reverted, or (b) the baseline is explicitly updated with a justification. This is the enforcement mechanism for the §20.3 consistency contract.
+Two gates, and the first one is the one that actually stops drift:
+
+1. **principle-lint L12** (`no-ad-hoc-surface-wrapper`) — the machine gate for
+   §20.3. It fails the build on a hand-rolled surface wrapper, so the contract
+   cannot rot the way the `pro-*` layer did.
+2. **A visual-regression baseline** (see `21_Automation_Testing.md` §5) over the
+   five screens. A PR that changes a surface recipe fails the visual diff
+   until either the change is reverted or the baseline is explicitly updated
+   with a justification.
 
 ---
 
 ## 21. Component Decision Tree
 
-> Use this tree **before** writing a className string. If the pattern you need is in this tree, use the `pro-*` utility — do not invent an ad-hoc wrapper. If the pattern is not in this tree, it is a new component and warrants a §8 entry + a new `pro-*` utility (or a documented exception).
-
-```
-  ┌─ Need a surface to hold content? ─────────────────────────────────────┐
-  │                                                                        │
-  │  KPI figure card (number + label + accent)  → .pro-kpi  + --kpi-accent │
-  │  Default content card (section, detail)     → .pro-card                │
-  │  Featured/elevated card (device frame)      → .pro-card-elevated       │
-  │  Empty/zero-state container                 → .pro-empty               │
-  │  Inline divider                             → .pro-divider             │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-
-  ┌─ Need a button? ──────────────────────────────────────────────────────┐
-  │                                                                        │
-  │  Primary CTA (confirm/create/record)        → .pro-btn-primary         │
-  │  Secondary action (filter/cancel/export)    → .pro-btn-secondary       │
-  │  Tertiary text action (read more / link)    → .pro-btn-ghost           │
-  │                                                                        │
-  │  Accent variation?  Keep the utility, override with !border/!bg/!text  │
-  │  (§20.4).  Never abandon the utility for an ad-hoc button.             │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-
-  ┌─ Need a list/tab/avatar/pill? ────────────────────────────────────────┐
-  │                                                                        │
-  │  List row (roster / ledger / settings)      → .pro-list-row            │
-  │  In-content tab strip                       → .pro-tab-strip + .pro-tab│
-  │     (active = data-active="true")                                       │
-  │  Avatar (student / tutor / contact)         → .pro-avatar + h-N w-N    │
-  │     + bg-gradient-to-br from-{a} to-{b}                                 │
-  │  Compact status pill (Fee Model / Sync)     → .pro-status-pill         │
-  │     + accent border/bg/text overrides                                   │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-
-  ┌─ Need a section heading or footer layout? ────────────────────────────┐
-  │                                                                        │
-  │  Section heading kit                        → .pro-section-eyebrow     │
-  │                                               + .pro-section-title      │
-  │                                               + .pro-section-sub        │
-  │  Footer layout (sticky bottom)              → .pro-sticky-footer-shell │
-  │     (root) + .pro-sticky-footer-content       + .pro-sticky-footer     │
-  │     (footer).  See §13 for the mandate.                                 │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-
-  ┌─ Need a control (toggle / slider / input / stepper)? ─────────────────┐
-  │                                                                        │
-  │  → Use the §6 neumorphic recipes (.neumo-raised / .neumo-inset /       │
-  │    .neumo-pressed) directly.  These are tactile controls, not surfaces;│
-  │    the pro-* layer does not (yet) wrap them.  See §6.6 coverage map.   │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-
-  ┌─ Need the app background? ────────────────────────────────────────────┐
-  │                                                                        │
-  │  → .tutoros-cosmic-bg-pro  (every screen root, §20.2)                 │
-  │    Replaces the legacy .tutoros-cosmic-bg.  Do not use both.           │
-  │                                                                        │
-  └────────────────────────────────────────────────────────────────────────┘
-```
-
-**If none of the above match:** the component is either (a) a new pattern that warrants a new §8 entry + a new `pro-*` utility, or (b) a one-off (e.g. the spec-filter buttons with multi-accent state, the settings sidebar with per-section accent). One-offs are permitted but must be commented with `// one-off: <reason>` so the next agent knows it is intentional and not drift.
-
----
+> Use this tree **before** writing a className string. If the pattern you need
+> is in §20.2, use that class or component — do not invent an ad-hoc wrapper.
+> If the pattern is not in §20.2, it is a new component and warrants a §8 entry
+> plus a new class in §20.2 (or a documented exception).
 
 ## 22. ASCII Art Conventions (Spec-Wide)
 
@@ -1538,6 +1508,15 @@ These conventions synthesise practices from Apple HIG (1987, 2018), IBM CUA, Sha
 ---
 
 ## 23. The Live Prototype Canon (copy-paste from `src/`)
+
+> **ARCHIVAL - 2026-10-21.** This section is the canon of a
+> **prototype** (`src/components/tutoros/`) that is not part of this repository
+> and predates the generated-token migration. Its `pro-*` utilities were never
+> built and are **not** the shipped vocabulary. Do not copy `pro-*` class names
+> into product code. The contract is **section 20**, which is written against
+> the classes and components that actually exist, and it is machine-enforced
+> (principle-lint L12). Keep this section for the layout and data-shape canon;
+> the class names are historical.
 
 > The 6 live prototype components in `src/components/tutoros/` are the **canonical reference implementation** of this design system. They are not mockups of a future product — they are the rendered, interactive, Framer-Motion-animated screens that the `/` route ships today. Any agent building the same screen on web (Next.js), mobile (Expo/RN), or desktop (Tauri) reproduces these pixel-faithfully. **The src/ file is the canon; this section makes it citable from the planning docs.**
 >
@@ -2252,6 +2231,12 @@ The 6 prototypes share the same **canonical seed dataset** — opening them on `
 ---
 
 ## 24. Cross-Platform Tailwind Uniformity (web + Expo + Tauri)
+
+> **ARCHIVAL - 2026-10-21.** This section encodes the cross-platform
+> topology for the `pro-*` utilities, which were never built. The principle it
+> establishes still holds - one design system, three runtimes, one rendered
+> surface - and **section 20** is now the shared vocabulary it refers to. The
+> `pro-card` examples below are historical; use the classes in section 20.
 
 > A tutor sees the **same screen on web, mobile, and desktop** — only the chrome differs. This section encodes how a single Tailwind v4 design system (the §2 tokens + the §20 `pro-*` utilities) is shared verbatim across all three platforms, grounded in `research_R-TAILWIND-CROSSPLATFORM.md`. Anything beyond that research file is marked UNVERIFIED.
 >
