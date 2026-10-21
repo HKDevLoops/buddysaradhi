@@ -105,11 +105,19 @@ beforeAll(async () => {
   TEST_DB = join(tmpDir, "report-test.db").replace(/\\/g, "/");
   const DATABASE_URL = `file:${TEST_DB}`;
   const runner = "bunx"; // Package manager migrated pnpm -> bun: `npx(.cmd)` resolves binaries through `.bin/*.cmd` shims, which bun's native launcher layout does not create. `bunx` resolves from the workspace lockfile instead.
-  execSync(`${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss`, {
-    cwd: REPO,
-    stdio: "ignore",
-    env: { ...process.env, DATABASE_URL },
-  });
+  // `--skip-generate`: the Prisma client is a GLOBAL artefact under
+  // `node_modules/.prisma`; the three engine test files each run `prisma db
+  // push` concurrently and would regenerate it at the same time. On a full
+  // disk that race leaves a truncated client and ~1.3 GB of orphaned `.tmp*`
+  // engine copies (observed 2026-10-21). A per-test DATABASE does not need it.
+  execSync(
+    `${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss --skip-generate`,
+    {
+      cwd: REPO,
+      stdio: "ignore",
+      env: { ...process.env, DATABASE_URL },
+    },
+  );
   prisma = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } });
   await prisma.$connect();
 }, 90000);

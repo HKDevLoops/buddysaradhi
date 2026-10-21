@@ -89,11 +89,19 @@ beforeAll(async () => {
   TEST_DB = join(tmpDir, "invoice-test.db").replace(/\\/g, "/");
   const DATABASE_URL = `file:${TEST_DB}`;
   const runner = "bunx"; // Package manager migrated pnpm -> bun: `npx(.cmd)` resolves binaries through `.bin/*.cmd` shims, which bun's native launcher layout does not create. `bunx` resolves from the workspace lockfile instead.
-  execSync(`${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss`, {
-    cwd: REPO,
-    stdio: "ignore",
-    env: { ...process.env, DATABASE_URL },
-  });
+  // `--skip-generate`: the Prisma client is a GLOBAL artefact under
+  // `node_modules/.prisma`; three engine test files each ran `prisma db push`
+  // concurrently and regenerated it at the same time. On a full disk that
+  // race leaves a truncated client and ~1.3 GB of orphaned `.tmp*` engine
+  // copies (observed 2026-10-21). A per-test DATABASE does not need it.
+  execSync(
+    `${runner} prisma db push --schema "${SCHEMA}" --accept-data-loss --skip-generate`,
+    {
+      cwd: REPO,
+      stdio: "ignore",
+      env: { ...process.env, DATABASE_URL },
+    },
+  );
   prisma = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } });
   await prisma.$connect();
 }, 90000);
@@ -266,14 +274,47 @@ describe("generateBatchInvoices money + numbering (BR-M-01, BR-LED-03, Rule 7)",
     expect(inv.total).toBe(90000);
   });
 
-  it("isolates per-student failures: one collision errors, the rest succeed, seq still advances", async () => {
+  it("isolates per-student failures: one bad plan errors, the rest succeed, seq still advances", async () => {
+    const tenantId = await seedTenant();
+    const s1 = await seedStudent(tenantId);
+    await seedFeePlan(tenantId, s1, { baseAmount: 10000 });
+    // A plan for a student in ANOTHER tenant: the flow's F5 check
+    // (`requireStudent`) refuses it, so this invoice fails while s1's
+    // succeeds. (Before the rebuild, this test used a duplicate invoice
+    // NUMBER as its failure lever — but the number take now SKIPS a taken
+    // number, so a collision is no longer a failure mode at all.)
+    const otherTenant = await seedTenant();
+    const ghost = await seedStudent(otherTenant);
+    await seedFeePlan(tenantId, ghost, { baseAmount: 20000 });
+
+    const results = await generateBatchInvoices(prisma, {
+      tenantId,
+      dueDate: "2026-10-01",
+      issueDate: "2026-09-15",
+      periodLabel: "Sep 2026",
+    });
+
+    expect(results).toHaveLength(2);
+    const ok = results.filter((r) => r.status === "success");
+    const failed = results.filter((r) => r.status === "error");
+    expect(ok).toHaveLength(1);
+    expect(failed).toHaveLength(1);
+    expect(String(failed[0]?.error)).toMatch(/STUDENT_NOT_FOUND/);
+
+    // Gap-tolerant sequence: the consumed number stays consumed (BR-LED-03).
+    const setting = await prisma.setting.findUniqueOrThrow({ where: { tenantId } });
+    expect(setting.nextInvoiceSeq).toBe(2);
+  });
+
+  it("BR-LED-03: a TAKEN invoice number is skipped, not fatal — the batch survives", async () => {
     const tenantId = await seedTenant();
     const s1 = await seedStudent(tenantId);
     const s2 = await seedStudent(tenantId);
     await seedFeePlan(tenantId, s1, { baseAmount: 10000 });
     await seedFeePlan(tenantId, s2, { baseAmount: 20000 });
 
-    // Decoy occupies the first sequence number the batch will claim.
+    // Decoy occupies INV-000001. The atomic number take SKIPS it (a gap —
+    // the audit trail BR-RC-01 asks for) instead of aborting the invoice.
     await prisma.invoice.create({
       data: {
         id: randomUUID(),
@@ -295,16 +336,14 @@ describe("generateBatchInvoices money + numbering (BR-M-01, BR-LED-03, Rule 7)",
       periodLabel: "Sep 2026",
     });
 
-    expect(results).toHaveLength(2);
-    const ok = results.filter((r) => r.status === "success");
-    const failed = results.filter((r) => r.status === "error");
-    expect(ok).toHaveLength(1);
-    expect(failed).toHaveLength(1);
-    expect(String(failed[0]?.error)).toMatch(/UNIQUE|constraint/i);
-
-    // Gap-tolerant sequence: consumed numbers stay consumed (BR-LED-03).
-    const setting = await prisma.setting.findUniqueOrThrow({ where: { tenantId } });
-    expect(setting.nextInvoiceSeq).toBe(3);
+    expect(results.filter((r) => r.status === "success")).toHaveLength(2);
+    const invoices = await prisma.invoice.findMany({ where: { tenantId } });
+    const numbers = invoices.map((i) => i.number);
+    expect(new Set(numbers).size).toBe(numbers.length);
+    // Every batch invoice now carries its FEE_CHARGED ledger row, so the
+    // books and the invoice list agree (BR-RPT-04).
+    const ledger = await prisma.ledgerEntry.findMany({ where: { tenantId } });
+    expect(ledger.filter((e) => e.type === "FEE_CHARGED")).toHaveLength(2);
   });
 });
 

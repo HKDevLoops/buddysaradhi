@@ -2,6 +2,7 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { randomUUID, createHash } from "crypto";
 import { z } from "zod";
+import { paiseAdd, paiseSub } from "./money";
 
 export const LEDGER_ENTRY_TYPES = [
   "FEE_CHARGED",
@@ -227,6 +228,24 @@ export async function postLedgerEntry(
   ) {
     return { ok: false, error: new Error("Amounts must be integers") };
   }
+  // ── DIALECT PARITY (AGENTS.md §3.5) ─────────────────────────────────────
+  // The libsql dialect (`postLedgerEntrySql` in `ledgerSql.ts`) refuses a
+  // zero-amount row and an unknown entry type BEFORE it writes. This dialect
+  // did not, so the SAME input produced two different books depending on
+  // which platform recorded it: the gateway refused the row and the web
+  // accepted it. The shipped schema's CHECK (`debit_paise + credit_paise > 0`)
+  // catches the zero row at the database, but only on a database built from
+  // `migrations/0001_init.sql` — the ORM dialect's own contract must not
+  // depend on which schema happens to be underneath it.
+  if (input.debitPaise + input.creditPaise <= 0) {
+    return { ok: false, error: new Error("Amounts must be positive") };
+  }
+  if (!LEDGER_ENTRY_TYPES.includes(input.type)) {
+    return {
+      ok: false,
+      error: new Error(`Invalid ledger entry type: ${input.type}`),
+    };
+  }
 
   const entryId = randomUUID();
   const now = nextCreatedAtIso();
@@ -250,7 +269,14 @@ export async function postLedgerEntry(
       }
 
       // 2. Calculate new balance
-      const newBalance = currentBalance + input.debitPaise - input.creditPaise;
+      // Rule 6 / BR-M-01: the SAME paise arithmetic the libsql dialect uses
+      // (`paiseSub` then `paiseAdd`), so a corrupt or overflowing balance is
+      // a typed error in BOTH dialects instead of a poisoned
+      // `balance_after_paise` that every later row inherits (EC-F-01).
+      const newBalance = paiseAdd(
+        paiseSub(currentBalance, input.creditPaise),
+        input.debitPaise,
+      );
 
       // Fetch tenant secret for hash pepper
       const setting = await tx.setting.findUnique({
@@ -324,21 +350,24 @@ export async function postLedgerEntry(
       // too — queue its replication row in the same transaction (both dialects:
       // ledgerSql.ts posts the identical row). Payload shape is the canonical
       // snake_case envelope (`encodeOutboxPayload` above — P3-11).
-      await tx.syncOutbox.create({
-        data: {
-          id: randomUUID(),
-          tenantId: input.tenantId,
-          tableName: "students",
-          rowId: input.studentId,
-          op: "update",
-          payload: encodeOutboxPayload("students", "update", {
-            id: input.studentId,
-            balancePaise: newBalance,
-          }).payload,
-          status: "pending",
-          createdAt: new Date(now),
-        },
-      });
+      //
+      // ── DIALECT PARITY (AGENTS.md §3.5) ───────────────────────────────────
+      // The libsql dialect (`ledgerSql.ts` step 4c) writes this payload with
+      // `updated_at`, and it writes it AFTER the ledger row. This dialect did
+      // neither: it omitted `updated_at` and it wrote the balance row BEFORE
+      // the ledger row it summarises. So the two platforms emitted
+      //   libsql: {"balance_paise":1000,"id":"s1","updated_at":"..."}
+      //   ORM   : {"balance_paise":2000,"id":"s1"}
+      // and a replica that replays the stream IN ORDER saw the derived
+      // balance arrive before the ledger row on the web path and after it on
+      // the gateway path. The parity gate compares the outbox by
+      // `(table_name, op)` ONLY, so neither the shape nor the order was
+      // visible to it.
+      const studentsPayload = encodeOutboxPayload("students", "update", {
+        id: input.studentId,
+        balance_paise: newBalance,
+        updated_at: now,
+      }).payload;
 
       // 5. Append to sync_outbox (canonical snake_case envelope — P3-11: the
       // Prisma dialect previously emitted the camelCase model while the libsql
@@ -352,6 +381,22 @@ export async function postLedgerEntry(
           rowId: entryId,
           op: "insert",
           payload: encodeOutboxPayload("ledger_entries", "insert", { ...newEntry }).payload,
+          status: "pending",
+          createdAt: new Date(now),
+        },
+      });
+
+      // 5b. The derived-balance row AFTER the ledger row — the same order the
+      // libsql dialect writes, so a replica's stream is identical whichever
+      // platform recorded the entry.
+      await tx.syncOutbox.create({
+        data: {
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          tableName: "students",
+          rowId: input.studentId,
+          op: "update",
+          payload: studentsPayload,
           status: "pending",
           createdAt: new Date(now),
         },
@@ -498,6 +543,70 @@ export async function computeBalance(
 }
 
 /**
+ * The total chain order, in one place.
+ *
+ * BR-LED-06: the chain is walked in a deterministic order, so a hash
+ * mismatch means "the row was tampered with" and never "the rows came back
+ * in a different order".
+ *
+ * TWO FACTS force this to be a JS sort rather than a database ORDER BY:
+ *   1. The web ORM shim (`apps/web/src/lib/libsql-proxy.ts`) supports only a
+ *      SINGLE-key `orderBy` — `buildOrderClause` reads `Object.keys(...)[0]`.
+ *      An ARRAY `orderBy` became `ORDER BY "0" ASC` and the query THREW, so
+ *      `reconcileLedger` could not run at all on the surface `apps/web`
+ *      actually holds.
+ *   2. `created_at` is millisecond-resolution, so two rows can share it. The
+ *      tie-break must therefore be applied by us, not by the driver.
+ *
+ * The tie-break is `id` ASC. NOTE (design gap, reported in
+ * docs/audit/DYNAMIC-MONEY.md): `id` is a UUID v4 from `randomUUID()`, NOT the
+ * UUID v7 the schema claims, so this tie-break is deterministic but NOT
+ * creation order. The writers chain onto `ORDER BY created_at DESC` alone
+ * (libsql), `ORDER BY created_at DESC, rowid DESC` (the gateway) and
+ * `createdAt desc` (the ORM shim) — three different tie-breaks. On a
+ * same-millisecond tie the writer and this verifier can disagree, which is a
+ * FALSE "chain broken" alarm. The honest fix is a monotonic sequence column
+ * owned by the two schema authorities (a §8 stop-and-ask), not another
+ * tie-break heuristic.
+ */
+function chainOrderKey(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+/**
+ * `created_at` as the exact string the writer hashed. The generated Prisma
+ * client hands back a `Date`; the web ORM shim hands back the raw TEXT. The
+ * hash covers the ISO string, so the reader must reconstruct the SAME bytes —
+ * `new Date(text).toISOString()` is byte-identical to the text the writer
+ * stored (both are `toISOString()` output, millisecond precision).
+ */
+function createdAtIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? value : new Date(parsed).toISOString();
+  }
+  return String(value ?? "");
+}
+
+function sortChainEntries<T extends { createdAt: unknown; id: unknown }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const time = chainOrderKey(a.createdAt) - chainOrderKey(b.createdAt);
+    if (time !== 0) return time;
+    const idA = String(a.id ?? "");
+    const idB = String(b.id ?? "");
+    if (idA === idB) return 0;
+    return idA < idB ? -1 : 1;
+  });
+}
+
+/**
  * Reconcile ledger and verify hash chain integrity.
  */
 export async function reconcileLedger(
@@ -506,15 +615,15 @@ export async function reconcileLedger(
   studentId: string,
 ): Promise<Result<boolean>> {
   try {
-    // P3-12: `created_at` is millisecond ISO — two rows written in the same
-    // transaction routinely share it, and a tie would let SQLite/Prisma return
-    // them in any order, replaying the hash chain out of sequence and reporting
-    // a false `Balance mismatch`. `id` is UUIDv7 (AGENTS.md §3.4), whose
-    // lexicographic order is creation order, so it is a total, stable tie-break.
-    const entries = await db.ledgerEntry.findMany({
-      where: { tenantId, studentId },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
+    // A SINGLE-key `orderBy` so this runs on every model surface (the web
+    // ORM shim throws on an array `orderBy`); the TOTAL order is applied by
+    // `sortChainEntries` below.
+    const entries = sortChainEntries(
+      await db.ledgerEntry.findMany({
+        where: { tenantId, studentId },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
 
     let runningBalance = 0;
     let prevHash: string | null = null;
@@ -550,7 +659,7 @@ export async function reconcileLedger(
       const expectedHash = computeHash(
         prevHash,
         payload,
-        entry.createdAt.toISOString(),
+        createdAtIso(entry.createdAt),
         setting.tenantSecret,
       );
       if (expectedHash !== entry.thisHash) {

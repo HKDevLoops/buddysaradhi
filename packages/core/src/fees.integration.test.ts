@@ -419,7 +419,11 @@ describe("atomicity (F4 / §9.6 all-or-nothing)", () => {
     const invoiceId = inv.value.invoiceId;
     expect(await seqFor(tenantId)).toBe(2);
 
-    // Decoy occupies INV-000002 — the number the auto-invoice will claim.
+    // Decoy occupies INV-000002 — the number the auto-invoice WOULD have
+    // claimed. The number take now SKIPS a taken number instead of aborting
+    // the payment (BR-FEE-09: "engine retries with next sequence"), so the
+    // failure that exercises the rollback is driven from the tenant secret,
+    // which is read AFTER the audit row is written (§9.6 step 1 → step 3).
     const now = new Date().toISOString();
     await client.execute({
       sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date,
@@ -427,21 +431,27 @@ describe("atomicity (F4 / §9.6 all-or-nothing)", () => {
             VALUES (?, ?, 'INV-000002', ?, ?, ?, 1, 0, 0, 1, 'paid', 'decoy', ?, ?)`,
       args: [randomUUID(), tenantId, studentB, FEE_DATE, FEE_DATE, now, now],
     });
+    // The hash pepper is emptied AFTER the invoice above was created, so the
+    // flow fails at the receipt-hash step — after the audit row and the
+    // receipt-sequence increment, both of which must be rolled back.
+    await client.execute({
+      sql: `UPDATE settings SET tenant_secret = '' WHERE tenant_id = ?`,
+      args: [tenantId],
+    });
 
     const ledgerBefore = await countRows(`SELECT id FROM ledger_entries WHERE tenant_id = ?`, [tenantId]);
     const auditBefore = await countRows(`SELECT id FROM audit_log WHERE tenant_id = ?`, [tenantId]);
     const outboxBefore = await countRows(`SELECT id FROM sync_outbox WHERE tenant_id = ?`, [tenantId]);
     const balanceBefore = await studentBalance(studentA);
 
-    // 60000 against a 50000 invoice: 50000 applied, 10000 remainder ->
-    // auto-invoice number INV-000002 -> UNIQUE(tenant_id, number) -> throw
-    // AFTER the audit row, the credit row and the status flip were written.
+    // 60000 against a 50000 invoice: the flow writes the audit row, takes the
+    // receipt number, then dies. EVERYTHING must be gone (fail-closed, §9.6).
     const res = await recordPaymentSql(client, {
       tenantId, studentId: studentA, amountPaise: 60000, description: "Cash", receivedOn: FEE_DATE,
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(String(res.error.message)).toMatch(/UNIQUE|constraint/i);
+    expect(String(res.error.message)).toMatch(/SECURITY_VIOLATION|TENANT_SETTINGS_NOT_FOUND/);
 
     // EVERYTHING from the failed flow is gone (fail-closed, §9.6).
     expect(await countRows(`SELECT id FROM audit_log WHERE tenant_id = ?`, [tenantId])).toBe(auditBefore);
@@ -453,6 +463,50 @@ describe("atomicity (F4 / §9.6 all-or-nothing)", () => {
     expect(await studentBalance(studentA)).toBe(balanceBefore);
     expect(await ledgerTailBalance(studentA)).toBe(balanceBefore);
     expect(await seqFor(tenantId)).toBe(2); // increment rolled back
+    expect(await scalar(`SELECT next_receipt_seq FROM settings WHERE tenant_id = ?`, [tenantId])).toBe(1);
+  });
+
+  it("BR-FEE-09 / BR-RC-03: a TAKEN invoice number is skipped, not fatal — the payment is recorded", async () => {
+    // BR-FEE-09's enforcement column says "Sequence fails; rollback; engine
+    // retries with next sequence". Before the retry, a decoy holding
+    // INV-000002 made the WHOLE payment fail with the tutor's cash
+    // unrecorded (`SQLITE_CONSTRAINT_UNIQUE: invoices.tenant_id, invoices.number`).
+    // The number take now skips the taken number and leaves a gap — which is
+    // the audit trail BR-RC-01 asks for.
+    const tenantId = await seedTenant();
+    const studentA = await seedStudent(tenantId);
+    const studentB = await seedStudent(tenantId);
+
+    const inv = await createInvoiceSql(client, {
+      tenantId, studentId: studentA, amountPaise: 50000, description: "Fee", issueDate: FEE_DATE,
+    });
+    expect(inv.ok).toBe(true);
+    if (!inv.ok) return;
+
+    const now = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date,
+              subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
+            VALUES (?, ?, 'INV-000002', ?, ?, ?, 1, 0, 0, 1, 'paid', 'decoy', ?, ?)`,
+      args: [randomUUID(), tenantId, studentB, FEE_DATE, FEE_DATE, now, now],
+    });
+
+    const res = await recordPaymentSql(client, {
+      tenantId, studentId: studentA, amountPaise: 60000, description: "Cash", receivedOn: FEE_DATE,
+    });
+    expect(res.ok, `payment must survive a taken number: ${res.ok ? "" : res.error?.message}`).toBe(true);
+    if (!res.ok) return;
+    // The auto-invoice took INV-000003 — the number after the decoy.
+    expect(res.value.autoInvoiceNumber).toBe("INV-000003");
+    // Every paise is attributed.
+    expect(res.value.creditedPaise).toBe(60000);
+    // The decoy's number was NOT reused.
+    const numbers = await client.execute({
+      sql: `SELECT number FROM invoices WHERE tenant_id = ? ORDER BY number`,
+      args: [tenantId],
+    });
+    const all = numbers.rows.map((r) => String(r.number));
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 

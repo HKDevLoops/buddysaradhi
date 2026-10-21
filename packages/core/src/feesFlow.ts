@@ -41,6 +41,28 @@ export interface CreateInvoiceInput {
   description: string;
   /** `YYYY-MM-DD` from the UI date field; also used as `due_date`. */
   issueDate: string;
+  /**
+   * `YYYY-MM-DD` the payment is due. Defaults to `issueDate`.
+   *
+   * The batch engine (§4 of 07_Fees_and_Payments.md) invoices a period that
+   * is issued on one day and due on another; before this field it had to
+   * write the row itself — and a row the flow did not write is a row the
+   * ledger does not know about.
+   */
+  dueDate?: string;
+  /**
+   * The pre-discount amount, when the invoice carries a discount.
+   *
+   * BR-FEE-10: a discount is a PAIRED `DISCOUNT_GRANTED` CREDIT alongside
+   * the `FEE_CHARGED` row, never a silently reduced charge — so the ledger
+   * shows the full fee AND the discount as separate, auditable lines.
+   * `amountPaise` is the TOTAL the invoice demands, so
+   * `subtotalPaise - discountPaise` MUST equal it (the flow refuses
+   * otherwise — fail-closed, Rule 9).
+   */
+  subtotalPaise?: number;
+  /** The discount, in paise. `0` (the default) means no discount. */
+  discountPaise?: number;
 }
 
 export interface CreateInvoiceResult {
@@ -75,6 +97,25 @@ export interface AppliedInvoice {
   number: string;
   paise: number;
   status: "unpaid" | "partial" | "paid";
+}
+
+/**
+ * The sequence a `take*Number` call consumed, and the counter it left behind.
+ *
+ * `seq` is the number that was CONSUMED (it is inside the built number);
+ * `nextSeq` is what `settings.next_*_seq` holds AFTER the increment — i.e.
+ * the value a replica needs so its NEXT number is the one after this one.
+ *
+ * BR-LED-03 / BR-RC-01 / BR-RC-03: the counter is the authoritative "next
+ * number to consume". Replicating the CONSUMED value instead (the old
+ * behaviour) hands the replica a counter one behind, and the replica then
+ * re-issues a LIVE number.
+ */
+export interface TakenNumber {
+  number: string;
+  seq: number;
+  nextSeq: number;
+  prefix: string;
 }
 
 export interface RecordPaymentResult {
@@ -115,6 +156,11 @@ export interface InvoiceInsert {
   number: string;
   issueDate: string;
   dueDate: string;
+  /** The pre-discount amount (BR-FEE-10). */
+  subtotalPaise: number;
+  /** The discount, in paise (BR-FEE-10). */
+  discountPaise: number;
+  /** What the invoice demands: `subtotal - discount`. */
   totalPaise: number;
   status: InvoiceStatus;
   tamperHash: string;
@@ -174,10 +220,7 @@ export interface FeeTx {
   /** F1: fail-closed hash pepper (10_Security.md §10). */
   requireTenantSecret(tenantId: string): Promise<string>;
   /** §9.7: atomic sequence consumption + number build (EC-05). */
-  takeInvoiceNumber(
-    tenantId: string,
-    now: string,
-  ): Promise<{ number: string; seq: number; prefix: string }>;
+  takeInvoiceNumber(tenantId: string, now: string): Promise<TakenNumber>;
   /**
    * 07 §9.6 step 7 + 12 BR-RC-01: the receipt number is
    * `receipt_prefix + zero-pad(next_receipt_seq, 6)`, consumed by ATOMIC
@@ -185,10 +228,7 @@ export interface FeeTx {
    * the gap is the audit trail. Same fail-closed shape as the invoice take: no
    * settings row, no number, no payment.
    */
-  takeReceiptNumber(
-    tenantId: string,
-    now: string,
-  ): Promise<{ number: string; seq: number; prefix: string }>;
+  takeReceiptNumber(tenantId: string, now: string): Promise<TakenNumber>;
   /** Receipt row + its `sync_outbox` replication row (Rule 7). */
   insertReceipt(row: ReceiptInsert): Promise<void>;
   /** Invoice row + its `sync_outbox` replication row (Rule 7). */
@@ -208,9 +248,21 @@ export interface FeeTx {
   postEntry(input: EntryInput): Promise<string>;
   /** §9.6 step 1: one audit row per tutor action, written fail-closed. */
   writeAudit(args: AuditArgs): Promise<void>;
-  /** `settings.next_*_seq` was mutated → queue it (Rule 7). */
+  /**
+   * `settings.next_*_seq` was mutated → queue it (Rule 7).
+   *
+   * `kind` names WHICH sequence was consumed. It is not optional: the receipt
+   * sequence written into the invoice columns is the defect this type exists
+   * to make unrepresentable (BR-LED-03 / BR-RC-01 / BR-RC-03). A replica that
+   * applied the old payload set its invoice prefix to `RCP-` and its invoice
+   * counter to the receipt's value — then re-issued a LIVE invoice number.
+   *
+   * `seq` is the counter's value AFTER the increment (the next number to
+   * consume), never the value this row consumed.
+   */
   writeSettingsOutbox(args: {
     tenantId: string;
+    kind: "invoice" | "receipt";
     prefix: string;
     seq: number;
     now: string;
@@ -222,9 +274,20 @@ export interface FeeTx {
 // transaction (fail-closed) on a migration-built DB.
 const ACTOR_TUTOR = "tutor";
 
-/** BR-M-01: every amount crossing this boundary is a positive integer paise count. */
+/**
+ * BR-M-01: every amount crossing this boundary is a positive integer paise
+ * count.
+ *
+ * `Number.isSafeInteger`, NOT `Number.isInteger`: `Number.isInteger(1e19)` is
+ * TRUE (it is an integer, just not a SAFE one), and 1e19 does not fit a
+ * SQLite INTEGER column, so SQLite stores it as a REAL — a float in the money
+ * column, which BR-M-01 [CRITICAL] forbids. The two dialects then refused the
+ * value at DIFFERENT layers with different messages (the libsql dialect via
+ * `paiseAdd`, the ORM dialect via the driver), so the money flow itself
+ * accepted it. The guard belongs HERE, in the one place both dialects call.
+ */
 export function assertPositivePaise(amountPaise: number): void {
-  if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
+  if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0) {
     throw new Error(
       `AMOUNT_INVALID: expected a positive integer paise amount, got ${String(amountPaise)}`,
     );
@@ -245,10 +308,32 @@ export async function createInvoiceFlow(
   now: string,
 ): Promise<CreateInvoiceResult> {
   assertPositivePaise(input.amountPaise);
+  // BR-FEE-10: the invoice's total is `subtotal - discount` (the schema's
+  // `trg_invoices_total` CHECK enforces the same identity). If the caller
+  // supplies a discount that does not reconcile with the total, the flow
+  // REFUSES — it never writes an invoice whose own columns disagree.
+  const subtotalPaise = input.subtotalPaise ?? input.amountPaise;
+  const discountPaise = input.discountPaise ?? 0;
+  if (!Number.isSafeInteger(subtotalPaise) || subtotalPaise < 0) {
+    throw new Error(
+      `AMOUNT_INVALID: subtotal must be a non-negative integer paise amount, got ${String(subtotalPaise)}`,
+    );
+  }
+  if (!Number.isSafeInteger(discountPaise) || discountPaise < 0) {
+    throw new Error(
+      `AMOUNT_INVALID: discount must be a non-negative integer paise amount, got ${String(discountPaise)}`,
+    );
+  }
+  if (paiseSub(subtotalPaise, discountPaise) !== input.amountPaise) {
+    throw new Error(
+      `INVOICE_TOTAL_MISMATCH: subtotal ${subtotalPaise} - discount ${discountPaise} != total ${input.amountPaise} (BR-FEE-10)`,
+    );
+  }
   await tx.requireStudent(input.tenantId, input.studentId); // F5
   const secret = await tx.requireTenantSecret(input.tenantId); // F1 fail-closed
-  const { number, seq, prefix } = await tx.takeInvoiceNumber(input.tenantId, now); // F3
+  const { number, prefix, nextSeq } = await tx.takeInvoiceNumber(input.tenantId, now); // F3
   const invoiceId = randomUUID();
+  const dueDate = input.dueDate ?? input.issueDate;
 
   // Fail-closed audit (§9.6 step 1 principle): the audit row lands before any
   // money row — if this write fails, nothing else happens.
@@ -281,7 +366,9 @@ export async function createInvoiceFlow(
     studentId: input.studentId,
     number,
     issueDate: input.issueDate,
-    dueDate: input.issueDate,
+    dueDate,
+    subtotalPaise,
+    discountPaise,
     totalPaise: input.amountPaise,
     status: "unpaid",
     tamperHash,
@@ -291,22 +378,42 @@ export async function createInvoiceFlow(
   // Posted through the shared ledger dialect so the row is hash-chained
   // identically to every other writer and `reconcileLedger` verifies it — and
   // linked to the invoice so §9.6 step 5 can sum credits per invoice.
+  //
+  // BR-FEE-10: the charge is for the FULL subtotal and the discount is a
+  // PAIRED `DISCOUNT_GRANTED` credit — so the ledger shows the fee the tutor
+  // set AND the discount they gave, as two auditable lines, and the net
+  // balance is still `total`.
   const ledgerEntryId = await tx.postEntry({
     tenantId: input.tenantId,
     studentId: input.studentId,
     type: "FEE_CHARGED",
-    debitPaise: input.amountPaise,
+    debitPaise: subtotalPaise,
     creditPaise: 0,
     description: input.description,
     invoiceId,
     occurredOn: input.issueDate,
   });
+  if (discountPaise > 0) {
+    await tx.postEntry({
+      tenantId: input.tenantId,
+      studentId: input.studentId,
+      type: "DISCOUNT_GRANTED",
+      debitPaise: 0,
+      creditPaise: discountPaise,
+      description: `Discount: ${input.description}`,
+      invoiceId,
+      occurredOn: input.issueDate,
+    });
+  }
 
-  // Rule 7: `settings.next_invoice_seq` was mutated → queue it too.
+  // Rule 7: `settings.next_invoice_seq` was mutated → queue it too — with
+  // the counter's NEXT value, so a replica's next invoice is the next one
+  // and not a duplicate of this one (BR-LED-03, BR-RC-03).
   await tx.writeSettingsOutbox({
     tenantId: input.tenantId,
+    kind: "invoice",
     prefix,
-    seq,
+    seq: nextSeq,
     now,
   });
 
@@ -389,8 +496,13 @@ export async function recordPaymentFlow(
     });
     await tx.writeSettingsOutbox({
       tenantId: input.tenantId,
+      // The RECEIPT sequence — named as such, and replicated into the
+      // receipt columns with the receipt counter's NEXT value (BR-RC-01).
+      // Writing it into `invoice_prefix`/`next_invoice_seq` is what made a
+      // replica re-issue live invoice numbers.
+      kind: "receipt",
       prefix: receiptSeq.prefix,
-      seq: receiptSeq.seq,
+      seq: receiptSeq.nextSeq,
       now,
     });
   };
@@ -464,7 +576,7 @@ export async function recordPaymentFlow(
   let autoInvoiceNumber: string | null = null;
   if (remaining > 0) {
     const secret = await tx.requireTenantSecret(input.tenantId); // F1
-    const { number, seq, prefix } = await tx.takeInvoiceNumber(input.tenantId, now); // F3
+    const { number, prefix, nextSeq } = await tx.takeInvoiceNumber(input.tenantId, now); // F3
     autoInvoiceId = randomUUID();
     autoInvoiceNumber = number;
 
@@ -484,6 +596,8 @@ export async function recordPaymentFlow(
       number,
       issueDate: input.receivedOn,
       dueDate: input.receivedOn,
+      subtotalPaise: remaining,
+      discountPaise: 0,
       totalPaise: remaining,
       status: "paid",
       tamperHash,
@@ -491,8 +605,9 @@ export async function recordPaymentFlow(
     });
     await tx.writeSettingsOutbox({
       tenantId: input.tenantId,
+      kind: "invoice",
       prefix,
-      seq,
+      seq: nextSeq,
       now,
     });
 

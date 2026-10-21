@@ -100,7 +100,7 @@ async function insertInvoiceRow(tx: SqlExecutor, inv: InvoiceInsert): Promise<vo
   await tx.execute({
     sql: `INSERT INTO invoices (id, tenant_id, number, student_id, issue_date, due_date,
               subtotal, discount, extra_charges, total, status, tamper_hash, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
     args: [
       inv.invoiceId,
       inv.tenantId,
@@ -108,7 +108,8 @@ async function insertInvoiceRow(tx: SqlExecutor, inv: InvoiceInsert): Promise<vo
       inv.studentId,
       inv.issueDate,
       inv.dueDate,
-      inv.totalPaise,
+      inv.subtotalPaise,
+      inv.discountPaise,
       inv.totalPaise,
       inv.status,
       inv.tamperHash,
@@ -130,8 +131,8 @@ async function insertInvoiceRow(tx: SqlExecutor, inv: InvoiceInsert): Promise<vo
       student_id: inv.studentId,
       issue_date: inv.issueDate,
       due_date: inv.dueDate,
-      subtotal: inv.totalPaise,
-      discount: 0,
+      subtotal: inv.subtotalPaise,
+      discount: inv.discountPaise,
       extra_charges: 0,
       total: inv.totalPaise,
       status: inv.status,
@@ -192,6 +193,10 @@ async function insertReceiptRow(tx: SqlExecutor, r: ReceiptInsert): Promise<void
       payment_ref: r.paymentRef,
       received_on: r.receivedOn,
       tamper_hash: r.tamperHash,
+      // DIALECT PARITY (AGENTS.md §3.5): the receipt payload mirrors the
+      // INSERTED row, exactly like the ORM dialect below and the gateway's
+      // writer — so a replica rebuilds the same row whichever platform
+      // recorded the payment.
       created_at: r.now,
       updated_at: r.now,
     }).payload,
@@ -238,27 +243,48 @@ export function sqlFeeTx(tx: SqlExecutor): FeeTx {
      * the transaction if any later step fails, so a failed flow consumes no
      * number. EC-19: `invoice_prefix` is read fresh each call — a mid-stream
      * prefix change affects only new numbers; the sequence never resets.
+     *
+     * BR-LED-03 / BR-RC-03 (never recycled): the candidate number is checked
+     * against the `invoices` table before it is handed back. A counter that
+     * is behind the table — which a writer that allocates numbers without
+     * advancing the counter can produce — would otherwise hand out a LIVE
+     * number, and the UNIQUE constraint would abort the whole payment with
+     * the tutor's cash unrecorded. Taking the next number instead leaves a
+     * gap, which is the audit trail BR-RC-01 asks for.
      */
     async takeInvoiceNumber(tenantId, now) {
-      const upd = await tx.execute({
-        sql: `UPDATE settings SET next_invoice_seq = next_invoice_seq + 1, updated_at = ?
-              WHERE tenant_id = ?`,
-        args: [now, tenantId],
-      });
-      if (upd.rowsAffected === 0) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const upd = await tx.execute({
+          sql: `UPDATE settings SET next_invoice_seq = next_invoice_seq + 1, updated_at = ?
+                WHERE tenant_id = ?`,
+          args: [now, tenantId],
+        });
+        if (upd.rowsAffected === 0) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const res = await tx.execute({
+          sql: `SELECT invoice_prefix, next_invoice_seq FROM settings WHERE tenant_id = ? LIMIT 1`,
+          args: [tenantId],
+        });
+        const row = res.rows[0];
+        if (!row) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const nextSeq = Number(row.next_invoice_seq);
+        const seq = nextSeq - 1;
+        const prefix = String(row.invoice_prefix);
+        const number = `${prefix}${String(seq).padStart(6, "0")}`;
+        const taken = await tx.execute({
+          sql: `SELECT 1 AS x FROM invoices WHERE tenant_id = ? AND number = ? LIMIT 1`,
+          args: [tenantId, number],
+        });
+        if (taken.rows.length === 0) {
+          return { number, seq, nextSeq, prefix };
+        }
       }
-      const res = await tx.execute({
-        sql: `SELECT invoice_prefix, next_invoice_seq FROM settings WHERE tenant_id = ? LIMIT 1`,
-        args: [tenantId],
-      });
-      const row = res.rows[0];
-      if (!row) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
-      }
-      const seq = Number(row.next_invoice_seq) - 1;
-      const prefix = String(row.invoice_prefix);
-      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+      throw new Error(
+        `INVOICE_NUMBER_EXHAUSTED: 100 consecutive invoice numbers were already taken for ${tenantId} (BR-RC-03)`,
+      );
     },
 
     insertInvoice(row) {
@@ -269,25 +295,39 @@ export function sqlFeeTx(tx: SqlExecutor): FeeTx {
       // BR-RC-01: atomic increment, never decremented — a void leaves a gap by
       // design (the gap is the audit trail). Identical shape to the invoice take
       // so a missing settings row fails the same closed way.
-      const upd = await tx.execute({
-        sql: `UPDATE settings SET next_receipt_seq = next_receipt_seq + 1, updated_at = ?
-              WHERE tenant_id = ?`,
-        args: [now, tenantId],
-      });
-      if (upd.rowsAffected === 0) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const upd = await tx.execute({
+          sql: `UPDATE settings SET next_receipt_seq = next_receipt_seq + 1, updated_at = ?
+                WHERE tenant_id = ?`,
+          args: [now, tenantId],
+        });
+        if (upd.rowsAffected === 0) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const res = await tx.execute({
+          sql: `SELECT receipt_prefix, next_receipt_seq FROM settings WHERE tenant_id = ? LIMIT 1`,
+          args: [tenantId],
+        });
+        const row = res.rows[0];
+        if (!row) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const nextSeq = Number(row.next_receipt_seq);
+        const seq = nextSeq - 1;
+        const prefix = String(row.receipt_prefix ?? "RCP-");
+        const number = `${prefix}${String(seq).padStart(6, "0")}`;
+        // BR-RC-01 (never recycled): the candidate must not already exist.
+        const taken = await tx.execute({
+          sql: `SELECT 1 AS x FROM receipts WHERE tenant_id = ? AND number = ? LIMIT 1`,
+          args: [tenantId, number],
+        });
+        if (taken.rows.length === 0) {
+          return { number, seq, nextSeq, prefix };
+        }
       }
-      const res = await tx.execute({
-        sql: `SELECT receipt_prefix, next_receipt_seq FROM settings WHERE tenant_id = ? LIMIT 1`,
-        args: [tenantId],
-      });
-      const row = res.rows[0];
-      if (!row) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
-      }
-      const seq = Number(row.next_receipt_seq) - 1;
-      const prefix = String(row.receipt_prefix ?? "RCP-");
-      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+      throw new Error(
+        `RECEIPT_NUMBER_EXHAUSTED: 100 consecutive receipt numbers were already taken for ${tenantId} (BR-RC-01)`,
+      );
     },
 
     insertReceipt(row) {
@@ -371,7 +411,17 @@ export function sqlFeeTx(tx: SqlExecutor): FeeTx {
       return insertAudit(tx, a);
     },
 
-    writeSettingsOutbox({ tenantId, prefix, seq, now }) {
+    writeSettingsOutbox({ tenantId, kind, prefix, seq, now }) {
+      // BR-LED-03 / BR-RC-01 / BR-RC-03: the payload names the sequence it
+      // actually mutated, and carries the counter's NEXT value. The old
+      // payload wrote the receipt's prefix and sequence into the INVOICE
+      // columns and carried the CONSUMED value, so a replica that applied it
+      // set its invoice prefix to `RCP-` and rewound its invoice counter —
+      // then re-issued a LIVE invoice number.
+      const columns =
+        kind === "receipt"
+          ? { receipt_prefix: prefix, next_receipt_seq: seq }
+          : { invoice_prefix: prefix, next_invoice_seq: seq };
       return insertOutbox(tx, {
         tenantId,
         tableName: "settings",
@@ -379,8 +429,7 @@ export function sqlFeeTx(tx: SqlExecutor): FeeTx {
         op: "update",
         payload: encodeOutboxPayload("settings", "update", {
           tenant_id: tenantId,
-          invoice_prefix: prefix,
-          next_invoice_seq: seq,
+          ...columns,
           updated_at: now,
         }).payload,
         createdAt: now,

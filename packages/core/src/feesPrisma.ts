@@ -60,7 +60,9 @@ export interface OrmTx {
     findFirst(args?: RowArgs): Promise<Row | null>;
   };
   invoice: {
-    findMany(args: RowArgs & { orderBy?: Record<string, unknown> }): Promise<Row[]>;
+    findMany(
+      args: RowArgs & { orderBy?: Record<string, unknown>; take?: number },
+    ): Promise<Row[]>;
     create(args: DataArgs): Promise<Row>;
     updateMany(args: RowArgs & DataArgs): Promise<{ count: number }>;
   };
@@ -77,6 +79,12 @@ export interface OrmTx {
   };
   receipt: {
     create(args: DataArgs): Promise<Row>;
+    /**
+     * BR-RC-01 (never recycled): the receipt-number take checks the
+     * `receipts` table for the candidate before handing it back, exactly as
+     * the libsql dialect checks `invoices`.
+     */
+    findMany(args: RowArgs & { take?: number }): Promise<Row[]>;
   };
   syncOutbox: {
     create(args: DataArgs): Promise<Row>;
@@ -186,8 +194,8 @@ async function insertInvoiceRow(tx: OrmTx, inv: InvoiceInsert): Promise<void> {
       studentId: inv.studentId,
       issueDate: inv.issueDate,
       dueDate: inv.dueDate,
-      subtotal: inv.totalPaise,
-      discount: 0,
+      subtotal: inv.subtotalPaise,
+      discount: inv.discountPaise,
       extraCharges: 0,
       total: inv.totalPaise,
       status: inv.status,
@@ -209,8 +217,8 @@ async function insertInvoiceRow(tx: OrmTx, inv: InvoiceInsert): Promise<void> {
       student_id: inv.studentId,
       issue_date: inv.issueDate,
       due_date: inv.dueDate,
-      subtotal: inv.totalPaise,
-      discount: 0,
+      subtotal: inv.subtotalPaise,
+      discount: inv.discountPaise,
       extra_charges: 0,
       total: inv.totalPaise,
       status: inv.status,
@@ -263,23 +271,40 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
      * the libsql dialect's UPDATE-then-SELECT pair.
      */
     async takeInvoiceNumber(tenantId, now) {
-      await tx.setting.update({
-        where: { tenantId },
-        data: { nextInvoiceSeq: { increment: 1 }, updatedAt: now },
-      });
-      const row = await tx.setting.findFirst({ where: { tenantId } });
-      if (!row) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      // BR-LED-03 / BR-RC-03 (never recycled): the candidate number is checked
+      // against the `invoices` table before it is handed back, exactly as the
+      // libsql dialect does. A counter that is behind the table would
+      // otherwise hand out a LIVE number and the UNIQUE constraint would
+      // abort the whole payment with the tutor's cash unrecorded.
+      for (let attempt = 0; attempt < 100; attempt++) {
+        await tx.setting.update({
+          where: { tenantId },
+          data: { nextInvoiceSeq: { increment: 1 }, updatedAt: now },
+        });
+        const row = await tx.setting.findFirst({ where: { tenantId } });
+        if (!row) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const prefix = str(row, "invoicePrefix") || str(row, "invoice_prefix");
+        const nextSeq = num(row, "nextInvoiceSeq") || num(row, "next_invoice_seq");
+        if (!Number.isSafeInteger(nextSeq) || nextSeq < 1) {
+          throw new Error(
+            `SEQUENCE_INVALID: next_invoice_seq is not a usable integer for ${tenantId} (BR-LED-03)`,
+          );
+        }
+        const seq = nextSeq - 1;
+        const number = `${prefix}${String(seq).padStart(6, "0")}`;
+        const taken = await tx.invoice.findMany({
+          where: { tenantId, number },
+          take: 1,
+        });
+        if (taken.length === 0) {
+          return { number, seq, nextSeq, prefix };
+        }
       }
-      const prefix = str(row, "invoicePrefix") || str(row, "invoice_prefix");
-      const nextSeq = num(row, "nextInvoiceSeq") || num(row, "next_invoice_seq");
-      if (!Number.isSafeInteger(nextSeq) || nextSeq < 1) {
-        throw new Error(
-          `SEQUENCE_INVALID: next_invoice_seq is not a usable integer for ${tenantId} (BR-LED-03)`,
-        );
-      }
-      const seq = nextSeq - 1;
-      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+      throw new Error(
+        `INVOICE_NUMBER_EXHAUSTED: 100 consecutive invoice numbers were already taken for ${tenantId} (BR-RC-03)`,
+      );
     },
 
     insertInvoice(row) {
@@ -289,24 +314,38 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
     async takeReceiptNumber(tenantId, now) {
       // BR-RC-01: atomic `{increment}` so the sequence is consumed IN the
       // database (never read-modify-written in JS — AGENTS.md §3.6), and never
-      // decremented afterwards.
-      await tx.setting.update({
-        where: { tenantId },
-        data: { nextReceiptSeq: { increment: 1 }, updatedAt: now },
-      });
-      const row = await tx.setting.findFirst({ where: { tenantId } });
-      if (!row) {
-        throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+      // decremented afterwards. The candidate is checked against the
+      // `receipts` table so a behind-counter never re-issues a LIVE receipt
+      // number — the libsql dialect does the same.
+      for (let attempt = 0; attempt < 100; attempt++) {
+        await tx.setting.update({
+          where: { tenantId },
+          data: { nextReceiptSeq: { increment: 1 }, updatedAt: now },
+        });
+        const row = await tx.setting.findFirst({ where: { tenantId } });
+        if (!row) {
+          throw new Error(`TENANT_SETTINGS_NOT_FOUND: no settings row for ${tenantId}`);
+        }
+        const prefix = str(row, "receiptPrefix") || str(row, "receipt_prefix") || "RCP-";
+        const nextSeq = num(row, "nextReceiptSeq") || num(row, "next_receipt_seq");
+        if (!Number.isSafeInteger(nextSeq) || nextSeq < 1) {
+          throw new Error(
+            `SEQUENCE_INVALID: next_receipt_seq is not a usable integer for ${tenantId} (BR-LED-03)`,
+          );
+        }
+        const seq = nextSeq - 1;
+        const number = `${prefix}${String(seq).padStart(6, "0")}`;
+        const taken = await tx.receipt.findMany({
+          where: { tenantId, number },
+          take: 1,
+        });
+        if (taken.length === 0) {
+          return { number, seq, nextSeq, prefix };
+        }
       }
-      const prefix = str(row, "receiptPrefix") || str(row, "receipt_prefix") || "RCP-";
-      const nextSeq = num(row, "nextReceiptSeq") || num(row, "next_receipt_seq");
-      if (!Number.isSafeInteger(nextSeq) || nextSeq < 1) {
-        throw new Error(
-          `SEQUENCE_INVALID: next_receipt_seq is not a usable integer for ${tenantId} (BR-LED-03)`,
-        );
-      }
-      const seq = nextSeq - 1;
-      return { number: `${prefix}${String(seq).padStart(6, "0")}`, seq, prefix };
+      throw new Error(
+        `RECEIPT_NUMBER_EXHAUSTED: 100 consecutive receipt numbers were already taken for ${tenantId} (BR-RC-01)`,
+      );
     },
 
     insertReceipt(row) {
@@ -418,7 +457,15 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
       });
     },
 
-    writeSettingsOutbox({ tenantId, prefix, seq, now }) {
+    writeSettingsOutbox({ tenantId, kind, prefix, seq, now }) {
+      // BR-LED-03 / BR-RC-01 / BR-RC-03: the payload names the sequence it
+      // actually mutated and carries the counter's NEXT value — never the
+      // receipt's prefix/sequence in the invoice columns, never the consumed
+      // value. Identical bytes to the libsql dialect.
+      const columns =
+        kind === "receipt"
+          ? { receipt_prefix: prefix, next_receipt_seq: seq }
+          : { invoice_prefix: prefix, next_invoice_seq: seq };
       return writeOutbox(tx, {
         tenantId,
         tableName: "settings",
@@ -426,8 +473,7 @@ export function ormFeeTx(tx: OrmTx): FeeTx {
         op: "update",
         payload: encodeOutboxPayload("settings", "update", {
           tenant_id: tenantId,
-          invoice_prefix: prefix,
-          next_invoice_seq: seq,
+          ...columns,
           updated_at: now,
         }).payload,
         createdAt: now,

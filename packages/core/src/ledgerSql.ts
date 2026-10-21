@@ -260,6 +260,14 @@ export async function postLedgerEntrySql(
       occurred_on: input.occurredOn,
       source,
       created_at: now,
+      // DIALECT PARITY (AGENTS.md §3.5): the Prisma dialect (`ledger.ts`)
+      // mirrors the INSERTED ROW (`{...newEntry}`), so its payload carries
+      // `updated_at`; the gateway's writer does the same. This dialect built
+      // an explicit field list and omitted it, so the two platforms emitted
+      // DIFFERENT replication payloads for the SAME ledger row — and the
+      // parity gate compares the outbox by `(table_name, op)` only, so it
+      // never saw it.
+      updated_at: now,
     });
     await tx.execute({
       sql: `INSERT INTO sync_outbox (id, tenant_id, table_name, row_id, op, payload, created_at)
