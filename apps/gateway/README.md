@@ -104,9 +104,9 @@ apps/gateway/
 ├── provision/            # Tenant provisioning
 │   ├── index.ts          # provision-db entrypoint
 │   └── deno.json         # Provision-specific Deno config
-├── migrations/           # SQL migrations (canonical DDL)
-│   ├── 0001_init.sql     # Initial schema
-│   └── 0002_add_palette.sql
+├── migrations/           # (deleted 2026-10-21 — the canonical DDL lives at the
+│                         #  REPO ROOT `migrations/`; one lineage, one name.
+│                         #  See audit AUD-052 / remediation row 5.12.)
 ├── __tests__/            # Test suite (134+ tests)
 └── .env                  # Local environment variables (git-ignored)
 ```

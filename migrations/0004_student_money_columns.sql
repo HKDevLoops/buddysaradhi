@@ -1,0 +1,55 @@
+-- 0004_student_money_columns.sql
+--
+-- FORWARD-ONLY. Never edit 0001, 0002 or 0003 (AGENTS.md §3.4 / AP-8).
+--
+-- WHY THIS EXISTS — a tenant database provisioned from the canonical DDL
+-- cannot record a balance or a monthly fee.
+--
+-- `migrations/0001_init.sql` creates `students` (lines 63-89) WITHOUT
+-- `balance_paise` and WITHOUT `base_fee_paise`. But the money engine writes
+-- both, and it writes them through Prisma:
+--
+--   prisma/schema.prisma:128-129
+--     baseFeePaise  Int  @default(0) @map("base_fee_paise")
+--     balancePaise  Int  @default(0) @map("balance_paise")
+--
+-- `packages/core`'s canonical writers and the web app's ORM shim both
+-- `SELECT`/`UPDATE` those columns, so on a database built from the shipped
+-- migration every balance read is "no such column: balance_paise" and every
+-- balance write fails the same way. The Prisma client itself rejects the row
+-- as unreadable, because the model declares the field as required.
+--
+-- The other two schema authorities disagree with 0001, which is why the drift
+-- survived so long:
+--
+--   * `apps/gateway/lib/schema.ts:121-122` (the gateway's self-healing DDL)
+--     creates BOTH columns on a fresh tenant database;
+--   * `packages/core/src/adversarial.money.test.ts:59-67` patches
+--     `balance_paise` in BY HAND after applying 0001, because the test suite
+--     needed the column the migration does not ship.
+--
+-- So the shipped migration was not the schema the money engine runs on. A
+-- fresh tenant created through the migration path was broken; a fresh tenant
+-- created through the gateway was fine. That is the worst kind of divergence:
+-- it depends on which door the tutor came in by.
+--
+-- WHAT IT DOES. Adds the two columns as INTEGER NOT NULL DEFAULT 0. SQLite's
+-- `ALTER TABLE ... ADD COLUMN` is additive: every existing row is backfilled
+-- with 0 (a student with no recorded balance owes nothing — the same value
+-- `prisma/schema.prisma`'s `@default(0)` gives a new student), no row is
+-- rewritten, and no backup is invalidated. `NOT NULL` matches the Prisma
+-- model (`Int`, not `Int?`), so the client can read every row it selects.
+--
+-- APPLY CHECK before running:
+--   SELECT name FROM pragma_table_info('students')
+--    WHERE name IN ('balance_paise', 'base_fee_paise');
+-- Two rows = already applied, do not rerun. Zero or one row = this migration
+-- is needed. Rerunning fails closed (duplicate-column error) per Rule 9 —
+-- migrations run once via the tracker, never twice.
+--
+-- Integrity first: the append-only triggers on `ledger_entries` are untouched
+-- (Rule 1), and no ledger row is written, updated or deleted here. This is a
+-- schema repair, not a data edit.
+
+ALTER TABLE students ADD COLUMN base_fee_paise INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE students ADD COLUMN balance_paise INTEGER NOT NULL DEFAULT 0;

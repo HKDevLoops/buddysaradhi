@@ -426,9 +426,19 @@ export function ensureSelfRepairingSchema(
   healingInFlight.set(tenantId, heal);
   // `finally` so a REJECTED heal is never cached — a cached rejection would
   // leave that tenant permanently unhealed for the life of the isolate.
-  void heal.finally(() => {
-    healingInFlight.delete(tenantId);
-  });
+  // The cleanup chain's OWN promise is caught. `heal.finally(cb)` returns a
+  // NEW promise that rejects with the same reason, and `void` does not
+  // handle it - so a failed heal raised an UNHANDLED rejection in the
+  // isolate, on top of the one the caller sees. The rejection is still
+  // surfaced to the caller (it gets `heal`); this only silences the
+  // cleanup chain's copy of it.
+  void heal
+    .finally(() => {
+      healingInFlight.delete(tenantId);
+    })
+    .catch(() => {
+      // The caller gets the failure; this chain exists only to clean up.
+    });
   return heal;
 }
 
@@ -494,6 +504,25 @@ async function runHeal(
       tenantId,
       error: err instanceof Error ? err.message : String(err),
     });
+    // The heal FAILS THE REQUEST (2.7).
+    //
+    // THE DEFECT: the failure was logged and swallowed, so the caller carried
+    // on against a database that was NOT healed. The consequence is silent
+    // and expensive: a tenant DB missing `receipts.ledger_entry_id` cannot
+    // receipt a payment at all, and missing `pin_proof` cannot be erased
+    // safely - the request appears to succeed and the MONEY or the DATA is
+    // the thing that goes missing.
+    //
+    // A loud failure is the safe one (Rule 9): the caller gets a typed error
+    // naming the tenant, and the heal is NOT cached - `finally` above drops
+    // the in-flight entry, so the next request retries the heal rather than
+    // inheriting a permanently unhealed tenant.
+    throw new Error(
+      `SCHEMA_HEAL_FAILED: the tenant database for ${tenantId} could not be healed ` +
+        `(${(err instanceof Error ? err.message : String(err)).slice(0, 200)}). ` +
+        "Nothing was written; the request was refused rather than served from " +
+        "an unhealed database.",
+    );
   }
 }
 
