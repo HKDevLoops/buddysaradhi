@@ -134,6 +134,14 @@
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
+  /* The legibility base every glass tier composites OVER (13_UI_Guidelines.md §5.1).
+     It is the palette's own canvas at 70%: the tier's fill stays translucent, but
+     the backdrop it sits on is capped, so the aurora can be strong in the open
+     canvas without lifting the text's effective background. The value is
+     MEASURED, not chosen — `token-layer.test.ts` proves the floors hold with it
+     and fail without it. */
+  --glass-legibility-base: 70%;
+
   /* Spacing (8px base) */
   --space-1: 4px;
   --space-2: 8px;
@@ -204,16 +212,19 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    /* The aurora is the backdrop the glass tiers composite over, so its strength
-       is bounded by the palette's solved surface stack: at 10% the accent stop
-       lifted the canvas above `--surface-raised`, and `--text-muted` measured
-       4.25:1 on a `.glass` panel sitting over it. At 6% the glow survives and
-       every text role keeps its solved ratio on the panel
-       (13_UI_Guidelines.md §2.1, §5.1; AGENTS.md §2 Rule 10). */
+    /* THE AURORA — the app's signature backdrop, and the strongest thing on screen.
+       Its strength is not free: a glass tier composites over it, so a brighter
+       aurora is a brighter panel and a lower text ratio. The tiers therefore
+       carry a legibility base (--glass-legibility-base) that holds the aurora
+       they SEE at the strength it had before this raise, so the open canvas —
+       every pixel between the panels — takes the full glow and no text role
+       moves. 20% of the accent over a near-black canvas is a visible nebula;
+       the old 6% was not a glow at all (13_UI_Guidelines.md §2.1, §5.1;
+       AGENTS.md §2 Rule 10). */
     background:
-      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 6%, transparent), transparent 42%),
-      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 6%, transparent), transparent 42%),
-      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--info) 6%, transparent), transparent 42%);
+      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 20%, transparent), transparent 42%),
+      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 15%, transparent), transparent 42%),
+      radial-gradient(circle at 50% 88%, color-mix(in srgb, var(--info) 15%, transparent), transparent 42%);
   }
   [data-theme="light"] body {
     background: var(--canvas);
@@ -226,9 +237,14 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
+    /* The light theme has its OWN cliff, and it is the opposite one: the canvas
+       is near-white, so an accent wash DARKENS the panel's backdrop and the
+       text loses its ratio from the other side. 20% of the accent over near-white
+       is a pastel field rather than a tint; the same legibility base holds it
+       (13_UI_Guidelines.md §2.1; AGENTS.md §2 Rule 10). */
     background:
-      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 5%, transparent), transparent 45%),
-      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 4%, transparent), transparent 45%);
+      radial-gradient(circle at 15% 25%, color-mix(in srgb, var(--accent-primary) 20%, transparent), transparent 45%),
+      radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-text) 15%, transparent), transparent 45%);
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -296,22 +312,40 @@
      `--text-muted` measured 3.57:1 on it across all 20 palettes. Tinting with
      the panel's own tone keeps the composite INSIDE the stack, so the aurora
      still shows through the blur and every text role keeps its solved ratio on
-     the panel. */
+     the panel.
+
+     THE LEGIBILITY BASE — the second background layer under every tier. A tier
+     fill is 2–8% opaque, so the panel's effective backdrop is 92–98% whatever
+     is behind it, and what is behind it is the AURORA. A strong aurora is
+     therefore a strong lift on the text's background, and the text roles are
+     solved to exactly their floor against the palette's static surfaces, so the
+     lift is what breaks them. The base is the palette's own canvas at
+     `--glass-legibility-base`: it caps how much of the aurora the panel's
+     backdrop can take, so the aurora can blaze in the open canvas while every
+     text role keeps its solved ratio inside the panel. It is MEASURED, not
+     eyeballed — `token-layer.test.ts` proves the floors hold with the base and
+     fail without it. */
   .glass-faint {
-    background: color-mix(in srgb, var(--surface-raised) 2%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 2%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(8px) saturate(120%);
     -webkit-backdrop-filter: blur(8px) saturate(120%);
     border: 1px solid var(--border-default);
   }
   .glass {
-    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 5%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
     box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 8%, transparent);
   }
   .glass-strong {
-    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 8%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-strong);
@@ -320,7 +354,9 @@
 
   /* Glass card (full component) */
   .glass-card {
-    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 5%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
@@ -354,7 +390,9 @@
     z-index: 1;
   }
   .glass-card-strong {
-    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 8%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-strong);
@@ -367,7 +405,9 @@
 
   /* Alias for existing code that uses glass-panel */
   .glass-panel {
-    background: color-mix(in srgb, var(--surface-raised) 5%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 5%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-default);
@@ -530,7 +570,9 @@
   .sidebar {
     width: 240px;
     flex-shrink: 0;
-    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 8%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border-right: 1px solid var(--border-default);
@@ -572,7 +614,9 @@
     justify-content: space-between;
     padding: var(--space-4) var(--space-6);
     border-bottom: 1px solid var(--border-default);
-    background: color-mix(in srgb, var(--surface-raised) 8%, transparent);
+    background:
+      color-mix(in srgb, var(--surface-raised) 8%, transparent),
+      color-mix(in srgb, var(--canvas) var(--glass-legibility-base), transparent);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     position: sticky;

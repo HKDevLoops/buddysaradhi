@@ -17,17 +17,25 @@
 //     composite has to be MEASURED against the palette's solved surface stack —
 //     not assumed. That measurement is what chose the tier colour and the
 //     aurora strength, and it is re-run here on every change.
+//   · The aurora's strength and the panels' translucency are the SAME VARIABLE:
+//     a 5 %-alpha tier over an aurora-lit canvas means the text's effective
+//     backdrop is 95 % the aurora. So the tiers carry a LEGIBILITY BASE - the
+//     palette's own canvas at 70 % - and the aurora went from 6 % to 20 %:
+//     3.3x stronger in the open canvas, and every measured text ratio on the
+//     panel is identical to the 6 % baseline, because the panel still sees the
+//     same aurora it saw before.
 //   · `.neumo-raised` was `border-radius: var(--radius-full)`: every neumorphic
 //     control in the app was a pill.
 //
-// A negative control lives inside this file: the old `#FFFFFF` and the old
-// 10%-aurora are both measured and asserted to FAIL, so the test cannot pass by
-// accident if the tokens change underneath it.
+// Four negative controls live inside this file: the old `#FFFFFF` badge label,
+// the old white veil, the old 10 %-aurora with no base, and the SHIPPED aurora
+// with the legibility base removed. All four are measured and asserted to FAIL,
+// so the test cannot pass by accident if the tokens change underneath it.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SCHEMES, buildPalette, contrastRatio, hexToRgb } from "@buddysaradhi/design-system";
+import { SCHEMES, buildPalette, contrastRatio, hexToRgb, type PaletteTokens } from "@buddysaradhi/design-system";
 
 /** Vitest runs with the app directory as its working directory. */
 const globalsCssPath = join(process.cwd(), "src", "app", "globals.css");
@@ -83,6 +91,17 @@ function over(fill: string, backdrop: string, alpha: number): string {
 
 function ratio(a: string, b: string): number {
   return contrastRatio(hexToRgb(a), hexToRgb(b));
+}
+
+/**
+ * The stylesheet names a token in kebab-case; the palette object keys are
+ * camelCase. Without this translation the backdrop model silently skipped
+ * every aurora stop and the measurement proved nothing.
+ */
+function paletteToken(tokens: PaletteTokens, name: string): string | undefined {
+  const camel = name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+  const value = tokens[camel as keyof PaletteTokens];
+  return typeof value === "string" ? value : undefined;
 }
 
 /** The surfaces the design system solves every text role against (§2.1). */
@@ -197,14 +216,48 @@ const TIER_CONTRACT = [
   { selector: ".glass-strong", alpha: 0.08 },
 ] as const;
 
+/** The tier's own fill: the panel's surface role at the tier's contract opacity. */
 const TIER_FILL = /^color-mix\(in srgb, var\(--surface-raised\) (\d+)%, transparent\)$/;
+
+/** The legibility base under it: a role, at `--glass-legibility-base`. */
+const TIER_BASE = /^color-mix\(in srgb, var\(--([a-z-]+)\) var\(--glass-legibility-base\), transparent\)$/;
+
+/** Every surface that paints a tier: the three classes and their content twins. */
+const TIER_SURFACES = [
+  ".glass-faint",
+  ".glass",
+  ".glass-strong",
+  ".glass-card",
+  ".glass-card-strong",
+  ".glass-panel",
+  ".sidebar",
+  ".topbar",
+] as const;
+
+/** Split a `background` shorthand into its layers, respecting parentheses. */
+function layers(value: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const character of value) {
+    if (character === "(") depth += 1;
+    if (character === ")") depth -= 1;
+    if (character === "," && depth === 0) {
+      out.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (current.trim().length > 0) out.push(current.trim());
+  return out;
+}
 
 describe("the three glass tiers keep the §5 tier contract", () => {
   it.each(TIER_CONTRACT)(
     "$selector is translucent at its contract opacity",
     ({ selector, alpha }) => {
-      const declarationsOfRule = rule(selector);
-      const fill = declarationsOfRule.background ?? "";
+      const fill = layers(rule(selector).background ?? "")[0] ?? "";
       const match = TIER_FILL.exec(fill);
       expect(match).not.toBeNull();
       expect(Number(match?.[1]) / 100).toBe(alpha);
@@ -222,42 +275,120 @@ describe("the three glass tiers keep the §5 tier contract", () => {
 
   it("the content tiers carry a translucent fill too", () => {
     for (const selector of [".glass-card", ".glass-card-strong", ".glass-panel"]) {
-      const fill = rule(selector).background ?? "";
+      const fill = layers(rule(selector).background ?? "")[0] ?? "";
       expect(TIER_FILL.test(fill)).toBe(true);
+    }
+  });
+
+  it("every tier composites over the legibility base", () => {
+    for (const selector of TIER_SURFACES) {
+      const base = layers(rule(selector).background ?? "")[1] ?? "";
+      expect(TIER_BASE.test(base), selector).toBe(true);
     }
   });
 });
 
-describe("a text role on a glass tier is no worse than on the surface it was solved against", () => {
-  /** The aurora stops the canvas actually paints, read from the file. */
-  const auroraStops = Array.from(
-    ruleBody('[data-theme="dark"] body::before').matchAll(
-      /color-mix\(in srgb, var\(--([a-zA-Z-]+)\) (\d+)%, transparent\)/g,
-    ),
-  ).map((match) => ({
-    token: match[1] ?? "",
-    alpha: Number(match[2] ?? 0) / 100,
+/* ------------------------------------------------------------------ *
+ * The aurora — the backdrop every glass tier composites over
+ * ------------------------------------------------------------------ */
+
+/** One aurora stop, read out of the stylesheet: colour role, strength, geometry. */
+interface AuroraStop {
+  token: string;
+  alpha: number;
+  x: number;
+  y: number;
+  radius: number;
+}
+
+/** The stylesheet's own gradient syntax, so the harness measures what ships. */
+const AURORA_STOP =
+  /radial-gradient\(circle at ([\d.]+)% ([\d.]+)%, color-mix\(in srgb, var\(--([a-zA-Z-]+)\) (\d+)%, transparent\), transparent ([\d.]+)%\)/g;
+
+function auroraStops(theme: "dark" | "light"): AuroraStop[] {
+  const body = ruleBody(`[data-theme="${theme}"] body::before`);
+  return Array.from(body.matchAll(AURORA_STOP)).map((match) => ({
+    token: match[3] ?? "",
+    alpha: Number(match[4] ?? 0) / 100,
+    x: Number(match[1] ?? 0) / 100,
+    y: Number(match[2] ?? 0) / 100,
+    radius: Number(match[5] ?? 0) / 100,
   }));
+}
 
-  /**
-   * The stylesheet names a token in kebab-case; the palette object keys are
-   * camelCase. Without this translation the backdrop model silently skipped
-   * every aurora stop and the measurement below proved nothing.
-   */
-  function paletteToken(tokens: Record<string, unknown>, name: string): string | undefined {
-    const camel = name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
-    const value = tokens[camel];
-    return typeof value === "string" ? value : undefined;
+/** The base every tier composites over: the role, and the strength. */
+function legibilityBase(): { token: string; alpha: number } {
+  const declared = (rule(":root")["--glass-legibility-base"] ?? "").trim();
+  const match = /^(\d+)%$/.exec(declared);
+  const layer = layers(rule(".glass").background ?? "")[1] ?? "";
+  return { token: TIER_BASE.exec(layer)?.[1] ?? "canvas", alpha: Number(match?.[1] ?? 0) / 100 };
+}
+
+/** The worst text role on a tier, over every palette and every aurora stop. */
+interface Measurement {
+  role: string;
+  margin: number;
+  measured: number;
+  required: number;
+  where: string;
+}
+
+const NO_MEASUREMENT: Measurement = { role: "", margin: Infinity, measured: 0, required: 0, where: "" };
+
+/**
+ * The composite the browser paints, in the order it paints it: the aurora over
+ * the canvas, the legibility base over that, and the tier's fill over that.
+ * `baseAlpha` of 0 removes the base, which is the negative control.
+ */
+function worstOnTier(opts: {
+  theme: "dark" | "light";
+  stops: AuroraStop[];
+  baseAlpha: number;
+  tierAlpha: number;
+}): Measurement {
+  const worst: Measurement = { ...NO_MEASUREMENT };
+  const base = legibilityBase();
+  for (const scheme of SCHEMES) {
+    if (scheme.tier !== opts.theme) continue;
+    const tokens = buildPalette(scheme).tokens;
+    const baseHex = paletteToken(tokens, base.token);
+    if (baseHex === undefined) continue;
+    for (const stop of opts.stops) {
+      const stopHex = paletteToken(tokens, stop.token);
+      if (stopHex === undefined) continue;
+      const backdrop = over(stopHex, tokens.canvas, stop.alpha);
+      const bounded = over(baseHex, backdrop, opts.baseAlpha);
+      const composite = over(tokens.surfaceRaised, bounded, opts.tierAlpha);
+      for (const role of TEXT_ROLES) {
+        const colour = tokens[role.token];
+        const required = Math.min(
+          ...SOLVED_SURFACES.map((surface) => ratio(colour, tokens[surface as SolvedSurface])),
+        );
+        const needed = Math.min(required, role.floor);
+        const measured = ratio(colour, composite);
+        if (measured - needed < worst.margin) {
+          worst.role = role.token;
+          worst.margin = measured - needed;
+          worst.measured = measured;
+          worst.required = needed;
+          worst.where = `${scheme.id} · ${stop.token}`;
+        }
+      }
+    }
   }
+  return worst;
+}
 
-  it("reads the aurora stops out of the stylesheet", () => {
-    expect(auroraStops.length).toBeGreaterThan(0);
+describe("a text role on a glass tier is no worse than on the surface it was solved against", () => {
+  it.each(["dark", "light"] as const)("reads the %s aurora stops out of the stylesheet", (theme) => {
+    expect(auroraStops(theme).length).toBeGreaterThan(0);
   });
 
-  it("resolves every aurora stop to a palette token", () => {
+  it.each(["dark", "light"] as const)("resolves every %s aurora stop to a palette token", (theme) => {
     for (const scheme of SCHEMES) {
-      const tokens = buildPalette(scheme).tokens as unknown as Record<string, unknown>;
-      for (const stop of auroraStops) {
+      if (scheme.tier !== theme) continue;
+      const tokens = buildPalette(scheme).tokens;
+      for (const stop of auroraStops(theme)) {
         expect(paletteToken(tokens, stop.token), `${scheme.id} · ${stop.token}`).toBeDefined();
       }
     }
@@ -266,24 +397,17 @@ describe("a text role on a glass tier is no worse than on the surface it was sol
   it.each(TIER_CONTRACT)(
     "$selector keeps every text role at its solved floor",
     ({ selector, alpha }) => {
-      for (const scheme of SCHEMES) {
-        const tokens = buildPalette(scheme).tokens;
-        for (const stop of auroraStops) {
-          const stopToken = paletteToken(tokens as unknown as Record<string, unknown>, stop.token);
-          if (stopToken === undefined) continue;
-          const backdrop = over(stopToken, tokens.canvas, stop.alpha);
-          const composite = over(tokens.surfaceRaised, backdrop, alpha);
-          for (const role of TEXT_ROLES) {
-            const colour = tokens[role.token];
-            const solvedFloor = Math.min(
-              ...SOLVED_SURFACES.map((surface) => ratio(colour, tokens[surface as SolvedSurface])),
-            );
-            expect(
-              ratio(colour, composite),
-              `${scheme.id} · ${selector} · ${role.token} over ${stop.token}`,
-            ).toBeGreaterThanOrEqual(Math.min(solvedFloor, role.floor) - 0.02);
-          }
-        }
+      for (const theme of ["dark", "light"] as const) {
+        const worst = worstOnTier({
+          theme,
+          stops: auroraStops(theme),
+          baseAlpha: legibilityBase().alpha,
+          tierAlpha: alpha,
+        });
+        expect(
+          worst.margin,
+          `${theme} · ${selector} · ${worst.role} over ${worst.where} (${worst.measured.toFixed(2)} / ${worst.required.toFixed(1)})`,
+        ).toBeGreaterThanOrEqual(-0.02);
       }
     },
   );
@@ -295,8 +419,8 @@ describe("a text role on a glass tier is no worse than on the surface it was sol
     let worst = Infinity;
     for (const scheme of SCHEMES) {
       const tokens = buildPalette(scheme).tokens;
-      for (const stop of auroraStops) {
-        const stopToken = paletteToken(tokens as unknown as Record<string, unknown>, stop.token);
+      for (const stop of auroraStops("dark")) {
+        const stopToken = paletteToken(tokens, stop.token);
         if (stopToken === undefined) continue;
         const backdrop = over(stopToken, tokens.canvas, stop.alpha);
         const composite = over(tokens.textPrimary, backdrop, 0.05);
@@ -305,6 +429,133 @@ describe("a text role on a glass tier is no worse than on the surface it was sol
     }
     expect(worst).toBeLessThan(4.5);
   });
+
+  it("NEGATIVE CONTROL: the OLD 10% aurora with no legibility base does NOT hold the floor", () => {
+    // The configuration this change replaced. The floor was already broken
+    // there — that measurement is why the aurora was cut to 6% in the first
+    // place. It must keep failing, or the base layer proves nothing.
+    const stops = auroraStops("dark").map((stop) => ({ ...stop, alpha: 0.1 }));
+    const worst = worstOnTier({ theme: "dark", stops, baseAlpha: 0, tierAlpha: 0.05 });
+    expect(worst.margin).toBeLessThan(0);
+  });
+
+  it("NEGATIVE CONTROL: the SHIPPED aurora with the legibility base REMOVED does NOT hold the floor", () => {
+    // Break the change on purpose: the aurora is strong, and without the base
+    // the panel's backdrop IS the aurora, so the text loses its floor.
+    const worst = worstOnTier({
+      theme: "dark",
+      stops: auroraStops("dark"),
+      baseAlpha: 0,
+      tierAlpha: 0.05,
+    });
+    expect(worst.margin).toBeLessThan(0);
+  });
+});
+
+describe("the aurora is strong enough to read as a glow, and the model is faithful", () => {
+  /**
+   * The per-stop model above measures ONE stop at its peak over the canvas. The
+   * browser paints all of them, at every point of the viewport, at partial
+   * strength. The geometry sampler below paints the real thing — the same
+   * radial falloff, the same stacking order — and proves the model is not
+   * optimistic: the worst pixel the browser can produce is never worse than the
+   * single stop the model measures.
+   */
+  function farthestCorner(x: number, y: number, aspect: number): number {
+    const width = aspect;
+    const height = 1;
+    let farthest = 0;
+    for (const [cx, cy] of [
+      [0, 0],
+      [width, 0],
+      [0, height],
+      [width, height],
+    ]) {
+      const distance = Math.hypot(cx - x * width, cy - y * height);
+      if (distance > farthest) farthest = distance;
+    }
+    return farthest;
+  }
+
+  /** The backdrop the browser paints at one point of the viewport. */
+  function paintedBackdrop(
+    stops: AuroraStop[],
+    tokens: PaletteTokens,
+    x: number,
+    y: number,
+    aspect: number,
+  ): string {
+    let colour = tokens.canvas;
+    // The stops are listed top-first; the browser composites bottom-up.
+    for (let index = stops.length - 1; index >= 0; index -= 1) {
+      const stop = stops[index];
+      if (stop === undefined) continue;
+      const ray = farthestCorner(stop.x, stop.y, aspect);
+      const distance = Math.hypot((x - stop.x) * aspect, y - stop.y);
+      const reach = stop.radius * ray;
+      if (distance >= reach) continue;
+      const hex = paletteToken(tokens, stop.token);
+      if (hex === undefined) continue;
+      colour = over(hex, colour, stop.alpha * (1 - distance / reach));
+    }
+    return colour;
+  }
+
+  it.each(["dark", "light"] as const)("the %s aurora is not dialled back to a tint", (theme) => {
+    for (const stop of auroraStops(theme)) {
+      expect(stop.alpha, `${theme} · ${stop.token}`).toBeGreaterThanOrEqual(0.15);
+    }
+  });
+
+  it.each(["dark", "light"] as const)(
+    "the %s aurora never paints a backdrop worse than the model measures",
+    (theme) => {
+      const stops = auroraStops(theme);
+      const base = legibilityBase();
+      const model = worstOnTier({ theme, stops, baseAlpha: base.alpha, tierAlpha: 0.05 });
+      const painted: Measurement = { ...NO_MEASUREMENT };
+
+      for (const aspect of [16 / 9, 4 / 3, 3 / 4]) {
+        for (const scheme of SCHEMES) {
+          if (scheme.tier !== theme) continue;
+          const tokens = buildPalette(scheme).tokens;
+          const baseHex = paletteToken(tokens, base.token) ?? tokens.canvas;
+          for (const tierAlpha of [0.02, 0.05, 0.08]) {
+            for (let gx = 0; gx <= 16; gx += 1) {
+              for (let gy = 0; gy <= 10; gy += 1) {
+                const backdrop = paintedBackdrop(stops, tokens, gx / 16, gy / 10, aspect);
+                const bounded = over(baseHex, backdrop, base.alpha);
+                const composite = over(tokens.surfaceRaised, bounded, tierAlpha);
+                for (const role of TEXT_ROLES) {
+                  const colour = tokens[role.token];
+                  const required = Math.min(
+                    ...SOLVED_SURFACES.map((surface) =>
+                      ratio(colour, tokens[surface as SolvedSurface]),
+                    ),
+                  );
+                  const needed = Math.min(required, role.floor);
+                  const measured = ratio(colour, composite);
+                  if (measured - needed < painted.margin) {
+                    painted.role = role.token;
+                    painted.margin = measured - needed;
+                    painted.measured = measured;
+                    painted.required = needed;
+                    painted.where = `${scheme.id} · ${role.token} at (${gx}/16, ${gy}/10) aspect ${aspect.toFixed(2)}`;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // The floors hold at every pixel the browser can paint …
+      expect(painted.margin, painted.where).toBeGreaterThanOrEqual(-0.02);
+      // … and the cheap per-stop model never claims more headroom than the
+      // painted geometry actually has.
+      expect(painted.margin, painted.where).toBeGreaterThanOrEqual(model.margin - 0.05);
+    },
+  );
 });
 
 /* ------------------------------------------------------------------ *
