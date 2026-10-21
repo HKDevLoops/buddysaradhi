@@ -3,7 +3,6 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "apps/services/*",
     "apps/gateway",
     "packages/*"
   ],
@@ -28,14 +27,14 @@
   "scripts": {
     "postinstall": "prisma generate && bun --filter @buddysaradhi/shared build && bun --filter @buddysaradhi/core build",
     "build": "bun --filter @buddysaradhi/design-system build && prisma generate && bun --filter web build",
-    "lint": "bun --filter web lint && bun --filter product-page lint && bun --filter @buddysaradhi/gateway lint && bun --filter @buddysaradhi/core lint && bun --filter @buddysaradhi/shared lint && bun --filter @buddysaradhi/security lint && bun --filter desktop lint && bun --filter mobile lint && bun run lint:oxlint && bun scripts/principle-lints.ts",
-    "lint:fix": "bun --filter web lint --fix && bun --filter product-page lint --fix && bun --filter @buddysaradhi/gateway lint --fix && bun --filter @buddysaradhi/core lint --fix && bun --filter @buddysaradhi/shared lint --fix && bun --filter @buddysaradhi/security lint --fix && bun --filter desktop lint --fix && bun --filter mobile lint --fix && bun run lint:oxlint:fix",
+    "lint": "bun --filter web lint && bun --filter product-page lint && bun --filter @buddysaradhi/gateway lint && bun --filter @buddysaradhi/core lint && bun --filter @buddysaradhi/shared lint && bun --filter desktop lint && bun --filter mobile lint && bun run lint:oxlint && bun scripts/principle-lints.ts",
+    "lint:fix": "bun --filter web lint --fix && bun --filter product-page lint --fix && bun --filter @buddysaradhi/gateway lint --fix && bun --filter @buddysaradhi/core lint --fix && bun --filter @buddysaradhi/shared lint --fix && bun --filter desktop lint --fix && bun --filter mobile lint --fix && bun run lint:oxlint:fix",
     "lint:principles": "bun scripts/principle-lints.ts",
     "lint:oxlint": "oxlint --config oxlint.json",
     "lint:oxlint:fix": "oxlint --config oxlint.json --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "bun --filter @buddysaradhi/design-system build && bun --filter web typecheck && bun --filter @buddysaradhi/core typecheck && bun --filter @buddysaradhi/shared typecheck && bun --filter @buddysaradhi/security typecheck && bun --filter product-page typecheck && bun --filter @buddysaradhi/gateway typecheck",
+    "typecheck": "bun --filter @buddysaradhi/design-system build && bun --filter web typecheck && bun --filter @buddysaradhi/core typecheck && bun --filter @buddysaradhi/shared typecheck && bun --filter product-page typecheck && bun --filter @buddysaradhi/gateway typecheck",
     "test:unit": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "test:a11y": "bun --filter web test:a11y",
@@ -49,10 +48,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "axe-core": "4.8.4",
     "eslint": "^10.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.2.0",
     "oxlint": "^1.74.0",
+    "playwright": "^1.61.1",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "prisma": "6.2.1",

@@ -85,7 +85,6 @@ The primary user-facing surface. Next.js 16 App Router with:
 | `@buddysaradhi/core` | `packages/core/` | Ledger engine — `postLedgerEntry`, `voidEntry`, `computeBalance` |
 | `@buddysaradhi/shared` | `packages/shared/` | Zod schemas (single source of truth), calc utils |
 | `@buddysaradhi/ui` | `packages/ui/` | Cross-platform glass primitives (v1.x) |
-| `@buddysaradhi/security` | `packages/security/` | Security utilities, ESLint config |
 
 ## Deployment
 

@@ -30,6 +30,7 @@ import {
 } from "./lib/security.ts";
 import { claimNonceOnce } from "./lib/replay.ts";
 import { checkDbUrl } from "./lib/db-url-policy.ts";
+import { cacheKey } from "./lib/cache-key.ts";
 
 import { handleStudents } from "./routes/students.ts";
 import { handleAttendance } from "./routes/attendance.ts";
@@ -164,13 +165,6 @@ export function assertAdminTokenStrength(): void {
 }
 
 assertAdminTokenStrength();
-
-function cacheKey(req: Request, path: string, tenantId: string): string | null {
-  if (req.method !== "GET") return null;
-  const url = new URL(req.url);
-  const qs = url.searchParams.toString();
-  return `gw:${tenantId}:${path}:${qs}`;
-}
 
 import { addSecurityHeaders, decorateCacheHit } from "./lib/http-headers.ts";
 
@@ -351,14 +345,14 @@ Deno.serve(async (req: Request, info?: { remoteAddr?: unknown }) => {
     // read through — a stale balance on Supabase Free would still cost a tutor
     // real money, while a cached settings row only saves invocations.
     if (method === "GET" && path !== "/health" && isCacheablePath(path)) {
-      const cKey = cacheKey(req, path, tenantId);
+      const cKey = cacheKey(req, path, tenantId, dbUrl);
       if (cKey) {
         const cached = getCachedResponse(cKey);
         if (cached) {
           // Hit decoration lives in lib/http-headers.ts (`decorateCacheHit`)
           // so its exact header set is pinned by test. Do NOT add headers
           // here: anything set on this path bypasses that pin. In particular,
-          // never echo the cache key (F-23): `gw:<tenantId>:<path>:<query>`
+          // never echo the cache key (F-23): `gw:<tenantId>:<db digest>:<path>:<query>`
           // discloses the tenant id and the tutor's search terms.
           decorateCacheHit(cached, requestId, performance.now() - t0);
           return addSecurityHeaders(req, cached, requestId);

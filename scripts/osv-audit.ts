@@ -102,9 +102,9 @@ interface Dep {
 // The shipped set is the deployable targets (AGENTS.md §3 Rule 11 — one
 // directory, one deployment target) plus the shared packages they import.
 // `apps/mobile` and `apps/desktop` are v1.x LOCKED until WEB-PROD-GATE
-// (16_Platform_Delivery_Sequence.md); `apps/services/*` is the superseded
-// microservice split that nothing deploys and nothing imports
-// (18_Microservice_Architecture.md superseded by @apps/gateway).
+// (16_Platform_Delivery_Sequence.md). The superseded `apps/services/*`
+// microservice split was deleted (audit AUD-027); `packages/security` was
+// deleted as dead code (audit AUD-028) — neither is a shipped target.
 const SHIPPED_WORKSPACES: string[] = [
   "", // root
   "apps/web",
@@ -112,7 +112,6 @@ const SHIPPED_WORKSPACES: string[] = [
   "packages/core",
   "packages/shared",
   "packages/design-system",
-  "packages/security",
 ];
 
 interface LockShape {

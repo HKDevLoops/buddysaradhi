@@ -37,9 +37,6 @@ const KEY_PACKAGES: string[] = [
   "packages/core/package.json",
   "packages/shared/package.json",
   "packages/ui/package.json",
-  "apps/services/auth-svc/package.json",
-  "apps/services/ledger-svc/package.json",
-  "apps/services/attendance-svc/package.json",
 ];
 
 interface VersionInfo {

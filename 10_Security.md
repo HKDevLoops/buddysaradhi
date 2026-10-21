@@ -126,7 +126,7 @@ Opt-in, off by default, surfaced with clear warnings about the wipe consequence.
 
 ## 4. Sensitive-Mutation PIN & Export Controls Matrix
 
-Even when the app is unlocked, the actions below require a **fresh** PIN/biometric entry (≤ 30 s old). The list is duplicated as a code constant in `packages/security/SENSITIVE_ACTIONS.ts`; a CI test asserts the UI registry matches 1:1.
+Even when the app is unlocked, the actions below require a **fresh** PIN/biometric entry (≤ 30 s old). The list lives here — each row is enforced at its own action surface, and every row writes an `audit_log` entry before the mutation is applied (fail-closed).
 
 | Action | Why gated | Required auth |
 |--------|-----------|---------------|

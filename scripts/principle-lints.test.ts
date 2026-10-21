@@ -28,7 +28,6 @@ const ALLOW: Set<string> = new Set([
   "apps/product-page/eslint.config.mjs",
   "packages/core/eslint.config.mjs",
   "packages/shared/eslint.config.mjs",
-  "packages/security/eslint.config.mjs",
   "apps/desktop/eslint.config.mjs",
   "apps/desktop/postcss.config.mjs",
   "apps/desktop/scripts/generate-tokens.mjs",

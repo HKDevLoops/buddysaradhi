@@ -8,10 +8,6 @@
 apps/gateway/src/prisma/
 apps/web/src/prisma/
 
-# Auth-svc secure-erase handler: GDPR right-to-erasure must bypass the
-# immutability trigger on ledger_entries. All deletes are parameterised (?).
-apps/services/auth-svc/src/index.ts
-
 # Admin DB utilities: VACUUM, WAL checkpoint, trigger DDL at init time.
 # These run once at startup, not in any request hot path.
 apps/gateway/src/lib/db/admin.ts

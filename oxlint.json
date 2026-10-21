@@ -38,9 +38,6 @@
         "scripts/**/*",
         "apps/web/scripts/**/*",
         "packages/design-system/scripts/**/*",
-        "diagnose.ts",
-        "refactor.ts",
-        "scaffold.ts",
         "apps/web/debug-errors.ts",
         "prisma/**/*"
       ],
@@ -49,14 +46,6 @@
     {
       // Tests log for debugging; isolated dev tooling is not the product.
       "files": ["**/*.test.ts", "**/*.spec.ts", "apps/web/tests/**/*", "tools/**/*"],
-      "rules": { "no-console": "off" }
-    },
-    {
-      // Quarantined legacy service stubs (AGENTS.md §9.3: outside the WEB
-      // boundary, pending an owner spec decision — not edited, not shipped).
-      // Linting their console usage as product violations would be false
-      // signal; the day they ship, this override goes with the quarantine.
-      "files": ["apps/services/**/*"],
       "rules": { "no-console": "off" }
     }
   ]

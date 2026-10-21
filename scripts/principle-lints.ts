@@ -182,12 +182,6 @@ const L1_ALLOW: AllowEntry[] = [
       "§7.2 trigger-fire test — the secure-erase regression must prove the append-only guard is STILL INSTALLED after the audited cascade (audit AUD-003), so the test issues a DELETE that is expected to be ABORTED. Nothing is destroyed: the trigger raises and the statement rolls back.",
   },
   {
-    file: "apps/services/auth-svc/src/index.ts",
-    re: /(DROP\s+TRIGGER\s+IF\s+EXISTS\s+trg_ledger|DELETE\s+FROM\s+ledger_entries)/,
-    reason:
-      "secure-erase per 10_Security.md §18.1 (LEDGER-4 exception) — FINDING: spec prescribes ORM deleteMany in lib/security/secureErase.ts, which does not exist; mechanism divergence tracked in F-7 report",
-  },
-  {
     file: "apps/web/src/server/actions/settings.ts",
     re: /(?:db|tx)\.ledgerEntry\s*\.\s*deleteMany/,
     reason:
@@ -203,7 +197,7 @@ const L1_ALLOW: AllowEntry[] = [
     file: "schema.sql",
     re: /(ALTER\s+TABLE\s+ledger_entries\s+ADD\s+COLUMN|UPDATE\s+ledger_entries\s+SET)/i,
     reason:
-      "generated bootstrap DDL — extract_schema.py lifts the 11_Data_Model.md SQL blocks verbatim (read by init_db.py); ALTER adds the hash-chain columns and the UPDATE backfills derived debit/credit paise only — forward migration per 11_Data_Model.md §1",
+      "bootstrap DDL snapshot — ALTER adds the hash-chain columns and the UPDATE backfills derived debit/credit paise only — forward migration per 11_Data_Model.md §1",
   },
 ];
 
@@ -411,11 +405,6 @@ const L7_ALLOW: AllowEntry[] = [
   { file: "packages/core/eslint.config.mjs", re: /eslint\.config\.mjs$/, reason: L7_ESLINT_REASON },
   {
     file: "packages/shared/eslint.config.mjs",
-    re: /eslint\.config\.mjs$/,
-    reason: L7_ESLINT_REASON,
-  },
-  {
-    file: "packages/security/eslint.config.mjs",
     re: /eslint\.config\.mjs$/,
     reason: L7_ESLINT_REASON,
   },
@@ -1141,7 +1130,8 @@ function lintTenantBinding(findings: Finding[]): void {
 //       what ships;
 //   (c) a Deno npm specifier that is not EXACT floats on every Deno resolution.
 // Measured: the gateway's deno.json carried a remote import_map AND a remote
-// dependency; 7 manifests in apps/services/* declared "@types/bun": "latest".
+// dependency; the deleted `apps/services/*` tree declared "@types/bun":
+// "latest" in 7 manifests — the tree is gone (audit AUD-027), the rule stays.
 
 
 /**

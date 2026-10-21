@@ -14,9 +14,6 @@ interface Service {
 const services: Service[] = [
   { name: 'web', cwd: 'apps/web', command: 'pnpm run start', port: 3000 },
   { name: 'gateway', cwd: 'apps/gateway', command: 'pnpm run dev', port: 3001 },
-  { name: 'ledger-svc', cwd: 'apps/services/ledger-svc', command: 'pnpm run dev', port: 3031 },
-  { name: 'attendance-svc', cwd: 'apps/services/attendance-svc', command: 'pnpm run dev', port: 3033 },
-  { name: 'auth-svc', cwd: 'apps/services/auth-svc', command: 'pnpm run dev', port: 3037 },
 ];
 
 console.log('Starting all services for E2E tests...');
