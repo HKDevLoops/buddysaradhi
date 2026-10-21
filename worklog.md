@@ -2840,3 +2840,22 @@ Stage Summary:
 - No s2 rule violated; no s8 trigger fired (no ledger/crypto/6th-screen/network-call changes; item 11 left read-only deliberately)
 - Next recommended task: owner decisions on item 11 (BFF manifest source of truth), B7 canonical host, B5 24-vs-44px residual; then deploy + live re-probe of 5/6/B6/7.
 
+
+---
+
+**Task ID**: AUDIT-2026-10-21
+**Agent**: audit session (parent + 4 read-only streams)
+**Task**: Brutal evidence-based audit of gateway + web + product-page + packages + CI, then fix every P0 and the tractable P1s.
+
+**Work Log**:
+- Audit report: `docs/audit/AUDIT-2026-10-21.md` - 3 P0, 15 P1, 24 P2, 10 P3 confirmed + 12 suspected + a verified-correct list (so the next agent does not "fix" what is right).
+- Fixed, each with a verified-red negative control: AUD-001 (a voided payment no longer counts as money owed - the predicate was `void_of_id IS NULL` ON THE ROW, so a voided ORIGINAL still counted, in all three dialects), AUD-002 (plaintext PIN out of the durable outbox + new principle-lint L9), AUD-003 (the secure-erase cascade completes - the append-only trigger aborted it, so the erase NEVER happened), AUD-004 (`cf-connecting-ip` needs a trusted peer - the caller could pick its own rate-limit AND lockout bucket), AUD-008 (no session = no DB handle - a slow auth read wrote the payment to the wrong database and said "recorded"), AUD-013 (collected excludes voids, subtracts refunds), AUD-020/021 (the gateway is linted and type-checked again; 7/7 workspaces), AUD-068 (vitest hookTimeout), F-35/36 (oxlint over all TypeScript - Rule 9 finally has a machine gate).
+- Fixed earlier in the session: RFC-009 Change A (the shared-database fallback deleted - a Turso outage was handing every tutor the same DB), RFC-010 §4.3 (audit metadata names the field, never the value), RFC 005/006/007/008 + shared-db closed with verified dispositions.
+- Found and fixed: AUD-069 - a real `.env` (DATABASE_URL, GATEWAY_SHARED_SECRET, SUPABASE_SERVICE_ROLE_KEY) in a stale, untracked, UNIGNORED `supabase/` mirror.
+
+**Stage Summary**:
+- State: COMPLETED
+- Commits: `b7203bd`, `a1176f5`, `6b85290`, `812d5b3`, `e80c729`, `d57036b`, `6ea0737`, `b973ffe`, `531dc93`
+- Gates: web 89 files / 1098 tests green; packages/core 214, packages/shared 321; gateway 875/881 - the 6 remaining are the foreign in-flight ledger WIP, not regressions; lint + principle-lints 9/9; typecheck green across 7 workspaces.
+- Not fixed: the remaining P1/P2 set, all recorded with file:line, spec citation and the concrete fix in the report. AUD-005/007/015/016/019/050 touch `apps/gateway/routes/ledger.ts` or `lib/sql.ts`, which carry the uncommitted RFC-005 WIP - blocked until it lands (AGENTS.md §9.2).
+- Next agent: resolve the IN-FLIGHT WIP, then work the report's fix order (§10).
