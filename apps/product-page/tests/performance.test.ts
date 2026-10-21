@@ -19,7 +19,7 @@
 // THE BUDGETS ARE NEVER RAISED. A scene that misses them is simplified until
 // it fits; the numbers in `STORY_BUDGETS` are the brief's.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll } from "vitest";
 import * as THREE from "three";
 import { STORY_BEATS } from "../src/components/story/beats";
 import {
@@ -29,6 +29,7 @@ import {
   resolveStoryTier,
 } from "../src/components/story/act-directives";
 import type { StoryScene, StoryTier } from "../src/components/story/act-directives";
+import { loadCharacterRig } from "./character-fixture";
 
 /**
  * The story mounts two components from `product-3d/`: the shared dust and the
@@ -67,6 +68,19 @@ const TEXTURE_SLOTS = [
   "lightMap",
   "specularMap",
 ] as const;
+
+/**
+ * THE SEEKER'S RIG.
+ *
+ * The seeker is a vendored, rigged human, so the scene that this test counts
+ * is the scene the visitor sees - character included. The rig is loaded from
+ * the same file the browser loads, with the same parser.
+ */
+let rig: THREE.Group;
+
+beforeAll(async () => {
+  rig = await loadCharacterRig();
+});
 
 interface FrameCost {
   readonly calls: number;
@@ -204,7 +218,7 @@ function worstFrame(tier: StoryTier): {
   readonly triangles: { readonly cost: number; readonly beatId: string };
   readonly textures: { readonly cost: number; readonly beatId: string };
 } {
-  const scene = buildStoryScene(tier, TEST_COLOURS);
+  const scene = buildStoryScene(tier, TEST_COLOURS, rig);
   const worst = {
     calls: { cost: 0, beatId: "" },
     triangles: { cost: 0, beatId: "" },
@@ -280,9 +294,11 @@ describe("the constructed scene, counted (brief §7, §10)", () => {
     });
   }
 
-  it("builds a scene with no textures at all, because the story is code-first", () => {
-    // No `.png`, no `.hdr`, no video: nothing to load, nothing to 404.
-    const scene = buildStoryScene("high", TEST_COLOURS);
+  it("builds a scene with no textures at all, because nothing in the story is an image", () => {
+    // No `.png`, no `.hdr`, no video: the vendored character carries no
+    // textures either, so nothing to load, nothing to 404, and the look is
+    // the palette's, not an image's.
+    const scene = buildStoryScene("high", TEST_COLOURS, rig);
     let textureCount = 0;
     scene.group.traverse((object) => {
       const drawable = object as THREE.Mesh;
@@ -299,8 +315,8 @@ describe("the constructed scene, counted (brief §7, §10)", () => {
   });
 
   it("falls back to a standard material on the low rung", () => {
-    const low = buildStoryScene("low", TEST_COLOURS);
-    const high = buildStoryScene("high", TEST_COLOURS);
+    const low = buildStoryScene("low", TEST_COLOURS, rig);
+    const high = buildStoryScene("high", TEST_COLOURS, rig);
     expect(isTransmissive(low.cardMaterial as THREE.Material)).toBe(false);
     expect(isTransmissive(high.cardMaterial as THREE.Material)).toBe(true);
     low.dispose();
@@ -308,8 +324,8 @@ describe("the constructed scene, counted (brief §7, §10)", () => {
   });
 
   it("builds a smaller scene on the low rung than on the high one", () => {
-    const low = buildStoryScene("low", TEST_COLOURS);
-    const high = buildStoryScene("high", TEST_COLOURS);
+    const low = buildStoryScene("low", TEST_COLOURS, rig);
+    const high = buildStoryScene("high", TEST_COLOURS, rig);
     expect(low.crowd.length).toBeLessThan(high.crowd.length);
     expect(low.bubbles.length).toBeLessThan(high.bubbles.length);
     low.dispose();

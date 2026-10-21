@@ -9,7 +9,43 @@
 
 ## 0. READ THIS FIRST — three rules that are not negotiable
 
-1. **Code-first. No generated assets.** Every mesh, material, texture and animation is written in TypeScript with three.js. Do not fetch, embed or reference any external `.glb`, `.hdr`, `.png` texture or video. The scene must build and run with zero binary assets in the repo. (`20_3D_Product_Page.md:519-529` already mandates this — Nano Banana stills and Veo clips were dropped deliberately.)
+1. **Code-first, and no GENERATED assets.** Every mesh, material, texture and
+   animation is written in TypeScript with three.js — with ONE exception,
+   below. Nano Banana stills, Veo clips and any other *generated* imagery stay
+   dropped: they are not in the repository and no plane may point at a file
+   that does not exist (`20_3D_Product_Page.md` §12).
+
+   **THE EXCEPTION — A CURATED, LICENSED, VENDORED ASSET.** A small set of
+   real-world assets may be vendored into the repository, and only on all of
+   these terms at once:
+
+   - **Permissive licence only** — CC0, CC-BY or MIT. A licence that needs an
+     account, a key, a click-through or a payment is not a licence this
+     project can take.
+   - **The licence is VERIFIED by reading it**, not by trusting a search
+     result, and the place it was read is recorded.
+   - **The provenance travels with the file.** The source URL, the licence,
+     the attribution (if the licence asks for one) and the **SHA-256** of the
+     bytes are written in an `ATTRIBUTION`/`LICENCE` file **beside the
+     asset**, and the file's own glTF `asset.copyright` block repeats them.
+   - **A written size budget**, in bytes, checked by a test. A binary asset is
+     the one thing in this project nobody notices growing.
+   - **Vendored, never fetched.** The asset is committed to the repository and
+     served from the app's own origin. A CDN, an asset host or any third-party
+     URL at runtime is a NEW OUTBOUND ORIGIN and is forbidden (AGENTS.md §2
+     Rule 2) — the same reason `<Environment preset="city">` was dropped in
+     §2.2.
+   - **Still no generated images, no HDRI environment fetch, no video, and no
+     texture images unless the look actually needs them.** The look is the
+     palette's.
+
+   The only vendored asset today is **the seeker**
+   (`apps/product-page/public/scene/character/seeker.glb`): a rigged human,
+   because a body assembled from capsules reads as a snowman, not a person.
+   Her provenance is in
+   `apps/product-page/public/scene/character/ATTRIBUTION.md`. The amendment
+   was made by the owner's directive and lands in the same commit as the code
+   that uses it (brief §9).
 2. **No new dependencies.** The installed and permitted set is exactly: `three` (0.182.0), `@react-three/fiber` (9.8.0), `@react-three/drei` (10.7.8), `gsap` (3.15.0), React 19. Do **not** add `anime`, `lil-gui`, `dat.gui`, a physics engine, or a second scroll library. GSAP is the single owner of scroll-driven animation.
 3. **Performance is a correctness requirement, not an optimisation.** A dropped frame is a failed test. Budgets in §7 are enforced by `src/lib/perf-budget.test.ts`; if you cannot meet them, simplify the scene — never raise the budget.
 
@@ -144,18 +180,17 @@ The reveal. Five screens, in spec order. This is the product, honestly shown.
 
 ## 3. THE CHARACTER
 
-The seeker. **Built from primitives — no downloaded model, no glTF.**
+The seeker. **A vendored, rigged human** — `public/scene/character/seeker.glb` — not seven primitives (amended 2026-10-21 by owner directive: a body assembled from capsules looks cheap). The asset's source, licence, attribution, SHA-256 and size budget are in `public/scene/character/ATTRIBUTION.md`; the rule that permits it is §0.1. It is served from this app's own origin and is never fetched from a third-party host.
 
 Silhouette-first: she must be readable as a person at `z=40` and at `z=4`. Readability comes from proportion and pose, not from facial detail. A character with a face is out of budget and out of taste for this product.
 
 ```
 build:
-  torso   CapsuleGeometry(0.34, 0.92, 6, 12)      — slightly tapered, not a cylinder
-  head    SphereGeometry(0.17, 20, 14)           — small relative to torso; real proportion
-  neck    CylinderGeometry(0.07, 0.07, 0.10)
-  arms    two CapsuleGeometry(0.085, 0.62)       — separate transforms, so they can swing
-  legs    two CapsuleGeometry(0.10, 0.78)
-  phone   BoxGeometry(0.09, 0.17, 0.008)         — the ONLY light source she carries
+  the rig   62 joints, one mesh, one skin, one material, no textures
+            bones: Hips, Chest, Neck, Head, Shoulder/UpperArm/LowerArm/Wrist
+            (.L/.R), UpperLeg/LowerLeg/Foot (.L/.R), plus the finger chains
+  height    1.79 world units, scaled from the rig's 1.81-unit rest pose
+  phone     a box in her RIGHT hand, and the ONLY light source she carries
 ```
 
 **Material:** one. `meshStandardMaterial`, `roughness 0.72`, `metalness 0.0`, colour from `--accent-text` at low intensity — she must never compete with the LedgerCard for attention. When the phone faces the camera, the phone's own emissive is the key light on her face. That contrast (dark figure, lit face) is the whole visual idea of Act I.
@@ -170,7 +205,7 @@ build:
 | IV | shoulders open, head up, longer stride, arms swing | relief |
 | V | upright, phone down at her side, occasionally raised | competence |
 
-Implement pose as named keyframes on a small set of bone transforms, lerped by beat progress. **Do not use a skeleton or an animation mixer** — hand-authored transform keyframes are cheaper, smaller, and more controllable than `AnimationClip`, and they let the pose respond to scroll directly instead of playing on a timer.
+Implement pose as named keyframes on a small set of bone transforms, lerped by beat progress. **The rig gives her bones; it does not give her a performance.** There is no `AnimationMixer`, no `AnimationClip` and no "play a clip and hope": the vendored file's twenty-four animation clips were **stripped at vendoring time**, and each act's pose is a hand-authored keyframe written as numbers in the character's own frame (X is her left, Y is up, Z is the way she faces), applied to the rig's bones and lerped by the beat progress. That is what makes the pose answer the scroll directly instead of playing on a timer.
 
 ---
 
@@ -293,7 +328,9 @@ Additional hard rules:
 
 Ship the code and the spec change **in the same commit**. The spec is the contract (`AGENTS.md` §0.1); code that diverges from it without amending it is orphan code. Record in the commit message that the beat map was deliberately expanded, and why.
 
-Do not touch: the code-first asset rule (§519-529), the DPR tier ladder (§11.3), the Poster veil (§2.2), H1-in-SSR-HTML, or the 44px/a11y rules. Those are correct.
+**THE ASSET RULE WAS AMENDED TOO (2026-10-21, owner directive).** The brief's §0 rule 1 used to forbid *every* external asset. It now forbids every **generated** asset and permits a curated, licensed, vendored set — because a body assembled from seven capsules reads as a snowman, and the owner overruled the code-first rule for the character alone. The amendment to `20_3D_Product_Page.md` §12's *Assets:* paragraph lands in the same commit as the vendored file and the code that loads it, and the terms are the ones §0.1 lists: permissive licence, licence verified by reading it, provenance + SHA-256 in a file beside the asset, a written size budget, vendored and served from this app's own origin with **no runtime fetch to any third-party host** (Rule 2), and still no generated imagery, no HDRI, no video and no texture images unless the look needs them.
+
+Do not touch: the DPR tier ladder (§11.3), the Poster veil (§2.2), H1-in-SSR-HTML, or the 44px/a11y rules. Those are correct.
 
 ---
 

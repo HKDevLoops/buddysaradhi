@@ -606,10 +606,10 @@ answers are lived rather than asserted.
 Contract: `docs/plans/ANIMATION_MODEL_BRIEF.md` (narrative + camera +
 character + budgets). Implementation, in THIS monorepo:
 `apps/product-page/src/components/story/` (`beats.ts`, `character.tsx`,
-`camera-rig.tsx`, `act-directives.ts`, `story-canvas.tsx`,
+`character-asset.ts`, `camera-rig.tsx`, `act-directives.ts`, `story-canvas.tsx`,
 `story-experience.tsx`) + `apps/product-page/src/app/story/page.tsx` +
-`apps/product-page/tests/{beats,camera-rig,performance}.test.ts`. The scene
-is built by ONE three.js factory so the budget can be COUNTED from the
+`apps/product-page/tests/{beats,camera-rig,character-rig,performance}.test.ts`.
+The scene is built by ONE three.js factory so the budget can be COUNTED from the
 constructed scene rather than measured in a browser (§7): draw calls,
 triangles and textures are asserted per tier, and the budgets are never
 raised to fit a scene — a scene that misses them is simplified. Accessibility
@@ -617,7 +617,8 @@ raised to fit a scene — a scene that misses them is simplified. Accessibility
 canvas is `aria-hidden`, the poster veil covers it until the first frame,
 reduced motion freezes the scene, and the CTA is the keyboard target.
 
-**Assets:** code-first ONLY (amended 2026-10-04). `LedgerCard,
+**Assets:** code-first, and **no GENERATED assets** (amended 2026-10-04;
+amended again 2026-10-21 — see below). `LedgerCard,
 AccentLights, ParticleField, Tube 48x6` are code; `ScrollControls`-style
 pinning is DOM buttons → `scrollTo` plus the GSAP scrub proxy (no
 `anime.timeline`). Nano Banana stills and Veo clips were specced here
@@ -628,6 +629,37 @@ this build: they cannot be generated in this environment, and shipping
 on `Plane` with `dispose()`, `crossOrigin="anonymous"` only if CORS-clean, and
 `currentTime` clamped to `duration - 0.15` — until then the alley is desks,
 screens, thread and light. No remote fetch either way (Rule 2).
+
+**THE EXCEPTION — A CURATED, LICENSED, VENDORED ASSET (amended 2026-10-21,
+owner directive).** A small set of **real-world** assets may be vendored into
+the repository. Generated imagery stays dropped; what is permitted is a
+**licensed human-made asset**, and only on all of these terms at once:
+
+- **Permissive licence only** — CC0, CC-BY or MIT. A licence behind an
+  account, a key, a click-through or a payment cannot be taken.
+- **The licence is verified by reading it**, not by trusting a search result,
+  and *where* it was read is recorded.
+- **The provenance travels with the file.** The source URL, the licence, the
+  attribution (if the licence asks for one) and the **SHA-256** of the bytes
+  are written in an `ATTRIBUTION`/`LICENCE` file **beside the asset**, and the
+  asset's own glTF `asset.copyright` block repeats them.
+- **A written size budget**, in bytes, enforced by a test.
+- **Vendored, never fetched.** The asset is committed and served from this
+  app's own origin. A CDN or an asset host at runtime is a NEW OUTBOUND
+  ORIGIN and is forbidden (`AGENTS.md` §2 Rule 2) — the same reason
+  `<Environment preset="city">` was dropped in §2.2.
+- **Still no generated images, no HDRI environment fetch, no video, no
+  per-frame asset loading, and no texture images unless the look needs them.**
+  The look is the palette's.
+
+**The only vendored asset today is the seeker**:
+`apps/product-page/public/scene/character/seeker.glb` — a rigged human
+("Animated Woman" by **Quaternius**, **CC0 1.0**, via Poly Pizza), 724,092
+bytes, one mesh, one skin, 62 joints, one material, **no textures**. Its
+provenance, licence, verification, SHA-256 and size budget are in
+`apps/product-page/public/scene/character/ATTRIBUTION.md`. The amendment to
+the brief's §0 rule 1 and to this paragraph land in the same commit as the
+file and the code that loads it (`AGENTS.md` §0.1: the spec is the contract).
 
 ### 12.1 The `/tour` Route (amended 2026-10-04)
 

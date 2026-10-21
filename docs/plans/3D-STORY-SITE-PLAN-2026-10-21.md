@@ -55,7 +55,8 @@ was decoration. If they can, it was storytelling.**
 ```
 apps/product-page/src/components/story/
   beats.ts              the 50-beat data + the Beat type          NEW
-  character.tsx         the seeker: primitives + the pose rig     NEW
+  character.tsx         the seeker: the vendored rig + the pose keyframes  NEW
+  character-asset.ts    the asset's provenance, the bone names, the budget NEW
   camera-rig.tsx        target / look-ahead / roll / FOV          NEW
   act-directives.ts     SceneDirective -> scene mutations         NEW
   story-canvas.tsx      the <Canvas> + the scroll->progress wiring NEW
@@ -113,11 +114,17 @@ viewer where to look.
 
 ## 5. The character — silhouette first
 
-The seeker is built from primitives — torso capsule, head sphere, neck
-cylinder, two arm capsules, two leg capsules, a phone box. No downloaded
-model, no glTF, no skeleton, no animation mixer. She must read as a person at
-`z=40` and at `z=4`; readability comes from **proportion and pose**, never
-from facial detail.
+The seeker is a **vendored, rigged human** —
+`apps/product-page/public/scene/character/seeker.glb` (amended 2026-10-21 by
+owner directive: a body assembled from primitives reads as a snowman, not a
+person). *Animated Woman* by **Quaternius**, **CC0 1.0**, via Poly Pizza; the
+source, the licence, where the licence was verified, the attribution and the
+SHA-256 are in `public/scene/character/ATTRIBUTION.md`. It is served from
+this app's own origin — **no runtime fetch to any third-party host** (Rule 2).
+
+62 joints, one mesh, one skin, one material, **no textures**. She must read as
+a person at `z=40` and at `z=4`; readability comes from **proportion and
+pose**, never from facial detail.
 
 One material: `meshStandardMaterial`, roughness 0.72, metalness 0, colour from
 the palette. The phone is the only light she carries, and when it faces the
@@ -128,6 +135,11 @@ face** is the whole visual idea of Act I.
 shoulders forward and head down in Act I; tighter and turned away in Act II;
 perfectly still in Act III, only the phone moving; shoulders open and a longer
 stride in Act IV; upright and competent in Act V.
+
+**No animation mixer.** The rig gives her bones; it does not give her a
+performance. The vendored file's twenty-four clips were stripped at vendoring
+time, and every act's pose is a hand-authored keyframe on the rig's bones,
+lerped by the beat progress.
 
 ## 6. The budgets — enforced, not aspirational
 
@@ -200,7 +212,7 @@ it, (e) the static `<ol>` reads with the canvas hidden.
 |---|---|---|---|
 | S1 | The narrative: `beats.ts` — 50 beats, the type, the copy | `beats.test.ts` green with a red-then-green control | IN FLIGHT |
 | S2 | The camera rig: targets, look-ahead, roll, FOV, the act language | `camera-rig.test.ts` green with a control | IN FLIGHT |
-| S3 | The character: primitives, one material, the per-act pose rig | a pose test per act | IN FLIGHT |
+| S3 | The character: a vendored, licensed, rigged human; one material; the per-act pose keyframes on her bones | `character-rig.test.ts` green with a red-then-green control | IN FLIGHT |
 | S4 | The act directives: `SceneDirective` → scene mutations, per act | the act-directive tests | IN FLIGHT |
 | S5 | The wiring: `story-canvas.tsx`, `story-experience.tsx`, `src/app/story/page.tsx` | the page builds; the `<ol>` is in the SSR HTML | IN FLIGHT |
 | S6 | The performance test, counted from the constructed scene | within the §6 budget at every tier | IN FLIGHT |

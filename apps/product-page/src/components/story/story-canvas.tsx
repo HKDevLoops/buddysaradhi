@@ -8,7 +8,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { PerformanceMonitor } from "@react-three/drei";
+import { PerformanceMonitor, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { AccentLights } from "../product-3d/AccentLights";
 import { ParticleField } from "../product-3d/ParticleField";
@@ -24,6 +24,7 @@ import { applyDirective, buildStoryScene, resolveStoryTier, STORY_BUDGETS } from
 import type { StoryScene } from "./act-directives";
 import { CameraRig, clampProgress } from "./camera-rig";
 import { applyPhoneLabels, applyPose } from "./character";
+import { CHARACTER_ASSET_URL } from "./character-asset";
 
 export interface StoryCanvasProps {
   /** The scroll progress, 0..1. The only clock in the story. */
@@ -80,7 +81,45 @@ function StoryDirector({
   return null;
 }
 
-export function StoryCanvas({
+/**
+ * THE FIRST FRAME WITH THE SCENE IN IT.
+ *
+ * The poster veil covers the canvas until the first frame is drawn (fm-10).
+ * `onCreated` fires when the WebGL context exists, which is BEFORE anything
+ * is drawn, so it is not enough on its own: the veil would lift over an empty
+ * canvas and the visitor would see a flash of background. This waits for the
+ * renderer to report a frame that actually drew something.
+ */
+function FirstFrame({ onReady }: { readonly onReady?: () => void }) {
+  const fired = useRef(false);
+  useFrame((state) => {
+    if (fired.current) return;
+    if (state.gl.info.render.calls <= 0) return;
+    fired.current = true;
+    onReady?.();
+  });
+  return null;
+}
+
+/**
+ * THE CANVAS, AND THE CHARACTER IT IS WAITING FOR.
+ *
+ * The seeker is a vendored glTF, so the canvas cannot be built until it is
+ * on disk. The `Suspense` boundary is here, at the top of the story canvas
+ * and NOT inside it, so the whole canvas waits: the poster veil stays over
+ * an empty box until the character has loaded and the first frame with her
+ * in it has been drawn. Nothing shifts, and the no-WebGL path still shows the
+ * same `<Poster/>` with no JS at all.
+ */
+export function StoryCanvas(props: StoryCanvasProps) {
+  return (
+    <Suspense fallback={null}>
+      <StoryCanvasInner {...props} />
+    </Suspense>
+  );
+}
+
+function StoryCanvasInner({
   progressRef,
   tokens,
   frozen = false,
@@ -92,6 +131,11 @@ export function StoryCanvas({
   const gpuClass = useGpuClass();
   const tier = resolveStoryTier(lowEnd, gpuClass);
   const budget = STORY_BUDGETS[tier];
+
+  // The vendored seeker. drei's `useGLTF` suspends until the file is parsed,
+  // and it caches the parsed scene - which is why `createSeeker` clones it
+  // before it writes to its bones.
+  const character = useGLTF(CHARACTER_ASSET_URL);
 
   // The ladder's DPR range, and the floor the watchdog may fall back to.
   const tierRange = resolveDpr(lowEnd, wide, gpuClass);
@@ -107,17 +151,21 @@ export function StoryCanvas({
   // (§7: every geometry and material is disposed).
   const scene = useMemo(
     () =>
-      buildStoryScene(tier, {
-        sunken: tokens.sunken,
-        inset: tokens.inset,
-        raised: tokens.raised,
-        accent: tokens.accent,
-        accentText: tokens.accentText,
-        info: tokens.info,
-        warn: tokens.warn,
-        key: tokens.key,
-      }),
-    [tier, tokens],
+      buildStoryScene(
+        tier,
+        {
+          sunken: tokens.sunken,
+          inset: tokens.inset,
+          raised: tokens.raised,
+          accent: tokens.accent,
+          accentText: tokens.accentText,
+          info: tokens.info,
+          warn: tokens.warn,
+          key: tokens.key,
+        },
+        character.scene,
+      ),
+    [tier, tokens, character.scene],
   );
 
   useEffect(() => () => scene.dispose(), [scene]);
@@ -139,7 +187,6 @@ export function StoryCanvas({
         // renders the refraction pass at half resolution, the high tier at
         // full. The low tier has no transmission material at all.
         gl.transmissionResolutionScale = tier === "high" ? 1 : 0.5;
-        onReady?.();
       }}
     >
       <color attach="background" args={[tokens.canvas]} />
@@ -171,6 +218,7 @@ export function StoryCanvas({
         <primitive object={scene.group} />
         <StoryDirector scene={scene} progressRef={progressRef} frozen={frozen} />
         <CameraRig beats={STORY_BEATS} progressRef={progressRef} frozen={frozen} />
+        <FirstFrame onReady={onReady} />
       </Suspense>
     </Canvas>
   );

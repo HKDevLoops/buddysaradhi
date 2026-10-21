@@ -2,10 +2,14 @@
 // scene), §3 (the seeker's placement) and §7 (the tier ladder and the
 // performance budgets that are enforced, never raised).
 //
-// THE SCENE IS CODE. Every mesh, every material and every light in this story
-// is written in TypeScript against three.js. There is no `.glb`, no `.hdr`,
-// no `.png` and no video: the scene builds and runs with ZERO binary assets
-// in the repository (brief §0.1, 20_3D §12).
+// THE SCENE IS CODE, WITH ONE VENDORED ASSET. Every mesh, every material and
+// every light in this story is written in TypeScript against three.js, with
+// ONE exception: the seeker is a vendored, rigged human
+// (`public/scene/character/seeker.glb`), because a body built from capsules
+// looks like a snowman. The asset is licensed, attributed and hashed in
+// `public/scene/character/ATTRIBUTION.md`, and it is served from this app's
+// own origin - nothing is fetched from a third-party host at runtime
+// (brief §0.1, AGENTS.md §2 Rule 2).
 //
 // WHY THE SCENE IS BUILT IN THREE.JS AND NOT IN JSX. The budget is a
 // correctness requirement, and a budget you cannot measure is a budget you
@@ -242,11 +246,20 @@ export const SCREEN_PANES: ReadonlyArray<readonly [number, number, number]> = [
 /**
  * Builds the story scene for a tier.
  *
+ * `rig` is the loaded seeker: the vendored, rigged human. It is passed in
+ * rather than loaded here, so the browser (which loads it with drei's
+ * `useGLTF`) and the budget test (which loads it off disk) build the very
+ * same scene from the very same file.
+ *
  * The four set pieces are built once and switched by the directive, because
  * building and destroying geometry every frame is what turns a story into a
  * stutter.
  */
-export function buildStoryScene(tier: StoryTier, colours: StoryColours): StoryScene {
+export function buildStoryScene(
+  tier: StoryTier,
+  colours: StoryColours,
+  rig: THREE.Group,
+): StoryScene {
   const counts = TIER_COUNTS[tier];
   const budget = STORY_BUDGETS[tier];
   const disposables: { dispose(): void }[] = [];
@@ -538,7 +551,7 @@ export function buildStoryScene(tier: StoryTier, colours: StoryColours): StorySc
 
   /* -- the seeker ---------------------------------------------------------- */
 
-  const seeker = createSeeker({ body: colours.accentText, glow: colours.accent }, counts.labels);
+  const seeker = createSeeker(rig, { body: colours.accentText, glow: colours.accent }, counts.labels);
   group.add(seeker.group);
 
   return {
