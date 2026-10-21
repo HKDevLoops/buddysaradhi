@@ -837,21 +837,55 @@ CREATE TRIGGER IF NOT EXISTS trg_audit_no_delete BEFORE DELETE ON audit_log
 BEGIN SELECT RAISE(ABORT, 'audit_log is append-only.'); END;
 ```
 
-### 10.2 Ledger hash chain (BEFORE INSERT)
+### 10.2 Ledger hash chain — VERIFIED IN THE APPLICATION LAYER (amended 2026-10-21)
 
-```sql
-CREATE TRIGGER IF NOT EXISTS trg_ledger_hash BEFORE INSERT ON ledger_entries
-WHEN NEW.this_hash IS NOT NULL
-BEGIN
-  SELECT CASE WHEN NEW.this_hash <> lower(hex(sha256(
-    COALESCE(NEW.prev_hash,'') || '|' ||
-    NEW.id || '|' || NEW.student_id || '|' || NEW.type || '|' ||
-    NEW.debit_paise || '|' || NEW.credit_paise || '|' ||
-    NEW.balance_after_paise || '|' || NEW.occurred_on || '|' ||
-    (SELECT tenant_secret FROM settings) || '|' || NEW.created_at
-  ))) THEN RAISE(ABORT, 'ledger_entries.this_hash invalid') END;
-END;
-```
+**There is no `trg_ledger_hash` trigger, and there is not going to be one.** The
+chain hash is computed and verified in the application layer, by
+`packages/core/src/ledger.ts` — the ONE implementation of the rule
+(AGENTS.md §3.5).
+
+| Step | Where | What |
+|---|---|---|
+| compute | `computeHash()` + `buildEntryPayload()` | `sha256(prev_hash ‖ canonical_payload ‖ created_at ‖ tenant_secret)`, where `canonical_payload` is the canonical JSON `{id, studentId, type, debitPaise, creditPaise, balanceAfterPaise, occurredOn}` (that exact field set, that exact key order), `prev_hash` is **omitted** for the genesis row, and the pepper is appended **LAST** |
+| verify | `reconcileLedger()` (Settings → Diagnostics → "Check my books") | walks the chain's **links** (BR-LED-06), recomputes every hash from its predecessor, aborts on the first mismatch |
+| why it is tamper-evident | — | the pepper (`tenant_secret`) never leaves the tenant's own encrypted database, so an attacker with DB write access — but not the pepper — cannot recompute a valid hash after editing a row |
+
+**WHY THE TRIGGER LEFT THE SPEC (the decision, and its reason).** This section
+previously specified a `BEFORE INSERT` trigger that recomputed the hash in SQL.
+That trigger was (a) **byte-incompatible** with the hash the application
+computes — different field order, a different separator, the pepper in a
+different position — so installing it as written would have aborted **100 % of
+ledger INSERTs**; and (b) **installed nowhere** (`migrations/` never created it
+and the gateway's self-heal installs only the append-only triggers), so it was a
+guarantee that read as real and protected nothing.
+
+The trigger is **explicitly out of scope**, for three reasons, in order of
+weight:
+
+1. **A SQL trigger would be a SECOND implementation of a money rule** — the
+   defect class AGENTS.md §3.5 exists to prevent ("the logic that decides what
+   a tutor's books say lives exactly once, in `packages/core`"). The trigger
+   would have to reproduce the payload's byte layout, the integer rendering and
+   the `created_at` representation exactly, forever, across every schema
+   change; the moment one of them drifts, every write aborts.
+2. **The failure modes are not comparable.** A trigger's failure is an ABORT on
+   every write — the tutor cannot record a payment at all. The application
+   layer's failure is a red banner in Settings → Diagnostics (§9.4) with a
+   restore-from-backup path: the tamper evidence still fires, and the tutor is
+   not locked out of their own books.
+3. **The database-level guarantees that CAN be installed ARE installed** —
+   `trg_ledger_no_update` and `trg_ledger_no_delete` (§10.1) are the
+   append-only wall, and they are in `migrations/0001_init.sql` and in the
+   gateway's self-heal. A hash trigger adds nothing to the append-only wall
+   that the application's own verifier does not already add.
+
+**The rule that replaces it.** A change to the hash algorithm, to the payload's
+field set, or to the field order is a change to the LEDGER'S FORMAT and needs
+the review a ledger-schema change needs (AGENTS.md §8 stop-and-ask #1): every
+existing row's hash depends on it.
+`packages/core/src/ledgerHashContract.test.ts` pins the algorithm to a golden
+vector and pins THIS SECTION to the algorithm, so the two cannot drift apart
+again.
 
 ### 10.3 `balance_after_paise` + `void_of_id` invariants (BEFORE INSERT)
 

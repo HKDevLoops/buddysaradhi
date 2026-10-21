@@ -759,9 +759,17 @@ describe("ATTACK 4 — invoice / receipt numbering", () => {
 // ===========================================================================
 
 describe("ATTACK 5 — hash chain and tamper evidence", () => {
-  it("ATK-5.1 [P1] the spec's `trg_ledger_hash` (11_Data_Model.md §10.2) is byte-incompatible with the app's hash", async () => {
-    // Spec:  sha256(prev|'|'id|'|'student|'|'type|'|'debit|'|'credit|'|'bal|'|'occurred|'|'secret|'|'created_at)
-    // Code:  sha256(prev || JSON({id,studentId,type,debitPaise,creditPaise,balanceAfterPaise,occurredOn}) || createdAt || secret)
+  it("ATK-5.1 [P1] the app's chain hash IS the hash the spec now documents (the old `trg_ledger_hash` was a fiction)", async () => {
+    // This test used to assert the OPPOSITE: that the spec's trigger's byte
+    // stream differs from the app's hash. It did - which is why the trigger
+    // would have aborted every write, and why it was never installed
+    // anywhere. The decision (2026-10-21, 11_Data_Model.md §10.2) was to
+    // amend the SPEC: the chain hash is verified in the application layer and
+    // the SQL trigger is explicitly out of scope.
+    //
+    // So the assertion is now the other way round, and it is the assertion
+    // that matters: the hash a row carries must be EXACTLY the hash the spec
+    // documents. If either side drifts, this fails.
     const studentId = "student-adv";
     await seedStudent(studentId);
     const res = await recordPaymentSql(rig.client as never, {
@@ -778,27 +786,30 @@ describe("ATTACK 5 — hash chain and tamper evidence", () => {
             FROM ledger_entries WHERE type = 'PAYMENT_RECEIVED' LIMIT 1`,
     });
     const r = row.rows[0] as Record<string, unknown>;
-    const createdAt = String(r.created_at);
-    // Reproduce the SPEC trigger's byte stream.
-    const specPreimage = [
-      String(r.prev_hash ?? ""),
-      String(r.id),
-      String(r.student_id),
-      String(r.type),
-      String(r.debit_paise),
-      String(r.credit_paise),
-      String(r.balance_after_paise),
-      String(r.occurred_on),
+    // The documented byte stream:
+    //   sha256(prev_hash ‖ canonical_payload ‖ created_at ‖ tenant_secret)
+    // with canonical_payload the canonical JSON of the seven fields, in that
+    // order, and `prev_hash` omitted for the genesis row.
+    const payload = buildEntryPayload({
+      id: String(r.id),
+      studentId: String(r.student_id),
+      type: String(r.type),
+      debitPaise: Number(r.debit_paise),
+      creditPaise: Number(r.credit_paise),
+      balanceAfterPaise: Number(r.balance_after_paise),
+      occurredOn: String(r.occurred_on),
+    });
+    const documented = computeHash(
+      r.prev_hash ? String(r.prev_hash) : null,
+      payload,
+      String(r.created_at),
       "adv-secret",
-      createdAt,
-    ].join("|");
-    const { createHash } = await import("crypto");
-    const specHash = createHash("sha256").update(specPreimage, "utf8").digest("hex");
+    );
     // eslint-disable-next-line no-console
-    console.log("[ATK-5.1] app this_hash :", r.this_hash);
+    console.log("[ATK-5.1] app this_hash   :", r.this_hash);
     // eslint-disable-next-line no-console
-    console.log("[ATK-5.1] spec trigger  :", specHash);
-    expect(specHash).not.toBe(String(r.this_hash));
+    console.log("[ATK-5.1] documented hash :", documented);
+    expect(documented).toBe(String(r.this_hash));
   });
 
   it("ATK-5.2 [P1] reconcileLedger cannot run on the web's own DB handle (array orderBy → broken SQL)", async () => {
