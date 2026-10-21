@@ -4,6 +4,7 @@ import { recordOutbox, recordAudit } from "./students.ts";
 import { invalidateTenant } from "../lib/cache.ts";
 import { createPrismaOrm, type PrismaOrm } from "../lib/orm.ts";
 import {
+  allRows,
   oneRow,
   run,
   type SqlHandle,
@@ -13,6 +14,9 @@ import {
   stmtFindLiveReceiptByEntry,
   stmtVoidReceipt,
   stmtSettingPinProof,
+  stmtSumInvoiceCredits,
+  stmtCountWhere,
+  readPaise,
 } from "../lib/sql.ts";
 import {
   computeChainHash,
@@ -894,42 +898,54 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
   // GET /api/v1/ledger/invoices
   if (path === "/api/v1/ledger/invoices" && method === "GET") {
     const studentId = sp.get("studentId");
+    const where = studentId ? { studentId } : {};
     const invs = await orm.invoice.findMany({
-      where: studentId ? { studentId } : {},
+      where,
+      // A DEFINED order (the audit's "no ORDER BY"): the invoices a tutor
+      // reads are ordered by issue date, and the audited builder appends the
+      // primary key as the tie-break, so the order is TOTAL.
+      orderBy: { issueDate: "asc" },
       take: 100,
     });
 
-    // BR-LED-06 read consistency + BR-RPT-04 [CRITICAL]: a credit counts only
-    // while it has NOT been reversed. "Reversed" is the REVERSE LOOKUP — some
-    // later VOID row carries this credit's id — not "this row is not itself a
-    // reversal", which a VOIDED ORIGINAL also satisfies. The predicate this
-    // replaces kept counting a voided receipt as money received, so an invoice
-    // whose payment had been voided read as still paid (AUD-001 / AUD-014).
-    // Mirrors the money flow's own filter (packages/core/src/feesFlow.ts,
-    // fees.ts, feesPrisma.ts).
-    const entries = await orm.ledgerEntry.findMany({
-      where: { type: "PAYMENT_RECEIVED", voidOfId: null },
-      take: 200,
-    });
-    const reversed = await reversedCreditIds(
-      orm,
-      entries.map((e) => String(e.id ?? "")).filter((id) => id.length > 0),
-    );
-
+    // BR-RPT-04 [CRITICAL] — the invoice's credited total, summed in the
+    // DATABASE: one statement, one snapshot, one row per invoice.
+    //
+    // It used to be a PAGE of the tenant's PAYMENT_RECEIVED rows (`take:
+    // 200`, no ORDER BY) reduced here in JavaScript — a money figure taken
+    // from a SAMPLE of the rows, with no defined order. On the audit's own
+    // trigger (250 students, 260 payments) ~60 payments were invisible and
+    // their invoices read `paid_amount_minor: 0`: an invoice the tutor had
+    // PAID IN FULL read as unpaid, so the Fees screen showed settled invoices
+    // as outstanding and the tutor chased money already collected
+    // (docs/audit/AUDIT-2026-10-21.md AUD-015).
+    //
+    // The same treatment the Dashboard's period leg got
+    // (`stmtSumPeriodLedgerAmounts`, row d52a635) is the model: the figure is
+    // a SCALAR, so the sum happens in the database. And the reversal
+    // exclusion is TYPE-AGNOSTIC — a voided row is excluded whatever its
+    // type, and so is the reversal itself — which the old read could not be:
+    // it filtered the candidates to `type = 'PAYMENT_RECEIVED'`, so a
+    // DISCOUNT credit was not counted at all and the invoice read disagreed
+    // with the money flow's own `creditedForInvoice` (AGENTS.md §3.5).
+    const creditsStmt = stmtSumInvoiceCredits(tenantId);
+    const creditRows = await allRows(db, creditsStmt.sql, creditsStmt.args);
     const paidMap = new Map<string, number>();
-    for (const e of entries) {
-      // Defence-in-depth: skip any VOID or reversal-linked row that reached us
-      // despite the query filter (see above), and any credit a later VOID row
-      // reverses.
-      if (e.type === "VOID" || e.voidOfId != null) continue;
-      const id = String(e.id ?? "");
-      if (id.length > 0 && reversed.has(id)) continue;
-      if (e.invoiceId) {
-        const key = String(e.invoiceId);
-        // Rule 6 / BR-M-01 — integer paise, never a float sum.
-        paidMap.set(key, paiseAdd(paidMap.get(key) ?? 0, Number(e.creditPaise ?? 0)));
-      }
+    for (const row of creditRows) {
+      const invoiceId = String(row.invoice_id ?? "");
+      if (invoiceId.length === 0) continue;
+      // Rule 6 / BR-M-01 — a corrupt money column aborts fail-closed rather
+      // than being rounded into a figure a tutor would read as a balance.
+      paidMap.set(invoiceId, readPaise(row.credited_paise, "credited_paise"));
     }
+
+    // Rule 9 (no silent failures) — the read is CAPPED, so the response says
+    // so: the population size and whether anything was dropped. The sibling
+    // `/ledger/fees` read has carried both since it was paged; this one did
+    // not, which is how a truncated list looked like a complete one.
+    const countStmt = stmtCountWhere("invoices", tenantId, where);
+    const countRow = await oneRow(db, countStmt.sql, countStmt.args);
+    const total = Number(countRow?.c ?? 0);
 
     const data = invs.map((inv) => ({
       id: inv.id,
@@ -943,7 +959,12 @@ export const handleLedger: RouteHandler = async (req, db, tenantId, path, method
       status: inv.status,
       paid_amount_minor: paidMap.get(inv.id) ?? 0,
     }));
-    return ok(data);
+    return json({
+      success: true,
+      data,
+      total,
+      truncated: data.length < total,
+    });
   }
 
   // GET /api/v1/ledger/fees

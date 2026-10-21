@@ -1447,6 +1447,95 @@ export function stmtSumPeriodLedgerAmounts(
   };
 }
 
+// ── The invoice's credited total (BR-RPT-04 [CRITICAL]) ────────────────────
+
+/**
+ * Σ the credits still attributed to each invoice, in ONE statement.
+ *
+ * Implements: 12_Business_Rules.md BR-RPT-04 [CRITICAL] (a credit counts
+ * only while it has NOT been reversed) + 14_Edge_Cases.md EC-F-05 (a voided
+ * receipt does not count) + 07_Fees_and_Payments.md §9.6 step 5 (the invoice's
+ * credited total) + AGENTS.md §3.4 (this module is the only place runtime
+ * SQL text may live).
+ *
+ * WHY IT EXISTS. The invoice read used to take a PAGE of the tenant's
+ * `PAYMENT_RECEIVED` rows — `take: 200`, no ORDER BY — and reduce it in
+ * JavaScript. That is a money figure taken from a SAMPLE of the rows, with
+ * no defined order: on a tenant with more than 200 payments the invoices
+ * beyond the sample read as unpaid, and WHICH invoices read as unpaid changed
+ * with the table's physical order. The same treatment the Dashboard's period
+ * leg got (`stmtSumPeriodLedgerAmounts`, row d52a635) is the model: the
+ * figure is a SCALAR, so the sum happens in the database and ONE row per
+ * invoice comes back.
+ *
+ * THE REVERSAL GRAPH, and why the exclusion is TYPE-AGNOSTIC. "Credited"
+ * means NOT REVERSED, and a reversal is the LATER row: a VOID entry
+ * carrying `void_of_id` pointing back at the row it reverses. The original
+ * row carries no marker of its own, so "has this credit been reversed?" is
+ * answered by looking the OTHER way — this row's id is not some OTHER row's
+ * `void_of_id`. Two kinds of voided row are therefore excluded, whatever
+ * their type:
+ *
+ *   · the REVERSAL itself (`type = 'VOID'`) — it is not money received;
+ *   · the VOIDED ORIGINAL (some VOID row names it) — the money never
+ *     arrived, or it was taken back.
+ *
+ * The exclusion does NOT look at the row's type, so a voided DISCOUNT (or any
+ * other credit type) is excluded exactly like a voided payment. The old read
+ * filtered the candidates to `type = 'PAYMENT_RECEIVED'` and therefore
+ * counted a DISCOUNT credit as nothing at all — so the invoice read and the
+ * money flow's own `creditedForInvoice` (which counts every live credit)
+ * disagreed about the same invoice (AGENTS.md §3.5).
+ *
+ * A SUBQUERY, never an id list: the candidate set grows with the tenant's
+ * history and SQLite's variable ceiling is 32,766, so an `IN (…)` list of
+ * ids would 500 on a long-lived institute.
+ *
+ * ONE STATEMENT, ONE SNAPSHOT. Every invoice's figure comes from the same
+ * scan, so a payment and the void that reverses it cannot land on opposite
+ * sides of a concurrent write.
+ */
+export function stmtSumInvoiceCredits(tenantId: string): BuiltStatement {
+  const tenant = auditedTenant(tenantId);
+  return {
+    sql: `SELECT invoice_id, COALESCE(SUM(credit_paise), 0) AS credited_paise
+            FROM ledger_entries
+           WHERE tenant_id = ?
+             AND invoice_id IS NOT NULL
+             AND type <> 'VOID'
+             AND id NOT IN (SELECT void_of_id FROM ledger_entries
+                            WHERE tenant_id = ? AND type = 'VOID' AND void_of_id IS NOT NULL)
+           GROUP BY invoice_id`,
+    args: [tenant, tenant],
+  };
+}
+
+/**
+ * A money value read back from SQLite, as integer paise.
+ *
+ * BR-M-01 + Rule 9: a corrupt money value THROWS here rather than being
+ * rounded into a figure a tutor would read as a balance. Two shapes reach it:
+ * a REAL (a 10¹⁹-paise amount SQLite stored as a float) and a bigint past
+ * the safe-integer range (a sum that outgrew a double).
+ *
+ * The same guard as `lib/orm.ts`'s private `readPaise` — the two modules
+ * cannot share one function without an edit to `lib/orm.ts`, which this
+ * change does not touch. The RULE is the same in both: a corrupt money column
+ * aborts fail-closed.
+ */
+export function readPaise(value: unknown, column: string): number {
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      throw new Error(`${column} is outside the safe integer range (BR-M-01)`);
+    }
+    return Number(value);
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error(`${column} is not integer paise (BR-M-01)`);
+  }
+  return value;
+}
+
 // ── GraphQL read builders (parameterized LIKE values; identifiers fixed) ──
 
 export function stmtGraphqlSettings(tenantId: string): BuiltStatement {
